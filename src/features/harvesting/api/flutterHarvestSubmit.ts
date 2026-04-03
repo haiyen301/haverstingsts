@@ -45,7 +45,14 @@ export type FlutterNewHarvestInput = {
   shipmentRequiredDate?: string;
   doSoDate?: string;
   paymentId?: string;
+  /**
+   * Maps to `harvested_area` (Flutter `harvestedAreaController`).
+   * - UOM M2: same as main quantity (synced in app).
+   * - UOM Kg: user-entered area; required when Actual Harvest Date is set.
+   */
   harvestedArea?: string;
+  /** Maps to `ref_hrv_qty_sprig` in `project_harvesting_plan`. */
+  refHrvQtySprig?: string;
 };
 
 export type HarvestPhotoFiles = Partial<Record<HarvestDocPhotoField, File>>;
@@ -90,6 +97,9 @@ function buildRecordsJson(
     payment_id: input.paymentId?.trim() || null,
     harvested_area: input.harvestedArea?.trim()
       ? stripCommas(input.harvestedArea)
+      : null,
+    ref_hrv_qty_sprig: input.refHrvQtySprig?.trim()
+      ? stripCommas(input.refHrvQtySprig)
       : null,
     license_plate: input.licensePlate.trim() || null,
   };

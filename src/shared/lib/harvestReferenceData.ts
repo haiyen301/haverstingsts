@@ -39,6 +39,117 @@ export function parseFarmZoneEntries(farmZones: unknown): [string, string][] {
   );
 }
 
+function slug(value: string | null | undefined): string {
+  if (!value) return "";
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function parseFarmName(farmName: string): { code: string; location: string } {
+  const parts = farmName.split("-");
+  if (!parts.length) return { code: "", location: "" };
+  return {
+    code: parts[0].trim().toUpperCase(),
+    location: parts.length > 1 ? parts.slice(1).join("-").trim() : "",
+  };
+}
+
+function detectLegacyLocation(farmName: string): string | null {
+  const farmLower = farmName.toLowerCase();
+  const normalized = farmLower.replace(/[\s\-_]/g, "");
+  const locationPatterns: Record<string, string[]> = {
+    hoian: ["hoian", "hoi an"],
+    phanthiet: ["phanthiet", "phan thiet"],
+    laemchabang: ["laemchabang", "laem chabang"],
+  };
+  for (const [key, patterns] of Object.entries(locationPatterns)) {
+    for (const p of patterns) {
+      const pLower = p.toLowerCase();
+      const pNormalized = pLower.replace(/[\s\-_]/g, "");
+      if (farmLower.includes(pLower) || normalized.includes(pNormalized)) {
+        return key;
+      }
+    }
+  }
+  return null;
+}
+
+/** Flutter-compatible filter by farm name (`AppConstants.filterZonesByFarmName`). */
+export function filterZoneEntriesByFarmName(
+  zoneEntries: [string, string][],
+  farmName: string,
+): [string, string][] {
+  const trimmedFarmName = farmName.trim();
+  if (!zoneEntries.length || !trimmedFarmName) {
+    return zoneEntries;
+  }
+
+  const countrySuffix: Record<string, string> = {
+    VN: "_vn",
+    TH: "_th",
+    MY: "_my",
+  };
+  const countryWords: Record<string, string> = {
+    VN: "vietnam",
+    TH: "thailand",
+    MY: "malaysia",
+  };
+
+  const parsedFarm = parseFarmName(trimmedFarmName);
+  let detectedCountryCode: string | null = countrySuffix[parsedFarm.code]
+    ? parsedFarm.code
+    : null;
+  let detectedLocation = parsedFarm.location || null;
+
+  if (!detectedCountryCode) {
+    const farmLower = trimmedFarmName.toLowerCase();
+    for (const [code, suffix] of Object.entries(countrySuffix)) {
+      const word = (countryWords[code] ?? "").toLowerCase();
+      if (farmLower.endsWith(suffix) || (word && farmLower.includes(word))) {
+        detectedCountryCode = code;
+        break;
+      }
+    }
+  }
+
+  if (!detectedLocation) {
+    detectedLocation = detectLegacyLocation(trimmedFarmName);
+  }
+
+  const suffix = detectedCountryCode ? countrySuffix[detectedCountryCode] : null;
+  const countryWord = detectedCountryCode
+    ? countryWords[detectedCountryCode]
+    : null;
+
+  let candidates = zoneEntries.filter(([key, value]) => {
+    const keyLower = key.toLowerCase();
+    if (suffix && keyLower.endsWith(suffix)) {
+      return true;
+    }
+    const countrySlug = slug(countryWord);
+    return (
+      countrySlug.length > 0 &&
+      (slug(key).includes(countrySlug) || slug(value).includes(countrySlug))
+    );
+  });
+
+  if (!candidates.length) {
+    candidates = zoneEntries;
+  }
+
+  const locationSlug = slug(detectedLocation);
+  if (locationSlug) {
+    const byLocation = candidates.filter(
+      ([key, value]) =>
+        slug(key).includes(locationSlug) || slug(value).includes(locationSlug),
+    );
+    if (byLocation.length) {
+      candidates = byLocation;
+    }
+  }
+
+  return candidates;
+}
+
 /**
  * Resolve country label from STS country rows (`id`, `country_name`, …) stored in Zustand.
  */

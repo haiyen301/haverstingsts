@@ -1,4 +1,4 @@
-// export const LOCALES = ["en", "th", "vi"] as const;
+/** Supported locales; must match `messages/*.json` filenames. */
 export const LOCALES = ["en", "th", "vi"] as const;
 
 export type AppLocale = (typeof LOCALES)[number];

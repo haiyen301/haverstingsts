@@ -1,7 +1,62 @@
-import { getStsApiBaseUrl } from "@/shared/api/stsLogin";
+import { getStsApiBaseUrl, INTERNAL_API } from "@/shared/api/stsLogin";
 
+/** Legacy key — JWT now lives in HttpOnly session cookie only. */
 export const STORAGE_TOKEN_KEY = "sts_token";
 export const STORAGE_USER_KEY = "sts_user";
+
+/** Remove any JWT left in client storage by older builds. */
+export function removeAuthToken(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(STORAGE_TOKEN_KEY);
+    window.sessionStorage.removeItem(STORAGE_TOKEN_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+/** Whether the HttpOnly session cookie is present (server-side JWT). */
+export async function fetchSessionAuthenticated(): Promise<boolean> {
+  if (typeof window === "undefined") return false;
+  try {
+    const res = await fetch(INTERNAL_API.authentication.session, {
+      credentials: "same-origin",
+    });
+    if (!res.ok) return false;
+    const j = (await res.json()) as { authenticated?: boolean };
+    return j.authenticated === true;
+  } catch {
+    return false;
+  }
+}
+
+/** Clears the HttpOnly JWT cookie (call on logout). */
+export async function clearHttpAuthCookie(): Promise<void> {
+  if (typeof window === "undefined") return;
+  try {
+    await fetch(INTERNAL_API.authentication.logout, {
+      method: "POST",
+      credentials: "same-origin",
+    });
+  } catch {
+    /* offline */
+  }
+}
+
+/** Zustand persist key for `useAuthUserStore`. */
+export const AUTH_USER_PERSIST_STORAGE_KEY = "sts-auth-user";
+
+function clearLegacyClientStoredJwt() {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(STORAGE_TOKEN_KEY);
+    window.sessionStorage.removeItem(STORAGE_TOKEN_KEY);
+  } catch {
+    /* private mode */
+  }
+}
+
+clearLegacyClientStoredJwt();
 
 export type SessionUser = {
   id?: number;

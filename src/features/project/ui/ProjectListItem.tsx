@@ -16,6 +16,7 @@ import type { ProjectListItemProps } from "../model/projectListProps";
 import { countryNameByIdFromRows } from "@/shared/lib/harvestReferenceData";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
+import { getStsDomainUrl, STS_PUBLIC_PATHS } from "@/shared/config/stsUrls";
 
 function getProgressColor(progress: number) {
   void progress;
@@ -58,6 +59,48 @@ const STATUS_CONFIG = {
   },
 } as const;
 
+const DEFAULT_ASSIGNEE_AVATAR = "https://i.pravatar.cc/64?img=11";
+
+function buildProfileAvatarUrl(fileNameOrPath: string): string {
+  const value = String(fileNameOrPath ?? "").trim();
+  if (!value) return "";
+  if (value.startsWith("http://") || value.startsWith("https://")) return value;
+  if (value.startsWith("//")) return `https:${value}`;
+  const root = getStsDomainUrl().replace(/\/$/, "");
+  if (!root) return value;
+  if (value.startsWith("/")) {
+    if (value.startsWith("/files/")) return `${root}${value}`;
+    return `${root}${STS_PUBLIC_PATHS.profileImages}/${value.replace(/^\/+/, "")}`;
+  }
+  if (value.includes("/")) {
+    if (value.startsWith("files/")) return `${root}/${value}`;
+    if (value.startsWith("profile_images/")) {
+      return `${root}/${STS_PUBLIC_PATHS.files}/${value}`;
+    }
+    return `${root}/${value}`;
+  }
+  return `${root}${STS_PUBLIC_PATHS.profileImages}/${value}`;
+}
+
+/** Mirrors Flutter parse of staff image payload to extract `file_name`. */
+function parseStaffAvatarFromRaw(raw: unknown): string {
+  const text = String(raw ?? "").trim();
+  if (!text) return "";
+  if (
+    text.startsWith("http://") ||
+    text.startsWith("https://") ||
+    text.startsWith("//")
+  ) {
+    return buildProfileAvatarUrl(text);
+  }
+  const phpFileName =
+    text.match(/["']?file_name["']?\s*[:=]\s*["']([^"']+)["']/i)?.[1] ??
+    text.match(/s:\d+:"file_name";s:\d+:"([^"]+)"/i)?.[1];
+  if (phpFileName) return buildProfileAvatarUrl(phpFileName);
+  if (text.includes("profile_images")) return buildProfileAvatarUrl(text);
+  return "";
+}
+
 export function ProjectListItem({
   project,
   serverRow,
@@ -82,11 +125,32 @@ export function ProjectListItem({
   };
   const data = project ?? (serverRow ? buildProjectDataFromServerRow(serverRow, mergedOptions) : null);
   const countries = useHarvestingDataStore((s) => s.countries);
+  const staffs = useHarvestingDataStore((s) => s.staffs);
   const countryLabel = useMemo(() => {
     const fromStore = countryNameByIdFromRows(countries, data?.country_id);
     if (fromStore) return fromStore;
     return String(data?.country_name ?? "").trim();
   }, [countries, data?.country_id, data?.country_name]);
+  const resolvedAssigneeAvatar = useMemo(() => {
+    const avatarFromCard = String(data?.assignee?.avatar ?? "").trim();
+    if (
+      avatarFromCard &&
+      !avatarFromCard.includes("i.pravatar.cc") &&
+      !avatarFromCard.includes("placehold.co")
+    ) {
+      return avatarFromCard;
+    }
+    const assigneeId = String(
+      (serverRow as Record<string, unknown> | undefined)?.pic ?? "",
+    ).trim();
+    if (!assigneeId) return avatarFromCard || DEFAULT_ASSIGNEE_AVATAR;
+    const staffRow = (staffs as unknown[]).find((s) => {
+      if (!s || typeof s !== "object") return false;
+      return String((s as Record<string, unknown>).id ?? "").trim() === assigneeId;
+    }) as Record<string, unknown> | undefined;
+    const parsed = parseStaffAvatarFromRaw(staffRow?.image);
+    return parsed || avatarFromCard || DEFAULT_ASSIGNEE_AVATAR;
+  }, [data?.assignee?.avatar, serverRow, staffs]);
   if (!data) return null;
   const rowId = String(serverRow?.row_id ?? serverRow?.id ?? "").trim() || undefined;
   const tableId = String(serverRow?.table_id ?? "").trim() || undefined;
@@ -252,9 +316,12 @@ export function ProjectListItem({
                   style={{ background: "#f9fafb", border: "1px solid #e5e7eb" }}
                 >
                   <img
-                    src={data.assignee.avatar}
+                    src={resolvedAssigneeAvatar}
                     alt={data.assignee.name}
                     className="w-[30px] h-[30px] rounded-full object-cover absolute top-0 right-[0px]"
+                    onError={(e) => {
+                      e.currentTarget.src = DEFAULT_ASSIGNEE_AVATAR;
+                    }}
                   />
                   <span style={{ fontSize: "12px", fontWeight: 500, color: "#374151" }}>
                     {data.assignee.name}

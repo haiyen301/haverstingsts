@@ -6,13 +6,13 @@ import {
 } from "zustand/middleware";
 
 import {
-  STORAGE_TOKEN_KEY,
+  AUTH_USER_PERSIST_STORAGE_KEY,
+  clearHttpAuthCookie,
+  removeAuthToken,
   STORAGE_USER_KEY,
   type SessionUser,
 } from "@/shared/lib/sessionUser";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
-
-const PERSIST_NAME = "sts-auth-user";
 
 /** SSR / Node: `localStorage` is missing; persist must still get a real storage or `api.persist` is never set. */
 const noopStorage: StateStorage = {
@@ -57,7 +57,7 @@ export const useAuthUserStore = create<AuthUserState>()(
       setUser: (user) => set({ user }),
     }),
     {
-      name: PERSIST_NAME,
+      name: AUTH_USER_PERSIST_STORAGE_KEY,
       storage: createJSONStorage(getAuthPersistStorage),
       partialize: (state) => ({ user: state.user }),
       onRehydrateStorage: () => (_state, error) => {
@@ -68,11 +68,19 @@ export const useAuthUserStore = create<AuthUserState>()(
   ),
 );
 
-/** Clears JWT, legacy user key, persisted Zustand slice, and in-memory user. */
-export function clearAuthSession() {
+/** Clears HttpOnly cookie, legacy keys, persisted Zustand slice, and in-memory user. */
+export async function clearAuthSession(): Promise<void> {
   if (typeof window === "undefined") return;
-  window.localStorage.removeItem(STORAGE_TOKEN_KEY);
-  window.localStorage.removeItem(STORAGE_USER_KEY);
+  removeAuthToken();
+  await clearHttpAuthCookie();
+  try {
+    window.localStorage.removeItem(STORAGE_USER_KEY);
+    window.localStorage.removeItem(AUTH_USER_PERSIST_STORAGE_KEY);
+    window.sessionStorage.removeItem(STORAGE_USER_KEY);
+    window.sessionStorage.removeItem(AUTH_USER_PERSIST_STORAGE_KEY);
+  } catch {
+    /* ignore */
+  }
   useAuthUserStore.getState().setUser(null);
   useHarvestingDataStore.getState().reset();
 }

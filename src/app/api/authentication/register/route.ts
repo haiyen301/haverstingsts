@@ -1,6 +1,34 @@
 import { NextResponse } from "next/server";
 
 import { getStsApiUrl, STS_LOGIN_PATHS } from "@/shared/api/stsLogin";
+import { AUTH_COOKIE_NAME } from "@/shared/lib/authCookie";
+import { AUTH_COOKIE_OPTIONS } from "@/shared/server/stsAuthBearer";
+
+function stripTokenFromRegisterJson(data: unknown): unknown {
+  if (!data || typeof data !== "object") return data;
+  const o = data as Record<string, unknown>;
+  if (typeof o.token === "string") {
+    const next = { ...o };
+    delete next.token;
+    return next;
+  }
+  if (!o.data || typeof o.data !== "object") return data;
+  const inner = { ...(o.data as Record<string, unknown>) };
+  delete inner.token;
+  return { ...o, data: inner };
+}
+
+function extractRegisterToken(raw: unknown): string {
+  if (!raw || typeof raw !== "object") return "";
+  const o = raw as Record<string, unknown>;
+  if (typeof o.token === "string" && o.token.trim()) return o.token.trim();
+  const d = o.data;
+  if (d && typeof d === "object" && "token" in d) {
+    const t = (d as { token?: unknown }).token;
+    if (typeof t === "string" && t.trim()) return t.trim();
+  }
+  return "";
+}
 
 type Body = {
   first_name?: string;
@@ -70,6 +98,21 @@ export async function POST(req: Request) {
   const data = await upstreamRes
     .json()
     .catch(async () => ({ success: false, message: "Invalid upstream JSON." }));
+
+  const token = extractRegisterToken(data);
+  if (
+    upstreamRes.ok &&
+    data &&
+    typeof data === "object" &&
+    (data as { success?: boolean }).success === true &&
+    token
+  ) {
+    const res = NextResponse.json(stripTokenFromRegisterJson(data), {
+      status: upstreamRes.status,
+    });
+    res.cookies.set(AUTH_COOKIE_NAME, token, AUTH_COOKIE_OPTIONS);
+    return res;
+  }
 
   return NextResponse.json(data, { status: upstreamRes.status });
 }

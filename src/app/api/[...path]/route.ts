@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getStsApiUrl } from "@/shared/api/stsLogin";
+import { resolveStsBearerFromRequest } from "@/shared/server/stsAuthBearer";
 
 function upstreamFetchErrorMessage(err: unknown): string {
   const e = err as { cause?: { code?: string; message?: string }; message?: string };
@@ -55,6 +56,43 @@ function invalidUpstreamJsonPayload(
   return base;
 }
 
+function tryParseScalarLikeBody(rawBody: string): unknown | undefined {
+  const text = rawBody.trim();
+  if (!text) return undefined;
+
+  // First try regular JSON (object/array/scalar).
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    // Continue with tolerant scalar parsing.
+  }
+
+  const dumpString = text.match(/^string\(\d+\)\s*"([\s\S]*)"\s*$/i);
+  if (dumpString) return dumpString[1];
+
+  const dumpInt = text.match(/^int\(([-+]?\d+)\)\s*$/i);
+  if (dumpInt) return Number(dumpInt[1]);
+
+  const dumpFloat = text.match(
+    /^float\(([-+]?\d*\.?\d+(?:[eE][-+]?\d+)?)\)\s*$/i,
+  );
+  if (dumpFloat) return Number(dumpFloat[1]);
+
+  const dumpBool = text.match(/^bool\((true|false)\)\s*$/i);
+  if (dumpBool) return dumpBool[1].toLowerCase() === "true";
+
+  if (/^null$/i.test(text)) return null;
+  if (/^[-+]?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?$/.test(text)) {
+    return Number(text);
+  }
+
+  return undefined;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 export async function GET(
   req: Request,
   context: { params: Promise<{ path: string[] }> },
@@ -82,7 +120,7 @@ export async function GET(
   const search = new URL(req.url).search;
   const upstreamUrl = `${upstreamBase}${search}`;
 
-  const auth = req.headers.get("authorization");
+  const auth = await resolveStsBearerFromRequest(req);
   if (!auth?.startsWith("Bearer ")) {
     return NextResponse.json(
       { success: false, message: "Authorization required." },
@@ -112,9 +150,22 @@ export async function GET(
 
   const text = await upstreamRes.text();
   let data: unknown;
-  try {
-    data = JSON.parse(text) as unknown;
-  } catch {
+  const parsed = tryParseScalarLikeBody(text);
+  if (!isPlainObject(parsed)) {
+    return NextResponse.json(
+      {
+        ...invalidUpstreamJsonPayload(upstreamRes, text),
+        message:
+          "Invalid upstream JSON: expected JSON object, got scalar/text. Keep raw text for debugging.",
+        upstreamRawText: text.slice(0, 4000),
+      },
+      {
+        status: 502,
+      },
+    );
+  }
+  data = parsed;
+  if (!data) {
     return NextResponse.json(invalidUpstreamJsonPayload(upstreamRes, text), {
       status: 502,
     });
@@ -146,7 +197,7 @@ export async function POST(
     );
   }
 
-  const auth = req.headers.get("authorization");
+  const auth = await resolveStsBearerFromRequest(req);
   if (!auth?.startsWith("Bearer ")) {
     return NextResponse.json(
       { success: false, message: "Authorization required." },
@@ -185,9 +236,22 @@ export async function POST(
 
   const text = await upstreamRes.text();
   let data: unknown;
-  try {
-    data = JSON.parse(text) as unknown;
-  } catch {
+  const parsed = tryParseScalarLikeBody(text);
+  if (!isPlainObject(parsed)) {
+    return NextResponse.json(
+      {
+        ...invalidUpstreamJsonPayload(upstreamRes, text),
+        message:
+          "Invalid upstream JSON: expected JSON object, got scalar/text. Keep raw text for debugging.",
+        upstreamRawText: text.slice(0, 4000),
+      },
+      {
+        status: 502,
+      },
+    );
+  }
+  data = parsed;
+  if (!data) {
     return NextResponse.json(invalidUpstreamJsonPayload(upstreamRes, text), {
       status: 502,
     });

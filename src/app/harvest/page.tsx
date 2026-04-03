@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   Search,
   Plus,
@@ -9,6 +9,7 @@ import {
   ChevronRight,
   AlignLeft,
   ArrowDown,
+  Upload,
 } from "lucide-react";
 
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
@@ -125,6 +126,8 @@ function normalizeHarvestRow(raw: unknown): HarvestListRow | null {
 
 export default function HarvestListPage() {
   const router = useRouter();
+  const pathname = usePathname();
+  const returnTo = pathname || "/harvest";
   const farms = useHarvestingDataStore((s) => s.farms);
   const projects = useHarvestingDataStore((s) => s.projects);
   const farmZones = useHarvestingDataStore((s) => s.farmZones);
@@ -240,14 +243,28 @@ export default function HarvestListPage() {
             <h1 className="text-2xl lg:text-3xl font-semibold text-gray-900">
               Harvests
             </h1>
-            <button
-              onClick={() => router.push("/harvest/new")}
-              className="flex items-center justify-center gap-2 px-4 py-2 bg-button-primary text-white rounded-lg hover:bg-[#196A40] transition-colors"
-              type="button"
-            >
-              <Plus className="w-5 h-5" />
-              New Harvest
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => router.push("/harvest/import")}
+                className="flex items-center justify-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                type="button"
+              >
+                <Upload className="w-5 h-5" />
+                Import Excel
+              </button>
+              <button
+                onClick={() =>
+                  router.push(
+                    `/harvest/new?returnTo=${encodeURIComponent(returnTo)}`,
+                  )
+                }
+                className="flex items-center justify-center gap-2 px-4 py-2 bg-button-primary text-white rounded-lg hover:bg-[#196A40] transition-colors"
+                type="button"
+              >
+                <Plus className="w-5 h-5" />
+                New Harvest
+              </button>
+            </div>
           </div>
 
           <p className="text-sm text-gray-600 mb-4">
@@ -432,7 +449,7 @@ export default function HarvestListPage() {
                                 type="button"
                                 onClick={() =>
                                   router.push(
-                                    `/harvest/new?id=${encodeURIComponent(harvest.id)}`,
+                                    `/harvest/new?id=${encodeURIComponent(harvest.id)}&returnTo=${encodeURIComponent(returnTo)}`,
                                   )
                                 }
                                 className="text-left text-[#1F7A4C] hover:text-[#196A40] hover:underline font-medium"
@@ -481,7 +498,7 @@ export default function HarvestListPage() {
                                 type="button"
                                 onClick={() =>
                                   router.push(
-                                    `/harvest/new?id=${encodeURIComponent(harvest.id)}`,
+                                    `/harvest/new?id=${encodeURIComponent(harvest.id)}&returnTo=${encodeURIComponent(returnTo)}`,
                                   )
                                 }
                                 className="text-left text-[#1F7A4C] hover:text-[#196A40] hover:underline"

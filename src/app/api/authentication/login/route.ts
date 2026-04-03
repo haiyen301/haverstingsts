@@ -1,11 +1,22 @@
 import { NextResponse } from "next/server";
 
+import { AUTH_COOKIE_NAME } from "@/shared/lib/authCookie";
+import { getStsLoginUrl } from "@/shared/api/stsLogin";
+import { AUTH_COOKIE_OPTIONS } from "@/shared/server/stsAuthBearer";
+
 type LoginRequestBody = {
   email?: string;
   password?: string;
 };
 
-import { getStsLoginUrl } from "@/shared/api/stsLogin";
+function stripTokenFromLoginJson(data: unknown): unknown {
+  if (!data || typeof data !== "object") return data;
+  const o = data as Record<string, unknown>;
+  if (!o.data || typeof o.data !== "object") return data;
+  const inner = { ...(o.data as Record<string, unknown>) };
+  delete inner.token;
+  return { ...o, data: inner };
+}
 
 export async function POST(req: Request) {
   const upstreamUrl = getStsLoginUrl();
@@ -53,10 +64,33 @@ export async function POST(req: Request) {
     body: form.toString(),
   });
 
-  // Try to pass through JSON payload
   const data = await upstreamRes
     .json()
     .catch(async () => ({ success: false, message: "Invalid upstream JSON." }));
+
+  const token =
+    data &&
+    typeof data === "object" &&
+    "data" in data &&
+    data.data &&
+    typeof data.data === "object" &&
+    "token" in (data.data as object)
+      ? String((data.data as { token?: unknown }).token ?? "").trim()
+      : "";
+
+  if (
+    upstreamRes.ok &&
+    data &&
+    typeof data === "object" &&
+    (data as { success?: boolean }).success === true &&
+    token
+  ) {
+    const res = NextResponse.json(stripTokenFromLoginJson(data), {
+      status: upstreamRes.status,
+    });
+    res.cookies.set(AUTH_COOKIE_NAME, token, AUTH_COOKIE_OPTIONS);
+    return res;
+  }
 
   return NextResponse.json(data, { status: upstreamRes.status });
 }

@@ -8,10 +8,11 @@ import {
   FolderKanban,
   Leaf,
   LayoutDashboard,
-  BarChart3,
   Table2,
   Menu,
   X,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from "lucide-react";
 
 import { images } from "@/lib/assets/images";
@@ -28,6 +29,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const router = useRouter();
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // Keep suppressing hydration mismatch caused by browser extensions that patch DOM.
   const [mounted, setMounted] = useState(false);
@@ -128,17 +130,37 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
 
       <div className="flex">
         {/* Desktop Sidebar */}
-        <aside className="hidden lg:flex flex-col w-60 bg-white border-r border-gray-200 min-h-screen fixed left-0 top-0 z-10">
-          <div className="flex-1 flex flex-col p-6 pb-0 min-h-0 overflow-hidden">
-            <div className="relative mb-8 h-11 w-full max-w-[200px] shrink-0">
-              <Image
-                src={images.stsLogo}
-                alt={t("Common.company")}
-                fill
-                className="object-contain object-left"
-                priority
-                sizes="200px"
-              />
+        <aside
+          className={`hidden lg:flex flex-col bg-white border-r border-gray-200 min-h-screen fixed left-0 top-0 z-10 transition-all ${
+            sidebarCollapsed ? "w-20" : "w-60"
+          }`}
+        >
+          <div className={`flex-1 flex flex-col pb-0 min-h-0 overflow-hidden ${sidebarCollapsed ? "p-3" : "p-6"}`}>
+            <div className={`mb-6 flex items-center ${sidebarCollapsed ? "justify-center" : "justify-between"}`}>
+              {!sidebarCollapsed ? (
+                <div className="relative h-11 w-full max-w-[200px] shrink-0">
+                  <Image
+                    src={images.stsLogo}
+                    alt={t("Common.company")}
+                    fill
+                    className="object-contain object-left"
+                    priority
+                    sizes="200px"
+                  />
+                </div>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => setSidebarCollapsed((v) => !v)}
+                className="rounded-lg p-2 text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+                title={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              >
+                {sidebarCollapsed ? (
+                  <PanelLeftOpen className="h-5 w-5" />
+                ) : (
+                  <PanelLeftClose className="h-5 w-5" />
+                )}
+              </button>
             </div>
             <nav className="space-y-1 flex-1 overflow-y-auto min-h-0 pb-4">
               {navItems.map((item) => {
@@ -147,25 +169,28 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
                   <button
                     key={item.path}
                     onClick={() => router.push(item.path)}
-                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors ${
+                    className={`w-full flex items-center px-3 py-2 rounded-lg transition-colors ${
                       isActive(item.path)
                         ? "bg-button-primary text-white"
                         : "text-gray-700 hover:bg-gray-100"
-                    }`}
+                    } ${sidebarCollapsed ? "justify-center" : "gap-3"}`}
                     type="button"
+                    title={sidebarCollapsed ? item.label : undefined}
                   >
                     <Icon className="w-5 h-5" />
-                    <span>{item.label}</span>
+                    {!sidebarCollapsed ? <span>{item.label}</span> : null}
                   </button>
                 );
               })}
             </nav>
           </div>
-          <SidebarProfile />
+          <SidebarProfile compact={sidebarCollapsed} />
         </aside>
 
         {/* Main Content */}
-        <main className="lg:ml-60 w-full">{children}</main>
+        <main className={`w-full transition-all ${sidebarCollapsed ? "lg:ml-20" : "lg:ml-60"}`}>
+          {children}
+        </main>
       </div>
     </div>
   );

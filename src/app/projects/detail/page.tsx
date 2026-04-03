@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   Plus,
@@ -47,11 +47,19 @@ type GrassRow = {
 
 type HarvestRow = {
   id: string;
+  productId: string;
+  uom: string;
   status: "done" | "progressing";
   date: string;
   grass: string;
   zone: string;
   quantity: string;
+  remainingQuantityDisplay: string | null;
+  refQtyDisplay: string | null;
+  /** `harvested_area` formatted when UOM is Kg (reference quantity + Kg). */
+  harvestedAreaDisplay: string | null;
+  /** `harvested_area` / quantity when UOM is M2 (Harvested area + m²). */
+  harvestedAreaM2Display: string | null;
   estimatedDate: string;
   actualDate: string;
   deliveryDate: string;
@@ -94,16 +102,29 @@ function deliveredByProduct(
   return total;
 }
 
+function normalizeUomKey(uomRaw: string): string {
+  const u = uomRaw.trim().toLowerCase();
+  if (u === "m²") return "m2";
+  return u;
+}
+
 export default function ProjectDetailPage() {
-  const tBase = useAppTranslations();
-  const t = (key: string) => tBase(`ProjectDetail.${key}`);
+  // Namespace-scoped translators: `useTranslations()` without a namespace + dynamic
+  // `ProjectDetail.${key}` can fail to resolve some nested keys in next-intl 4 (fallback shows
+  // `ProjectDetail.harvestedArea`). Using namespaces matches the JSON shape and yields stable `t`.
+  const t = useAppTranslations("ProjectDetail");
+  const tForm = useAppTranslations("HarvestForm");
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const rowId = searchParams.get("rowId")?.trim() ?? "";
   const tableId = searchParams.get("tableId")?.trim() ?? "";
+  const returnTo = useMemo(() => {
+    const query = searchParams.toString();
+    return query ? `${pathname}?${query}` : pathname;
+  }, [pathname, searchParams]);
 
   const projectsRef = useHarvestingDataStore((s) => s.projects);
-  const farmZonesRef = useHarvestingDataStore((s) => s.farmZones);
   const countriesRef = useHarvestingDataStore((s) => s.countries);
   const staffsRef = useHarvestingDataStore((s) => s.staffs);
   const productsRef = useHarvestingDataStore((s) => s.products);
@@ -116,6 +137,10 @@ export default function ProjectDetailPage() {
   const [projectRow, setProjectRow] = useState<MondayProjectServerRow | null>(null);
   const [harvests, setHarvests] = useState<HarvestRow[]>([]);
   const [expandedHarvestId, setExpandedHarvestId] = useState<string | null>(null);
+  const currentProjectId = useMemo(
+    () => String(projectRow?.project_id ?? "").trim(),
+    [projectRow],
+  );
 
   useEffect(() => {
     void fetchAllHarvestingReferenceData();
@@ -182,7 +207,9 @@ export default function ProjectDetailPage() {
         const res = await fetchMondayProjectRowsFromServer({ page: 1, perPage: 300 });
         if (!mounted) return;
         const row =
-          res.rows.find((r) => String(r.row_id ?? r.id ?? "").trim() === rowId) ?? null;
+          res.rows.find((r) => String(r.row_id ?? "").trim() === rowId) ??
+          res.rows.find((r) => String(r.id ?? "").trim() === rowId) ??
+          null;
         if (!row) {
           setError(t("cannotFindDetail"));
           return;
@@ -191,12 +218,30 @@ export default function ProjectDetailPage() {
 
         const projectId = String(row.project_id ?? "").trim();
         if (projectId) {
+          const requirementRows = parseRequirements(row.quantity_required_sprig_sod);
+          const projectSubitems = parseSubitems(row.subitems);
+          const remainingByProductUom = new Map<string, number>();
+          const unitByProductUom = new Map<string, string>();
+          for (const req of requirementRows) {
+            const productId = String(req.product_id ?? "").trim();
+            if (!productId) continue;
+            const reqUomRaw = String(req.uom ?? "").trim();
+            const reqUomKey = normalizeUomKey(reqUomRaw);
+            const required = parseNumber(req.quantity);
+            const delivered = deliveredByProduct(projectSubitems, productId, reqUomRaw);
+            const remaining = Math.max(0, required - delivered);
+            const mapKey = `${productId}::${reqUomKey}`;
+            remainingByProductUom.set(mapKey, remaining);
+            unitByProductUom.set(mapKey, reqUomRaw || "-");
+          }
+
           const h = await stsProxyGetHarvestingIndex({
             project_id: projectId,
             per_page: 30,
             page: 1,
           });
           if (!mounted) return;
+          const farmZonesForLabels = useHarvestingDataStore.getState().farmZones;
           const parsed: HarvestRow[] = h.rows
             .filter((x): x is Record<string, unknown> => !!x && typeof x === "object")
             .map((r) => {
@@ -215,13 +260,43 @@ export default function ProjectDetailPage() {
                 }),
               );
 
+              const uomRaw = String(r.uom ?? "").trim();
+              const uomLower = uomRaw.toLowerCase();
+              const ha = parseNumber(r.harvested_area);
+              const refHarvestQty = parseNumber(r.ref_hrv_qty_sprig);
+              const qty = parseNumber(r.quantity);
+              const productId = String(r.product_id ?? "").trim();
+              const uomKey = normalizeUomKey(uomRaw);
+              const remainingMapKey = `${productId}::${uomKey}`;
+              const remainingQty = remainingByProductUom.get(remainingMapKey);
+              const remainingUnit = unitByProductUom.get(remainingMapKey) ?? uomRaw;
+              const remainingQuantityDisplay =
+                remainingQty != null
+                  ? `${remainingQty.toLocaleString()} ${remainingUnit}`.trim()
+                  : null;
+              const harvestedAreaDisplay =
+                uomLower === "kg" && ha > 0 ? ha.toLocaleString() : null;
+              const refQtyDisplay =
+                refHarvestQty > 0 ? refHarvestQty.toLocaleString() : null;
+              const harvestedAreaM2Display =
+                uomLower === "m2" && (ha > 0 || qty > 0)
+                  ? (ha > 0 ? ha : qty).toLocaleString()
+                  : null;
+
               return {
                 id: String(r.id ?? ""),
+                productId,
+                uom: uomRaw,
                 status,
                 date: formatDateDisplay(isValidDate(actual) ? actual : estimated),
                 grass: String(r.grass_name ?? r.commodity_name ?? "-"),
-                zone: zoneIdToLabel(r.zone as string | undefined, farmZonesRef) || "-",
-                quantity: `${parseNumber(r.quantity).toLocaleString()} ${String(r.uom ?? "").trim()}`,
+                zone: zoneIdToLabel(r.zone as string | undefined, farmZonesForLabels) ||
+                  "-",
+                quantity: `${parseNumber(r.quantity).toLocaleString()} ${uomRaw}`,
+                remainingQuantityDisplay,
+                refQtyDisplay,
+                harvestedAreaDisplay,
+                harvestedAreaM2Display,
                 estimatedDate: formatDateDisplay(r.estimated_harvest_date),
                 actualDate: formatDateDisplay(r.actual_harvest_date),
                 deliveryDate: formatDateDisplay(r.delivery_harvest_date),
@@ -234,7 +309,9 @@ export default function ProjectDetailPage() {
         }
       } catch (e) {
         if (!mounted) return;
-        setError(e instanceof Error ? e.message : t("loadError"));
+        setError(
+          e instanceof Error ? e.message : t("loadError"),
+        );
       } finally {
         if (mounted) setLoading(false);
       }
@@ -242,7 +319,9 @@ export default function ProjectDetailPage() {
     return () => {
       mounted = false;
     };
-  }, [rowId, farmZonesRef, t]);
+    // Intentionally only `rowId`: including unstable deps caused repeated fetch loops; `farmZones`
+    // from the store gets a new reference after bootstrap.
+  }, [rowId]);
 
   useEffect(() => {
     Fancybox.bind(".harvest-fancybox-trigger", {
@@ -290,7 +369,10 @@ export default function ProjectDetailPage() {
       const delivered = deliveredByProduct(subitems, productId, uom);
       const remaining = Math.max(0, required - delivered);
       const progress = required > 0 ? Math.round((delivered / required) * 100) : 0;
-      const productName = productMap.get(productId) || productId || t("unknownGrass");
+      const productName =
+        productMap.get(productId) ||
+        productId ||
+        t("unknownGrass");
       return {
         id: `${productId || "item"}-${idx}`,
         name: `${productName}${uom ? ` (${uom})` : ""}`,
@@ -335,7 +417,7 @@ export default function ProjectDetailPage() {
                       const editTableId =
                         String(projectRow?.table_id ?? "").trim() || tableId;
                       router.push(
-                        `/projects/new?rowId=${encodeURIComponent(editRowId)}&tableId=${encodeURIComponent(editTableId)}`,
+                        `/projects/new?rowId=${encodeURIComponent(editRowId)}&tableId=${encodeURIComponent(editTableId)}&returnTo=${encodeURIComponent(returnTo)}`,
                       );
                     }}
                     className="rounded-lg p-2 text-white transition-colors hover:bg-white/10"
@@ -431,7 +513,11 @@ export default function ProjectDetailPage() {
                   <h2 className="uppercase tracking-wider text-white">{t("harvestHistory")}</h2>
                   <button
                     type="button"
-                    onClick={() => router.push("/harvest/new")}
+                    onClick={() =>
+                      router.push(
+                        `/harvest/new?returnTo=${encodeURIComponent(returnTo)}&projectId=${encodeURIComponent(currentProjectId)}`,
+                      )
+                    }
                     className="rounded-lg bg-white/20 p-2 text-white hover:bg-white/30"
                   >
                     <Plus className="h-5 w-5" />
@@ -473,12 +559,12 @@ export default function ProjectDetailPage() {
                             </div>
 
                             <div className="absolute right-3 top-1 flex items-center gap-3">
-                            {isExpanded ? (
+                              {isExpanded ? (
                                 <button
                                   type="button"
                                   onClick={() =>
                                     router.push(
-                                      `/harvest/new?id=${encodeURIComponent(h.id)}`,
+                                      `/harvest/new?id=${encodeURIComponent(h.id)}&returnTo=${encodeURIComponent(returnTo)}`,
                                     )
                                   }
                                   className="rounded-lg p-2 text-[#5a7d3c] transition-colors hover:bg-green-50"
@@ -507,7 +593,7 @@ export default function ProjectDetailPage() {
 
                                 )}
                               </button>
-                              
+
 
                             </div>
 
@@ -515,9 +601,35 @@ export default function ProjectDetailPage() {
                               <div className="space-y-4 text-sm">
                                 <div className="grid grid-cols-1 gap-3 border-b border-gray-200 pb-4 sm:grid-cols-2">
                                   <p><span className="inline-block w-[110px] text-gray-500">{t("grass")} </span>{h.grass}</p>
-                                  <p><span className="inline-block w-[110px] text-gray-500">{t("quantity")} </span>{h.quantity}</p>
+                                  <p>
+                                    <span className="inline-block w-[110px] text-gray-500">{t("quantity")} </span>
+                                    {h.quantity}
+                                   
+                                    <span className="mt-1 ml-[110px] block text-xs text-gray-500">
+                                      {t("Remqty")} {h.remainingQuantityDisplay ? h.remainingQuantityDisplay : '-'}
+                                    </span>
+                                    
+                                  </p>
+                                  <p>
+                                    <span className="inline-block w-[110px] text-gray-500 align-top">
+                                      {tForm("referenceHarvestQuantity")}{" "}
+                                    </span>
+                                    {h.refQtyDisplay
+                                      ? h.refQtyDisplay + tForm("referenceHarvestUnit")
+                                      : "-"}
+                                  </p>
+                                  <p>
+                                    <span className="inline-block w-[110px] text-gray-500 align-top">
+                                      {t("harvestedArea")}{" "}
+                                    </span>
+                                    {h.harvestedAreaM2Display ? h.harvestedAreaM2Display + t("harvestedAreaUnitM2") : '-'}
+                                  </p>
+
+
                                   <p><span className="inline-block w-[110px] text-gray-500">{t("zone")} </span>{h.zone}</p>
                                   <p><span className="inline-block w-[110px] text-gray-500">{t("displayDate")} </span>{h.date}</p>
+
+                                  
                                 </div>
                                 <div className="grid grid-cols-1 gap-3 border-b border-gray-200 pb-4 sm:grid-cols-2">
                                   <p><span className="inline-block w-[110px] text-gray-500">{t("estimateDate")} </span>{h.estimatedDate}</p>
