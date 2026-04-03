@@ -11,6 +11,9 @@ export const STS_LOGIN_PATHS = {
 /** Route Next.js proxy quên mật khẩu (folder `forget-password`), khác segment upstream `forgetPassword`. */
 const INTERNAL_FORGET_PASSWORD_PATH = "/api/authentication/forget-password" as const;
 
+const INTERNAL_SESSION_PATH = "/api/authentication/session" as const;
+const INTERNAL_LOGOUT_PATH = "/api/authentication/logout" as const;
+
 /**
  * Route nội bộ Next.js (browser `fetch`). Lấy từ `STS_LOGIN_PATHS`, chỉ thay đường dẫn forgot-password.
  */
@@ -18,6 +21,8 @@ export const INTERNAL_API = {
   authentication: {
     ...STS_LOGIN_PATHS,
     forgetPassword: INTERNAL_FORGET_PASSWORD_PATH,
+    session: INTERNAL_SESSION_PATH,
+    logout: INTERNAL_LOGOUT_PATH,
   },
 } as const;
 

@@ -6,8 +6,11 @@ import { useRouter } from "next/navigation";
 import { Building2, Lock, Mail, User } from "lucide-react";
 
 import { INTERNAL_API } from "@/shared/api/stsLogin";
-import { STORAGE_TOKEN_KEY } from "@/shared/lib/sessionUser";
-import type { SessionUser } from "@/shared/lib/sessionUser";
+import {
+  fetchSessionAuthenticated,
+  removeAuthToken,
+  type SessionUser,
+} from "@/shared/lib/sessionUser";
 import { useAuthUserStore } from "@/shared/store/authUserStore";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
 
@@ -64,6 +67,7 @@ export default function RegisterForm() {
     try {
       const res = await fetch(INTERNAL_API.authentication.register, {
         method: "POST",
+        credentials: "same-origin",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           first_name: firstName,
@@ -87,21 +91,18 @@ export default function RegisterForm() {
         return;
       }
 
-      const token =
-        (json.token as string | undefined) ??
-        (json.data as { token?: string } | undefined)?.token;
-      if (!token) {
-        setError(t("registerTokenMissing"));
-        return;
-      }
-
-      window.localStorage.setItem(STORAGE_TOKEN_KEY, token);
+      removeAuthToken();
       const profile: SessionUser = {
         first_name: firstName,
         last_name: lastName,
         email,
       };
       useAuthUserStore.getState().setUser(profile);
+      const sessionOk = await fetchSessionAuthenticated();
+      if (!sessionOk) {
+        setError(t("registerTokenMissing"));
+        return;
+      }
       router.replace("/dashboard");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t("registerFailed"));

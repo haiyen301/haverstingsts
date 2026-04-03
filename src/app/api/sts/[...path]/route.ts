@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getStsApiUrl } from "@/shared/api/stsLogin";
+import { resolveStsBearerFromRequest } from "@/shared/server/stsAuthBearer";
 
 function upstreamFetchErrorMessage(err: unknown): string {
   const e = err as { cause?: { code?: string; message?: string }; message?: string };
@@ -45,7 +46,7 @@ export async function GET(
   const search = new URL(req.url).search;
   const upstreamUrl = `${upstreamBase}${search}`;
 
-  const auth = req.headers.get("authorization");
+  const auth = await resolveStsBearerFromRequest(req);
   if (!auth?.startsWith("Bearer ")) {
     return NextResponse.json(
       { success: false, message: "Authorization required." },
@@ -110,7 +111,7 @@ export async function POST(
     );
   }
 
-  const auth = req.headers.get("authorization");
+  const auth = await resolveStsBearerFromRequest(req);
   if (!auth?.startsWith("Bearer ")) {
     return NextResponse.json(
       { success: false, message: "Authorization required." },

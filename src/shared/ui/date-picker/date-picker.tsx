@@ -83,6 +83,21 @@ export function DatePicker({
           disabled={disabled}
           initialFocus
         />
+        {selectedDate ? (
+          <div className="border-t border-gray-200 p-2">
+            <button
+              type="button"
+              className="w-full rounded-md px-2 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-800 disabled:opacity-50"
+              onClick={() => {
+                onChange("");
+                setOpen(false);
+              }}
+              disabled={disabled}
+            >
+              Clear
+            </button>
+          </div>
+        ) : null}
       </PopoverContent>
     </Popover>
   );

@@ -1,4 +1,5 @@
-import { STORAGE_TOKEN_KEY } from "@/shared/lib/sessionUser";
+/** Same-origin fetch: HttpOnly `sts_token` cookie is sent automatically. */
+const SAME_ORIGIN: RequestCredentials = "same-origin";
 
 /** Detect server-side auth failure (invalid/expired token, etc.). */
 function isStsUnauthorizedResponse(
@@ -26,7 +27,7 @@ async function redirectToLoginIfUnauthorized(
   if (typeof window === "undefined") return;
   if (!isStsUnauthorizedResponse(message, httpStatus)) return;
   const { clearAuthSession } = await import("@/shared/store/authUserStore");
-  clearAuthSession();
+  await clearAuthSession();
   window.location.assign("/");
 }
 
@@ -47,7 +48,7 @@ async function assertStsSuccessOrThrow<T>(
 }
 
 /**
- * Next.js route `/api/[...path]` forwards to STSPortal `/api/...` with Bearer token.
+ * Next.js route `/api/[...path]` forwards to STSPortal `/api/...` using the session JWT cookie.
  */
 export function getInternalStsProxyUrl(upstreamApiPath: string): string {
   const trimmed = upstreamApiPath.replace(/^\/api\/?/, "");
@@ -69,22 +70,18 @@ export function buildStsProxyGetUrl(
   return q ? `${base}?${q}` : base;
 }
 
-/** GET via same-origin proxy; requires `sts_token` in localStorage. */
+/** GET via same-origin proxy; requires HttpOnly session cookie from login. */
 export async function stsProxyGet<T = unknown>(upstreamApiPath: string): Promise<T> {
   if (typeof window === "undefined") {
     throw new Error("stsProxyGet is client-only");
-  }
-  const token = window.localStorage.getItem(STORAGE_TOKEN_KEY);
-  if (!token) {
-    throw new Error("Not authenticated");
   }
   const url = getInternalStsProxyUrl(upstreamApiPath);
   const res = await fetch(url, {
     method: "GET",
     headers: {
       Accept: "application/json",
-      Authorization: `Bearer ${token}`,
     },
+    credentials: SAME_ORIGIN,
   });
   let json: StsJsonResponse<T>;
   try {
@@ -122,17 +119,13 @@ export async function stsProxyGetHarvestingIndex(
   if (typeof window === "undefined") {
     throw new Error("stsProxyGetHarvestingIndex is client-only");
   }
-  const token = window.localStorage.getItem(STORAGE_TOKEN_KEY);
-  if (!token) {
-    throw new Error("Not authenticated");
-  }
   const url = buildStsProxyGetUrl("/api/harvesting", searchParams);
   const res = await fetch(url, {
     method: "GET",
     headers: {
       Accept: "application/json",
-      Authorization: `Bearer ${token}`,
     },
+    credentials: SAME_ORIGIN,
   });
   let json: HarvestingIndexJson;
   try {
@@ -162,16 +155,10 @@ export async function stsProxyPostFormData<T = unknown>(
   if (typeof window === "undefined") {
     throw new Error("stsProxyPostFormData is client-only");
   }
-  const token = window.localStorage.getItem(STORAGE_TOKEN_KEY);
-  if (!token) {
-    throw new Error("Not authenticated");
-  }
   const url = getInternalStsProxyUrl(upstreamApiPath);
   const res = await fetch(url, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
+    credentials: SAME_ORIGIN,
     body: formData,
   });
   let json: StsJsonResponse<T>;
@@ -192,17 +179,13 @@ export async function stsProxyPostJson<T = unknown>(
   if (typeof window === "undefined") {
     throw new Error("stsProxyPostJson is client-only");
   }
-  const token = window.localStorage.getItem(STORAGE_TOKEN_KEY);
-  if (!token) {
-    throw new Error("Not authenticated");
-  }
   const url = getInternalStsProxyUrl(upstreamApiPath);
   const res = await fetch(url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
     },
+    credentials: SAME_ORIGIN,
     body: JSON.stringify(payload),
   });
   let json: StsJsonResponse<T>;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { MoreVertical, Plus, Trash2 } from "lucide-react";
 
@@ -21,6 +21,13 @@ interface GrassRow {
   type: string;
   required: string;
   delivered: string;
+}
+
+function normalizeProjectNameForCompare(v: unknown): string {
+  return String(v ?? "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 type TopFieldErrors = Partial<
@@ -46,7 +53,25 @@ export default function ProjectInputPage() {
   const searchParams = useSearchParams();
   const editRowId = searchParams.get("rowId")?.trim() ?? "";
   const editTableId = searchParams.get("tableId")?.trim() ?? "";
+  const returnToParam = searchParams.get("returnTo")?.trim() ?? "";
   const isEdit = Boolean(editRowId && editTableId);
+  const returnTarget = useMemo(() => {
+    if (!returnToParam) return "/projects";
+    let decoded = returnToParam;
+    try {
+      decoded = decodeURIComponent(returnToParam);
+    } catch {
+      decoded = returnToParam;
+    }
+    const safeTarget = decoded.trim();
+    if (
+      safeTarget.startsWith("/projects") ||
+      safeTarget.startsWith("/projects/detail")
+    ) {
+      return safeTarget;
+    }
+    return "/projects";
+  }, [returnToParam]);
   const [loading, setLoading] = useState(isEdit);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -169,13 +194,15 @@ export default function ProjectInputPage() {
           (r) => String(r.row_id ?? r.id ?? "").trim() === editRowId,
         );
         if (!row) {
-          setError(t("cannotFindProjectRow"));
+          setError(tBase("ProjectForm.cannotFindProjectRow"));
           return;
         }
         applyEditRow(row);
       } catch (e) {
         if (!mounted) return;
-        setError(e instanceof Error ? e.message : t("loadProjectFailed"));
+        setError(
+          e instanceof Error ? e.message : tBase("ProjectForm.loadProjectFailed"),
+        );
       } finally {
         if (mounted) setLoading(false);
       }
@@ -183,7 +210,7 @@ export default function ProjectInputPage() {
     return () => {
       mounted = false;
     };
-  }, [editRowId, isEdit, t]);
+  }, [editRowId, isEdit]);
 
   useEffect(() => {
     if (isEdit) return;
@@ -452,6 +479,27 @@ export default function ProjectInputPage() {
         ? editRowId
         : (globalThis.crypto?.randomUUID?.() ?? `row-${Date.now()}`);
       const projectName = formData.projectName.trim();
+      if (!isEdit && projectName) {
+        const existedRows = await fetchMondayProjectRowsFromServer({
+          module: "project",
+          search: projectName,
+          page: 1,
+          perPage: 300,
+        });
+        const normalizedInput = normalizeProjectNameForCompare(projectName);
+        const duplicated = existedRows.rows.some((row) => {
+          const rowName = normalizeProjectNameForCompare(
+            (row as Record<string, unknown>).title ??
+            (row as Record<string, unknown>).project_name ??
+            row.project_id,
+          );
+          return rowName && rowName === normalizedInput;
+        });
+        if (duplicated) {
+          setError("Project name already exists. Please use another project name.");
+          return;
+        }
+      }
       // `client_source: nextjs` + `project_name` triggers server-side project resolve/create only for
       // this app. Flutter sends `project_id` from its own flow and must not set `client_source`, or
       // duplicate `sts_projects` rows would be created.
@@ -484,7 +532,7 @@ export default function ProjectInputPage() {
       if (saveResponse?.project && typeof saveResponse.project === "object") {
         upsertProjectInList(saveResponse.project);
       }
-      router.push("/projects");
+      router.push(returnTarget);
     } catch (err) {
       setError(err instanceof Error ? err.message : t("saveFailed"));
     } finally {
@@ -518,7 +566,7 @@ export default function ProjectInputPage() {
         type: "parent",
       });
       setConfirmDeleteOpen(false);
-      router.push("/projects");
+      router.push(returnTarget);
     } catch (e) {
       setError(e instanceof Error ? e.message : t("deleteFailed"));
     } finally {
@@ -545,7 +593,7 @@ export default function ProjectInputPage() {
 
             <div className="relative flex items-center justify-between bg-button-primary px-4 py-4 pr-11">
               <button
-                onClick={() => router.push("/projects")}
+                onClick={() => router.push(returnTarget)}
                 className="inline-flex items-center gap-2 text-sm text-gray-700"
                 type="button"
                 aria-label="Back to projects"
@@ -809,7 +857,7 @@ export default function ProjectInputPage() {
                   className="grid grid-cols-4 gap-2 rounded-md"
                   style={{ outline: holesError ? "1px solid #dc2626" : "none" }}
                 >
-                  {["9", "12", "27", "36"].map((hole) => (
+                  {["9", "18", "27", "36"].map((hole) => (
                     <label key={hole} className="flex items-center gap-1 text-sm">
                       <input
                         type="radio"

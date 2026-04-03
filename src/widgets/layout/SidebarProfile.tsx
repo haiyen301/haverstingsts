@@ -15,6 +15,7 @@ import { LOCALES, type AppLocale } from "@/i18n/config";
 
 type SidebarProfileProps = {
   onNavigate?: () => void;
+  compact?: boolean;
 };
 
 const LOCALE_FLAG_MAP: Record<AppLocale, { code: string; alt: string }> = {
@@ -23,7 +24,7 @@ const LOCALE_FLAG_MAP: Record<AppLocale, { code: string; alt: string }> = {
   vi: { code: "vn", alt: "Vietnamese" },
 };
 
-export function SidebarProfile({ onNavigate }: SidebarProfileProps) {
+export function SidebarProfile({ onNavigate, compact = false }: SidebarProfileProps) {
   const router = useRouter();
   const user = useAuthUserStore((s) => s.user);
   const locale = useLocale() as AppLocale;
@@ -38,8 +39,8 @@ export function SidebarProfile({ onNavigate }: SidebarProfileProps) {
     onNavigate?.();
   };
 
-  const logout = () => {
-    clearAuthSession();
+  const logout = async () => {
+    await clearAuthSession();
     onNavigate?.();
     router.replace("/");
   };
@@ -51,8 +52,8 @@ export function SidebarProfile({ onNavigate }: SidebarProfileProps) {
   };
 
   return (
-    <div className="border-gray-200 p-4 bg-white shrink-0">
-      <div className="hidden mt-2 grid grid-cols-3 gap-1 pb-3">
+    <div className={`border-gray-200 bg-white shrink-0 ${compact ? "p-3" : "p-4"}`}>
+      <div className="hidden mt-2 grid-cols-3 gap-1 pb-3">
         {LOCALES.map((item) => (
           <button
             key={item}
@@ -81,7 +82,10 @@ export function SidebarProfile({ onNavigate }: SidebarProfileProps) {
       <button
         type="button"
         onClick={goProfile}
-        className="w-full flex items-center gap-3 text-left rounded-lg p-2 -m-2 transition-colors hover:bg-gray-100"
+        className={`w-full flex items-center rounded-lg p-2 transition-colors hover:bg-gray-100 ${
+          compact ? "justify-center" : "gap-3 text-left -m-2"
+        }`}
+        title={compact ? displayName : undefined}
       >
         {avatarSrc ? (
           <img
@@ -98,25 +102,30 @@ export function SidebarProfile({ onNavigate }: SidebarProfileProps) {
             {getUserInitials(user)}
           </div>
         )}
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-gray-900 truncate">
-            {displayName}
-          </p>
-          {email ? (
-            <p className="text-xs text-gray-500 truncate">{email}</p>
-          ) : (
-            <p className="text-xs text-gray-400">{t("viewProfile")}</p>
-          )}
-        </div>
+        {!compact ? (
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium text-gray-900 truncate">
+              {displayName}
+            </p>
+            {email ? (
+              <p className="text-xs text-gray-500 truncate">{email}</p>
+            ) : (
+              <p className="text-xs text-gray-400">{t("viewProfile")}</p>
+            )}
+          </div>
+        ) : null}
       </button>
 
       <button
         type="button"
         onClick={logout}
-        className="mt-3 w-full flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg transition-colors"
+        className={`mt-3 w-full flex items-center justify-center text-sm font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg transition-colors ${
+          compact ? "px-2 py-2" : "gap-2 px-3 py-2"
+        }`}
+        title={t("logOut")}
       >
         <LogOut className="w-4 h-4 shrink-0" />
-        {t("logOut")}
+        {!compact ? t("logOut") : null}
       </button>
     </div>
   );

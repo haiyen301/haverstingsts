@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
-import { AlignLeft, ArrowDown, Plus, Search } from "lucide-react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { AlignLeft, ArrowDown, Plus, Search, Upload } from "lucide-react";
 
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 import RequireAuth from "@/features/auth/RequireAuth";
@@ -61,6 +61,12 @@ function normalizeProjectStatusLabel(v: unknown): string {
 
 export default function ProjectListPage() {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const returnTo = useMemo(() => {
+    const query = searchParams.toString();
+    return query ? `${pathname}?${query}` : pathname;
+  }, [pathname, searchParams]);
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [countryFilterIds, setCountryFilterIds] = useState<string[]>([]);
@@ -249,14 +255,28 @@ export default function ProjectListPage() {
             <h1 className="text-2xl lg:text-3xl font-semibold text-gray-900">
               Projects
             </h1>
-            <button
-              onClick={() => router.push("/projects/new")}
-              className="flex items-center justify-center gap-2 px-4 py-2 bg-button-primary text-white rounded-lg hover:bg-[#196A40] transition-colors"
-              type="button"
-            >
-              <Plus className="w-5 h-5" />
-              New Project
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => router.push("/projects/import")}
+                className="flex items-center justify-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                type="button"
+              >
+                <Upload className="w-5 h-5" />
+                Import Excel
+              </button>
+              <button
+                onClick={() =>
+                  router.push(
+                    `/projects/new?returnTo=${encodeURIComponent(returnTo)}`,
+                  )
+                }
+                className="flex items-center justify-center gap-2 px-4 py-2 bg-button-primary text-white rounded-lg hover:bg-[#196A40] transition-colors"
+                type="button"
+              >
+                <Plus className="w-5 h-5" />
+                New Project
+              </button>
+            </div>
           </div>
 
           <div className="bg-white rounded-lg border border-gray-200 p-4 mb-6 space-y-4">
@@ -338,7 +358,7 @@ export default function ProjectListPage() {
           ) : projects.length === 0 ? (
             <p className="text-sm text-gray-600">No projects found.</p>
           ) : (
-            <div className="grid grid-cols-1 gap-6 min-[992px]:grid-cols-2">
+            <div className="grid grid-cols-1 gap-6 min-[1300px]:grid-cols-2">
               {projects.map(({ data, rowData }) => (
                 <ProjectListItem
                   key={String(data.row_id ?? data.id)}

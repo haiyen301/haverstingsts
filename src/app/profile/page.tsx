@@ -22,8 +22,8 @@ function ProfileContent() {
   const displayName = getUserDisplayName(user);
   const avatarSrc = resolveAvatarUrl(getUserAvatarPath(user));
 
-  const logout = () => {
-    clearAuthSession();
+  const logout = async () => {
+    await clearAuthSession();
     router.replace("/");
   };
 

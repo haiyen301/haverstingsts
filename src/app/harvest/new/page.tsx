@@ -8,7 +8,7 @@ import {
   type FormEvent,
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Camera } from "lucide-react";
+import { Camera, MoreVertical, Trash2 } from "lucide-react";
 
 import RequireAuth from "@/features/auth/RequireAuth";
 import {
@@ -29,12 +29,14 @@ import { STS_API_PATHS } from "@/shared/api/stsApiPaths";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { useAuthUserStore } from "@/shared/store/authUserStore";
 import {
+  filterZoneEntriesByFarmName,
   mapRowsToSelectOptions,
   parseFarmZoneEntries,
 } from "@/shared/lib/harvestReferenceData";
 import { resolveHarvestDisplayUrl } from "@/shared/config/stsUrls";
 import { DatePicker } from "@/shared/ui/date-picker";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
+import { deleteMondayParentOrSubItem } from "@/entities/projects/api/projectsApi";
 
 const DOC_PHOTO_SLOTS: HarvestDocPhotoField[] = [
   "payment_img",
@@ -50,6 +52,9 @@ const emptyForm = {
   harvestType: "",
   quantity: "",
   uom: "M2",
+  referenceHarvestQuantity: "",
+  /** Flutter `harvestedAreaController` → `harvested_area`. Editable when UOM is Kg; M2 mirrors quantity. */
+  harvestedArea: "",
   zone: "",
   farm: "",
   project: "",
@@ -184,6 +189,14 @@ function parseNum(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+function normalizeNonNegativeInput(raw: string): string {
+  const s = raw.replace(/,/g, "").trim();
+  if (!s) return "";
+  const n = Number.parseFloat(s);
+  if (!Number.isFinite(n) || n <= 0) return "";
+  return String(n);
+}
+
 /**
  * API / store may send `quantity_required_sprig_sod` as:
  * - `Array<{ product_id, quantity, uom, ... }>` (typical)
@@ -265,13 +278,25 @@ function parseHarvestDeliveredRow(raw: unknown): HarvestDeliveredRow | null {
 }
 
 function applyRowToFormState(r: Record<string, unknown>) {
+  const uomStr = String(r.uom ?? "M2").trim() || "M2";
+  const harvested = r.harvested_area;
+  const referenceHarvestQty = r.ref_hrv_qty_sprig;
+  const harvestedStr = normalizeNonNegativeInput(String(harvested ?? ""));
+  const referenceHarvestQtyStr = normalizeNonNegativeInput(
+    String(referenceHarvestQty ?? ""),
+  );
+  const isKg = uomStr.toLowerCase() === "kg";
   return {
     project: String(r.project_id ?? ""),
     grass: String(r.product_id ?? ""),
     farm: String(r.farm_id ?? ""),
     zone: String(r.zone ?? ""),
     quantity: String(r.quantity ?? ""),
-    uom: String(r.uom ?? "M2") || "M2",
+    uom: uomStr,
+    referenceHarvestQuantity: !isKg
+      ? (referenceHarvestQtyStr || harvestedStr)
+      : "",
+    harvestedArea: isKg ? harvestedStr : "",
     harvestType: normalizeHarvestTypeForForm(r.load_type),
     estimatedDate: toDateInput(r.estimated_harvest_date),
     actualDate: toDateInput(r.actual_harvest_date),
@@ -290,6 +315,8 @@ type HarvestFieldErrors = Partial<
     | "grass"
     | "harvestType"
     | "quantity"
+    | "referenceHarvestQuantity"
+    | "harvestedArea"
     | "zone"
     | "farm"
     | "estimatedDate"
@@ -314,6 +341,7 @@ type HarvestValidationMessages = {
   selectGrass: string;
   selectHarvestType: string;
   enterQuantity: string;
+  harvestedAreaKgRequired: string;
   selectZone: string;
   selectFarm: string;
   datePairRequired: string;
@@ -326,12 +354,28 @@ function getHarvestFieldErrors(
   const errors: HarvestFieldErrors = {};
   if (!formData.project.trim()) errors.project = messages.selectProject;
   if (!formData.grass.trim()) errors.grass = messages.selectGrass;
-  if (!formData.harvestType.trim()) errors.harvestType = messages.selectHarvestType;
+  // Harvest type input is currently hidden in the web form, so do not block submit here.
   if (!formData.quantity.trim() || parseNum(formData.quantity) <= 0) {
     errors.quantity = messages.enterQuantity;
   }
+  // if (
+  //   formData.uom.trim().toLowerCase() === "m2" &&
+  //   (!formData.referenceHarvestQuantity.trim() ||
+  //     parseNum(formData.referenceHarvestQuantity) <= 0)
+  // ) {
+  //   errors.referenceHarvestQuantity = messages.enterQuantity;
+  // }
   if (!formData.zone.trim()) errors.zone = messages.selectZone;
   if (!formData.farm.trim()) errors.farm = messages.selectFarm;
+  const uomLower = formData.uom.trim().toLowerCase();
+  const hasActual = Boolean(formData.actualDate.trim());
+  if (hasActual && uomLower === "kg") {
+    const ha = formData.harvestedArea.trim();
+    const n = parseNum(ha);
+    if (!ha || n <= 0) {
+      errors.harvestedArea = messages.harvestedAreaKgRequired;
+    }
+  }
   const dateErr = getHarvestDatePairError(
     formData.estimatedDate,
     formData.actualDate,
@@ -350,6 +394,8 @@ function firstHarvestFieldError(errors: HarvestFieldErrors): string | null {
     "grass",
     "harvestType",
     "quantity",
+    "referenceHarvestQuantity",
+    "harvestedArea",
     "zone",
     "farm",
     "estimatedDate",
@@ -364,11 +410,46 @@ function firstHarvestFieldError(errors: HarvestFieldErrors): string | null {
 
 function HarvestInputPageInner() {
   const tBase = useAppTranslations();
-  const t = (key: string) => tBase(`HarvestForm.${key}`);
+  const t = (
+    key: string,
+    values?: Record<string, string | number | boolean | null | undefined>,
+  ) =>
+    values
+      ? tBase(`HarvestForm.${key}`, values as Parameters<typeof tBase>[1])
+      : tBase(`HarvestForm.${key}`);
   const tCommon = (key: string) => tBase(`Common.${key}`);
   const router = useRouter();
   const searchParams = useSearchParams();
   const editId = searchParams.get("id")?.trim() || null;
+  const projectIdParam = searchParams.get("projectId")?.trim() || "";
+  const returnToParam = searchParams.get("returnTo")?.trim() || "";
+  const initialProjectId = useMemo(() => {
+    if (!projectIdParam) return "";
+    let decoded = projectIdParam;
+    try {
+      decoded = decodeURIComponent(projectIdParam);
+    } catch {
+      decoded = projectIdParam;
+    }
+    return decoded.trim();
+  }, [projectIdParam]);
+  const returnTarget = useMemo(() => {
+    if (!returnToParam) return "/harvest";
+    let decoded = returnToParam;
+    try {
+      decoded = decodeURIComponent(returnToParam);
+    } catch {
+      decoded = returnToParam;
+    }
+    const safeTarget = decoded.trim();
+    if (
+      safeTarget.startsWith("/harvest") ||
+      safeTarget.startsWith("/projects/detail")
+    ) {
+      return safeTarget;
+    }
+    return "/harvest";
+  }, [returnToParam]);
 
   const user = useAuthUserStore((s) => s.user);
   const farms = useHarvestingDataStore((s) => s.farms);
@@ -433,6 +514,8 @@ function HarvestInputPageInner() {
   const [quantityWarning, setQuantityWarning] = useState<string | null>(null);
   const [editLoadError, setEditLoadError] = useState<string | null>(null);
   const [editLoaded, setEditLoaded] = useState(!editId);
+  const [editTableId, setEditTableId] = useState("");
+  const [editTableName, setEditTableName] = useState("Harvesting");
   const [projectHarvestRows, setProjectHarvestRows] = useState<HarvestDeliveredRow[]>(
     [],
   );
@@ -441,11 +524,19 @@ function HarvestInputPageInner() {
   );
   const [fieldErrors, setFieldErrors] = useState<HarvestFieldErrors>({});
   const [harvestDateTouched, setHarvestDateTouched] = useState(false);
+  const [deleteMenuOpen, setDeleteMenuOpen] = useState(false);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const filteredZoneEntries = useMemo(() => {
+    const farmLabel = farmOptions.find((f) => f.id === formData.farm)?.label ?? "";
+    return filterZoneEntriesByFarmName(zoneEntries, farmLabel);
+  }, [farmOptions, formData.farm, zoneEntries]);
   const validationMessages: HarvestValidationMessages = {
     selectProject: t("validationSelectProject"),
     selectGrass: t("validationSelectGrassType"),
     selectHarvestType: t("validationSelectHarvestType"),
     enterQuantity: t("validationEnterQuantity"),
+    harvestedAreaKgRequired: t("validationHarvestedAreaKg"),
     selectZone: t("validationSelectZone"),
     selectFarm: t("validationSelectFarm"),
     datePairRequired: t("datePairRequiredError"),
@@ -464,11 +555,13 @@ function HarvestInputPageInner() {
 
   useEffect(() => {
     if (!editId) {
-      setFormData({ ...emptyForm });
+      setFormData({ ...emptyForm, project: initialProjectId });
       setPhotos({});
       setExistingDocSlots({});
       setPendingImagesRemoved({});
       setPendingFilesRemoved({});
+      setEditTableId("");
+      setEditTableName("Harvesting");
       setEditLoadError(null);
       setEditLoaded(true);
       setFieldErrors({});
@@ -490,6 +583,8 @@ function HarvestInputPageInner() {
         if (cancelled) return;
         const row = raw as Record<string, unknown>;
         setFormData(applyRowToFormState(row));
+        setEditTableId(String(row.table_id ?? "").trim());
+        setEditTableName(String(row.table_name ?? "Harvesting").trim() || "Harvesting");
         setExistingDocSlots(parseHarvestDocImagesFromRow(row));
         setPendingImagesRemoved({});
         setPendingFilesRemoved({});
@@ -508,7 +603,40 @@ function HarvestInputPageInner() {
     return () => {
       cancelled = true;
     };
-  }, [editId]);
+  }, [editId, initialProjectId]);
+
+  const showDeleteMenu = () => setDeleteMenuOpen(true);
+
+  const closeDeleteMenu = () => setDeleteMenuOpen(false);
+
+  const onPickDeleteFromSheet = () => {
+    closeDeleteMenu();
+    setConfirmDeleteOpen(true);
+  };
+
+  const onConfirmDeleteHarvest = async () => {
+    if (!editId || !editTableId) {
+      setSubmitError("Missing delete identifiers.");
+      setConfirmDeleteOpen(false);
+      return;
+    }
+    try {
+      setDeleting(true);
+      setSubmitError(null);
+      await deleteMondayParentOrSubItem({
+        tableId: editTableId,
+        tableName: editTableName.trim() || "Harvesting",
+        rowId: editId,
+        type: "sub",
+      });
+      setConfirmDeleteOpen(false);
+      router.push(returnTarget);
+    } catch (e) {
+      setSubmitError(e instanceof Error ? e.message : "Delete harvest failed.");
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   useEffect(() => {
     if (!formData.project) {
@@ -650,6 +778,14 @@ function HarvestInputPageInner() {
   const harvestDatePairError =
     fieldErrors.actualDate ?? fieldErrors.estimatedDate ?? null;
 
+  useEffect(() => {
+    if (!formData.zone) return;
+    const isValid = filteredZoneEntries.some(([key]) => key === formData.zone);
+    if (!isValid) {
+      setFormData((prev) => ({ ...prev, zone: "" }));
+    }
+  }, [filteredZoneEntries, formData.zone]);
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setSubmitError(null);
@@ -683,6 +819,15 @@ function HarvestInputPageInner() {
         ? { imagesRemoved, filesRemoved }
         : undefined;
 
+      const mainUom = formData.uom.trim().toLowerCase();
+      const isM2 = mainUom === "m2";
+      const referenceQtyStripped = formData.referenceHarvestQuantity
+        .replace(/,/g, "")
+        .trim();
+      const haStripped = formData.harvestedArea.replace(/,/g, "").trim();
+      const harvestedAreaPayload = isM2
+        ? referenceQtyStripped || undefined
+        : haStripped || undefined;
       await submitFlutterHarvest(
         {
           id: editId ?? undefined,
@@ -700,11 +845,13 @@ function HarvestInputPageInner() {
           truckNote: formData.truckNote,
           licensePlate: formData.licensePlate,
           assignedTo: user?.id != null ? String(user.id) : "",
+          harvestedArea: harvestedAreaPayload,
+          refHrvQtySprig: referenceQtyStripped || undefined,
         },
         photos,
         removedPayload,
       );
-      router.push("/harvest");
+      router.push(returnTarget);
     } catch (err) {
       const msg =
         err instanceof Error ? err.message : t("saveFailed");
@@ -796,7 +943,7 @@ function HarvestInputPageInner() {
   };
 
   const formDisabled =
-    refLoading || submitLoading || (Boolean(editId) && !editLoaded);
+    refLoading || submitLoading || deleting || (Boolean(editId) && !editLoaded);
 
   return (
     <RequireAuth>
@@ -804,11 +951,21 @@ function HarvestInputPageInner() {
         <div className="max-w-md mx-auto">
 
 
-          <div className="mx-4 mt-3 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-lg">
-            <div className="flex items-center justify-between bg-button-primary px-4 py-4">
+          <div className="relative mx-4 mt-3 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-lg">
+            {editId ? (
+              <button
+                type="button"
+                onClick={showDeleteMenu}
+                className="absolute right-2.5 top-[15px] z-10 inline-flex items-center justify-center rounded-lg p-1 text-white hover:bg-white/15"
+                aria-label="More actions"
+              >
+                <MoreVertical className="h-6 w-6" strokeWidth={2.25} />
+              </button>
+            ) : null}
+            <div className="relative flex items-center bg-button-primary px-4 py-4 pr-11">
 
               <button
-                onClick={() => router.push("/projects")}
+                onClick={() => router.push(returnTarget)}
                 className="inline-flex items-center gap-2 text-sm text-gray-700"
                 type="button"
               >
@@ -817,7 +974,7 @@ function HarvestInputPageInner() {
                 </svg>
               </button>
 
-              <h1 className="text-base font-semibold uppercase tracking-wider text-white">
+              <h1 className="pointer-events-none absolute left-1/2 -translate-x-1/2 text-base font-semibold uppercase tracking-wider text-white">
                 {editId ? t("editTitle") : t("newTitle")}
               </h1>
             </div>
@@ -907,39 +1064,15 @@ function HarvestInputPageInner() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {t("harvestType")}
-                </label>
-                <select
-                  value={formData.harvestType}
-                  onChange={(e) => {
-                    setFormData({
-                      ...formData,
-                      harvestType: e.target.value,
-                    });
-                    setFieldErrors((prev) => ({ ...prev, harvestType: undefined }));
-                  }}
-                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-[#1F7A4C] focus:border-transparent disabled:bg-gray-100 ${fieldErrors.harvestType ? "border-red-500" : "border-gray-300"
-                    }`}
-                  disabled={formDisabled}
-                >
-                  <option value="">{t("selectHarvestType")}</option>
-                  <option value="Sod">Sod</option>
-                  <option value="Sprig">Sprig</option>
-                </select>
-                {fieldErrors.harvestType ? (
-                  <p className="mt-1 text-xs text-red-600">{fieldErrors.harvestType}</p>
-                ) : null}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
                   {tCommon("quantity")}
                 </label>
                 <input
                   type="number"
+                  min={0}
                   value={formData.quantity}
                   onChange={(e) => {
                     const nextValue = e.target.value;
+                    if (nextValue.trim().startsWith("-")) return;
                     const entered = parseNum(nextValue);
                     if (
                       maxAllowedQuantity !== null &&
@@ -959,6 +1092,12 @@ function HarvestInputPageInner() {
                     setQuantityWarning(null);
                     setFormData({ ...formData, quantity: nextValue });
                     setFieldErrors((prev) => ({ ...prev, quantity: undefined }));
+                  }}
+                  onBlur={() => {
+                    setFormData((prev) => ({
+                      ...prev,
+                      quantity: normalizeNonNegativeInput(prev.quantity),
+                    }));
                   }}
                   className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-[#1F7A4C] focus:border-transparent disabled:bg-gray-100 ${fieldErrors.quantity ? "border-red-500" : "border-gray-300"
                     }`}
@@ -984,21 +1123,177 @@ function HarvestInputPageInner() {
                 ) : null}
               </div>
 
+              {formData.uom.trim().toLowerCase() === "m2" ? (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    {t("referenceHarvestQuantity")}
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={0}
+                      value={formData.referenceHarvestQuantity}
+                      onChange={(e) => {
+                        const nextValue = e.target.value;
+                        if (nextValue.trim().startsWith("-")) return;
+                        setFormData({
+                          ...formData,
+                          referenceHarvestQuantity: nextValue,
+                        });
+                        setFieldErrors((prev) => ({
+                          ...prev,
+                          referenceHarvestQuantity: undefined,
+                        }));
+                      }}
+                      onBlur={() => {
+                        setFormData((prev) => ({
+                          ...prev,
+                          referenceHarvestQuantity: normalizeNonNegativeInput(
+                            prev.referenceHarvestQuantity,
+                          ),
+                        }));
+                      }}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#1F7A4C] focus:border-transparent disabled:bg-gray-100"
+                      placeholder={t("quantityPlaceholder")}
+                      disabled={formDisabled}
+                    />
+                    <span className="text-sm text-gray-600">{t("referenceHarvestUnit")}</span>
+                  </div>
+                  {fieldErrors.referenceHarvestQuantity ? (
+                    <p className="mt-1 text-xs text-red-600">
+                      {fieldErrors.referenceHarvestQuantity}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+
+
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   {t("unit")}
                 </label>
                 <select
                   value={formData.uom}
-                  onChange={(e) =>
-                    setFormData({ ...formData, uom: e.target.value })
-                  }
+                  onChange={(e) => {
+                    const uom = e.target.value;
+                    setFormData({
+                      ...formData,
+                      uom,
+                      referenceHarvestQuantity:
+                        uom.trim().toLowerCase() === "m2"
+                          ? formData.referenceHarvestQuantity
+                          : "",
+                      harvestedArea:
+                        uom.trim().toLowerCase() === "m2" ? "" : formData.harvestedArea,
+                    });
+                    setFieldErrors((prev) => ({
+                      ...prev,
+                      harvestedArea: undefined,
+                      referenceHarvestQuantity: undefined,
+                    }));
+                  }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#1F7A4C] focus:border-transparent disabled:bg-gray-100"
                   disabled={formDisabled}
                 >
                   <option value="M2">M2</option>
                   <option value="Kg">Kg</option>
                 </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {t("harvestedArea")}
+                </label>
+                {formData.uom.trim().toLowerCase() === "m2" ? (
+                  <>
+                    <input
+                      type="text"
+                      readOnly
+                      value={formData.quantity}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-100 text-gray-800 cursor-not-allowed"
+                      placeholder={t("harvestedArea")}
+                      disabled={formDisabled}
+                      aria-readonly="true"
+                    />
+                    <p className="mt-1 text-xs text-[#7A7A7A]">
+                      {t("harvestedAreaHintM2")}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <input
+                      type="number"
+                      min={0}
+                      value={formData.harvestedArea}
+                      onChange={(e) => {
+                        const nextValue = e.target.value;
+                        if (nextValue.trim().startsWith("-")) return;
+                        setFormData({
+                          ...formData,
+                          harvestedArea: nextValue,
+                        });
+                        setFieldErrors((prev) => ({
+                          ...prev,
+                          harvestedArea: undefined,
+                        }));
+                      }}
+                      onBlur={() => {
+                        setFormData((prev) => ({
+                          ...prev,
+                          harvestedArea: normalizeNonNegativeInput(prev.harvestedArea),
+                        }));
+                      }}
+                      className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-[#1F7A4C] focus:border-transparent disabled:bg-gray-100 ${fieldErrors.harvestedArea ? "border-red-500" : "border-gray-300"
+                        }`}
+                      placeholder={t("harvestedAreaPlaceholderKg")}
+                      disabled={formDisabled}
+                    />
+                    <p className="mt-1 text-xs text-[#7A7A7A]">
+                      {t("harvestedAreaHintKg")}
+                    </p>
+                    {fieldErrors.harvestedArea ? (
+                      <p className="mt-1 text-xs text-red-600">
+                        {fieldErrors.harvestedArea}
+                      </p>
+                    ) : null}
+                  </>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {tCommon("farm")}
+                </label>
+                <select
+                  value={formData.farm}
+                  onChange={(e) => {
+                    setFormData({
+                      ...formData,
+                      farm: e.target.value,
+                      zone: "",
+                    });
+                    setFieldErrors((prev) => ({
+                      ...prev,
+                      farm: undefined,
+                      zone: undefined,
+                    }));
+                  }}
+                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-[#1F7A4C] focus:border-transparent disabled:bg-gray-100 disabled:text-gray-500 ${fieldErrors.farm ? "border-red-500" : "border-gray-300"
+                    }`}
+                  disabled={formDisabled}
+                >
+                  <option value="">
+                    {refLoading ? t("loadingFarms") : t("selectFarm")}
+                  </option>
+                  {farmOptions.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+                {fieldErrors.farm ? (
+                  <p className="mt-1 text-xs text-red-600">{fieldErrors.farm}</p>
+                ) : null}
               </div>
 
               <div>
@@ -1018,7 +1313,7 @@ function HarvestInputPageInner() {
                   <option value="">
                     {refLoading ? t("loadingZones") : t("selectZone")}
                   </option>
-                  {zoneEntries.map(([key, label]) => (
+                  {filteredZoneEntries.map(([key, label]) => (
                     <option key={key} value={key}>
                       {label}
                     </option>
@@ -1029,33 +1324,7 @@ function HarvestInputPageInner() {
                 ) : null}
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {tCommon("farm")}
-                </label>
-                <select
-                  value={formData.farm}
-                  onChange={(e) => {
-                    setFormData({ ...formData, farm: e.target.value });
-                    setFieldErrors((prev) => ({ ...prev, farm: undefined }));
-                  }}
-                  className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-[#1F7A4C] focus:border-transparent disabled:bg-gray-100 disabled:text-gray-500 ${fieldErrors.farm ? "border-red-500" : "border-gray-300"
-                    }`}
-                  disabled={formDisabled}
-                >
-                  <option value="">
-                    {refLoading ? t("loadingFarms") : t("selectFarm")}
-                  </option>
-                  {farmOptions.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-                {fieldErrors.farm ? (
-                  <p className="mt-1 text-xs text-red-600">{fieldErrors.farm}</p>
-                ) : null}
-              </div>
+             
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1105,7 +1374,6 @@ function HarvestInputPageInner() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   {t("deliveryDate")}{" "}
-                  <span className="text-gray-400 font-normal">({tCommon("optional").toLowerCase()})</span>
                 </label>
                 <DatePicker
                   value={formData.deliveryDate}
@@ -1122,7 +1390,6 @@ function HarvestInputPageInner() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   {t("doSoNumber")}{" "}
-                  <span className="text-gray-400 font-normal">({tCommon("optional").toLowerCase()})</span>
                 </label>
                 <input
                   type="text"
@@ -1142,7 +1409,6 @@ function HarvestInputPageInner() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   {t("truckNote")}{" "}
-                  <span className="text-gray-400 font-normal">({tCommon("optional").toLowerCase()})</span>
                 </label>
                 <textarea
                   value={formData.truckNote}
@@ -1162,7 +1428,6 @@ function HarvestInputPageInner() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   {t("licensePlate")}{" "}
-                  <span className="text-gray-400 font-normal">({tCommon("optional").toLowerCase()})</span>
                 </label>
                 <input
                   type="text"
@@ -1182,11 +1447,7 @@ function HarvestInputPageInner() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-3">
                   {t("documentationPhotos")}{" "}
-                  <span className="text-gray-400 font-normal">({tCommon("optional").toLowerCase()})</span>
                 </label>
-                <p className="text-xs text-gray-500 mb-2">
-                  {t("photosHelpText")}
-                </p>
                 <div className="grid grid-cols-3 gap-3">
                   {DOC_PHOTO_SLOTS.map((field) => {
                     const label = getPhotoSlotLabel(field);
@@ -1307,6 +1568,83 @@ function HarvestInputPageInner() {
           </div>
         </div>
       </div>
+
+      {deleteMenuOpen ? (
+        <>
+          <button
+            type="button"
+            className="fixed inset-0 z-60 bg-black/40"
+            aria-label="Close actions menu"
+            onClick={closeDeleteMenu}
+          />
+          <div
+            className="fixed inset-x-0 bottom-0 z-61 mx-auto max-w-md rounded-t-2xl border border-gray-200 bg-white shadow-lg"
+            role="dialog"
+            aria-label="Actions"
+          >
+            <div className="py-2">
+              <button
+                type="button"
+                className="flex w-full items-center gap-3 px-4 py-3 text-left text-red-600 hover:bg-red-50"
+                onClick={onPickDeleteFromSheet}
+              >
+                <Trash2 className="h-5 w-5 shrink-0" />
+                <span className="font-medium">{tCommon("delete")}</span>
+              </button>
+              <button
+                type="button"
+                className="flex w-full items-center gap-3 px-4 py-3 text-left text-gray-800 hover:bg-gray-50"
+                onClick={closeDeleteMenu}
+              >
+                <span className="pl-8 font-medium">{tCommon("cancel")}</span>
+              </button>
+            </div>
+          </div>
+        </>
+      ) : null}
+
+      {confirmDeleteOpen ? (
+        <div
+          className="fixed inset-0 z-70 flex items-center justify-center bg-black/40 p-4"
+          role="presentation"
+          onClick={() => {
+            if (!deleting) setConfirmDeleteOpen(false);
+          }}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="delete-harvest-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="delete-harvest-title" className="text-lg font-semibold text-gray-900">
+              Delete harvest?
+            </h2>
+            <p className="mt-2 text-sm text-gray-600">
+              Are you sure you want to delete this harvest record?
+            </p>
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-lg px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
+                onClick={() => setConfirmDeleteOpen(false)}
+                disabled={deleting}
+              >
+                {tCommon("cancel")}
+              </button>
+              <button
+                type="button"
+                className="rounded-lg px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 disabled:opacity-60"
+                onClick={() => void onConfirmDeleteHarvest()}
+                disabled={deleting}
+              >
+                {deleting ? "Deleting..." : tCommon("delete")}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </RequireAuth>
   );
 }

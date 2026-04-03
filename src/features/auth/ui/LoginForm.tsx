@@ -11,7 +11,7 @@ import {
   loadRememberedCredentials,
   saveRememberedCredentials,
 } from "@/shared/lib/loginRemember";
-import { STORAGE_TOKEN_KEY } from "@/shared/lib/sessionUser";
+import { fetchSessionAuthenticated, removeAuthToken } from "@/shared/lib/sessionUser";
 import type { SessionUser } from "@/shared/lib/sessionUser";
 import { useAuthUserStore } from "@/shared/store/authUserStore";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
@@ -20,7 +20,7 @@ type LoginResponse =
   | {
       success: true;
       message?: string;
-      data: { token: string; [k: string]: unknown };
+      data: { token?: string; [k: string]: unknown };
     }
   | { success: false; message?: string; [k: string]: unknown };
 
@@ -42,9 +42,8 @@ export default function LoginForm() {
   useEffect(() => {
     if (!mounted) return;
     const saved = loadRememberedCredentials();
-    if (saved && (saved.email || saved.password)) {
+    if (saved?.email) {
       setEmail(saved.email);
-      setPassword(saved.password);
       setRemember(true);
     }
   }, [mounted]);
@@ -61,6 +60,7 @@ export default function LoginForm() {
     try {
       const res = await fetch(INTERNAL_API.authentication.login, {
         method: "POST",
+        credentials: "same-origin",
         headers: {
           "Content-Type": "application/json",
         },
@@ -77,21 +77,23 @@ export default function LoginForm() {
         return;
       }
 
+      removeAuthToken();
       const data = (json as { data?: Record<string, unknown> }).data;
-      const token = data?.token as string | undefined;
-      if (!token) {
+      if (!data || typeof data !== "object") {
+        setError(t("loginTokenMissing"));
+        return;
+      }
+      const { token: _omit, ...profile } = data;
+      useAuthUserStore.getState().setUser(profile as SessionUser);
+
+      const sessionOk = await fetchSessionAuthenticated();
+      if (!sessionOk) {
         setError(t("loginTokenMissing"));
         return;
       }
 
-      window.localStorage.setItem(STORAGE_TOKEN_KEY, token);
-      if (data) {
-        const { token: _omit, ...profile } = data;
-        useAuthUserStore.getState().setUser(profile as SessionUser);
-      }
-
       if (remember) {
-        saveRememberedCredentials(email, password);
+        saveRememberedCredentials(email);
       } else {
         clearRememberedCredentials();
       }
