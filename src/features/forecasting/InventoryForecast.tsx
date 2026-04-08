@@ -26,6 +26,7 @@ import {
 import { mapRowsToSelectOptions } from "@/shared/lib/harvestReferenceData";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { DateRangePicker } from "@/shared/ui/date-picker/date-range-picker";
+import { MultiSelect } from "@/components/ui/multi-select";
 import {
   fetchHarvestRowsForForecasting,
   rowsToMockHarvestRows,
@@ -57,7 +58,7 @@ const FALLBACK_FARMS = [
   "Highland Farm",
 ];
 
-/** Cập nhật isReady / daysUntilReady theo ngày tham chiếu (không phải chỉ “hôm nay”). */
+/** Update isReady / daysUntilReady using a reference date (not only "today"). */
 function applyInventoryReference(
   h: ForecastHarvestRow,
   refYmd: string,
@@ -97,6 +98,14 @@ function buildGrassColors(grassNames: string[]): Record<string, string> {
 
 function normalizeText(v: unknown): string {
   return String(v ?? "").trim().toLowerCase();
+}
+
+function normalizeFarmKey(v: unknown): string {
+  return String(v ?? "")
+    .normalize("NFKC")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
 }
 
 function ymdInRange(
@@ -187,58 +196,6 @@ function calculateInventory(
   return inventory;
 }
 
-/**
- * Neo 6 tháng forecast: khi có range harvest thì lấy `to`, không có `to` thì `from`, không chọn range thì hôm nay.
- */
-function forecastAnchorDateFromHarvestRange(range: {
-  from?: string;
-  to?: string;
-}): Date {
-  const fallback = new Date();
-  if (range.to) {
-    const d = parseISO(range.to);
-    return isValid(d) ? d : fallback;
-  }
-  if (range.from) {
-    const d = parseISO(range.from);
-    return isValid(d) ? d : fallback;
-  }
-  return fallback;
-}
-
-function generateForecast(
-  grassTypeList: string[],
-  harvestHistory: ForecastHarvestRow[],
-  anchorDate: Date,
-): Array<Record<string, string | number>> {
-  const forecast: Array<Record<string, string | number>> = [];
-
-  for (let month = 0; month <= 6; month++) {
-    const forecastDate = new Date(anchorDate);
-    forecastDate.setMonth(forecastDate.getMonth() + month);
-    const dateStr = forecastDate.toISOString().split("T")[0];
-
-    const entry: Record<string, string | number> = {
-      date: dateStr,
-      month: forecastDate.toLocaleDateString("en-US", {
-        month: "short",
-        year: "numeric",
-      }),
-    };
-
-    grassTypeList.forEach((grass) => {
-      const availableHarvests = harvestHistory.filter(
-        (h) => h.grassType === grass && new Date(h.readyDate) <= forecastDate,
-      );
-      entry[grass] = availableHarvests.reduce((sum, h) => sum + h.quantity, 0);
-    });
-
-    forecast.push(entry);
-  }
-
-  return forecast;
-}
-
 function generateTimeline(harvestHistory: ForecastHarvestRow[]) {
   const futureHarvests = harvestHistory
     .filter((h) => !h.isReady && h.daysUntilReady <= 180)
@@ -282,9 +239,9 @@ function getDefaultHarvestRange(): { from: string; to: string } {
 }
 
 export function InventoryForecast() {
-  const [selectedFarm, setSelectedFarm] = useState<string | null>(null);
-  const [selectedGrass, setSelectedGrass] = useState<string | null>(null);
-  const [selectedCountryId, setSelectedCountryId] = useState<string | null>(null);
+  const [selectedFarms, setSelectedFarms] = useState<string[]>([]);
+  const [selectedGrasses, setSelectedGrasses] = useState<string[]>([]);
+  const [selectedCountryIds, setSelectedCountryIds] = useState<string[]>([]);
   const [harvestDateRange, setHarvestDateRange] = useState<{
     from?: string;
     to?: string;
@@ -292,6 +249,7 @@ export function InventoryForecast() {
   const [viewMode, setViewMode] = useState<"current" | "forecast" | "timeline">(
     "current",
   );
+  const [forecastUnit, setForecastUnit] = useState<"MIXED" | "KG" | "M2">("MIXED");
 
   const farmsRaw = useHarvestingDataStore((s) => s.farms);
   const grassesRaw = useHarvestingDataStore((s) => s.grasses);
@@ -346,7 +304,7 @@ export function InventoryForecast() {
   const [apiHarvestLoading, setApiHarvestLoading] = useState(true);
   const [apiHarvestError, setApiHarvestError] = useState<string | null>(null);
 
-  /** Chỉ đổi khi đổi năm trong picker — tránh refetch khi chỉ thu hẹp tháng (client lọc overlap). */
+  /** Only change when picker year changes—avoid refetch for month-only narrowing (client overlap filtering). */
   const harvestYearForApi = useMemo(() => {
     return (
       harvestDateRange.from ??
@@ -371,7 +329,6 @@ export function InventoryForecast() {
       const res = await fetchHarvestRowsForForecasting({
         actual_harvest_date_from: from,
         actual_harvest_date_to: to,
-        country_id: selectedCountryId ?? undefined,
         perPage: 200,
         maxPages: 50,
       });
@@ -388,24 +345,31 @@ export function InventoryForecast() {
     return () => {
       cancelled = true;
     };
-  }, [harvestYearForApi, selectedCountryId]);
+  }, [harvestYearForApi]);
+
+  const filteredApiHarvestRaw = useMemo(() => {
+    if (selectedCountryIds.length === 0) return apiHarvestRaw;
+    return apiHarvestRaw.filter((raw) =>
+      selectedCountryIds.includes(String(raw.country_id ?? "").trim()),
+    );
+  }, [apiHarvestRaw, selectedCountryIds]);
 
   const regrowthDaysPreview = useMemo(
-    () => mapApiHarvestRawToRegrowthDays(apiHarvestRaw),
-    [apiHarvestRaw],
+    () => mapApiHarvestRawToRegrowthDays(filteredApiHarvestRaw),
+    [filteredApiHarvestRaw],
   );
 
   const monthlyAvailabilityFromRaw = useMemo(
-    () => computeMonthlyAvailabilityFromRaw(apiHarvestRaw),
-    [apiHarvestRaw],
+    () => computeMonthlyAvailabilityFromRaw(filteredApiHarvestRaw),
+    [filteredApiHarvestRaw],
   );
   const monthlyAvailabilityByProduct = useMemo(
     () =>
-      computeMonthlyAvailabilityByProductFromRaw(apiHarvestRaw, {
+      computeMonthlyAvailabilityByProductFromRaw(filteredApiHarvestRaw, {
         fromYmd: harvestDateRange.from,
         toYmd: harvestDateRange.to,
       }),
-    [apiHarvestRaw, harvestDateRange.from, harvestDateRange.to],
+    [filteredApiHarvestRaw, harvestDateRange.from, harvestDateRange.to],
   );
 
   const monthlyAvailabilityInSelectedRange = useMemo(() => {
@@ -448,8 +412,8 @@ export function InventoryForecast() {
   }, [regrowthDaysPreview, grassNameById]);
 
   const harvestHistoryFromApi = useMemo(
-    () => rowsToMockHarvestRows(apiHarvestRaw),
-    [apiHarvestRaw],
+    () => rowsToMockHarvestRows(filteredApiHarvestRaw),
+    [filteredApiHarvestRaw],
   );
 
   const mockHarvestHistory = useMemo(
@@ -459,7 +423,7 @@ export function InventoryForecast() {
 
   // console.log(mockHarvestHistory);
 
-  /** API dùng `actual_harvest_date_from`/`to` với CASE actual|estimated như PHP; khi lỗi API fallback demo. */
+  /** API uses `actual_harvest_date_from`/`to` with actual|estimated CASE like PHP; fallback to demo on API error. */
   const harvestHistory = useMemo(() => {
     if (apiHarvestError) return mockHarvestHistory;
     if (apiHarvestLoading) return mockHarvestHistory;
@@ -472,7 +436,7 @@ export function InventoryForecast() {
   ]);
 
   const todayYmd = format(new Date(), "yyyy-MM-dd");
-  /** Ngày xem “đã ready chưa”: phụ thuộc harvest (from–to) — nếu khoảng đã qua, xem tại ngày cuối khoảng. */
+  /** Reference date for "is ready": depends on harvest (from–to)—if range is in the past, use range end date. */
   const inventoryRefYmd = useMemo(
     () => inventoryReferenceYmd(harvestDateRange, todayYmd),
     [harvestDateRange.from, harvestDateRange.to, todayYmd],
@@ -494,7 +458,7 @@ export function InventoryForecast() {
     [harvestHistory, inventoryRefYmd],
   );
 
-  /** Gộp loại cỏ từ API và từ danh mục sản phẩm (để biểu đồ không bỏ sót tên cỏ mới). */
+  /** Merge grass types from API and product catalog (so charts do not miss newly added grass names). */
   const grassTypeListForCharts = useMemo(() => {
     const s = new Set(grassTypeList);
     harvestHistory.forEach((h) => {
@@ -522,8 +486,9 @@ export function InventoryForecast() {
   const filteredHistory = useMemo(
     () =>
       harvestHistoryAtRef.filter((h) => {
-        if (selectedFarm && h.farm !== selectedFarm) return false;
-        if (selectedGrass && h.grassType !== selectedGrass) return false;
+        if (selectedFarms.length > 0 && !selectedFarms.includes(h.farm)) return false;
+        if (selectedGrasses.length > 0 && !selectedGrasses.includes(h.grassType))
+          return false;
         if (
           !harvestRegrowthWindowOverlapsRange(
             h.harvestDate,
@@ -534,27 +499,30 @@ export function InventoryForecast() {
           return false;
         return true;
       }),
-    [harvestHistoryAtRef, selectedFarm, selectedGrass, harvestDateRange],
+    [harvestHistoryAtRef, selectedFarms, selectedGrasses, harvestDateRange],
   );
 
   const regrowthRowsInSelectedRange = useMemo(() => {
     return regrowthPreviewWithGrass.filter((r) => {
-      // Regrowth/Growing chỉ lấy những dòng có chính ngày regrowth nằm trong khoảng đang chọn.
+      // Regrowth/Growing only includes rows whose regrowth date is inside the selected range.
       if (!ymdInRange(r.regrowthDateYmd, harvestDateRange)) {
         return false;
       }
-      if (selectedFarm && normalizeText(r.farm_name) !== normalizeText(selectedFarm)) {
+      if (
+        selectedFarms.length > 0 &&
+        !selectedFarms.some((f) => normalizeText(r.farm_name) === normalizeText(f))
+      ) {
         return false;
       }
       if (
-        selectedGrass &&
-        normalizeText(r.grassLabel) !== normalizeText(selectedGrass)
+        selectedGrasses.length > 0 &&
+        !selectedGrasses.some((g) => normalizeText(r.grassLabel) === normalizeText(g))
       ) {
         return false;
       }
       return true;
     });
-  }, [regrowthPreviewWithGrass, harvestDateRange, selectedFarm, selectedGrass]);
+  }, [regrowthPreviewWithGrass, harvestDateRange, selectedFarms, selectedGrasses]);
 
   const growingByProductRows = useMemo(() => {
     const byProduct = new Map<
@@ -587,7 +555,7 @@ export function InventoryForecast() {
       { productId: number | null; grass: string; availableKg: number; availableM2: number }
     >();
     for (const row of regrowthRowsInSelectedRange) {
-      // Available = regrowth đã tới ngày ready tại mốc inventoryRefYmd.
+      // Available = regrowth that has reached ready date at inventoryRefYmd.
       if (row.regrowthDateYmd > inventoryRefYmd) continue;
       const key = String(row.product_id ?? `unknown:${row.grassLabel || "Unknown"}`);
       const current = byProduct.get(key) ?? {
@@ -635,25 +603,298 @@ export function InventoryForecast() {
   }, [regrowthRowsInSelectedRange, inventoryRefYmd]);
 
   // console.log(availableByFarmRows);
-  /** Farm / grass lists cho UI: khi đang lọc thì chỉ hiển thị cột hoặc thẻ tương ứng. */
+  const formatValueForCard = (value: number): string => {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n === 0) return "0";
+    const abs = Math.abs(n);
+    if (abs < 1000) return Math.round(n).toLocaleString();
+    const scaled = abs / 1000;
+    // Keep up to 3 decimals to preserve meaningful precision (e.g., 5323 -> 5.323k),
+    // while trimming trailing zeros (e.g., 5323000 -> 5323k).
+    const compact = scaled
+      .toFixed(3)
+      .replace(/\.000$/, "")
+      .replace(/(\.\d*[1-9])0+$/, "$1");
+    return `${n < 0 ? "-" : ""}${compact}k`;
+  };
+
+  const currentInventoryByFarmCards = useMemo(() => {
+    type NumPair = { kg: number; m2: number };
+    type Series = {
+      farmName: string;
+      farmId: number | null;
+      grass: string;
+      regByMonth: Map<string, NumPair>;
+      harByMonth: Map<string, NumPair>;
+    };
+    type FarmCard = {
+      farmId: number | null;
+      farmName: string;
+      totalKg: number;
+      totalM2: number;
+      byGrass: Map<string, { kg: number; m2: number; lastMonthKey: string }>;
+    };
+
+    const monthInc = (monthKey: string): string => {
+      const [yStr, mStr] = monthKey.split("-");
+      const y = Number(yStr);
+      const m = Number(mStr);
+      if (m >= 12) return `${String(y + 1).padStart(4, "0")}-01`;
+      return `${String(y).padStart(4, "0")}-${String(m + 1).padStart(2, "0")}`;
+    };
+
+    const selectedYear = Number(
+      String(harvestDateRange.from ?? harvestDateRange.to ?? "").slice(0, 4),
+    );
+    const targetYear = Number.isFinite(selectedYear) ? selectedYear : new Date().getFullYear();
+    const yearStartKey = `${String(targetYear).padStart(4, "0")}-01`;
+    const yearEndKey = `${String(targetYear).padStart(4, "0")}-12`;
+    const fromKey =
+      harvestDateRange.from?.slice(0, 7).startsWith(String(targetYear))
+        ? String(harvestDateRange.from).slice(0, 7)
+        : yearStartKey;
+    const toKeyRaw =
+      harvestDateRange.to?.slice(0, 7).startsWith(String(targetYear))
+        ? String(harvestDateRange.to).slice(0, 7)
+        : yearEndKey;
+    const toKey = toKeyRaw > yearEndKey ? yearEndKey : toKeyRaw;
+
+    const rawFarmsForCards =
+      selectedFarms.length > 0 ? selectedFarms : farmListForCharts;
+    const farmDisplayByKey = new Map<string, string>();
+    for (const f of rawFarmsForCards) {
+      const label = String(f ?? "").trim();
+      const key = normalizeFarmKey(label);
+      if (!key) continue;
+      if (!farmDisplayByKey.has(key)) farmDisplayByKey.set(key, label);
+    }
+    const farmsForCards = Array.from(farmDisplayByKey.values());
+    const grassesForCards =
+      selectedGrasses.length > 0 ? selectedGrasses : grassTypeListForCharts;
+    const seriesMap = new Map<string, Series>();
+
+    const ensureSeries = (
+      farmName: string,
+      grass: string,
+      farmId: number | null,
+    ): Series => {
+      const farmKey = normalizeFarmKey(farmName);
+      const key = `${farmKey}__${grass}`;
+      const existing = seriesMap.get(key);
+      if (existing) return existing;
+      const created: Series = {
+        farmName: farmDisplayByKey.get(farmKey) ?? farmName,
+        farmId,
+        grass,
+        regByMonth: new Map<string, NumPair>(),
+        harByMonth: new Map<string, NumPair>(),
+      };
+      seriesMap.set(key, created);
+      return created;
+    };
+
+    // Regrowth by farm + grass + month
+    for (const row of regrowthPreviewWithGrass) {
+      const farmName = String(row.farm_name || "Unknown").trim();
+      const farmKey = normalizeFarmKey(farmName);
+      if (!farmDisplayByKey.has(farmKey)) continue;
+      if (
+        selectedGrasses.length > 0 &&
+        !selectedGrasses.some((g) => normalizeText(row.grassLabel) === normalizeText(g))
+      ) continue;
+      const monthKey = row.regrowthDateYmd.slice(0, 7);
+      if (!monthKey.startsWith(String(targetYear))) continue;
+      const s = ensureSeries(
+        farmDisplayByKey.get(farmKey) ?? farmName,
+        row.grassLabel || "Unknown",
+        row.farm_id,
+      );
+      const cur = s.regByMonth.get(monthKey) ?? { kg: 0, m2: 0 };
+      if (row.uom === "M2") cur.m2 += row.regrowthQuantity;
+      else cur.kg += row.regrowthQuantity;
+      s.regByMonth.set(monthKey, cur);
+    }
+
+    // Harvest by farm + grass + month (actual_harvest_date)
+    for (const raw of apiHarvestRaw) {
+      const actual = String(raw.actual_harvest_date ?? "").trim();
+      const match = /^(\d{4}-\d{2})-\d{2}$/.exec(actual);
+      if (!match) continue;
+      const monthKey = match[1];
+      if (!monthKey.startsWith(String(targetYear))) continue;
+      const farmName = String(raw.farm_name ?? "").trim() || "Unknown";
+      const farmKey = normalizeFarmKey(farmName);
+      if (!farmDisplayByKey.has(farmKey)) continue;
+      const productId = Number(raw.product_id ?? NaN);
+      const grass =
+        grassNameById.get(productId) ??
+        (String(raw.grass_name ?? "").trim() || "Unknown");
+      if (
+        selectedGrasses.length > 0 &&
+        !selectedGrasses.some((g) => normalizeText(grass) === normalizeText(g))
+      ) continue;
+      const s = ensureSeries(
+        farmDisplayByKey.get(farmKey) ?? farmName,
+        grass,
+        Number.isFinite(Number(raw.farm_id)) ? Number(raw.farm_id) : null,
+      );
+      const cur = s.harByMonth.get(monthKey) ?? { kg: 0, m2: 0 };
+      const qty = Number(raw.quantity ?? 0);
+      const uom = String(raw.uom ?? "").trim().toUpperCase();
+      if (uom === "M2") cur.m2 += qty;
+      else cur.kg += qty;
+      s.harByMonth.set(monthKey, cur);
+    }
+
+    const byFarm = new Map<string, FarmCard>();
+    for (const farmName of farmsForCards) {
+      byFarm.set(normalizeFarmKey(farmName), {
+        farmId: null,
+        farmName,
+        totalKg: 0,
+        totalM2: 0,
+        byGrass: new Map<string, { kg: number; m2: number; lastMonthKey: string }>(),
+      });
+    }
+
+    // Compute monthly available using: (starting + regrowth) - harvested
+    for (const s of seriesMap.values()) {
+      const activityKeys = Array.from(
+        new Set([...s.regByMonth.keys(), ...s.harByMonth.keys()]),
+      ).sort((a, b) => a.localeCompare(b));
+      const earliest = activityKeys[0];
+      const seriesStart = earliest && earliest < fromKey ? earliest : fromKey;
+      const monthToShow = toKey;
+
+      let prevKg = 0;
+      let prevM2 = 0;
+      let cursor = seriesStart;
+      const availableByMonth = new Map<string, NumPair>();
+      while (cursor <= toKey) {
+        const reg = s.regByMonth.get(cursor) ?? { kg: 0, m2: 0 };
+        const har = s.harByMonth.get(cursor) ?? { kg: 0, m2: 0 };
+        const available = {
+          kg: prevKg + reg.kg - har.kg,
+          m2: prevM2 + reg.m2 - har.m2,
+        };
+        availableByMonth.set(cursor, available);
+        prevKg = available.kg;
+        prevM2 = available.m2;
+        cursor = monthInc(cursor);
+      }
+
+      const last = availableByMonth.get(monthToShow) ?? { kg: 0, m2: 0 };
+      const farm = byFarm.get(normalizeFarmKey(s.farmName));
+      if (!farm) continue;
+      farm.farmId = farm.farmId ?? s.farmId;
+      farm.byGrass.set(s.grass, { kg: last.kg, m2: last.m2, lastMonthKey: monthToShow });
+      farm.totalKg += last.kg;
+      farm.totalM2 += last.m2;
+    }
+
+    // Keep all grasses on UI; show 0 even when no data is present.
+    for (const farm of byFarm.values()) {
+      for (const grass of grassesForCards) {
+        if (!farm.byGrass.has(grass)) {
+          farm.byGrass.set(grass, { kg: 0, m2: 0, lastMonthKey: toKey });
+        }
+      }
+    }
+
+    const mergedByDisplayName = new Map<string, FarmCard>();
+    for (const farm of byFarm.values()) {
+      const k = normalizeFarmKey(farm.farmName);
+      const existing = mergedByDisplayName.get(k);
+      if (!existing) {
+        mergedByDisplayName.set(k, {
+          farmId: farm.farmId,
+          farmName: farm.farmName,
+          totalKg: 0,
+          totalM2: 0,
+          byGrass: new Map(farm.byGrass),
+        });
+        continue;
+      }
+
+      for (const [grass, v] of farm.byGrass.entries()) {
+        const cur = existing.byGrass.get(grass);
+        if (!cur) {
+          existing.byGrass.set(grass, v);
+          continue;
+        }
+        existing.byGrass.set(grass, {
+          kg: cur.kg + v.kg,
+          m2: cur.m2 + v.m2,
+          lastMonthKey: v.lastMonthKey > cur.lastMonthKey ? v.lastMonthKey : cur.lastMonthKey,
+        });
+      }
+      if (!existing.farmId && farm.farmId) existing.farmId = farm.farmId;
+    }
+
+    for (const farm of mergedByDisplayName.values()) {
+      let totalKg = 0;
+      let totalM2 = 0;
+      for (const v of farm.byGrass.values()) {
+        totalKg += v.kg;
+        totalM2 += v.m2;
+      }
+      farm.totalKg = totalKg;
+      farm.totalM2 = totalM2;
+    }
+
+    return Array.from(mergedByDisplayName.values()).sort((a, b) =>
+      a.farmName.localeCompare(b.farmName),
+    );
+  }, [
+    apiHarvestRaw,
+    regrowthPreviewWithGrass,
+    grassNameById,
+    selectedFarms,
+    selectedGrasses,
+    farmListForCharts,
+    grassTypeListForCharts,
+    harvestDateRange.from,
+    harvestDateRange.to,
+  ]);
+
+  /** Farm / grass lists for UI: when filtered, only display corresponding columns/cards. */
   const displayFarmList = useMemo(
-    () => (selectedFarm ? [selectedFarm] : farmListForCharts),
-    [selectedFarm, farmListForCharts],
+    () => (selectedFarms.length > 0 ? selectedFarms : farmListForCharts),
+    [selectedFarms, farmListForCharts],
   );
   const displayGrassList = useMemo(
-    () => (selectedGrass ? [selectedGrass] : grassTypeListForCharts),
-    [selectedGrass, grassTypeListForCharts],
+    () => (selectedGrasses.length > 0 ? selectedGrasses : grassTypeListForCharts),
+    [selectedGrasses, grassTypeListForCharts],
   );
+  const availableByGrassLastMonthRows = useMemo(() => {
+    const byGrassMonth = new Map<string, Map<string, { kg: number; m2: number }>>();
+    for (const row of monthlyAvailabilityByProductInSelectedRange) {
+      const grass = grassNameById.get(row.productId) ?? `Product ${row.productId}`;
+      const monthMap = byGrassMonth.get(grass) ?? new Map<string, { kg: number; m2: number }>();
+      const cur = monthMap.get(row.monthKey) ?? { kg: 0, m2: 0 };
+      cur.kg += row.availableKg;
+      cur.m2 += row.availableM2;
+      monthMap.set(row.monthKey, cur);
+      byGrassMonth.set(grass, monthMap);
+    }
+
+    return displayGrassList.map((grass) => {
+      const monthMap = byGrassMonth.get(grass) ?? new Map<string, { kg: number; m2: number }>();
+      const lastMonthKey = Array.from(monthMap.keys()).sort((a, b) => a.localeCompare(b)).pop();
+      const last = lastMonthKey ? monthMap.get(lastMonthKey) : undefined;
+      return {
+        grass,
+        availableKg: last?.kg ?? 0,
+        availableM2: last?.m2 ?? 0,
+        lastMonthKey: lastMonthKey ?? "—",
+      };
+    });
+  }, [monthlyAvailabilityByProductInSelectedRange, grassNameById, displayGrassList]);
 
   const inventory = useMemo(
     () =>
       calculateInventory(farmListForCharts, grassTypeListForCharts, filteredHistory),
     [farmListForCharts, grassTypeListForCharts, filteredHistory],
-  );
-
-  const forecastAnchor = useMemo(
-    () => forecastAnchorDateFromHarvestRange(harvestDateRange),
-    [harvestDateRange],
   );
 
   const harvestRangeSummary = useMemo(() => {
@@ -670,39 +911,203 @@ export function InventoryForecast() {
     return null;
   }, [harvestDateRange]);
 
-  const forecast = useMemo(
-    () =>
-      generateForecast(grassTypeListForCharts, filteredHistory, forecastAnchor),
-    [grassTypeListForCharts, filteredHistory, forecastAnchor],
-  );
+  const forecastMonthCount = useMemo(() => {
+    const from = harvestDateRange.from ? parseISO(harvestDateRange.from) : null;
+    const to = harvestDateRange.to ? parseISO(harvestDateRange.to) : null;
+    if (!from || !to || !isValid(from) || !isValid(to) || to < from) return 1;
+    return (
+      (to.getFullYear() - from.getFullYear()) * 12 +
+      (to.getMonth() - from.getMonth()) +
+      1
+    );
+  }, [harvestDateRange.from, harvestDateRange.to]);
+
+  const forecast = useMemo(() => {
+    const from = harvestDateRange.from ? parseISO(harvestDateRange.from) : null;
+    const to = harvestDateRange.to ? parseISO(harvestDateRange.to) : null;
+    const validRange = Boolean(from && to && isValid(from) && isValid(to) && to >= from);
+
+    const start = validRange ? new Date(from!.getFullYear(), from!.getMonth(), 1) : new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+    const end = validRange ? new Date(to!.getFullYear(), to!.getMonth(), 1) : new Date(start.getFullYear(), start.getMonth() + 5, 1);
+
+    const monthKeys: string[] = [];
+    let cursor = new Date(start);
+    while (cursor <= end) {
+      monthKeys.push(`${String(cursor.getFullYear()).padStart(4, "0")}-${String(cursor.getMonth() + 1).padStart(2, "0")}`);
+      cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
+    }
+
+    const byGrassMonth = new Map<string, Map<string, number>>();
+    for (const row of monthlyAvailabilityByProductInSelectedRange) {
+      const grass = grassNameById.get(row.productId) ?? `Product ${row.productId}`;
+      const monthMap = byGrassMonth.get(grass) ?? new Map<string, number>();
+      const available =
+        forecastUnit === "KG"
+          ? row.availableKg
+          : forecastUnit === "M2"
+            ? row.availableM2
+            : row.availableKg + row.availableM2;
+      monthMap.set(row.monthKey, (monthMap.get(row.monthKey) ?? 0) + available);
+      byGrassMonth.set(grass, monthMap);
+    }
+
+    return monthKeys.map((monthKey) => {
+      const [yearStr, monthStr] = monthKey.split("-");
+      const d = new Date(Number(yearStr), Number(monthStr) - 1, 1);
+      const entry: Record<string, string | number> = {
+        date: monthKey,
+        month: d.toLocaleDateString("en-US", { month: "short", year: "numeric" }),
+      };
+      for (const grass of displayGrassList) {
+        entry[grass] = byGrassMonth.get(grass)?.get(monthKey) ?? 0;
+      }
+      return entry;
+    });
+  }, [
+    harvestDateRange.from,
+    harvestDateRange.to,
+    monthlyAvailabilityByProductInSelectedRange,
+    grassNameById,
+    displayGrassList,
+    forecastUnit,
+  ]);
+
+  const regrowthTimeline = useMemo(() => {
+    const today = parseISO(todayYmd);
+    const getWeekOfYear = (d: Date): { year: number; week: number } => {
+      const year = d.getFullYear();
+      const jan1 = new Date(year, 0, 1);
+      const dayOfYear = differenceInCalendarDays(d, jan1) + 1;
+      const week = Math.floor((dayOfYear - 1) / 7) + 1;
+      return { year, week };
+    };
+
+    const grouped = new Map<
+      string,
+      {
+        year: number;
+        weekOfYear: number;
+        totalKg: number;
+        totalM2: number;
+        items: Array<{
+          id: string | number | null;
+          farm: string;
+          grass: string;
+          uom: "KG" | "M2";
+          quantity: number;
+          regrowthDateYmd: string;
+          daysUntilRegrowth: number;
+          weekNoInYear: number;
+        }>;
+      }
+    >();
+
+    for (const r of regrowthRowsInSelectedRange) {
+      const regrowthDate = parseISO(r.regrowthDateYmd);
+      if (!isValid(regrowthDate)) continue;
+      const daysUntilRegrowth = Math.max(0, differenceInCalendarDays(regrowthDate, today));
+      const wk = getWeekOfYear(regrowthDate);
+      const weekKey = `${wk.year}-${String(wk.week).padStart(2, "0")}`;
+      const bucket = grouped.get(weekKey) ?? {
+        year: wk.year,
+        weekOfYear: wk.week,
+        totalKg: 0,
+        totalM2: 0,
+        items: [],
+      };
+      if (r.uom === "M2") bucket.totalM2 += r.regrowthQuantity;
+      else bucket.totalKg += r.regrowthQuantity;
+      bucket.items.push({
+        id: r.id,
+        farm: r.farm_name,
+        grass: r.grassLabel || "Unknown",
+        uom: r.uom,
+        quantity: r.regrowthQuantity,
+        regrowthDateYmd: r.regrowthDateYmd,
+        daysUntilRegrowth,
+        weekNoInYear: wk.week,
+      });
+      grouped.set(weekKey, bucket);
+    }
+
+    return Array.from(grouped.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([, v]) => v);
+  }, [regrowthRowsInSelectedRange, todayYmd]);
+
+  const harvestStatusRows = useMemo(() => {
+    const today = parseISO(todayYmd);
+    return regrowthRowsInSelectedRange
+      .map((row) => {
+        const ready = parseISO(row.regrowthDateYmd);
+        const diff = isValid(ready) ? differenceInCalendarDays(ready, today) : 0;
+        return {
+          id: String(row.id ?? ""),
+          farm: row.farm_name || "Unknown",
+          grassType: row.grassLabel || "Unknown",
+          harvestType: row.uom === "M2" ? "m2" : "kg",
+          harvestDate: row.actualHarvestDateYmd,
+          readyDate: row.regrowthDateYmd,
+          quantity: row.regrowthQuantity,
+          statusType: diff > 0 ? "pending" : "ready",
+          statusLabel: diff > 0 ? `${diff}d` : "Ready",
+        };
+      })
+      .sort((a, b) => a.readyDate.localeCompare(b.readyDate));
+  }, [regrowthRowsInSelectedRange, todayYmd]);
 
   const timeline = useMemo(
     () => generateTimeline(filteredHistory),
     [filteredHistory],
   );
 
-  // Calculate stats (ưu tiên nguồn đã tính chuỗi tháng: computeMonthlyAvailabilityFromRaw)
-  const totalAvailable =
-    monthlyAvailabilityAtRef
-      ? monthlyAvailabilityAtRef.availableKg + monthlyAvailabilityAtRef.availableM2
-      : filteredHistory
-          .filter((h) => h.isReady)
-          .reduce((sum, h) => sum + h.quantity, 0);
+  // KPI based on regrowth set already filtered by Harvest date (from–to).
+  const totalAvailableByUom = useMemo(() => {
+    const currentMonth = todayYmd.slice(0, 7);
+    let kg = 0;
+    let m2 = 0;
+    for (const r of regrowthRowsInSelectedRange) {
+      if (r.regrowthDateYmd.slice(0, 7) !== currentMonth) continue;
+      if (r.regrowthDateYmd > todayYmd) continue;
+      if (r.uom === "M2") m2 += r.regrowthQuantity;
+      else kg += r.regrowthQuantity;
+    }
+    return { kg, m2, total: kg + m2 };
+  }, [regrowthRowsInSelectedRange, todayYmd]);
 
-  const totalGrowing =
-    monthlyAvailabilityAtRef
-      ? monthlyAvailabilityAtRef.regrowthKg + monthlyAvailabilityAtRef.regrowthM2
-      : filteredHistory
-          .filter((h) => !h.isReady)
-          .reduce((sum, h) => sum + h.quantity, 0);
+  const totalGrowingByUom = useMemo(() => {
+    let kg = 0;
+    let m2 = 0;
+    for (const r of regrowthRowsInSelectedRange) {
+      if (r.uom === "M2") m2 += r.regrowthQuantity;
+      else kg += r.regrowthQuantity;
+    }
+    return { kg, m2, total: kg + m2 };
+  }, [regrowthRowsInSelectedRange]);
 
-  const readyThisWeek = filteredHistory.filter(
-    (h) => !h.isReady && h.daysUntilReady <= 7
-  ).length;
+  const readyThisWeekFarmCount = useMemo(() => {
+    const today = parseISO(todayYmd);
+    const farms = new Set<string>();
+    for (const r of regrowthRowsInSelectedRange) {
+      const ready = parseISO(r.regrowthDateYmd);
+      if (!isValid(ready)) continue;
+      const diff = differenceInCalendarDays(ready, today);
+      if (diff >= 0 && diff <= 6) farms.add(normalizeFarmKey(r.farm_name));
+    }
+    return farms.size;
+  }, [regrowthRowsInSelectedRange, todayYmd]);
 
-  const readyNextMonth = filteredHistory.filter(
-    (h) => !h.isReady && h.daysUntilReady <= 30
-  ).length;
+  const readyNext30DaysFarmCount = useMemo(() => {
+    const today = parseISO(todayYmd);
+    const farms = new Set<string>();
+    for (const r of regrowthRowsInSelectedRange) {
+      const ready = parseISO(r.regrowthDateYmd);
+      if (!isValid(ready)) continue;
+      const diff = differenceInCalendarDays(ready, today);
+      if (diff >= 0 && diff <= 30) farms.add(normalizeFarmKey(r.farm_name));
+    }
+    return farms.size;
+  }, [regrowthRowsInSelectedRange, todayYmd]);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -759,7 +1164,7 @@ export function InventoryForecast() {
           </p>
         ) : null}
 
-        {/* View mode + harvest date range — áp dụng cho toàn bộ số liệu và biểu đồ phía dưới */}
+        {/* View mode + harvest date range — applies to all metrics and charts below */}
         <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="flex flex-wrap gap-2">
             <button
@@ -782,7 +1187,7 @@ export function InventoryForecast() {
                   : "border-gray-300 bg-white text-gray-700 hover:border-[#1F7A4C]"
               }`}
             >
-              6-Month Forecast
+              {forecastMonthCount}-Month Forecast
             </button>
             <button
               type="button"
@@ -798,7 +1203,6 @@ export function InventoryForecast() {
           </div>
           <div className="flex w-full flex-col gap-2 sm:max-w-md lg:w-auto lg:min-w-[min(100%,320px)]">
             <span className="text-sm font-medium text-gray-700">
-              Harvest date (from – to)
             </span>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
               <DateRangePicker
@@ -818,22 +1222,9 @@ export function InventoryForecast() {
           </div>
         </div>
 
-        {/* Key Stats — filteredHistory: overlap [harvest, ready] với range; ready từ công thức regrowth */}
+        {/* Key Stats — filteredHistory: [harvest, ready] overlap with selected range; ready date from regrowth formula */}
         <div className="mb-8">
-          <p className="mb-2 text-xs text-gray-500">
-            Harvest range lọc các lô có cửa sổ gặt → regrowth xong giao với khoảng đó. Trạng thái
-            Available / Growing tính tại{" "}
-            <span className="font-medium text-gray-700">{inventoryRefYmd}</span>
-            {harvestDateRange.to && harvestDateRange.to < todayYmd
-              ? " (cuối khoảng đã chọn)"
-              : ""}
-            . Số lượng theo UOM trên từng lô (kg hoặc m²).
-          </p>
-          {harvestRangeSummary ? (
-            <p className="mb-3 text-xs text-gray-500">
-              Farm / grass filters áp dụng thêm cho các số dưới đây.
-            </p>
-          ) : null}
+          
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
             <div className="flex items-center justify-between mb-2">
@@ -841,10 +1232,15 @@ export function InventoryForecast() {
               <CheckCircle className="w-5 h-5 text-green-600" />
             </div>
             <div className="text-3xl font-semibold text-gray-900">
-              {(totalAvailable / 1000).toFixed(0)}K
+              {formatValueForCard(totalAvailableByUom.total)}
+            </div>
+            <div className="mt-1 text-xs text-gray-600">
+              KG: <span className="font-medium text-gray-800">{formatValueForCard(totalAvailableByUom.kg)}</span>
+              {" | "}
+              M2: <span className="font-medium text-gray-800">{formatValueForCard(totalAvailableByUom.m2)}</span>
             </div>
             <p className="text-xs text-gray-500 mt-1">
-              Ready before {inventoryRefYmd} (theo ngày regrowth xong từ công thức)
+              Total regrowth ready in the current month
             </p>
           </div>
 
@@ -854,10 +1250,15 @@ export function InventoryForecast() {
               <Sprout className="w-5 h-5 text-yellow-600" />
             </div>
             <div className="text-3xl font-semibold text-gray-900">
-              {(totalGrowing / 1000).toFixed(0)}K
+              {formatValueForCard(totalGrowingByUom.total)}
+            </div>
+            <div className="mt-1 text-xs text-gray-600">
+              KG: <span className="font-medium text-gray-800">{formatValueForCard(totalGrowingByUom.kg)}</span>
+              {" | "}
+              M2: <span className="font-medium text-gray-800">{formatValueForCard(totalGrowingByUom.m2)}</span>
             </div>
             <p className="text-xs text-gray-500 mt-1">
-              Chưa ready tại {inventoryRefYmd} — ready date từ kg/m²→ngày hoặc M2 +tháng
+              Total regrowth within Harvest date (from–to)
             </p>
           </div>
 
@@ -866,8 +1267,8 @@ export function InventoryForecast() {
               <span className="text-sm text-gray-600">Ready This Week</span>
               <Clock className="w-5 h-5 text-blue-600" />
             </div>
-            <div className="text-3xl font-semibold text-gray-900">{readyThisWeek}</div>
-            <p className="text-xs text-gray-500 mt-1">fields becoming available</p>
+            <div className="text-3xl font-semibold text-gray-900">{readyThisWeekFarmCount}</div>
+            <p className="text-xs text-gray-500 mt-1">Number of farms with regrowth this week</p>
           </div>
 
           <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
@@ -875,8 +1276,8 @@ export function InventoryForecast() {
               <span className="text-sm text-gray-600">Next 30 Days</span>
               <TrendingUp className="w-5 h-5 text-purple-600" />
             </div>
-            <div className="text-3xl font-semibold text-gray-900">{readyNextMonth}</div>
-            <p className="text-xs text-gray-500 mt-1">fields maturing soon</p>
+            <div className="text-3xl font-semibold text-gray-900">{readyNext30DaysFarmCount}</div>
+            <p className="text-xs text-gray-500 mt-1">Number of farms with regrowth in the next 30 days</p>
           </div>
           </div>
         </div>
@@ -888,52 +1289,34 @@ export function InventoryForecast() {
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Country
               </label>
-              <select
-                value={selectedCountryId || ""}
-                onChange={(e) => setSelectedCountryId(e.target.value || null)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#1F7A4C]"
-              >
-                <option value="">All countries</option>
-                {countryOptions.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.label}
-                  </option>
-                ))}
-              </select>
+              <MultiSelect
+                options={countryOptions.map((c) => ({ value: c.id, label: c.label }))}
+                values={selectedCountryIds}
+                onChange={setSelectedCountryIds}
+                placeholder="All countries"
+              />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Filter by Farm
               </label>
-              <select
-                value={selectedFarm || ''}
-                onChange={(e) => setSelectedFarm(e.target.value || null)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1F7A4C]"
-              >
-                <option value="">All Farms</option>
-                {farmList.map((farm) => (
-                  <option key={farm} value={farm}>
-                    {farm}
-                  </option>
-                ))}
-              </select>
+              <MultiSelect
+                options={farmList.map((farm) => ({ value: farm, label: farm }))}
+                values={selectedFarms}
+                onChange={setSelectedFarms}
+                placeholder="All farms"
+              />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Filter by Grass Type
               </label>
-              <select
-                value={selectedGrass || ''}
-                onChange={(e) => setSelectedGrass(e.target.value || null)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1F7A4C]"
-              >
-                <option value="">All Grass Types</option>
-                {grassTypeList.map((grass) => (
-                  <option key={grass} value={grass}>
-                    {grass}
-                  </option>
-                ))}
-              </select>
+              <MultiSelect
+                options={grassTypeList.map((grass) => ({ value: grass, label: grass }))}
+                values={selectedGrasses}
+                onChange={setSelectedGrasses}
+                placeholder="All grass types"
+              />
             </div>
           </div>
         </div>
@@ -949,43 +1332,43 @@ export function InventoryForecast() {
               </h2>
               <ResponsiveContainer width="100%" height={300}>
                 <BarChart
-                  data={displayGrassList.map((grass) => {
-                    const available = filteredHistory
-                      .filter((h) => h.grassType === grass && h.isReady)
-                      .reduce((sum, h) => sum + h.quantity, 0);
-                    return { grass, available };
-                  })}
+                  data={availableByGrassLastMonthRows}
                 >
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                   <XAxis dataKey="grass" tick={{ fontSize: 11 }} angle={-45} textAnchor="end" height={80} />
-                  <YAxis tick={{ fontSize: 12 }} domain={["auto", "auto"]} />
+                  <YAxis
+                    tick={{ fontSize: 12 }}
+                    domain={[
+                      (dataMin: number) => Math.min(0, Math.floor(dataMin)),
+                      (dataMax: number) => Math.max(0, Math.ceil(dataMax)),
+                    ]}
+                  />
                   <ReferenceLine y={0} stroke="#6B7280" strokeDasharray="4 4" />
                   <Tooltip
-                    formatter={(value: number) =>
-                      `${value.toLocaleString()} (plan qty, mixed UOM)`
-                    }
+                    formatter={(value: number, _name: string, ctx) => {
+                      const month = String((ctx?.payload as { lastMonthKey?: string })?.lastMonthKey ?? "—");
+                      const key = String(ctx?.dataKey ?? "");
+                      const unit = key === "availableKg" ? "KG" : "M2";
+                      return `${value.toLocaleString()} ${unit} (last month: ${month})`;
+                    }}
                     contentStyle={{
                       backgroundColor: 'white',
                       border: '1px solid #e5e7eb',
                       borderRadius: '8px',
                     }}
                   />
-                  <Bar dataKey="available" fill="#16A34A" radius={[8, 8, 0, 0]} />
+                  <Legend />
+                  <Bar dataKey="availableKg" fill="#16A34A" radius={[8, 8, 0, 0]} name="KG" />
+                  <Bar dataKey="availableM2" fill="#2563EB" radius={[8, 8, 0, 0]} name="M2" />
                 </BarChart>
               </ResponsiveContainer>
             </div>
 
-            {/* Growing Inventory — tổng quantity các lô chưa ready tại inventoryRefYmd; ready từ công thức regrowth */}
+            {/* Growing Inventory — total quantity of lots not ready at inventoryRefYmd; ready date from regrowth formula */}
             <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
               <h2 className="text-lg font-semibold text-gray-900 mb-1">
                 Growing Inventory (In Regrowth)
               </h2>
-              <p className="mb-4 text-xs text-gray-500">
-                Tổng số lượng theo plan (kg hoặc m²) của các lô vẫn trong regrowth tại{" "}
-                <span className="font-medium text-gray-700">{inventoryRefYmd}</span>, sau khi
-                lọc theo harvest range (from–to) ở trên. Ngày regrowth xong lấy từ công thức
-                (kg/m² → ngày; M2 cộng tháng).
-              </p>
               <ResponsiveContainer width="100%" height={300}>
                 <BarChart
                   data={growingByProductRows}
@@ -1016,85 +1399,46 @@ export function InventoryForecast() {
               <h2 className="text-lg font-semibold text-gray-900 mb-4">
                 Current Inventory by Farm
               </h2>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead>
-                    <tr className="border-b text-gray-500">
-                      <th className="py-2 pr-3">farm_id</th>
-                      <th className="py-2 pr-3">farm</th>
-                      <th className="py-2 pr-3">available_kg</th>
-                      <th className="py-2">available_m2</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {availableByFarmRows.map((row) => (
-                      <tr
-                        key={`${row.farmId ?? "unknown"}-${row.farmName}`}
-                        className="border-b border-gray-100"
-                      >
-                        <td className="py-2 pr-3 font-mono">
-                          {row.farmId ?? "—"}
-                        </td>
-                        <td className="py-2 pr-3">{row.farmName}</td>
-                        <td className="py-2 pr-3 tabular-nums">
-                          {Math.round(row.availableKg).toLocaleString()}
-                        </td>
-                        <td className="py-2 tabular-nums">
-                          {Math.round(row.availableM2).toLocaleString()}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {currentInventoryByFarmCards.map((farm) => (
+                  <div
+                    key={`${farm.farmId ?? "unknown"}-${farm.farmName}`}
+                    className="rounded-lg border border-gray-200 bg-gray-50 p-4"
+                  >
+                    <h3 className="text-xl font-semibold text-gray-800">{farm.farmName}</h3>
+                    <div
+                      className={`mt-2 text-3xl font-bold ${
+                        farm.totalKg + farm.totalM2 < 0 ? "text-red-600" : "text-[#1F7A4C]"
+                      }`}
+                    >
+                      {formatValueForCard(farm.totalKg + farm.totalM2)}
+                    </div>
+                    <div className="mt-1 text-xs text-gray-500">
+                      {formatValueForCard(farm.totalKg)} <small className="text-[70%]">KG</small> | {formatValueForCard(farm.totalM2)} <small className="text-[70%]">M2</small> 
+                    </div>
+                    <div className="mt-3 space-y-1.5 text-sm">
+                      {displayGrassList.map((grass) => {
+                        const item = farm.byGrass.get(grass) ?? { kg: 0, m2: 0 };
+                        return (
+                          <div key={`${farm.farmName}-${grass}`} className="flex items-start justify-between gap-3">
+                            <span className="text-gray-700">{grass}</span>
+                            <span className="text-right tabular-nums leading-5">
+                              <div className={item.kg < 0 ? "text-red-600" : "text-gray-900"}>
+                                {formatValueForCard(item.kg)} <small className="text-[70%]">KG</small>
+                              </div>
+                              <div className={item.m2 < 0 ? "text-red-600" : "text-gray-900"}>
+                                {formatValueForCard(item.m2)} <small className="text-[70%]">M2</small>
+                              </div>
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
 
-            <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm lg:col-span-2">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">
-                Product Monthly Availability
-              </h2>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead>
-                    <tr className="border-b text-gray-500">
-                      <th className="py-2 pr-3">month</th>
-                      <th className="py-2 pr-3">product_id</th>
-                      <th className="py-2 pr-3">grass</th>
-                      <th className="py-2 pr-3">starting (kg/m2)</th>
-                      <th className="py-2 pr-3">regrowth (kg/m2)</th>
-                      <th className="py-2 pr-3">harvest (kg/m2)</th>
-                      <th className="py-2">available (kg/m2)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {monthlyAvailabilityByProductInSelectedRange.map((row) => (
-                      <tr
-                        key={`${row.productId}-${row.monthKey}`}
-                        className="border-b border-gray-100"
-                      >
-                        <td className="py-2 pr-3 font-mono">{row.monthKey}</td>
-                        <td className="py-2 pr-3 font-mono">{row.productId}</td>
-                        <td className="py-2 pr-3">
-                          {grassNameById.get(row.productId) ?? "—"}
-                        </td>
-                        <td className="py-2 pr-3 tabular-nums">
-                          {Math.round(row.startingKg).toLocaleString()} / {Math.round(row.startingM2).toLocaleString()}
-                        </td>
-                        <td className="py-2 pr-3 tabular-nums">
-                          {Math.round(row.regrowthKg).toLocaleString()} / {Math.round(row.regrowthM2).toLocaleString()}
-                        </td>
-                        <td className="py-2 pr-3 tabular-nums">
-                          {Math.round(row.harvestedKg).toLocaleString()} / {Math.round(row.harvestedM2).toLocaleString()}
-                        </td>
-                        <td className="py-2 tabular-nums">
-                          {Math.round(row.availableKg).toLocaleString()} / {Math.round(row.availableM2).toLocaleString()}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
           </div>
         )}
 
@@ -1103,24 +1447,34 @@ export function InventoryForecast() {
           <div className="space-y-6">
             <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
               <h2 className="text-lg font-semibold text-gray-900 mb-1">
-                6-Month Availability Forecast
+                {forecastMonthCount}-Month Availability Forecast
               </h2>
-              <p className="mb-4 text-sm text-gray-600">
-                Monthly buckets start from{" "}
-                <span className="font-medium text-gray-800">
-                  {format(forecastAnchor, "MMM d, yyyy")}
-                </span>
-                {harvestDateRange.from || harvestDateRange.to
-                  ? " (from your harvest date range)."
-                  : " (today when no date range is selected)."}
-              </p>
+              <div className="mb-4 flex items-center gap-2 text-xs">
+                <span className="text-gray-600">Display unit:</span>
+                {(["MIXED", "KG", "M2"] as const).map((unit) => (
+                  <button
+                    key={unit}
+                    type="button"
+                    onClick={() => setForecastUnit(unit)}
+                    className={`rounded border px-2 py-1 ${
+                      forecastUnit === unit
+                        ? "border-[#1F7A4C] bg-[#1F7A4C] text-white"
+                        : "border-gray-300 bg-white text-gray-700"
+                    }`}
+                  >
+                    {unit}
+                  </button>
+                ))}
+              </div>
               <ResponsiveContainer width="100%" height={400}>
                 <AreaChart data={forecast}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                   <XAxis dataKey="month" tick={{ fontSize: 12 }} />
                   <YAxis tick={{ fontSize: 12 }} />
                   <Tooltip
-                    formatter={(value: number) => `${value.toLocaleString()} sq. ft.`}
+                    formatter={(value: number) =>
+                      `${formatValueForCard(value)} ${forecastUnit === "MIXED" ? "(KG+M2)" : forecastUnit}`
+                    }
                     contentStyle={{
                       backgroundColor: 'white',
                       border: '1px solid #e5e7eb',
@@ -1183,11 +1537,11 @@ export function InventoryForecast() {
                           </td>
                           {displayGrassList.map((grass) => (
                             <td key={grass} className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                              {(qty(grass) / 1000).toFixed(1)}K
+                              {formatValueForCard(qty(grass))}
                             </td>
                           ))}
                           <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                            {(total / 1000).toFixed(1)}K
+                            {formatValueForCard(total)}
                           </td>
                         </tr>
                       );
@@ -1211,7 +1565,7 @@ export function InventoryForecast() {
               </p>
 
               <div className="space-y-4">
-                {timeline.slice(0, 12).map((week: any, index) => (
+                {regrowthTimeline.slice(0, 24).map((week, index) => (
                   <div
                     key={index}
                     className="border border-gray-200 rounded-lg p-4 hover:border-[#1F7A4C] transition-colors"
@@ -1220,46 +1574,49 @@ export function InventoryForecast() {
                       <div className="flex items-center gap-2">
                         <Clock className="w-5 h-5 text-blue-600" />
                         <span className="font-medium text-gray-900">
-                          Week {Math.floor(week.weekStart / 7) + 1}
+                          Week {week.weekOfYear}
                         </span>
                         <span className="text-sm text-gray-600">
-                          ({week.weekStart}-{week.weekEnd} days)
+                          (Year {week.year})
                         </span>
                       </div>
                       <div className="text-right">
-                        <div className="text-sm text-gray-600">Total Available</div>
+                        <div className="text-sm text-gray-600">Total Regrowth</div>
                         <div className="text-lg font-semibold text-[#1F7A4C]">
-                          {(week.totalQuantity / 1000).toFixed(1)}K sq. ft.
+                          {formatValueForCard(week.totalKg)} KG / {formatValueForCard(week.totalM2)} M2
                         </div>
                       </div>
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                      {week.harvests.map((harvest: any) => (
+                      {week.items.map((item) => (
                         <div
-                          key={harvest.id}
+                          key={`${item.id}-${item.regrowthDateYmd}-${item.grass}`}
                           className="bg-gray-50 rounded-lg p-3 text-sm"
                         >
                           <div className="flex items-center justify-between mb-2">
-                            <span className="font-medium text-gray-900">{harvest.id}</span>
+                            <span className="font-medium text-gray-900">{item.id}</span>
                             <span
                               className={`px-2 py-0.5 rounded text-xs font-medium ${
-                                harvest.harvestType === 'sod'
+                                item.uom === 'M2'
                                   ? 'bg-blue-100 text-blue-700'
                                   : 'bg-green-100 text-green-700'
                               }`}
                             >
-                              {harvest.harvestType.toUpperCase()}
+                              {item.uom}
                             </span>
                           </div>
                           <div className="space-y-1 text-xs text-gray-600">
-                            <div>{harvest.grassType}</div>
-                            <div>{harvest.farm}</div>
+                            <div>{item.grass}</div>
+                            <div>{item.farm}</div>
                             <div className="font-medium text-gray-900">
-                              {harvest.quantity.toLocaleString()} sq. ft.
+                              {formatValueForCard(item.quantity)} {item.uom}
                             </div>
                             <div className="text-blue-600">
-                              Ready in {harvest.daysUntilReady} days
+                              Regrowth in {item.daysUntilRegrowth} days
+                            </div>
+                            <div className="text-gray-500">
+                              Date: {item.regrowthDateYmd} | Week {item.weekNoInYear}
                             </div>
                           </div>
                         </div>
@@ -1289,13 +1646,13 @@ export function InventoryForecast() {
                         Grass Type
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase">
-                        Type
+                        UOM
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase">
                         Harvested
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase">
-                        Ready Date
+                        Regrowth Ready Date
                       </th>
                       <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase">
                         Quantity
@@ -1306,8 +1663,8 @@ export function InventoryForecast() {
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {filteredHistory.slice(0, 15).map((harvest) => (
-                      <tr key={harvest.id} className="hover:bg-gray-50">
+                    {harvestStatusRows.slice(0, 30).map((harvest) => (
+                      <tr key={`${harvest.id}-${harvest.farm}-${harvest.grassType}`} className="hover:bg-gray-50">
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                           {harvest.id}
                         </td>
@@ -1320,7 +1677,7 @@ export function InventoryForecast() {
                         <td className="px-6 py-4 whitespace-nowrap">
                           <span
                             className={`px-2 py-1 rounded text-xs font-medium ${
-                              harvest.harvestType === 'sod'
+                              harvest.harvestType === 'm2'
                                 ? 'bg-blue-100 text-blue-700'
                                 : 'bg-green-100 text-green-700'
                             }`}
@@ -1329,16 +1686,16 @@ export function InventoryForecast() {
                           </span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {new Date(harvest.harvestDate).toLocaleDateString()}
+                          {harvest.harvestDate ? new Date(harvest.harvestDate).toLocaleDateString() : "—"}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {new Date(harvest.readyDate).toLocaleDateString()}
+                          {harvest.readyDate ? new Date(harvest.readyDate).toLocaleDateString() : "—"}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {harvest.quantity.toLocaleString()}
+                          {formatValueForCard(harvest.quantity)}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          {harvest.isReady ? (
+                          {harvest.statusType === "ready" ? (
                             <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
                               <CheckCircle className="w-3 h-3" />
                               Ready
@@ -1346,7 +1703,7 @@ export function InventoryForecast() {
                           ) : (
                             <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
                               <Clock className="w-3 h-3" />
-                              {harvest.daysUntilReady}d
+                              {harvest.statusLabel}
                             </span>
                           )}
                         </td>

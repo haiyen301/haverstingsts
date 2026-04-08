@@ -59,6 +59,20 @@ function normalizeProjectStatusLabel(v: unknown): string {
   return "";
 }
 
+function normalizeDynamicFieldName(v: unknown): string {
+  return String(v ?? "").trim().toLowerCase();
+}
+
+function normalizeDynamicFieldValue(v: unknown): string {
+  return String(v ?? "").trim();
+}
+
+function makeRowTableKey(row: Record<string, unknown>): string {
+  const rowId = String(row.row_id ?? row.id_row ?? row.id ?? "").trim();
+  const tableId = String(row.table_id ?? row.table ?? "").trim();
+  return `${rowId}__${tableId}`;
+}
+
 export default function ProjectListPage() {
   const router = useRouter();
   const pathname = usePathname();
@@ -135,6 +149,42 @@ export default function ProjectListPage() {
    * - rowData = controller.rows.firstWhere((row) => row.rowId == rowId)
    */
   const projects = useMemo(() => {
+    const allowedProjectIdsByCountry = new Set<string>();
+    if (countryFilterIds.length > 0) {
+      // Fallback resolver for dynamic-table style rows:
+      // 1) find records where name=country_id and value in selected filters
+      // 2) with same (row_id, table_id), find name=project_id and collect its value
+      const byRowTable = new Map<string, Record<string, unknown>[]>();
+      for (const row of rows as unknown as Record<string, unknown>[]) {
+        const key = makeRowTableKey(row);
+        if (!key || key === "__") continue;
+        const list = byRowTable.get(key) ?? [];
+        list.push(row);
+        byRowTable.set(key, list);
+      }
+
+      for (const grouped of byRowTable.values()) {
+        let matchedCountry = false;
+        for (const rec of grouped) {
+          const fieldName = normalizeDynamicFieldName(rec.name);
+          if (fieldName !== "country_id") continue;
+          const fieldValue = normalizeDynamicFieldValue(rec.value);
+          if (countryFilterIds.includes(fieldValue)) {
+            matchedCountry = true;
+            break;
+          }
+        }
+        if (!matchedCountry) continue;
+
+        for (const rec of grouped) {
+          const fieldName = normalizeDynamicFieldName(rec.name);
+          if (fieldName !== "project_id") continue;
+          const projectId = normalizeDynamicFieldValue(rec.value ?? rec.project_id);
+          if (projectId) allowedProjectIdsByCountry.add(projectId);
+        }
+      }
+    }
+
     const mergedRows = rows.map((data) => {
       const rowId = String(data.row_id ?? data.id ?? "").trim();
       const rowData =
@@ -163,9 +213,11 @@ export default function ProjectListPage() {
 
     return mergedRows.filter(({ data }) => {
       const rec = data as Record<string, unknown>;
+      const recProjectId = String(rec.project_id ?? "").trim();
       const countryOk =
         countryFilterIds.length === 0 ||
-        countryFilterIds.includes(String(rec.country_id ?? "").trim());
+        countryFilterIds.includes(String(rec.country_id ?? "").trim()) ||
+        (recProjectId ? allowedProjectIdsByCountry.has(recProjectId) : false);
       const grassOk =
         grassFilterIds.length === 0 ||
         grassFilterIds.some((id) => rowHasGrassProduct(data as MondayProjectServerRow, id));
