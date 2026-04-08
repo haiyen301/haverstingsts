@@ -21,6 +21,8 @@ const empty = {
   projects: [] as unknown[],
   staffs: [] as unknown[],
   countries: [] as unknown[],
+  grasses: [] as unknown[],
+  /** @deprecated Use `grasses`. */
   products: [] as unknown[],
   harvestListSearch: "",
   harvestListFarmFilter: "",
@@ -35,6 +37,8 @@ export type HarvestingDataState = {
   projects: unknown[];
   staffs: unknown[];
   countries: unknown[];
+  grasses: unknown[];
+  /** @deprecated Use `grasses`. */
   products: unknown[];
   loading: boolean;
   error: string | null;
@@ -57,6 +61,8 @@ export type HarvestingDataState = {
   setProjects: (projects: unknown[]) => void;
   setStaffs: (staffs: unknown[]) => void;
   setCountries: (countries: unknown[]) => void;
+  setGrasses: (grasses: unknown[]) => void;
+  /** @deprecated Use `setGrasses`. */
   setProducts: (products: unknown[]) => void;
   /** Loads farm zones, staffs, farms, projects, countries, products (parallel). */
   fetchAllHarvestingReferenceData: (force?: boolean) => Promise<void>;
@@ -76,7 +82,8 @@ export const useHarvestingDataStore = create<HarvestingDataState>((set, get) => 
   setProjects: (projects) => set({ projects }),
   setStaffs: (staffs) => set({ staffs }),
   setCountries: (countries) => set({ countries }),
-  setProducts: (products) => set({ products }),
+  setGrasses: (grasses) => set({ grasses, products: grasses }),
+  setProducts: (products) => set({ products, grasses: products }),
 
   setHarvestListSearch: (harvestListSearch) => set({ harvestListSearch }),
   setHarvestListFarmFilter: (harvestListFarmFilter) =>
@@ -135,6 +142,7 @@ export const useHarvestingDataStore = create<HarvestingDataState>((set, get) => 
         farms: asArray(farms),
         projects: asArray(projects),
         countries: asArray(countries),
+        grasses: asArray(products),
         products: asArray(products),
         loading: false,
         error: null,

@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import {
+  BarChart3,
   Calendar,
   FolderKanban,
   Leaf,
@@ -51,7 +52,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
     { path: "/projects", label: t("Nav.projects"), icon: FolderKanban },
     { path: "/overview", label: t("Nav.overview"), icon: Table2 },
     { path: "/planning", label: t("Nav.planning"), icon: Calendar },
-    // { path: "/forecasting", label: t("Nav.forecasting"), icon: BarChart3 },
+    { path: "/forecasting", label: t("Nav.forecasting"), icon: BarChart3 },
   ];
 
   const isActive = (path: string) => {

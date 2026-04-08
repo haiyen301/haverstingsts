@@ -17,6 +17,8 @@ export const STS_API_PATHS = {
   products: "/api/items",
   /** GET `Harvesting::index` — query: `page`, `per_page`, `search`, `farm_id`, `status_id`, … */
   harvesting: "/api/harvesting",
+  /** GET nested inventory report (`Harvesting::react_get_inventory_report`): `country`, `year`, `product_id`, `farm_id`. */
+  inventoryReport: "/api/harvesting/react_get_inventory_report",
   /** GET Flutter Monday list source (`DynamicTableDataRepo.dynamicTableDataUrl`). */
   mondayDynamicTableData: "/api/harvesting/react_get_harvesting_table",
   /** POST Flutter Monday update repo endpoint. */
