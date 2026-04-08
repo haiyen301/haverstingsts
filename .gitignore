@@ -39,6 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+package-lock.json
 
 # Generated from flag-icons (see scripts/copy-flag-svgs.mjs + postinstall)
 /public/flags/*.svg
