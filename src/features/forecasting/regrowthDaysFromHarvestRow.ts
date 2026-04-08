@@ -557,6 +557,23 @@ export function computeMonthlyAvailabilityByProductFromRaw(
   rows: Record<string, unknown>[],
   options: ProductMonthlyAvailabilityOptions = {},
 ): ProductMonthlyAvailabilityRow[] {
+  if (process.env.NODE_ENV !== "production") {
+    const actualMonthKeys = rows
+      .map((raw) => {
+        const p = parseYmdToDateParts(raw.actual_harvest_date);
+        if (!p) return null;
+        return `${String(p.year).padStart(4, "0")}-${String(p.month).padStart(2, "0")}`;
+      })
+      .filter((v): v is string => v !== null)
+      .sort((a, b) => a.localeCompare(b));
+    const uniqueActualMonths = Array.from(new Set(actualMonthKeys));
+    console.log("[computeMonthlyAvailabilityByProductFromRaw][input]", {
+      totalRows: rows.length,
+      rowsWithValidActualHarvestDate: actualMonthKeys.length,
+      uniqueActualMonths,
+    });
+  }
+
   const regrowthRows = mapApiHarvestRawToRegrowthDays(rows).filter(
     (r): r is RegrowthPreviewRow & { product_id: number } =>
       typeof r.product_id === "number" && Number.isFinite(r.product_id),
@@ -640,6 +657,13 @@ export function computeMonthlyAvailabilityByProductFromRaw(
     const allActivityKeys = Array.from(
       new Set([...regByMonth.keys(), ...harByMonth.keys()]),
     ).sort((a, b) => a.localeCompare(b));
+    if (process.env.NODE_ENV !== "production" && productId === 1) {
+      console.log("[computeMonthlyAvailabilityByProductFromRaw][product=1]", {
+        regrowthMonths: Array.from(regByMonth.keys()).sort((a, b) => a.localeCompare(b)),
+        harvestMonths: Array.from(harByMonth.keys()).sort((a, b) => a.localeCompare(b)),
+        allActivityKeys,
+      });
+    }
     const hasActivityInInputRange = allActivityKeys.some((k) =>
       inMonthRange(k, rangeStartKey, hardRangeEndKey),
     );
@@ -689,22 +713,20 @@ export function computeMonthlyAvailabilityByProductFromRaw(
       const availableKg = startingKg + regrowthKg - harvestedKg;
       const availableM2 = startingM2 + regrowthM2 - harvestedM2;
 
-      if (inMonthRange(cursor, rangeStartKey, clampedEndKey)) {
-        out.push({
-          productId,
-          monthKey: cursor,
-          year,
-          month,
-          startingKg,
-          startingM2,
-          regrowthKg,
-          regrowthM2,
-          harvestedKg,
-          harvestedM2,
-          availableKg,
-          availableM2,
-        });
-      }
+      out.push({
+        productId,
+        monthKey: cursor,
+        year,
+        month,
+        startingKg,
+        startingM2,
+        regrowthKg,
+        regrowthM2,
+        harvestedKg,
+        harvestedM2,
+        availableKg,
+        availableM2,
+      });
 
       prevAvailableKg = availableKg;
       prevAvailableM2 = availableM2;
@@ -717,6 +739,17 @@ export function computeMonthlyAvailabilityByProductFromRaw(
       ? a.monthKey.localeCompare(b.monthKey)
       : a.productId - b.productId,
   );
+
+  if (process.env.NODE_ENV !== "production") {
+    console.log("[computeMonthlyAvailabilityByProductFromRaw]", {
+      options,
+      targetYear,
+      rangeStartKey,
+      hardRangeEndKey,
+      rows: sorted,
+    });
+  }
+
   return sorted;
 }
 
