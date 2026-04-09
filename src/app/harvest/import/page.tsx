@@ -16,7 +16,6 @@ import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
 import { SortableTh } from "@/components/ui/sortable-th";
 import { useTableColumnSort } from "@/shared/hooks/useTableColumnSort";
 import { compareNumbers, compareStrings } from "@/shared/lib/tableSort";
-import { deleteMondayParentOrSubItem } from "@/entities/projects/api/projectsApi";
 
 type FieldKey =
   | "customerName"
@@ -65,16 +64,6 @@ type DynamicProjectRow = {
   id_row?: string;
   table_id?: string;
   project_id?: string;
-};
-
-type ExistingHarvestRowLite = {
-  id: string;
-  tableId: string;
-  projectId: string;
-  productId: string;
-  uom: string;
-  estimatedDate: string;
-  actualDate: string;
 };
 
 type TestResult = {
@@ -453,61 +442,6 @@ export default function HarvestImportPage() {
     return bytes.map((b) => b.toString(16).padStart(2, "0")).join("");
   };
 
-  const fetchExistingHarvestRowsByProject = async (
-    projectId: string,
-  ): Promise<ExistingHarvestRowLite[]> => {
-    const out: ExistingHarvestRowLite[] = [];
-    let page = 1;
-    let totalPages = 1;
-    const maxPages = 30;
-    do {
-      const res = await stsProxyGetHarvestingIndex({
-        project_id: projectId,
-        page,
-        per_page: 200,
-      });
-      for (const raw of res.rows) {
-        if (!raw || typeof raw !== "object") continue;
-        const r = raw as Record<string, unknown>;
-        const id = toStringSafe(r.id);
-        if (!id) continue;
-        out.push({
-          id,
-          tableId: toStringSafe(r.table_id),
-          projectId: toStringSafe(r.project_id),
-          productId: toStringSafe(r.product_id),
-          uom: toStringSafe(r.uom).toLowerCase(),
-          estimatedDate: toStringSafe(r.estimated_harvest_date).slice(0, 10),
-          actualDate: toStringSafe(r.actual_harvest_date).slice(0, 10),
-        });
-      }
-      totalPages = Math.max(1, res.totalPages);
-      page += 1;
-    } while (page <= totalPages && page <= maxPages);
-    return out;
-  };
-
-  const isSameHarvestIdentity = (
-    incoming: {
-      projectId: string;
-      productId: string;
-      uom: string;
-      estimatedDate: string;
-      actualDate: string;
-    },
-    existing: ExistingHarvestRowLite,
-  ): boolean => {
-    if (incoming.projectId.trim() !== existing.projectId.trim()) return false;
-    if (incoming.productId.trim() !== existing.productId.trim()) return false;
-    if (incoming.uom.trim().toLowerCase() !== existing.uom.trim().toLowerCase()) return false;
-    const sameEstimated =
-      incoming.estimatedDate.trim() &&
-      incoming.estimatedDate.trim() === existing.estimatedDate.trim();
-    const sameActual =
-      incoming.actualDate.trim() &&
-      incoming.actualDate.trim() === existing.actualDate.trim();
-    return Boolean(sameEstimated || sameActual);
-  };
 
   const getDynamicRowForProjectId = async (
     projectId: string,
@@ -629,7 +563,6 @@ export default function HarvestImportPage() {
     setSummary("");
     const logs: ImportLog[] = [];
     try {
-      const existingRowsByProject = new Map<string, ExistingHarvestRowLite[]>();
       for (const r of mappedRows) {
         const projectId = resolveByLooseText(r.projectName, projectCandidates);
         const farmId = resolveByLooseText(r.farm, farmCandidates);
@@ -642,41 +575,6 @@ export default function HarvestImportPage() {
           const dynamicRow = await getDynamicRowForProjectId(projectId);
           if (!dynamicRow) {
             throw new Error(t("errDynamicRowNotFound"));
-          }
-
-          let existingRows = existingRowsByProject.get(projectId);
-          if (!existingRows) {
-            existingRows = await fetchExistingHarvestRowsByProject(projectId);
-            existingRowsByProject.set(projectId, existingRows);
-          }
-
-          const duplicatedRows = existingRows.filter((x) =>
-            isSameHarvestIdentity(
-              {
-                projectId,
-                productId,
-                uom: r.uom,
-                estimatedDate: r.estimatedDate,
-                actualDate: r.actualDate,
-              },
-              x,
-            ),
-          );
-
-          for (const dup of duplicatedRows) {
-            await deleteMondayParentOrSubItem({
-              tableId: dup.tableId || dynamicRow.tableId,
-              tableName: "Harvesting",
-              rowId: dup.id,
-              type: "sub",
-              deleteMode: "hard",
-            });
-          }
-          if (duplicatedRows.length > 0) {
-            existingRowsByProject.set(
-              projectId,
-              existingRows.filter((x) => !duplicatedRows.some((d) => d.id === x.id)),
-            );
           }
 
           await submitFlutterHarvest(
@@ -729,6 +627,7 @@ export default function HarvestImportPage() {
 
   const successCount = importLogs.filter((x) => x.status === "success").length;
   const errorCount = importLogs.filter((x) => x.status === "error").length;
+  const importErrorLogs = importLogs.filter((x) => x.status === "error");
 
   const downloadResult = (kind: "success" | "error") => {
     const picked = importLogs.filter((x) => x.status === kind);
@@ -855,23 +754,45 @@ export default function HarvestImportPage() {
               ) : null}
 
               {importLogs.length ? (
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => downloadResult("success")}
-                    className="inline-flex items-center gap-2 rounded-lg border border-green-300 px-3 py-2 text-sm text-green-700 hover:bg-green-50"
-                  >
-                    <Download className="h-4 w-4" />
-                    {t("downloadSuccess", { count: successCount })}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => downloadResult("error")}
-                    className="inline-flex items-center gap-2 rounded-lg border border-red-300 px-3 py-2 text-sm text-red-700 hover:bg-red-50"
-                  >
-                    <Download className="h-4 w-4" />
-                    {t("downloadError", { count: errorCount })}
-                  </button>
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => downloadResult("success")}
+                      className="inline-flex items-center gap-2 rounded-lg border border-green-300 px-3 py-2 text-sm text-green-700 hover:bg-green-50"
+                    >
+                      <Download className="h-4 w-4" />
+                      {t("downloadSuccess", { count: successCount })}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => downloadResult("error")}
+                      className="inline-flex items-center gap-2 rounded-lg border border-red-300 px-3 py-2 text-sm text-red-700 hover:bg-red-50"
+                    >
+                      <Download className="h-4 w-4" />
+                      {t("downloadError", { count: errorCount })}
+                    </button>
+                  </div>
+
+                  {importErrorLogs.length ? (
+                    <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm">
+                      <p className="font-medium text-red-700">
+                        Import errors ({importErrorLogs.length})
+                      </p>
+                      <div className="mt-1 space-y-1 text-red-700">
+                        {importErrorLogs.slice(0, 20).map((log) => (
+                          <p key={`e-${log.rowNumber}-${log.message}`}>
+                            Row {log.rowNumber}: {log.message}
+                          </p>
+                        ))}
+                        {importErrorLogs.length > 20 ? (
+                          <p className="text-xs text-red-600">
+                            Showing first 20 errors. Download the error file for full details.
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
 
