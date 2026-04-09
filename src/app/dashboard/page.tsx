@@ -257,7 +257,22 @@ export default function DashboardPage() {
         flag: countryCodeToFlag(countryCode),
       });
     }
-    return out.sort((a, b) => a.farmName.localeCompare(b.farmName));
+    const countryPriority = (countryName: string): number => {
+      const key = countryName.trim().toLowerCase();
+      if (key === "vietnam") return 0;
+      if (key === "thailand") return 1;
+      return 2;
+    };
+    return out.sort((a, b) => {
+      const aCountry = a.countryName || a.countryId;
+      const bCountry = b.countryName || b.countryId;
+      const pDiff = countryPriority(aCountry) - countryPriority(bCountry);
+      if (pDiff !== 0) return pDiff;
+
+      const countryCmp = aCountry.localeCompare(bCountry, undefined, { sensitivity: "base" });
+      if (countryCmp !== 0) return countryCmp;
+      return a.farmName.localeCompare(b.farmName, undefined, { sensitivity: "base" });
+    });
   }, [farmsRef, countriesRef]);
 
   const totalProjects = countryData.reduce((sum, c) => sum + c.projects, 0);
