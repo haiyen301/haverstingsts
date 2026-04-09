@@ -498,6 +498,7 @@
       "estimatedDate": "Estimated Harvest Date",
       "actualDate": "Actual Harvest Date",
       "deliveryDate": "Delivery Harvest Date",
+      "doSoDate": "DO/SO Date",
       "doSoNumber": "DO/SO Number",
       "truckNote": "Truck Note",
       "licensePlate": "License Plate",

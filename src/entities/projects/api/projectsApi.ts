@@ -151,12 +151,14 @@ export async function deleteMondayParentOrSubItem(payload: {
   tableName: string;
   rowId: string;
   type: "parent" | "sub";
+  deleteMode?: "soft" | "hard";
 }): Promise<void> {
   await stsProxyPostJson<unknown>(STS_API_PATHS.mondayDeleteParentOrSubItem, {
     tableId: payload.tableId,
     tableName: payload.tableName,
     rowId: payload.rowId,
     type: payload.type,
+    deleteMode: payload.deleteMode ?? "soft",
   });
 }
 

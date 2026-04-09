@@ -726,7 +726,10 @@ export default function ProjectImportPage() {
       const dbNames = db.names;
       const dbKeys = db.keys;
       const res = await fetchMondayProjectRowsFromServer({ page: 1, perPage: 1 });
-      const defaultTableId = toStringSafe(res.rows[0]?.table_id);
+      const defaultTableId = toStringSafe(
+        (Array.isArray(res.raw) ? res.raw[0]?.table_id : "") ||
+          res.rows[0]?.table_id,
+      );
       if (!defaultTableId) {
         setError(t("missingTableId"));
         return;

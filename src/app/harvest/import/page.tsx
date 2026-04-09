@@ -16,6 +16,7 @@ import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
 import { SortableTh } from "@/components/ui/sortable-th";
 import { useTableColumnSort } from "@/shared/hooks/useTableColumnSort";
 import { compareNumbers, compareStrings } from "@/shared/lib/tableSort";
+import { deleteMondayParentOrSubItem } from "@/entities/projects/api/projectsApi";
 
 type FieldKey =
   | "customerName"
@@ -28,6 +29,7 @@ type FieldKey =
   | "estimatedDate"
   | "actualDate"
   | "deliveryDate"
+  | "doSoDate"
   | "doSoNumber"
   | "truckNote"
   | "licensePlate"
@@ -52,6 +54,7 @@ type MappedRow = {
   estimatedDate: string;
   actualDate: string;
   deliveryDate: string;
+  doSoDate: string;
   doSoNumber: string;
   truckNote: string;
   licensePlate: string;
@@ -62,6 +65,16 @@ type DynamicProjectRow = {
   id_row?: string;
   table_id?: string;
   project_id?: string;
+};
+
+type ExistingHarvestRowLite = {
+  id: string;
+  tableId: string;
+  projectId: string;
+  productId: string;
+  uom: string;
+  estimatedDate: string;
+  actualDate: string;
 };
 
 type TestResult = {
@@ -87,6 +100,7 @@ const FIELDS: { key: FieldKey }[] = [
   { key: "estimatedDate" },
   { key: "actualDate" },
   { key: "deliveryDate" },
+  { key: "doSoDate" },
   { key: "doSoNumber" },
   { key: "truckNote" },
   { key: "licensePlate" },
@@ -180,10 +194,14 @@ function tryParseDate(v: unknown): string {
 
 function normalizeHarvestType(v: string): { harvestType: "Sod" | "Sprig" | ""; uom: "M2" | "Kg" } {
   const s = normalizeLoose(v);
-  if (s === "sod") return { harvestType: "Sod", uom: "M2" };
-  if (s === "sprig") return { harvestType: "Sprig", uom: "Kg" };
-  if (s === "m2" || s === "m²") return { harvestType: "Sod", uom: "M2" };
-  if (s === "kg") return { harvestType: "Sprig", uom: "Kg" };
+  if (!s) return { harvestType: "", uom: "M2" };
+  // Accept direct values and mixed strings (e.g. "Sprig / KG", "Sod - M2").
+  if (s === "sod" || s.includes("sod") || s === "m2" || s === "m²" || s.includes("m2") || s.includes("m²")) {
+    return { harvestType: "Sod", uom: "M2" };
+  }
+  if (s === "sprig" || s.includes("sprig") || s === "kg" || s.includes("kg")) {
+    return { harvestType: "Sprig", uom: "Kg" };
+  }
   return { harvestType: "", uom: "M2" };
 }
 
@@ -206,12 +224,13 @@ function suggestMapping(headers: string[]): FieldMapping {
     farm: pick(["farm", "farm name"]),
     zone: pick(["zone"]),
     grass: pick(["grass", "product"]),
-    harvestType: pick(["harvest type", "load type", "sod/sprig", "sod sprig", "type"]),
+    harvestType: pick(["harvest type", "load type", "sod/sprig", "sod sprig", "type", "uom", "unit"]),
     quantity: pick(["quantity", "qty"]),
     estimatedDate: pick(["estimated harvest date", "estimated date", "estimate date"]),
     actualDate: pick(["actual harvest date", "actual date"]),
     deliveryDate: pick(["delivery harvest date", "delivery date"]),
     doSoNumber: pick(["do/so", "do so", "do so number", "do_so_number"]),
+    doSoDate: pick(["do so date", "do_so_date", "doso date"]),
     truckNote: pick(["truck note", "note"]),
     licensePlate: pick(["license plate", "license", "plate"]),
     harvestedArea: pick(["harvested area", "area"]),
@@ -348,6 +367,7 @@ export default function HarvestImportPage() {
         estimatedDate: tryParseDate(get("estimatedDate")),
         actualDate: tryParseDate(get("actualDate")),
         deliveryDate: tryParseDate(get("deliveryDate")),
+        doSoDate: tryParseDate(get("doSoDate")),
         doSoNumber: toStringSafe(get("doSoNumber")),
         truckNote: toStringSafe(get("truckNote")),
         licensePlate: toStringSafe(get("licensePlate")),
@@ -433,10 +453,10 @@ export default function HarvestImportPage() {
     return bytes.map((b) => b.toString(16).padStart(2, "0")).join("");
   };
 
-  const fetchExistingHarvestKeysByProject = async (
+  const fetchExistingHarvestRowsByProject = async (
     projectId: string,
-  ): Promise<Set<string>> => {
-    const keys = new Set<string>();
+  ): Promise<ExistingHarvestRowLite[]> => {
+    const out: ExistingHarvestRowLite[] = [];
     let page = 1;
     let totalPages = 1;
     const maxPages = 30;
@@ -449,23 +469,44 @@ export default function HarvestImportPage() {
       for (const raw of res.rows) {
         if (!raw || typeof raw !== "object") continue;
         const r = raw as Record<string, unknown>;
-        const key = buildHarvestBusinessKey({
+        const id = toStringSafe(r.id);
+        if (!id) continue;
+        out.push({
+          id,
+          tableId: toStringSafe(r.table_id),
           projectId: toStringSafe(r.project_id),
-          farmId: toStringSafe(r.farm_id),
-          zone: toStringSafe(r.zone),
           productId: toStringSafe(r.product_id),
-          uom: toStringSafe(r.uom),
-          quantity: toStringSafe(r.quantity).replaceAll(",", ""),
+          uom: toStringSafe(r.uom).toLowerCase(),
           estimatedDate: toStringSafe(r.estimated_harvest_date).slice(0, 10),
           actualDate: toStringSafe(r.actual_harvest_date).slice(0, 10),
-          deliveryDate: toStringSafe(r.delivery_harvest_date).slice(0, 10),
         });
-        keys.add(key);
       }
       totalPages = Math.max(1, res.totalPages);
       page += 1;
     } while (page <= totalPages && page <= maxPages);
-    return keys;
+    return out;
+  };
+
+  const isSameHarvestIdentity = (
+    incoming: {
+      projectId: string;
+      productId: string;
+      uom: string;
+      estimatedDate: string;
+      actualDate: string;
+    },
+    existing: ExistingHarvestRowLite,
+  ): boolean => {
+    if (incoming.projectId.trim() !== existing.projectId.trim()) return false;
+    if (incoming.productId.trim() !== existing.productId.trim()) return false;
+    if (incoming.uom.trim().toLowerCase() !== existing.uom.trim().toLowerCase()) return false;
+    const sameEstimated =
+      incoming.estimatedDate.trim() &&
+      incoming.estimatedDate.trim() === existing.estimatedDate.trim();
+    const sameActual =
+      incoming.actualDate.trim() &&
+      incoming.actualDate.trim() === existing.actualDate.trim();
+    return Boolean(sameEstimated || sameActual);
   };
 
   const getDynamicRowForProjectId = async (
@@ -526,7 +567,6 @@ export default function HarvestImportPage() {
     setTesting(true);
     try {
       const warnings: RowIssue[] = [];
-      const projectKeyCache = new Map<string, Set<string>>();
       const seenBatchKeys = new Set<string>();
       for (const r of mappedRows) {
         const w: string[] = [];
@@ -557,11 +597,6 @@ export default function HarvestImportPage() {
           }
         }
         if (projectId) {
-          let dbKeys = projectKeyCache.get(projectId);
-          if (!dbKeys) {
-            dbKeys = await fetchExistingHarvestKeysByProject(projectId);
-            projectKeyCache.set(projectId, dbKeys);
-          }
           const rowKey = buildHarvestBusinessKey({
             projectId,
             farmId: resolveByLooseText(r.farm, farmCandidates),
@@ -573,9 +608,6 @@ export default function HarvestImportPage() {
             actualDate: r.actualDate,
             deliveryDate: r.deliveryDate,
           });
-          if (dbKeys.has(rowKey)) {
-            w.push(t("warnDuplicateDb"));
-          }
           if (seenBatchKeys.has(rowKey)) {
             w.push(t("warnDuplicateFile"));
           } else {
@@ -597,6 +629,7 @@ export default function HarvestImportPage() {
     setSummary("");
     const logs: ImportLog[] = [];
     try {
+      const existingRowsByProject = new Map<string, ExistingHarvestRowLite[]>();
       for (const r of mappedRows) {
         const projectId = resolveByLooseText(r.projectName, projectCandidates);
         const farmId = resolveByLooseText(r.farm, farmCandidates);
@@ -610,21 +643,42 @@ export default function HarvestImportPage() {
           if (!dynamicRow) {
             throw new Error(t("errDynamicRowNotFound"));
           }
-          const rowKey = buildHarvestBusinessKey({
-            projectId,
-            farmId,
-            zone: r.zone,
-            productId,
-            uom: r.uom,
-            quantity: r.quantity,
-            estimatedDate: r.estimatedDate,
-            actualDate: r.actualDate,
-            deliveryDate: r.deliveryDate,
-          });
-          const existingKeys = await fetchExistingHarvestKeysByProject(projectId);
-          if (existingKeys.has(rowKey)) {
-            throw new Error(t("warnDuplicateDb"));
+
+          let existingRows = existingRowsByProject.get(projectId);
+          if (!existingRows) {
+            existingRows = await fetchExistingHarvestRowsByProject(projectId);
+            existingRowsByProject.set(projectId, existingRows);
           }
+
+          const duplicatedRows = existingRows.filter((x) =>
+            isSameHarvestIdentity(
+              {
+                projectId,
+                productId,
+                uom: r.uom,
+                estimatedDate: r.estimatedDate,
+                actualDate: r.actualDate,
+              },
+              x,
+            ),
+          );
+
+          for (const dup of duplicatedRows) {
+            await deleteMondayParentOrSubItem({
+              tableId: dup.tableId || dynamicRow.tableId,
+              tableName: "Harvesting",
+              rowId: dup.id,
+              type: "sub",
+              deleteMode: "hard",
+            });
+          }
+          if (duplicatedRows.length > 0) {
+            existingRowsByProject.set(
+              projectId,
+              existingRows.filter((x) => !duplicatedRows.some((d) => d.id === x.id)),
+            );
+          }
+
           await submitFlutterHarvest(
             {
               projectId,
@@ -637,6 +691,7 @@ export default function HarvestImportPage() {
               estimatedHarvestDate: r.estimatedDate,
               actualHarvestDate: r.actualDate,
               deliveryHarvestDate: r.deliveryDate,
+              doSoDate: r.doSoDate,
               doSoNumber: r.doSoNumber,
               truckNote: r.truckNote,
               licensePlate: r.licensePlate,
