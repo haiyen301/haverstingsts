@@ -524,12 +524,6 @@ export default function HarvestImportPage() {
         if (r.grass && !productId) {
           w.push(t("warnGrassNotFound", { value: r.grass }));
         }
-        if (r.actualDate && r.uom === "Kg") {
-          const ha = Number.parseFloat(r.harvestedArea);
-          if (!Number.isFinite(ha) || ha <= 0) {
-            w.push(t("warnHarvestedAreaRequired"));
-          }
-        }
         if (projectId) {
           const rowKey = buildHarvestBusinessKey({
             projectId,
@@ -571,6 +565,22 @@ export default function HarvestImportPage() {
         try {
           if (!projectId) {
             throw new Error(t("warnProjectNotFound", { value: r.projectName }));
+          }
+          if (!farmId) {
+            throw new Error(t("warnFarmNotFound", { value: r.farm }));
+          }
+          if (!productId) {
+            throw new Error(t("warnGrassNotFound", { value: r.grass }));
+          }
+          const qty = Number.parseFloat(r.quantity);
+          if (!Number.isFinite(qty) || qty <= 0) {
+            throw new Error(t("warnQuantityInvalid"));
+          }
+          if (!r.estimatedDate && !r.actualDate) {
+            throw new Error(t("warnDatePairEmpty"));
+          }
+          if (!r.harvestType) {
+            throw new Error(t("warnHarvestTypeInvalid"));
           }
           const dynamicRow = await getDynamicRowForProjectId(projectId);
           if (!dynamicRow) {
