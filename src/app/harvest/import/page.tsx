@@ -13,6 +13,9 @@ import { submitFlutterHarvest } from "@/features/harvesting/api/flutterHarvestSu
 import { stsProxyGetHarvestingIndex, stsProxyPostJson } from "@/shared/api/stsProxyClient";
 import { STS_API_PATHS } from "@/shared/api/stsApiPaths";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
+import { SortableTh } from "@/components/ui/sortable-th";
+import { useTableColumnSort } from "@/shared/hooks/useTableColumnSort";
+import { compareNumbers, compareStrings } from "@/shared/lib/tableSort";
 
 type FieldKey =
   | "customerName"
@@ -352,6 +355,52 @@ export default function HarvestImportPage() {
       };
     });
   }, [mapping, rows]);
+
+  type HarvestImportSortKey =
+    | "index"
+    | "project"
+    | "farm"
+    | "zone"
+    | "grass"
+    | "type"
+    | "uom"
+    | "qty"
+    | "dates";
+
+  const { sortKey, sortDir, onSort } =
+    useTableColumnSort<HarvestImportSortKey>("project");
+
+  const sortedMappedRows = useMemo(() => {
+    const list = [...mappedRows];
+    list.sort((a, b) => {
+      switch (sortKey) {
+        case "index":
+          return compareNumbers(a.rowNumber, b.rowNumber, sortDir);
+        case "project":
+          return compareStrings(a.projectName, b.projectName, sortDir);
+        case "farm":
+          return compareStrings(a.farm, b.farm, sortDir);
+        case "zone":
+          return compareStrings(a.zone, b.zone, sortDir);
+        case "grass":
+          return compareStrings(a.grass, b.grass, sortDir);
+        case "type":
+          return compareStrings(a.harvestType, b.harvestType, sortDir);
+        case "uom":
+          return compareStrings(a.uom, b.uom, sortDir);
+        case "qty":
+          return compareStrings(a.quantity, b.quantity, sortDir);
+        case "dates": {
+          const da = `${a.estimatedDate || ""}|${a.actualDate || ""}`;
+          const db = `${b.estimatedDate || ""}|${b.actualDate || ""}`;
+          return compareStrings(da, db, sortDir);
+        }
+        default:
+          return 0;
+      }
+    });
+    return list;
+  }, [mappedRows, sortKey, sortDir]);
 
   const buildHarvestBusinessKey = (input: {
     projectId: string;
@@ -775,19 +824,82 @@ export default function HarvestImportPage() {
                 <table className="min-w-full text-sm">
                   <thead className="bg-gray-50 text-left">
                     <tr>
-                      <th className="px-3 py-2">{t("table.index")}</th>
-                      <th className="px-3 py-2">{t("table.project")}</th>
-                      <th className="px-3 py-2">{t("table.farm")}</th>
-                      <th className="px-3 py-2">{t("table.zone")}</th>
-                      <th className="px-3 py-2">{t("table.grass")}</th>
-                      <th className="px-3 py-2">{t("table.type")}</th>
-                      <th className="px-3 py-2">{t("table.uom")}</th>
-                      <th className="px-3 py-2">{t("table.qty")}</th>
-                      <th className="px-3 py-2">{t("table.estAct")}</th>
+                      <SortableTh
+                        label={t("table.index")}
+                        columnKey="index"
+                        activeKey={sortKey}
+                        direction={sortDir}
+                        onSort={onSort}
+                        className="px-3 py-2 text-gray-700 !normal-case"
+                      />
+                      <SortableTh
+                        label={t("table.project")}
+                        columnKey="project"
+                        activeKey={sortKey}
+                        direction={sortDir}
+                        onSort={onSort}
+                        className="px-3 py-2 text-gray-700 !normal-case"
+                      />
+                      <SortableTh
+                        label={t("table.farm")}
+                        columnKey="farm"
+                        activeKey={sortKey}
+                        direction={sortDir}
+                        onSort={onSort}
+                        className="px-3 py-2 text-gray-700 !normal-case"
+                      />
+                      <SortableTh
+                        label={t("table.zone")}
+                        columnKey="zone"
+                        activeKey={sortKey}
+                        direction={sortDir}
+                        onSort={onSort}
+                        className="px-3 py-2 text-gray-700 !normal-case"
+                      />
+                      <SortableTh
+                        label={t("table.grass")}
+                        columnKey="grass"
+                        activeKey={sortKey}
+                        direction={sortDir}
+                        onSort={onSort}
+                        className="px-3 py-2 text-gray-700 !normal-case"
+                      />
+                      <SortableTh
+                        label={t("table.type")}
+                        columnKey="type"
+                        activeKey={sortKey}
+                        direction={sortDir}
+                        onSort={onSort}
+                        className="px-3 py-2 text-gray-700 !normal-case"
+                      />
+                      <SortableTh
+                        label={t("table.uom")}
+                        columnKey="uom"
+                        activeKey={sortKey}
+                        direction={sortDir}
+                        onSort={onSort}
+                        className="px-3 py-2 text-gray-700 !normal-case"
+                      />
+                      <SortableTh
+                        label={t("table.qty")}
+                        columnKey="qty"
+                        activeKey={sortKey}
+                        direction={sortDir}
+                        onSort={onSort}
+                        className="px-3 py-2 text-gray-700 !normal-case"
+                      />
+                      <SortableTh
+                        label={t("table.estAct")}
+                        columnKey="dates"
+                        activeKey={sortKey}
+                        direction={sortDir}
+                        onSort={onSort}
+                        className="px-3 py-2 text-gray-700 !normal-case"
+                      />
                     </tr>
                   </thead>
                   <tbody>
-                    {mappedRows.slice(0, 50).map((r) => (
+                    {sortedMappedRows.slice(0, 50).map((r) => (
                       <tr key={`r-${r.rowNumber}`} className="border-t border-gray-100">
                         <td className="px-3 py-2">{r.rowNumber}</td>
                         <td className="px-3 py-2">{r.projectName}</td>
@@ -805,9 +917,9 @@ export default function HarvestImportPage() {
                   </tbody>
                 </table>
               </div>
-              {mappedRows.length > 50 ? (
+              {sortedMappedRows.length > 50 ? (
                 <p className="text-xs text-gray-500">
-                  {t("showingTopRows", { shown: 50, total: mappedRows.length })}
+                  {t("showingTopRows", { shown: 50, total: sortedMappedRows.length })}
                 </p>
               ) : null}
             </div>

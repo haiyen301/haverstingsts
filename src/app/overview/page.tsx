@@ -2,6 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { AlignLeft, ArrowDown } from "lucide-react";
+import { SortableTh } from "@/components/ui/sortable-th";
+import { useTableColumnSort } from "@/shared/hooks/useTableColumnSort";
+import {
+  compareNumbers,
+  compareStrings,
+  type SortDir,
+} from "@/shared/lib/tableSort";
 
 import RequireAuth from "@/features/auth/RequireAuth";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
@@ -46,6 +53,39 @@ function fmtQty(v: number): string {
   return v.toLocaleString("en-US");
 }
 
+type OverviewSortKey = "project" | "grass" | "country" | "quantity" | "remaining" | "farm";
+
+function projectSortKeyLine(line: OverviewLine): string {
+  return `${line.project}\u0000${line.projectSub}`;
+}
+
+function sortOverviewLines(
+  rows: OverviewLine[],
+  key: OverviewSortKey,
+  dir: SortDir,
+): OverviewLine[] {
+  const copy = [...rows];
+  copy.sort((a, b) => {
+    switch (key) {
+      case "project":
+        return compareStrings(projectSortKeyLine(a), projectSortKeyLine(b), dir);
+      case "grass":
+        return compareStrings(a.grass, b.grass, dir);
+      case "country":
+        return compareStrings(a.country, b.country, dir);
+      case "quantity":
+        return compareNumbers(a.quantity, b.quantity, dir);
+      case "remaining":
+        return compareNumbers(a.remaining, b.remaining, dir);
+      case "farm":
+        return compareStrings(a.farmText, b.farmText, dir);
+      default:
+        return 0;
+    }
+  });
+  return copy;
+}
+
 function parseQtyByUom(item: Record<string, unknown>, reqUom: string): number {
   const uom = reqUom.toLowerCase();
   if (uom === "kg") {
@@ -73,6 +113,7 @@ export default function OverviewPage() {
   const [currentType, setCurrentType] = useState<OverviewType>("grass");
   const [rows, setRows] = useState<MondayProjectServerRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const { sortKey, sortDir, onSort } = useTableColumnSort<OverviewSortKey>("project");
 
   const farmsRef = useHarvestingDataStore((s) => s.farms);
   const projectsRef = useHarvestingDataStore((s) => s.projects);
@@ -303,11 +344,49 @@ export default function OverviewPage() {
                         <table className="min-w-full border-separate border-spacing-0">
                           <thead>
                             <tr className="text-sm font-semibold text-[var(--primary-color)]">
-                              <th className="border-b border-gray-200 pb-2 pr-4 text-left">{tCommon("project")}</th>
-                              <th className="border-b border-gray-200 pb-2 pr-4 text-left">{tCommon("grass")}</th>
-                              <th className="border-b border-gray-200 pb-2 pr-4 text-right">{tCommon("quantity")}</th>
-                              <th className="border-b border-gray-200 pb-2 pr-4 text-right">{t("remaining")}</th>
-                              <th className="border-b border-gray-200 pb-2 text-right">{tCommon("farm")}</th>
+                              <SortableTh
+                                label={tCommon("project")}
+                                columnKey="project"
+                                activeKey={sortKey}
+                                direction={sortDir}
+                                onSort={onSort}
+                                className="border-b border-gray-200 pb-2 pr-4 !text-[var(--primary-color)]"
+                              />
+                              <SortableTh
+                                label={tCommon("grass")}
+                                columnKey="grass"
+                                activeKey={sortKey}
+                                direction={sortDir}
+                                onSort={onSort}
+                                className="border-b border-gray-200 pb-2 pr-4 !text-[var(--primary-color)]"
+                              />
+                              <SortableTh
+                                label={tCommon("quantity")}
+                                columnKey="quantity"
+                                activeKey={sortKey}
+                                direction={sortDir}
+                                onSort={onSort}
+                                align="right"
+                                className="border-b border-gray-200 pb-2 pr-4 !text-[var(--primary-color)]"
+                              />
+                              <SortableTh
+                                label={t("remaining")}
+                                columnKey="remaining"
+                                activeKey={sortKey}
+                                direction={sortDir}
+                                onSort={onSort}
+                                align="right"
+                                className="border-b border-gray-200 pb-2 pr-4 !text-[var(--primary-color)]"
+                              />
+                              <SortableTh
+                                label={tCommon("farm")}
+                                columnKey="farm"
+                                activeKey={sortKey}
+                                direction={sortDir}
+                                onSort={onSort}
+                                align="right"
+                                className="border-b border-gray-200 pb-2 !text-[var(--primary-color)]"
+                              />
                             </tr>
                           </thead>
                           <tbody>
@@ -320,11 +399,12 @@ export default function OverviewPage() {
                               }, {}),
                             ).map(([projectKey, rowsInProject]) => {
                               const [projectName, projectSub = ""] = projectKey.split("__");
-                              return rowsInProject.map((x, idx) => (
+                              const sortedRows = sortOverviewLines(rowsInProject, sortKey, sortDir);
+                              return sortedRows.map((x, idx) => (
                                 <tr key={`${projectKey}-${idx}`} className="text-sm">
                                   {idx === 0 ? (
                                     <td
-                                      rowSpan={rowsInProject.length}
+                                      rowSpan={sortedRows.length}
                                       className="border-b border-gray-100 py-3 pr-4 align-top"
                                     >
                                       <div className="text-gray-900">{projectName}</div>
@@ -356,15 +436,60 @@ export default function OverviewPage() {
                             <table className="min-w-full border-separate border-spacing-0">
                               <thead>
                                 <tr className="text-sm font-semibold text-[var(--primary-color)]">
-                                  <th className="border-b border-gray-200 pb-2 pr-4 text-left">{tCommon("project")}</th>
+                                  <SortableTh
+                                    label={tCommon("project")}
+                                    columnKey="project"
+                                    activeKey={sortKey}
+                                    direction={sortDir}
+                                    onSort={onSort}
+                                    className="border-b border-gray-200 pb-2 pr-4 !text-[var(--primary-color)]"
+                                  />
                                   {currentType === "grass" ? (
-                                    <th className="border-b border-gray-200 pb-2 pr-4 text-left">{tCommon("country")}</th>
+                                    <SortableTh
+                                      label={tCommon("country")}
+                                      columnKey="country"
+                                      activeKey={sortKey}
+                                      direction={sortDir}
+                                      onSort={onSort}
+                                      className="border-b border-gray-200 pb-2 pr-4 !text-[var(--primary-color)]"
+                                    />
                                   ) : null}
-                                  <th className="border-b border-gray-200 pb-2 pr-4 text-left">{tCommon("grass")}</th>
-                                  <th className="border-b border-gray-200 pb-2 pr-4 text-right">{tCommon("quantity")}</th>
-                                  <th className="border-b border-gray-200 pb-2 pr-4 text-right">{t("remaining")}</th>
+                                  <SortableTh
+                                    label={tCommon("grass")}
+                                    columnKey="grass"
+                                    activeKey={sortKey}
+                                    direction={sortDir}
+                                    onSort={onSort}
+                                    className="border-b border-gray-200 pb-2 pr-4 !text-[var(--primary-color)]"
+                                  />
+                                  <SortableTh
+                                    label={tCommon("quantity")}
+                                    columnKey="quantity"
+                                    activeKey={sortKey}
+                                    direction={sortDir}
+                                    onSort={onSort}
+                                    align="right"
+                                    className="border-b border-gray-200 pb-2 pr-4 !text-[var(--primary-color)]"
+                                  />
+                                  <SortableTh
+                                    label={t("remaining")}
+                                    columnKey="remaining"
+                                    activeKey={sortKey}
+                                    direction={sortDir}
+                                    onSort={onSort}
+                                    align="right"
+                                    className="border-b border-gray-200 pb-2 pr-4 !text-[var(--primary-color)]"
+                                  />
                                   {currentType === "grass" ? (
-                                    <th className="border-b border-gray-200 pb-2 text-right">{tCommon("farm")}</th>
+                                    <SortableTh
+                                      label={tCommon("farm")}
+                                      columnKey="farm"
+                                      activeKey={sortKey}
+                                      direction={sortDir}
+                                      onSort={onSort}
+                                      align="right"
+                                      className="border-b border-gray-200 pb-2 !text-[var(--primary-color)]"
+                                    />
                                   ) : null}
                                 </tr>
                               </thead>
@@ -378,11 +503,12 @@ export default function OverviewPage() {
                                   }, {}),
                                 ).map(([projectKey, rowsInProject]) => {
                                   const [projectName, projectSub = ""] = projectKey.split("__");
-                                  return rowsInProject.map((x, idx) => (
+                                  const sortedRows = sortOverviewLines(rowsInProject, sortKey, sortDir);
+                                  return sortedRows.map((x, idx) => (
                                     <tr key={`${projectKey}-${idx}`} className="text-sm">
                                       {idx === 0 ? (
                                         <td
-                                          rowSpan={rowsInProject.length}
+                                          rowSpan={sortedRows.length}
                                           className="border-b border-gray-100 py-3 pr-4 align-top"
                                         >
                                           <div className="text-gray-900">{projectName}</div>

@@ -22,6 +22,13 @@ import {
 } from "@/shared/lib/harvestReferenceData";
 import { formatNumber } from "@/shared/lib/format/number";
 import { MultiSelect } from "@/components/ui/multi-select";
+import { SortableTh } from "@/components/ui/sortable-th";
+import { useTableColumnSort } from "@/shared/hooks/useTableColumnSort";
+import {
+  compareIsoDateStrings,
+  compareNumbers,
+  compareStrings,
+} from "@/shared/lib/tableSort";
 
 const PER_PAGE = 30;
 
@@ -102,6 +109,15 @@ function toCsvFilter(values: string[]): string {
   return Array.from(new Set(values.map((x) => String(x).trim()).filter(Boolean))).join(",");
 }
 
+type HarvestSortKey =
+  | "date"
+  | "project"
+  | "farm"
+  | "grass"
+  | "zone"
+  | "qty"
+  | "status";
+
 function normalizeHarvestRow(raw: unknown): HarvestListRow | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
@@ -167,6 +183,36 @@ export default function HarvestListPage() {
   const [totalM2, setTotalM2] = useState("0");
   const [totalKg, setTotalKg] = useState("0");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+
+  const { sortKey, sortDir, onSort } = useTableColumnSort<HarvestSortKey>(
+    "date",
+    "desc",
+  );
+
+  const sortedRows = useMemo(() => {
+    const list = [...rows];
+    list.sort((a, b) => {
+      switch (sortKey) {
+        case "date":
+          return compareIsoDateStrings(a.date, b.date, sortDir);
+        case "project":
+          return compareStrings(a.project, b.project, sortDir);
+        case "farm":
+          return compareStrings(a.farm, b.farm, sortDir);
+        case "grass":
+          return compareStrings(a.grass, b.grass, sortDir);
+        case "zone":
+          return compareStrings(a.zone, b.zone, sortDir);
+        case "qty":
+          return compareNumbers(a.qty, b.qty, sortDir);
+        case "status":
+          return compareStrings(a.status, b.status, sortDir);
+        default:
+          return 0;
+      }
+    });
+    return list;
+  }, [rows, sortKey, sortDir]);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(harvestListSearch.trim()), 400);
@@ -405,31 +451,66 @@ export default function HarvestListPage() {
                   <table className="w-full">
                     <thead className="bg-gray-50 border-b border-gray-200">
                       <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
-                          Date
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
-                          Project
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
-                          Farm
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
-                          Grass
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
-                          Zone
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
-                          Qty
-                        </th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
-                          Status
-                        </th>
+                        <SortableTh
+                          label="Date"
+                          columnKey="date"
+                          activeKey={sortKey}
+                          direction={sortDir}
+                          onSort={onSort}
+                          className="px-6 py-3 text-xs text-gray-600"
+                        />
+                        <SortableTh
+                          label="Project"
+                          columnKey="project"
+                          activeKey={sortKey}
+                          direction={sortDir}
+                          onSort={onSort}
+                          className="px-6 py-3 text-xs text-gray-600"
+                        />
+                        <SortableTh
+                          label="Farm"
+                          columnKey="farm"
+                          activeKey={sortKey}
+                          direction={sortDir}
+                          onSort={onSort}
+                          className="px-6 py-3 text-xs text-gray-600"
+                        />
+                        <SortableTh
+                          label="Grass"
+                          columnKey="grass"
+                          activeKey={sortKey}
+                          direction={sortDir}
+                          onSort={onSort}
+                          className="px-6 py-3 text-xs text-gray-600"
+                        />
+                        <SortableTh
+                          label="Zone"
+                          columnKey="zone"
+                          activeKey={sortKey}
+                          direction={sortDir}
+                          onSort={onSort}
+                          className="px-6 py-3 text-xs text-gray-600"
+                        />
+                        <SortableTh
+                          label="Qty"
+                          columnKey="qty"
+                          activeKey={sortKey}
+                          direction={sortDir}
+                          onSort={onSort}
+                          className="px-6 py-3 text-xs text-gray-600"
+                        />
+                        <SortableTh
+                          label="Status"
+                          columnKey="status"
+                          activeKey={sortKey}
+                          direction={sortDir}
+                          onSort={onSort}
+                          className="px-6 py-3 text-xs text-gray-600"
+                        />
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                      {rows.map((harvest) => (
+                      {sortedRows.map((harvest) => (
                         <tr key={harvest.id} className="hover:bg-gray-50">
                           <td className="px-6 py-4 text-sm text-gray-600">
                             {harvest.date
@@ -488,7 +569,7 @@ export default function HarvestListPage() {
                 </div>
 
                 <div className="lg:hidden divide-y divide-gray-200">
-                  {rows.map((harvest) => (
+                  {sortedRows.map((harvest) => (
                     <div key={harvest.id} className="p-4">
                       <div className="flex justify-between items-start mb-3">
                         <div>

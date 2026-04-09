@@ -27,6 +27,13 @@ import { mapRowsToSelectOptions } from "@/shared/lib/harvestReferenceData";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { DateRangePicker } from "@/shared/ui/date-picker/date-range-picker";
 import { MultiSelect } from "@/components/ui/multi-select";
+import { SortableTh } from "@/components/ui/sortable-th";
+import { useTableColumnSort } from "@/shared/hooks/useTableColumnSort";
+import {
+  compareIsoDateStrings,
+  compareNumbers,
+  compareStrings,
+} from "@/shared/lib/tableSort";
 import {
   fetchHarvestRowsForForecasting,
   rowsToMockHarvestRows,
@@ -1037,24 +1044,107 @@ export function InventoryForecast() {
 
   const harvestStatusRows = useMemo(() => {
     const today = parseISO(todayYmd);
-    return regrowthRowsInSelectedRange
-      .map((row) => {
-        const ready = parseISO(row.regrowthDateYmd);
-        const diff = isValid(ready) ? differenceInCalendarDays(ready, today) : 0;
-        return {
-          id: String(row.id ?? ""),
-          farm: row.farm_name || "Unknown",
-          grassType: row.grassLabel || "Unknown",
-          harvestType: row.uom === "M2" ? "m2" : "kg",
-          harvestDate: row.actualHarvestDateYmd,
-          readyDate: row.regrowthDateYmd,
-          quantity: row.regrowthQuantity,
-          statusType: diff > 0 ? "pending" : "ready",
-          statusLabel: diff > 0 ? `${diff}d` : "Ready",
-        };
-      })
-      .sort((a, b) => a.readyDate.localeCompare(b.readyDate));
+    return regrowthRowsInSelectedRange.map((row) => {
+      const ready = parseISO(row.regrowthDateYmd);
+      const diff = isValid(ready) ? differenceInCalendarDays(ready, today) : 0;
+      return {
+        id: String(row.id ?? ""),
+        farm: row.farm_name || "Unknown",
+        grassType: row.grassLabel || "Unknown",
+        harvestType: row.uom === "M2" ? "m2" : "kg",
+        harvestDate: row.actualHarvestDateYmd,
+        readyDate: row.regrowthDateYmd,
+        quantity: row.regrowthQuantity,
+        statusType: diff > 0 ? "pending" : "ready",
+        statusLabel: diff > 0 ? `${diff}d` : "Ready",
+      };
+    });
   }, [regrowthRowsInSelectedRange, todayYmd]);
+
+  type HistorySortKey =
+    | "id"
+    | "farm"
+    | "grassType"
+    | "harvestType"
+    | "harvestDate"
+    | "readyDate"
+    | "quantity"
+    | "status";
+
+  const {
+    sortKey: historySortKey,
+    sortDir: historySortDir,
+    onSort: onHistorySort,
+  } = useTableColumnSort<HistorySortKey>("readyDate");
+
+  const sortedHarvestStatusRows = useMemo(() => {
+    const rows = [...harvestStatusRows];
+    rows.sort((a, b) => {
+      switch (historySortKey) {
+        case "id":
+          return compareStrings(a.id, b.id, historySortDir);
+        case "farm":
+          return compareStrings(a.farm, b.farm, historySortDir);
+        case "grassType":
+          return compareStrings(a.grassType, b.grassType, historySortDir);
+        case "harvestType":
+          return compareStrings(a.harvestType, b.harvestType, historySortDir);
+        case "harvestDate":
+          return compareIsoDateStrings(
+            String(a.harvestDate ?? ""),
+            String(b.harvestDate ?? ""),
+            historySortDir,
+          );
+        case "readyDate":
+          return compareStrings(a.readyDate, b.readyDate, historySortDir);
+        case "quantity":
+          return compareNumbers(a.quantity, b.quantity, historySortDir);
+        case "status":
+          return compareStrings(a.statusLabel, b.statusLabel, historySortDir);
+        default:
+          return 0;
+      }
+    });
+    return rows;
+  }, [harvestStatusRows, historySortKey, historySortDir]);
+
+  const {
+    sortKey: forecastSortKey,
+    sortDir: forecastSortDir,
+    onSort: onForecastSort,
+  } = useTableColumnSort<string>("month");
+
+  const sortedForecastTableRows = useMemo(() => {
+    const rows = [...forecast];
+    rows.sort((a, b) => {
+      const sk = forecastSortKey;
+      const sd = forecastSortDir;
+      if (sk === "month") {
+        return compareStrings(String(a.date), String(b.date), sd);
+      }
+      if (sk === "total") {
+        const ta = displayGrassList.reduce(
+          (s, g) => s + (typeof a[g] === "number" ? (a[g] as number) : 0),
+          0,
+        );
+        const tb = displayGrassList.reduce(
+          (s, g) => s + (typeof b[g] === "number" ? (b[g] as number) : 0),
+          0,
+        );
+        return compareNumbers(ta, tb, sd);
+      }
+      if (sk.startsWith("grass:")) {
+        const name = sk.slice("grass:".length);
+        return compareNumbers(
+          Number(a[name] ?? 0),
+          Number(b[name] ?? 0),
+          sd,
+        );
+      }
+      return 0;
+    });
+    return rows;
+  }, [forecast, displayGrassList, forecastSortKey, forecastSortDir]);
 
   const timeline = useMemo(
     () => generateTimeline(filteredHistory),
@@ -1231,7 +1321,7 @@ export function InventoryForecast() {
               <span className="text-sm text-gray-600">Available Now</span>
               <CheckCircle className="w-5 h-5 text-green-600" />
             </div>
-            <div className="text-3xl font-semibold text-gray-900">
+            <div className="text-2xl font-semibold text-gray-900">
               {formatValueForCard(totalAvailableByUom.total)}
             </div>
             <div className="mt-1 text-xs text-gray-600">
@@ -1249,7 +1339,7 @@ export function InventoryForecast() {
               <span className="text-sm text-gray-600">Growing</span>
               <Sprout className="w-5 h-5 text-yellow-600" />
             </div>
-            <div className="text-3xl font-semibold text-gray-900">
+            <div className="text-2xl font-semibold text-gray-900">
               {formatValueForCard(totalGrowingByUom.total)}
             </div>
             <div className="mt-1 text-xs text-gray-600">
@@ -1267,7 +1357,7 @@ export function InventoryForecast() {
               <span className="text-sm text-gray-600">Ready This Week</span>
               <Clock className="w-5 h-5 text-blue-600" />
             </div>
-            <div className="text-3xl font-semibold text-gray-900">{readyThisWeekFarmCount}</div>
+            <div className="text-2xl font-semibold text-gray-900">{readyThisWeekFarmCount}</div>
             <p className="text-xs text-gray-500 mt-1">Number of farms with regrowth this week</p>
           </div>
 
@@ -1276,7 +1366,7 @@ export function InventoryForecast() {
               <span className="text-sm text-gray-600">Next 30 Days</span>
               <TrendingUp className="w-5 h-5 text-purple-600" />
             </div>
-            <div className="text-3xl font-semibold text-gray-900">{readyNext30DaysFarmCount}</div>
+            <div className="text-2xl font-semibold text-gray-900">{readyNext30DaysFarmCount}</div>
             <p className="text-xs text-gray-500 mt-1">Number of farms with regrowth in the next 30 days</p>
           </div>
           </div>
@@ -1506,24 +1596,37 @@ export function InventoryForecast() {
                 <table className="w-full">
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase">
-                        Month
-                      </th>
+                      <SortableTh
+                        label="Month"
+                        columnKey="month"
+                        activeKey={forecastSortKey}
+                        direction={forecastSortDir}
+                        onSort={onForecastSort}
+                        className="px-6 py-3 text-xs text-gray-600"
+                      />
                       {displayGrassList.map((grass) => (
-                        <th
+                        <SortableTh
                           key={grass}
-                          className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase"
-                        >
-                          {grass}
-                        </th>
+                          label={grass}
+                          columnKey={`grass:${grass}`}
+                          activeKey={forecastSortKey}
+                          direction={forecastSortDir}
+                          onSort={onForecastSort}
+                          className="px-6 py-3 text-xs text-gray-600"
+                        />
                       ))}
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase">
-                        Total
-                      </th>
+                      <SortableTh
+                        label="Total"
+                        columnKey="total"
+                        activeKey={forecastSortKey}
+                        direction={forecastSortDir}
+                        onSort={onForecastSort}
+                        className="px-6 py-3 text-xs text-gray-600"
+                      />
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {forecast.map((row) => {
+                    {sortedForecastTableRows.map((row) => {
                       const qty = (grass: string) =>
                         typeof row[grass] === "number" ? row[grass] : 0;
                       const total = displayGrassList.reduce(
@@ -1636,34 +1739,74 @@ export function InventoryForecast() {
                 <table className="w-full">
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase">
-                        ID
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase">
-                        Farm
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase">
-                        Grass Type
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase">
-                        UOM
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase">
-                        Harvested
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase">
-                        Regrowth Ready Date
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase">
-                        Quantity
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase">
-                        Status
-                      </th>
+                      <SortableTh
+                        label="ID"
+                        columnKey="id"
+                        activeKey={historySortKey}
+                        direction={historySortDir}
+                        onSort={onHistorySort}
+                        className="px-6 py-3 text-xs text-gray-600"
+                      />
+                      <SortableTh
+                        label="Farm"
+                        columnKey="farm"
+                        activeKey={historySortKey}
+                        direction={historySortDir}
+                        onSort={onHistorySort}
+                        className="px-6 py-3 text-xs text-gray-600"
+                      />
+                      <SortableTh
+                        label="Grass Type"
+                        columnKey="grassType"
+                        activeKey={historySortKey}
+                        direction={historySortDir}
+                        onSort={onHistorySort}
+                        className="px-6 py-3 text-xs text-gray-600"
+                      />
+                      <SortableTh
+                        label="UOM"
+                        columnKey="harvestType"
+                        activeKey={historySortKey}
+                        direction={historySortDir}
+                        onSort={onHistorySort}
+                        className="px-6 py-3 text-xs text-gray-600"
+                      />
+                      <SortableTh
+                        label="Harvested"
+                        columnKey="harvestDate"
+                        activeKey={historySortKey}
+                        direction={historySortDir}
+                        onSort={onHistorySort}
+                        className="px-6 py-3 text-xs text-gray-600"
+                      />
+                      <SortableTh
+                        label="Regrowth Ready Date"
+                        columnKey="readyDate"
+                        activeKey={historySortKey}
+                        direction={historySortDir}
+                        onSort={onHistorySort}
+                        className="px-6 py-3 text-xs text-gray-600"
+                      />
+                      <SortableTh
+                        label="Quantity"
+                        columnKey="quantity"
+                        activeKey={historySortKey}
+                        direction={historySortDir}
+                        onSort={onHistorySort}
+                        className="px-6 py-3 text-xs text-gray-600"
+                      />
+                      <SortableTh
+                        label="Status"
+                        columnKey="status"
+                        activeKey={historySortKey}
+                        direction={historySortDir}
+                        onSort={onHistorySort}
+                        className="px-6 py-3 text-xs text-gray-600"
+                      />
                     </tr>
                   </thead>
                   <tbody className="bg-white divide-y divide-gray-200">
-                    {harvestStatusRows.slice(0, 30).map((harvest) => (
+                    {sortedHarvestStatusRows.slice(0, 30).map((harvest) => (
                       <tr key={`${harvest.id}-${harvest.farm}-${harvest.grassType}`} className="hover:bg-gray-50">
                         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                           {harvest.id}

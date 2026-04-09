@@ -13,6 +13,9 @@ import {
   updateMondayProjectParentItem,
 } from "@/entities/projects";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
+import { SortableTh } from "@/components/ui/sortable-th";
+import { useTableColumnSort } from "@/shared/hooks/useTableColumnSort";
+import { compareNumbers, compareStrings } from "@/shared/lib/tableSort";
 
 type FieldKey =
   | "projectName"
@@ -550,6 +553,57 @@ export default function ProjectImportPage() {
     return Array.from(map.values());
   }, [mappedRows]);
 
+  type ProjectImportSortKey =
+    | "index"
+    | "project"
+    | "country"
+    | "stsPic"
+    | "type"
+    | "holes"
+    | "grass"
+    | "uom"
+    | "quantity";
+
+  const { sortKey, sortDir, onSort } =
+    useTableColumnSort<ProjectImportSortKey>("project");
+
+  const sortedGroupedProjects = useMemo(() => {
+    const list = [...groupedProjects];
+    list.sort((a, b) => {
+      const r0 = a.rows[0];
+      const r1 = b.rows[0];
+      const grass0 = a.rows.map((x) => x.grass).filter(Boolean).join(", ");
+      const grass1 = b.rows.map((x) => x.grass).filter(Boolean).join(", ");
+      const uom0 = a.rows.map((x) => x.grassType).filter(Boolean).join(", ");
+      const uom1 = b.rows.map((x) => x.grassType).filter(Boolean).join(", ");
+      const qty0 = a.rows.map((x) => x.grassRequired).filter(Boolean).join(", ");
+      const qty1 = b.rows.map((x) => x.grassRequired).filter(Boolean).join(", ");
+      switch (sortKey) {
+        case "index":
+          return compareNumbers(r0.rowNumber, r1.rowNumber, sortDir);
+        case "project":
+          return compareStrings(a.projectName, b.projectName, sortDir);
+        case "country":
+          return compareStrings(r0.country, r1.country, sortDir);
+        case "stsPic":
+          return compareStrings(r0.stsPic, r1.stsPic, sortDir);
+        case "type":
+          return compareStrings(r0.projectType, r1.projectType, sortDir);
+        case "holes":
+          return compareStrings(r0.holes, r1.holes, sortDir);
+        case "grass":
+          return compareStrings(grass0, grass1, sortDir);
+        case "uom":
+          return compareStrings(uom0, uom1, sortDir);
+        case "quantity":
+          return compareStrings(qty0, qty1, sortDir);
+        default:
+          return 0;
+      }
+    });
+    return list;
+  }, [groupedProjects, sortKey, sortDir]);
+
   const handleFile = async (file: File) => {
     setError("");
     setImportSummary("");
@@ -1009,19 +1063,82 @@ export default function ProjectImportPage() {
                 <table className="min-w-full text-sm">
                   <thead className="bg-gray-50 text-left">
                     <tr>
-                      <th className="px-3 py-2">{t("table.index")}</th>
-                      <th className="px-3 py-2">{t("table.project")}</th>
-                      <th className="px-3 py-2">{t("table.country")}</th>
-                      <th className="px-3 py-2">{t("table.stsPic")}</th>
-                      <th className="px-3 py-2">{t("table.type")}</th>
-                      <th className="px-3 py-2">{t("table.holes")}</th>
-                      <th className="px-3 py-2">{t("table.grass")}</th>
-                      <th className="px-3 py-2">{t("table.uom")}</th>
-                      <th className="px-3 py-2">{t("table.quantity")}</th>
+                      <SortableTh
+                        label={t("table.index")}
+                        columnKey="index"
+                        activeKey={sortKey}
+                        direction={sortDir}
+                        onSort={onSort}
+                        className="px-3 py-2 text-gray-700 !normal-case"
+                      />
+                      <SortableTh
+                        label={t("table.project")}
+                        columnKey="project"
+                        activeKey={sortKey}
+                        direction={sortDir}
+                        onSort={onSort}
+                        className="px-3 py-2 text-gray-700 !normal-case"
+                      />
+                      <SortableTh
+                        label={t("table.country")}
+                        columnKey="country"
+                        activeKey={sortKey}
+                        direction={sortDir}
+                        onSort={onSort}
+                        className="px-3 py-2 text-gray-700 !normal-case"
+                      />
+                      <SortableTh
+                        label={t("table.stsPic")}
+                        columnKey="stsPic"
+                        activeKey={sortKey}
+                        direction={sortDir}
+                        onSort={onSort}
+                        className="px-3 py-2 text-gray-700 !normal-case"
+                      />
+                      <SortableTh
+                        label={t("table.type")}
+                        columnKey="type"
+                        activeKey={sortKey}
+                        direction={sortDir}
+                        onSort={onSort}
+                        className="px-3 py-2 text-gray-700 !normal-case"
+                      />
+                      <SortableTh
+                        label={t("table.holes")}
+                        columnKey="holes"
+                        activeKey={sortKey}
+                        direction={sortDir}
+                        onSort={onSort}
+                        className="px-3 py-2 text-gray-700 !normal-case"
+                      />
+                      <SortableTh
+                        label={t("table.grass")}
+                        columnKey="grass"
+                        activeKey={sortKey}
+                        direction={sortDir}
+                        onSort={onSort}
+                        className="px-3 py-2 text-gray-700 !normal-case"
+                      />
+                      <SortableTh
+                        label={t("table.uom")}
+                        columnKey="uom"
+                        activeKey={sortKey}
+                        direction={sortDir}
+                        onSort={onSort}
+                        className="px-3 py-2 text-gray-700 !normal-case"
+                      />
+                      <SortableTh
+                        label={t("table.quantity")}
+                        columnKey="quantity"
+                        activeKey={sortKey}
+                        direction={sortDir}
+                        onSort={onSort}
+                        className="px-3 py-2 text-gray-700 !normal-case"
+                      />
                     </tr>
                   </thead>
                   <tbody>
-                    {groupedProjects.slice(0, 50).map((g) => {
+                    {sortedGroupedProjects.slice(0, 50).map((g) => {
                       const r0 = g.rows[0];
                       return (
                         <tr key={`g-${g.key}`} className="border-t border-gray-100">

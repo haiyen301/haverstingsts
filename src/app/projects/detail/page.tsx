@@ -29,6 +29,9 @@ import { zoneIdToLabel } from "@/shared/lib/harvestReferenceData";
 import { parseJsonMaybe, parseSubitems } from "@/shared/lib/parseJsonMaybe";
 import { iconPaths } from "@/lib/assets/images";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
+import { SortableTh } from "@/components/ui/sortable-th";
+import { useTableColumnSort } from "@/shared/hooks/useTableColumnSort";
+import { compareNumbers, compareStrings } from "@/shared/lib/tableSort";
 import { Swiper, SwiperSlide } from "swiper/react";
 import { FreeMode } from "swiper/modules";
 import { Fancybox } from "@fancyapps/ui";
@@ -44,6 +47,8 @@ type GrassRow = {
   remaining: number;
   progress: number;
 };
+
+type GrassSortKey = "name" | "required" | "delivered" | "remaining" | "progress";
 
 type HarvestRow = {
   id: string;
@@ -384,6 +389,29 @@ export default function ProjectDetailPage() {
     });
   }, [projectRow, productMap, t]);
 
+  const { sortKey, sortDir, onSort } = useTableColumnSort<GrassSortKey>("name");
+
+  const sortedGrassRows = useMemo(() => {
+    const list = [...grassRows];
+    list.sort((a, b) => {
+      switch (sortKey) {
+        case "name":
+          return compareStrings(a.name, b.name, sortDir);
+        case "required":
+          return compareNumbers(a.required, b.required, sortDir);
+        case "delivered":
+          return compareNumbers(a.delivered, b.delivered, sortDir);
+        case "remaining":
+          return compareNumbers(a.remaining, b.remaining, sortDir);
+        case "progress":
+          return compareNumbers(a.progress, b.progress, sortDir);
+        default:
+          return 0;
+      }
+    });
+    return list;
+  }, [grassRows, sortKey, sortDir]);
+
   return (
     <RequireAuth>
       <DashboardLayout>
@@ -473,18 +501,57 @@ export default function ProjectDetailPage() {
                       <table className="w-full min-w-[760px]">
                         <thead className="bg-white">
                           <tr className="text-left text-xs uppercase tracking-wide text-gray-700">
-                            <th className="px-4 py-3">{t("grassType")}</th>
-                            <th className="px-4 py-3 text-right">{t("required")}</th>
-                            <th className="px-4 py-3 text-right">{t("delivered")}</th>
-                            <th className="px-4 py-3 text-right">{t("remaining")}</th>
-                            <th className="px-4 py-3 text-right">{t("progress")}</th>
+                            <SortableTh
+                              label={t("grassType")}
+                              columnKey="name"
+                              activeKey={sortKey}
+                              direction={sortDir}
+                              onSort={onSort}
+                              className="px-4 py-3 !normal-case"
+                            />
+                            <SortableTh
+                              label={t("required")}
+                              columnKey="required"
+                              activeKey={sortKey}
+                              direction={sortDir}
+                              onSort={onSort}
+                              align="right"
+                              className="px-4 py-3 !normal-case"
+                            />
+                            <SortableTh
+                              label={t("delivered")}
+                              columnKey="delivered"
+                              activeKey={sortKey}
+                              direction={sortDir}
+                              onSort={onSort}
+                              align="right"
+                              className="px-4 py-3 !normal-case"
+                            />
+                            <SortableTh
+                              label={t("remaining")}
+                              columnKey="remaining"
+                              activeKey={sortKey}
+                              direction={sortDir}
+                              onSort={onSort}
+                              align="right"
+                              className="px-4 py-3 !normal-case"
+                            />
+                            <SortableTh
+                              label={t("progress")}
+                              columnKey="progress"
+                              activeKey={sortKey}
+                              direction={sortDir}
+                              onSort={onSort}
+                              align="right"
+                              className="px-4 py-3 !normal-case"
+                            />
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-200 bg-white">
-                          {grassRows.length === 0 ? (
+                          {sortedGrassRows.length === 0 ? (
                             <tr><td className="px-4 py-4 text-sm text-gray-500" colSpan={5}>{t("noGrasses")}</td></tr>
                           ) : (
-                            grassRows.map((g) => (
+                            sortedGrassRows.map((g) => (
                               <tr key={g.id} className="hover:bg-gray-50">
                                 <td className="px-4 py-3 text-sm text-gray-900">{g.name}</td>
                                 <td className="px-4 py-3 text-right text-sm">{g.required.toLocaleString()}</td>

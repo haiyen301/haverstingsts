@@ -17,7 +17,7 @@ import {
   Cell,
   Legend,
 } from "recharts";
-import { Globe, TrendingUp, Package, Scale, MapPin } from "lucide-react";
+import { Globe, TrendingUp, Package, Scale, MapPin, Eye, EyeOff } from "lucide-react";
 
 import RequireAuth from "@/features/auth/RequireAuth";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
@@ -26,6 +26,22 @@ import { fetchMondayProjectRowsFromServer, type MondayProjectServerRow } from "@
 import { parseSubitems } from "@/shared/lib/parseJsonMaybe";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
 import { FarmCountryFlag } from "./FarmCountryFlag";
+import { SortableTh } from "@/components/ui/sortable-th";
+import { useTableColumnSort } from "@/shared/hooks/useTableColumnSort";
+import {
+  compareNumbers,
+  compareStrings,
+} from "@/shared/lib/tableSort";
+
+type DashProjectSortKey =
+  | "customerName"
+  | "harvestTypeLabel"
+  | "activeProjects"
+  | "activeHarvests"
+  | "contractAmount"
+  | "amountDelivered"
+  | "amountOutstanding"
+  | "grassTypeLabel";
 
 const seedCountryData = [
   {
@@ -116,6 +132,9 @@ export default function DashboardPage() {
   const [selectedFarmId, setSelectedFarmId] = useState<string | null>(null);
   const [deliveredByMonthMode, setDeliveredByMonthMode] = useState<"sprig" | "sod">("sprig");
   const [rows, setRows] = useState<MondayProjectServerRow[]>([]);
+  const [showAnalyticsPanels, setShowAnalyticsPanels] = useState(true);
+  const { sortKey, sortDir, onSort } =
+    useTableColumnSort<DashProjectSortKey>("customerName");
   const farmsRef = useHarvestingDataStore((s) => s.farms);
   const countriesRef = useHarvestingDataStore((s) => s.countries);
   const productsRef = useHarvestingDataStore((s) => s.products);
@@ -757,9 +776,36 @@ export default function DashboardPage() {
     return out;
   }, [rows, farmFilters, productsRef, selectedCountry, selectedFarmId, deliveredByMonthMode, t]);
 
+  const sortedAllFarmProjectDetailRows = useMemo(() => {
+    const list = [...allFarmProjectDetailRows];
+    list.sort((a, b) => {
+      switch (sortKey) {
+        case "grassTypeLabel":
+          return compareStrings(a.grassTypeLabel, b.grassTypeLabel, sortDir);
+        case "customerName":
+          return compareStrings(a.customerName, b.customerName, sortDir);
+        case "harvestTypeLabel":
+          return compareStrings(a.harvestTypeLabel, b.harvestTypeLabel, sortDir);
+        case "activeProjects":
+          return compareNumbers(a.activeProjects, b.activeProjects, sortDir);
+        case "activeHarvests":
+          return compareNumbers(a.activeHarvests, b.activeHarvests, sortDir);
+        case "contractAmount":
+          return compareNumbers(a.contractAmount, b.contractAmount, sortDir);
+        case "amountDelivered":
+          return compareNumbers(a.amountDelivered, b.amountDelivered, sortDir);
+        case "amountOutstanding":
+          return compareNumbers(a.amountOutstanding, b.amountOutstanding, sortDir);
+        default:
+          return 0;
+      }
+    });
+    return list;
+  }, [allFarmProjectDetailRows, sortKey, sortDir]);
+
   /** Same rows with `grassRowSpan` for the first column (0 = skip grass `<td>`). */
   const allFarmProjectTableRows = useMemo(() => {
-    const list = allFarmProjectDetailRows;
+    const list = sortedAllFarmProjectDetailRows;
     const out: Array<
       (typeof list)[number] & {
         grassRowSpan: number;
@@ -780,7 +826,7 @@ export default function DashboardPage() {
       i = j;
     }
     return out;
-  }, [allFarmProjectDetailRows]);
+  }, [sortedAllFarmProjectDetailRows]);
 
   /** One row per project for the selected farm (Sprig/Sod filter applies to numeric columns). */
   const singleFarmProjectDetailRows = useMemo(() => {
@@ -857,8 +903,35 @@ export default function DashboardPage() {
       });
     }
 
-    return out.sort((a, b) => a.customerName.localeCompare(b.customerName));
+    return out;
   }, [rows, selectedFarmId, selectedCountry, deliveredByMonthMode, t]);
+
+  const sortedSingleFarmProjectDetailRows = useMemo(() => {
+    const list = [...singleFarmProjectDetailRows];
+    const key =
+      sortKey === "grassTypeLabel" ? "customerName" : sortKey;
+    list.sort((a, b) => {
+      switch (key) {
+        case "customerName":
+          return compareStrings(a.customerName, b.customerName, sortDir);
+        case "harvestTypeLabel":
+          return compareStrings(a.harvestTypeLabel, b.harvestTypeLabel, sortDir);
+        case "activeProjects":
+          return compareNumbers(a.activeProjects, b.activeProjects, sortDir);
+        case "activeHarvests":
+          return compareNumbers(a.activeHarvests, b.activeHarvests, sortDir);
+        case "contractAmount":
+          return compareNumbers(a.contractAmount, b.contractAmount, sortDir);
+        case "amountDelivered":
+          return compareNumbers(a.amountDelivered, b.amountDelivered, sortDir);
+        case "amountOutstanding":
+          return compareNumbers(a.amountOutstanding, b.amountOutstanding, sortDir);
+        default:
+          return 0;
+      }
+    });
+    return list;
+  }, [singleFarmProjectDetailRows, sortKey, sortDir]);
 
   const selectedFarmName = selectedFarmId
     ? farmFilters.find((f) => f.farmId === selectedFarmId)?.farmName ?? ""
@@ -888,7 +961,7 @@ export default function DashboardPage() {
                   <span className="text-sm text-gray-600">{t("Dashboard.totalFarms")}</span>
                   <MapPin className="w-5 h-5 text-blue-600" />
                 </div>
-                <div className="text-3xl font-semibold text-gray-900">{totalFarms}</div>
+                <div className="text-2xl font-semibold text-gray-900">{totalFarms}</div>
                 {/* <p className="text-xs text-green-600 mt-1">Active operations</p> */}
               </div>
 
@@ -897,7 +970,7 @@ export default function DashboardPage() {
                   <span className="text-sm text-gray-600">{t("Dashboard.totalCurrentProjects")}</span>
                   <Package className="w-5 h-5 text-purple-600" />
                 </div>
-                <div className="text-3xl font-semibold text-gray-900">{totalCurrentProjects}</div>
+                <div className="text-2xl font-semibold text-gray-900">{totalCurrentProjects}</div>
               </div>
 
               <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
@@ -905,7 +978,7 @@ export default function DashboardPage() {
                   <span className="text-sm text-gray-600">{t("Dashboard.allProjects")}</span>
                   <TrendingUp className="w-5 h-5 text-green-600" />
                 </div>
-                <div className="text-3xl font-semibold text-gray-900">{allProjectCount}</div>
+                <div className="text-2xl font-semibold text-gray-900">{allProjectCount}</div>
               </div>
 
               <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
@@ -913,7 +986,7 @@ export default function DashboardPage() {
                   <span className="text-sm text-gray-600">{t("Dashboard.totalSprigDelivered")}</span>
                   <Scale className="w-5 h-5 text-yellow-600" />
                 </div>
-                <div className="text-3xl font-semibold text-gray-900">{deliveredTotals.sprigKg.toLocaleString()} kg</div>
+                <div className="text-2xl font-semibold text-gray-900">{deliveredTotals.sprigKg.toLocaleString()} kg</div>
               </div>
 
               <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
@@ -921,12 +994,13 @@ export default function DashboardPage() {
                   <span className="text-sm text-gray-600">{t("Dashboard.totalSodDelivered")}</span>
                   <Package className="w-5 h-5 text-blue-600" />
                 </div>
-                <div className="text-3xl font-semibold text-gray-900">{deliveredTotals.sodM2.toLocaleString()} m2</div>
+                <div className="text-2xl font-semibold text-gray-900">{deliveredTotals.sodM2.toLocaleString()} m2</div>
               </div>
             </div>
 
             <div className="mb-6">
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap gap-2">
                 <button
                   onClick={() => {
                     setSelectedCountry(null);
@@ -961,10 +1035,22 @@ export default function DashboardPage() {
                     {f.farmName}
                   </button>
                 ))}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowAnalyticsPanels((v) => !v)}
+                  className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:border-[#1F7A4C] hover:text-[#1F7A4C]"
+                  aria-pressed={!showAnalyticsPanels}
+                >
+                  {showAnalyticsPanels ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  {showAnalyticsPanels ? "Hide charts" : "Show charts"}
+                </button>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            {showAnalyticsPanels ? (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
               <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
                 <h2 className="text-lg font-semibold text-gray-900 mb-4">{t("Dashboard.projectsByCountry")}</h2>
                 <ResponsiveContainer width="100%" height={300}>
@@ -1145,9 +1231,9 @@ export default function DashboardPage() {
                     </button>
                   </div>
                 </div>
-                <p className="text-xs text-gray-500 mb-3">
+                {/* <p className="text-xs text-gray-500 mb-3">
                   {t("Dashboard.rollingSixMonthsHint")}
-                </p>
+                </p> */}
                 {deliveredSixMonthFarmTrend.series.length === 0 ? (
                   <p className="text-sm text-gray-500 py-8">
                     {t("Dashboard.noTrendsForFilters")}
@@ -1189,7 +1275,12 @@ export default function DashboardPage() {
                   </ResponsiveContainer>
                 )}
               </div>
-            </div>
+              </div>
+            ) : (
+              <div className="mb-6 rounded-lg border border-dashed border-gray-300 bg-white p-4 text-sm text-gray-600">
+                Charts are hidden. Click "Show charts" to display dashboard analytics panels.
+              </div>
+            )}
 
             <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
               <div className="px-6 py-4 border-b border-gray-200 flex flex-wrap items-center gap-4">
@@ -1223,38 +1314,73 @@ export default function DashboardPage() {
                   <table className="w-full min-w-[56rem]">
                     <thead className="bg-gray-50 border-b border-gray-200">
                       <tr>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
-                          {t("Dashboard.customerName")}
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
-                          {t("Dashboard.harvestType")}
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
-                          {t("Dashboard.activeProjects")}
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
-                          {t("Dashboard.activeHarvests")}
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
-                          {t("Dashboard.contractAmount")} ({deliveredByMonthUnitLabel})
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
-                          {t("Dashboard.amountDelivered")} ({deliveredByMonthUnitLabel})
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
-                          {t("Dashboard.amountOutstanding")} ({deliveredByMonthUnitLabel})
-                        </th>
+                        <SortableTh
+                          label={t("Dashboard.customerName")}
+                          columnKey="customerName"
+                          activeKey={sortKey}
+                          direction={sortDir}
+                          onSort={onSort}
+                          className="px-4 py-3 text-xs text-gray-600"
+                        />
+                        <SortableTh
+                          label={t("Dashboard.harvestType")}
+                          columnKey="harvestTypeLabel"
+                          activeKey={sortKey}
+                          direction={sortDir}
+                          onSort={onSort}
+                          className="px-4 py-3 text-xs text-gray-600"
+                        />
+                        <SortableTh
+                          label={t("Dashboard.activeProjects")}
+                          columnKey="activeProjects"
+                          activeKey={sortKey}
+                          direction={sortDir}
+                          onSort={onSort}
+                          className="px-4 py-3 text-xs text-gray-600"
+                        />
+                        <SortableTh
+                          label={t("Dashboard.activeHarvests")}
+                          columnKey="activeHarvests"
+                          activeKey={sortKey}
+                          direction={sortDir}
+                          onSort={onSort}
+                          className="px-4 py-3 text-xs text-gray-600"
+                        />
+                        <SortableTh
+                          label={`${t("Dashboard.contractAmount")} (${deliveredByMonthUnitLabel})`}
+                          columnKey="contractAmount"
+                          activeKey={sortKey}
+                          direction={sortDir}
+                          onSort={onSort}
+                          className="px-4 py-3 text-xs text-gray-600"
+                        />
+                        <SortableTh
+                          label={`${t("Dashboard.amountDelivered")} (${deliveredByMonthUnitLabel})`}
+                          columnKey="amountDelivered"
+                          activeKey={sortKey}
+                          direction={sortDir}
+                          onSort={onSort}
+                          className="px-4 py-3 text-xs text-gray-600"
+                        />
+                        <SortableTh
+                          label={`${t("Dashboard.amountOutstanding")} (${deliveredByMonthUnitLabel})`}
+                          columnKey="amountOutstanding"
+                          activeKey={sortKey}
+                          direction={sortDir}
+                          onSort={onSort}
+                          className="px-4 py-3 text-xs text-gray-600"
+                        />
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                      {singleFarmProjectDetailRows.length === 0 ? (
+                      {sortedSingleFarmProjectDetailRows.length === 0 ? (
                         <tr>
                           <td colSpan={7} className="px-6 py-8 text-center text-sm text-gray-500">
                             {t("Dashboard.noProjectsForFarm")}
                           </td>
                         </tr>
                       ) : null}
-                      {singleFarmProjectDetailRows.map((row) => (
+                      {sortedSingleFarmProjectDetailRows.map((row) => (
                         <tr key={row.projectId} className="hover:bg-gray-50">
                           <td className="px-4 py-3 text-sm font-medium text-gray-900 max-w-[14rem] truncate" title={row.customerName}>
                             {row.customerName}
@@ -1273,31 +1399,66 @@ export default function DashboardPage() {
                   <table className="w-full min-w-[56rem]">
                     <thead className="bg-gray-50 border-b border-gray-200">
                       <tr>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
-                          {t("Overview.grassType")}
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
-                          {t("Dashboard.harvestType")}
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
-                          {t("Dashboard.activeProjects")}
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
-                          {t("Dashboard.activeHarvests")}
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
-                          {t("Dashboard.contractAmount")} ({deliveredByMonthUnitLabel})
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
-                          {t("Dashboard.amountDelivered")} ({deliveredByMonthUnitLabel})
-                        </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-600 uppercase tracking-wider">
-                          {t("Dashboard.amountOutstanding")} ({deliveredByMonthUnitLabel})
-                        </th>
+                        <SortableTh
+                          label={t("Overview.grassType")}
+                          columnKey="grassTypeLabel"
+                          activeKey={sortKey}
+                          direction={sortDir}
+                          onSort={onSort}
+                          className="px-4 py-3 text-xs text-gray-600"
+                        />
+                        <SortableTh
+                          label={t("Dashboard.harvestType")}
+                          columnKey="harvestTypeLabel"
+                          activeKey={sortKey}
+                          direction={sortDir}
+                          onSort={onSort}
+                          className="px-4 py-3 text-xs text-gray-600"
+                        />
+                        <SortableTh
+                          label={t("Dashboard.activeProjects")}
+                          columnKey="activeProjects"
+                          activeKey={sortKey}
+                          direction={sortDir}
+                          onSort={onSort}
+                          className="px-4 py-3 text-xs text-gray-600"
+                        />
+                        <SortableTh
+                          label={t("Dashboard.activeHarvests")}
+                          columnKey="activeHarvests"
+                          activeKey={sortKey}
+                          direction={sortDir}
+                          onSort={onSort}
+                          className="px-4 py-3 text-xs text-gray-600"
+                        />
+                        <SortableTh
+                          label={`${t("Dashboard.contractAmount")} (${deliveredByMonthUnitLabel})`}
+                          columnKey="contractAmount"
+                          activeKey={sortKey}
+                          direction={sortDir}
+                          onSort={onSort}
+                          className="px-4 py-3 text-xs text-gray-600"
+                        />
+                        <SortableTh
+                          label={`${t("Dashboard.amountDelivered")} (${deliveredByMonthUnitLabel})`}
+                          columnKey="amountDelivered"
+                          activeKey={sortKey}
+                          direction={sortDir}
+                          onSort={onSort}
+                          className="px-4 py-3 text-xs text-gray-600"
+                        />
+                        <SortableTh
+                          label={`${t("Dashboard.amountOutstanding")} (${deliveredByMonthUnitLabel})`}
+                          columnKey="amountOutstanding"
+                          activeKey={sortKey}
+                          direction={sortDir}
+                          onSort={onSort}
+                          className="px-4 py-3 text-xs text-gray-600"
+                        />
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                      {allFarmProjectDetailRows.length === 0 ? (
+                      {sortedAllFarmProjectDetailRows.length === 0 ? (
                         <tr>
                           <td colSpan={7} className="px-6 py-8 text-center text-sm text-gray-500">
                             {t("Dashboard.noProjectsForFilters")}
@@ -1330,12 +1491,12 @@ export default function DashboardPage() {
               <div className="md:hidden divide-y divide-gray-200">
                 {selectedFarmId ? (
                   <>
-                    {singleFarmProjectDetailRows.length === 0 ? (
+                    {sortedSingleFarmProjectDetailRows.length === 0 ? (
                       <div className="p-6 text-center text-sm text-gray-500">
                         {t("Dashboard.noProjectsForFarm")}
                       </div>
                     ) : null}
-                    {singleFarmProjectDetailRows.map((row) => (
+                    {sortedSingleFarmProjectDetailRows.map((row) => (
                       <div key={row.projectId} className="p-4">
                         <h3 className="font-medium text-gray-900 mb-4">{row.customerName}</h3>
                         <div className="grid grid-cols-2 gap-3 text-sm">
@@ -1369,14 +1530,14 @@ export default function DashboardPage() {
                   </>
                 ) : (
                   <>
-                    {allFarmProjectDetailRows.length === 0 ? (
+                    {sortedAllFarmProjectDetailRows.length === 0 ? (
                       <div className="p-6 text-center text-sm text-gray-500">
                         {t("Dashboard.noProjectsForFilters")}
                       </div>
                     ) : null}
                     {(() => {
-                      const groups: Array<{ grass: string; rows: typeof allFarmProjectDetailRows }> = [];
-                      for (const r of allFarmProjectDetailRows) {
+                      const groups: Array<{ grass: string; rows: typeof sortedAllFarmProjectDetailRows }> = [];
+                      for (const r of sortedAllFarmProjectDetailRows) {
                         const last = groups[groups.length - 1];
                         if (last && last.grass === r.grassTypeLabel) last.rows.push(r);
                         else groups.push({ grass: r.grassTypeLabel, rows: [r] });
