@@ -71,6 +71,30 @@ type ImportLog = {
   source: ExcelRow;
 };
 
+type ImportedGrassItem = {
+  sourceRowNumber: number;
+  product_id: string;
+  quantity: string;
+  uom: string;
+};
+
+function pickCandidateId(source: Record<string, unknown>): string {
+  const direct =
+    toStringSafe(source.id) ||
+    toStringSafe(source.product_id) ||
+    toStringSafe(source.productId) ||
+    toStringSafe(source.commodity_id) ||
+    toStringSafe(source.commodityId) ||
+    toStringSafe(source.value);
+  if (direct) return direct;
+  const dynamic = Object.entries(source).find(([k, v]) => {
+    const nk = normalizeHeader(k);
+    if (!(typeof v === "string" || typeof v === "number")) return false;
+    return nk === "id" || nk.endsWith("id") || nk.includes("productid") || nk.includes("commodityid");
+  });
+  return dynamic ? toStringSafe(dynamic[1]) : "";
+}
+
 const FIELDS: { key: FieldKey; required?: boolean }[] = [
   { key: "projectName", required: true },
   { key: "company", required: true },
@@ -198,9 +222,66 @@ function normalizeKeyAreas(v: string): string[] {
 }
 
 function normalizeUom(v: string): string {
-  const s = normalizeLoose(v);
-  if (s === "kg" || s === "sprig") return "Kg";
-  if (s === "m2" || s === "sod") return "M2";
+  const raw = toStringSafe(v);
+  if (!raw) return "";
+  // NFKC helps normalize spreadsheet unicode variants (e.g. "m²" -> "m2").
+  const canonical = raw
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/\u00a0/g, " ")
+    .replace(/\^/g, "")
+    .replace(/\./g, " ")
+    .replace(/[^a-z0-9/ ]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!canonical) return "";
+
+  const compact = canonical.replace(/\s+/g, "");
+  const hasSprig =
+    /(^|[ /-])sprig($|[ /-])/.test(canonical) ||
+    /(^|[ /-])kg($|[ /-])/.test(canonical) ||
+    compact.includes("sprig") ||
+    compact === "1" ||
+    compact.includes("kilogram");
+  const hasSod =
+    /(^|[ /-])sod($|[ /-])/.test(canonical) ||
+    compact.includes("sod") ||
+    compact === "2" ||
+    compact.includes("m2") ||
+    compact.includes("sqm") ||
+    compact.includes("squaremeter") ||
+    compact.includes("squaremetre");
+
+  // If both appear (e.g. "Sod/Sprig"), default to Sprig=>Kg for backward compatibility.
+  if (hasSprig) return "Kg";
+  if (hasSod) return "M2";
+  return "";
+}
+
+function guessUomRawFromRow(source: ExcelRow): string {
+  const entries = Object.entries(source ?? {});
+  if (!entries.length) return "";
+  // Prefer headers that look like UOM columns first.
+  const preferred = entries
+    .filter(([h]) => {
+      const n = normalizeHeader(h);
+      return (
+        n.includes("sodsprig") ||
+        n === "uom" ||
+        n.includes("kgm2") ||
+        n.includes("unit")
+      );
+    })
+    .map(([, v]) => toStringSafe(v))
+    .filter(Boolean);
+  for (const v of preferred) {
+    if (normalizeUom(v)) return v;
+  }
+  // Fallback: scan all row values to recover from hidden header/mapping issues.
+  const allValues = entries.map(([, v]) => toStringSafe(v)).filter(Boolean);
+  for (const v of allValues) {
+    if (normalizeUom(v)) return v;
+  }
   return "";
 }
 
@@ -231,7 +312,8 @@ function suggestMapping(headers: string[]): FieldMapping {
     holes: pick(["holes", "no of holes"]),
     keyAreas: pick(["key areas", "areas"]),
     grass: pick(["grass", "product"]),
-    grassType: pick(["sod/sprig", "uom", "grass type", "kg/m2", "type"]),
+    // Avoid generic "type" here to prevent wrong mapping to "Project Type".
+    grassType: pick(["sod/sprig", "sod sprig", "uom", "kg/m2", "kg m2", "unit"]),
     grassRequired: pick(["required", "quantity", "qty"]),
   };
 }
@@ -308,14 +390,15 @@ export default function ProjectImportPage() {
   const projects = useHarvestingDataStore((s) => s.projects);
   const countries = useHarvestingDataStore((s) => s.countries);
   const staffs = useHarvestingDataStore((s) => s.staffs);
-  const products = useHarvestingDataStore((s) => s.products);
+  const grasses = useHarvestingDataStore((s) => s.grasses);
+  
   const fetchAllHarvestingReferenceData = useHarvestingDataStore(
     (s) => s.fetchAllHarvestingReferenceData,
   );
   const upsertProjectInList = useHarvestingDataStore((s) => s.upsertProjectInList);
 
   useEffect(() => {
-    void fetchAllHarvestingReferenceData();
+    void fetchAllHarvestingReferenceData(true);
   }, [fetchAllHarvestingReferenceData]);
 
   const existingProjectNames = useMemo(() => {
@@ -341,6 +424,55 @@ export default function ProjectImportPage() {
       input.actualStartDate.trim(),
       input.endDate.trim(),
     ].join("|");
+  };
+
+  const splitCsvLoose = (raw: string): string[] => {
+    const text = String(raw ?? "").trim();
+    if (!text) return [];
+    return text
+      .split(",")
+      .map((x) => x.trim())
+      .filter(Boolean);
+  };
+
+  const buildImportedGrassItems = (rowsInGroup: MappedRow[]): ImportedGrassItem[] => {
+    const out: ImportedGrassItem[] = [];
+    for (const rr of rowsInGroup) {
+      const grassParts = splitCsvLoose(rr.grass);
+      const uomPartsRaw = splitCsvLoose(rr.grassType);
+      const qtyParts = splitCsvLoose(rr.grassRequired);
+      const maxParts = Math.max(grassParts.length, uomPartsRaw.length, qtyParts.length, 1);
+
+      for (let i = 0; i < maxParts; i += 1) {
+        const grassRaw =
+          grassParts.length > 1
+            ? (grassParts[i] ?? "")
+            : (grassParts[0] ?? rr.grass);
+        const uomRaw =
+          uomPartsRaw.length > 1
+            ? (uomPartsRaw[i] ?? "")
+            : (uomPartsRaw[0] ?? rr.grassType);
+        const qtyRaw =
+          qtyParts.length > 1
+            ? (qtyParts[i] ?? "")
+            : (qtyParts[0] ?? rr.grassRequired);
+
+        const productId = resolveByLooseText(grassRaw, productCandidates);
+        const uom = normalizeUom(uomRaw);
+        if (!productId || !uom) continue;
+
+        const qty = Number.parseFloat(String(qtyRaw).replaceAll(",", "").trim());
+        if (!Number.isFinite(qty) || qty <= 0) continue;
+
+        out.push({
+          sourceRowNumber: rr.rowNumber,
+          product_id: productId,
+          quantity: String(qty),
+          uom,
+        });
+      }
+    }
+    return out;
   };
 
   const computeFileHash = async (file: File): Promise<string> => {
@@ -391,6 +523,8 @@ export default function ProjectImportPage() {
     return { names, keys };
   };
 
+  type LooseCandidate = { id: string; label: string; aliases?: string[] };
+
   const countryCandidates = useMemo(() => {
     return (countries as unknown[])
       .filter((c): c is Record<string, unknown> => !!c && typeof c === "object")
@@ -400,14 +534,52 @@ export default function ProjectImportPage() {
       }));
   }, [countries]);
 
-  const productCandidates = useMemo(() => {
-    return (products as unknown[])
+  const productCandidates = useMemo<LooseCandidate[]>(() => {
+    return (grasses as unknown[])
       .filter((p): p is Record<string, unknown> => !!p && typeof p === "object")
-      .map((p) => ({
-        id: toStringSafe(p.id),
-        label: toStringSafe(p.name ?? p.title),
-      }));
-  }, [products]);
+      .map((p) => {
+        const dynamicAliases = Object.entries(p)
+          .filter(([k, v]) => {
+            if (typeof v !== "string" && typeof v !== "number") return false;
+            const nk = normalizeHeader(k);
+            return (
+              nk.includes("name") ||
+              nk.includes("title") ||
+              nk.includes("product") ||
+              nk.includes("commodity") ||
+              nk.includes("grass") ||
+              nk.includes("variety") ||
+              nk.includes("code") ||
+              nk.includes("sku")
+            );
+          })
+          .map(([, v]) => toStringSafe(v))
+          .filter(Boolean);
+        const aliases = Array.from(
+          new Set([
+            toStringSafe(p.name),
+            toStringSafe(p.title),
+            toStringSafe(p.commodity_name),
+            toStringSafe(p.product_name),
+            toStringSafe(p.grass_name),
+            toStringSafe(p.variety),
+            toStringSafe(p.code),
+            toStringSafe(p.sku),
+            toStringSafe(p.short_name),
+            ...dynamicAliases,
+          ].filter(Boolean)),
+        );
+        const label = toStringSafe(
+          p.name ?? p.title ?? p.commodity_name ?? p.product_name ?? aliases[0] ?? "",
+        );
+        return {
+          id: pickCandidateId(p),
+          label,
+          aliases,
+        };
+      })
+      .filter((x) => x.id && (x.label || (x.aliases?.length ?? 0) > 0));
+  }, [grasses]);
 
   const productLabelById = useMemo(() => {
     const map = new Map<string, string>();
@@ -429,22 +601,32 @@ export default function ProjectImportPage() {
       }));
   }, [staffs]);
 
-  const resolveByLooseText = (raw: string, candidates: { id: string; label: string }[]) => {
+  const resolveByLooseText = (raw: string, candidates: LooseCandidate[]) => {
     const text = raw.trim();
     if (!text) return "";
     if (/^\d+$/.test(text)) return text;
     const norm = normalizeLoose(text);
     const qTokens = tokensOf(text);
-    const exact = candidates.find((c) => normalizeLoose(c.label) === norm);
+    const candidateTexts = (c: LooseCandidate): string[] =>
+      [c.label, ...(c.aliases ?? [])].map((x) => normalizeLoose(x)).filter(Boolean);
+    const exact = candidates.find((c) => candidateTexts(c).some((x) => x === norm));
     if (exact) return exact.id;
     const allTokens = candidates.find((c) => {
-      const cNorm = normalizeLoose(c.label);
-      return qTokens.length > 0 && qTokens.every((t) => cNorm.includes(t));
+      const texts = candidateTexts(c);
+      return qTokens.length > 0 && texts.some((txt) => qTokens.every((t) => txt.includes(t)));
     });
     if (allTokens) return allTokens.id;
+    const startsWithTokens = candidates.find((c) => {
+      const texts = candidateTexts(c);
+      return qTokens.length > 0 && texts.some((txt) => {
+        const tks = txt.split(" ").filter(Boolean);
+        return qTokens.every((q) => tks.some((tk) => tk.startsWith(q) || q.startsWith(tk)));
+      });
+    });
+    if (startsWithTokens) return startsWithTokens.id;
     const like = candidates.find((c) => {
-      const cNorm = normalizeLoose(c.label);
-      return cNorm.includes(norm) || norm.includes(cNorm);
+      const texts = candidateTexts(c);
+      return texts.some((txt) => txt.includes(norm) || norm.includes(txt));
     });
     return like?.id ?? "";
   };
@@ -494,6 +676,23 @@ export default function ProjectImportPage() {
     if (!mapping) return [];
     return rows.map((r, i) => {
       const get = (k: FieldKey) => r[mapping[k]];
+      const getFallbackGrassTypeRaw = (): string => {
+        const fallbackHeader = Object.keys(r).find((h) => {
+          const n = normalizeHeader(h);
+          return (
+            n.includes("sodsprig") ||
+            n === "uom" ||
+            n.includes("kgm2") ||
+            n.includes("unit")
+          );
+        });
+        if (!fallbackHeader) return "";
+        return toStringSafe(r[fallbackHeader]);
+      };
+      const mappedGrassTypeRaw = toStringSafe(get("grassType"));
+      const grassTypeRaw = normalizeUom(mappedGrassTypeRaw)
+        ? mappedGrassTypeRaw
+        : (getFallbackGrassTypeRaw() || guessUomRawFromRow(r) || mappedGrassTypeRaw);
       return {
         rowNumber: i + 2,
         source: r,
@@ -510,7 +709,7 @@ export default function ProjectImportPage() {
         holes: normalizeHoles(toStringSafe(get("holes"))),
         keyAreas: normalizeKeyAreas(toStringSafe(get("keyAreas"))),
         grass: toStringSafe(get("grass")),
-        grassType: normalizeUom(toStringSafe(get("grassType"))),
+        grassType: grassTypeRaw,
         grassRequired: toStringSafe(get("grassRequired")),
       };
     });
@@ -638,6 +837,9 @@ export default function ProjectImportPage() {
   const runTest = async () => {
     setTesting(true);
     try {
+      if (!productCandidates.length || !countryCandidates.length || !staffCandidates.length) {
+        await fetchAllHarvestingReferenceData(true);
+      }
       const db = await fetchDbExistingProjectNames();
       const dbNames = db.names;
       const dbKeys = db.keys;
@@ -675,7 +877,10 @@ export default function ProjectImportPage() {
         }
         for (const rr of g.rows) {
           if (!rr.grass) rowWarnings.push(t("warnGrassEmptyAtRow", { row: rr.rowNumber }));
-          if (!rr.grassType) rowWarnings.push(t("warnGrassTypeInvalidAtRow", { row: rr.rowNumber }));
+          const uomParts = splitCsvLoose(rr.grassType).map((x) => normalizeUom(x)).filter(Boolean);
+          if (!uomParts.length) {
+            rowWarnings.push(t("warnGrassTypeInvalidAtRow", { row: rr.rowNumber }));
+          }
           const qty = Number.parseFloat(rr.grassRequired);
           if (!Number.isFinite(qty) || qty <= 0) {
             rowWarnings.push(t("warnGrassQtyInvalidAtRow", { row: rr.rowNumber }));
@@ -719,6 +924,9 @@ export default function ProjectImportPage() {
     setImportLogs([]);
     const logs: ImportLog[] = [];
     try {
+      if (!productCandidates.length || !countryCandidates.length || !staffCandidates.length) {
+        await fetchAllHarvestingReferenceData(true);
+      }
       const db =
         dbExistingProjectNames.size > 0 || dbExistingProjectKeys.size > 0
           ? { names: new Set(dbExistingProjectNames), keys: new Set(dbExistingProjectKeys) }
@@ -761,18 +969,22 @@ export default function ProjectImportPage() {
         const countryId = resolveByLooseText(r0.country, countryCandidates);
         const staffId = resolveStaffId(r0.stsPic);
 
-        const grassItems = g.rows
-          .map((rr) => {
-            const productId = resolveByLooseText(rr.grass, productCandidates);
-            const qty = Number.parseFloat(rr.grassRequired);
-            return {
-              sourceRowNumber: rr.rowNumber,
-              product_id: productId,
-              quantity: Number.isFinite(qty) ? String(qty) : rr.grassRequired,
-              uom: rr.grassType,
-            };
-          })
-          .filter((x) => x.product_id && x.uom);
+        const grassItems = buildImportedGrassItems(g.rows);
+        if (!grassItems.length) {
+          for (const rr of g.rows) {
+            const hasProduct = !!resolveByLooseText(rr.grass, productCandidates);
+            const hasUom = splitCsvLoose(rr.grassType).some((x) => !!normalizeUom(x));
+            logs.push({
+              rowNumber: rr.rowNumber,
+              status: "error",
+              message: hasProduct
+                ? t("warnGrassTypeInvalidAtRow", { row: rr.rowNumber })
+                : t("warnGrassNotFoundAtRow", { row: rr.rowNumber, value: rr.grass }),
+              source: rr.source,
+            });
+          }
+          continue;
+        }
 
         try {
           const payload: Record<string, unknown> = {
@@ -793,12 +1005,24 @@ export default function ProjectImportPage() {
               no_of_holes: r0.holes,
               key_areas: r0.keyAreas.join(","),
               quantity_required_sprig_sod: grassItems.map((x) => ({
+                // Keep the same shape used by dynamic table rows on STSPortal.
                 id:
                   globalThis.crypto?.randomUUID?.() ??
                   `g-${Date.now()}-${x.sourceRowNumber}`,
                 product_id: x.product_id,
                 quantity: x.quantity,
                 uom: x.uom,
+                quantity_kg:
+                  String(x.uom).toLowerCase() === "kg"
+                    ? Number.parseFloat(x.quantity)
+                    : null,
+                date: null,
+                quantity_m2:
+                  String(x.uom).toLowerCase() === "m2"
+                    ? Number.parseFloat(x.quantity)
+                    : null,
+                zone_id: "",
+                farm_id: "",
               })),
             },
           };

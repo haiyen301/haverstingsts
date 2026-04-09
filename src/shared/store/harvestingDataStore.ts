@@ -4,7 +4,31 @@ import { STS_API_PATHS } from "@/shared/api/stsApiPaths";
 import { stsProxyGet } from "@/shared/api/stsProxyClient";
 
 function asArray(v: unknown): unknown[] {
-  return Array.isArray(v) ? v : [];
+  if (Array.isArray(v)) return v;
+  if (!v || typeof v !== "object") return [];
+  const obj = v as Record<string, unknown>;
+  const candidates = [
+    obj.data,
+    obj.rows,
+    obj.items,
+    obj.results,
+    obj.result,
+    obj.list,
+    obj.payload,
+  ];
+  for (const c of candidates) {
+    if (Array.isArray(c)) return c;
+  }
+  // Some endpoints may wrap arrays deeper (e.g. { data: { rows: [] } }).
+  const dataObj = obj.data;
+  if (dataObj && typeof dataObj === "object") {
+    const nested = dataObj as Record<string, unknown>;
+    const nestedCandidates = [nested.rows, nested.items, nested.results, nested.list];
+    for (const c of nestedCandidates) {
+      if (Array.isArray(c)) return c;
+    }
+  }
+  return [];
 }
 
 /** API returns a zone key → label map (not an array). */
@@ -119,39 +143,46 @@ export const useHarvestingDataStore = create<HarvestingDataState>((set, get) => 
   fetchAllHarvestingReferenceData: async (force = false) => {
     if (!force && get().bootstrapDone) return;
     set({ loading: true, error: null });
-    try {
-      const [
-        farmZones,
-        staffs,
-        farms,
-        projects,
-        countries,
-        products,
-      ] = await Promise.all([
-        stsProxyGet(STS_API_PATHS.farmZones),
-        stsProxyGet(STS_API_PATHS.staffs),
-        stsProxyGet(STS_API_PATHS.farms),
-        stsProxyGet(STS_API_PATHS.projects),
-        stsProxyGet(STS_API_PATHS.countries),
-        stsProxyGet(STS_API_PATHS.products),
-      ]);
+    const entries = [
+      ["farmZones", STS_API_PATHS.farmZones],
+      ["staffs", STS_API_PATHS.staffs],
+      ["farms", STS_API_PATHS.farms],
+      ["projects", STS_API_PATHS.projects],
+      ["countries", STS_API_PATHS.countries],
+      ["products", STS_API_PATHS.products],
+    ] as const;
+    const settled = await Promise.allSettled(entries.map(([, path]) => stsProxyGet(path)));
+    const byKey = new Map<string, unknown>();
+    const errors: string[] = [];
+    entries.forEach(([key], idx) => {
+      const rs = settled[idx];
+      if (rs.status === "fulfilled") {
+        byKey.set(key, rs.value);
+      } else {
+        const msg = rs.reason instanceof Error ? rs.reason.message : String(rs.reason);
+        errors.push(`${key}: ${msg}`);
+      }
+    });
 
-      set({
-        farmZones: normalizeFarmZonesPayload(farmZones),
-        staffs: asArray(staffs),
-        farms: asArray(farms),
-        projects: asArray(projects),
-        countries: asArray(countries),
-        grasses: asArray(products),
-        products: asArray(products),
-        loading: false,
-        error: null,
-        bootstrapDone: true,
-      });
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Failed to load reference data";
-      set({ loading: false, error: msg });
-    }
+    const farmZones = byKey.get("farmZones");
+    const staffs = byKey.get("staffs");
+    const farms = byKey.get("farms");
+    const projects = byKey.get("projects");
+    const countries = byKey.get("countries");
+    const products = byKey.get("products");
+
+    set({
+      farmZones: normalizeFarmZonesPayload(farmZones),
+      staffs: asArray(staffs),
+      farms: asArray(farms),
+      projects: asArray(projects),
+      countries: asArray(countries),
+      grasses: asArray(products),
+      products: asArray(products),
+      loading: false,
+      error: errors.length ? `Reference partial load: ${errors.join(" | ")}` : null,
+      bootstrapDone: true,
+    });
   },
 
   reset: () =>
