@@ -59,7 +59,8 @@ const STATUS_CONFIG = {
   },
 } as const;
 
-const DEFAULT_ASSIGNEE_AVATAR = "https://i.pravatar.cc/64?img=11";
+const DEFAULT_ASSIGNEE_AVATAR =
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='32' fill='%23E5E7EB'/%3E%3Ccircle cx='32' cy='24' r='12' fill='%239CA3AF'/%3E%3Cpath d='M12 56c2.8-11.2 11-16 20-16s17.2 4.8 20 16' fill='%239CA3AF'/%3E%3C/svg%3E";
 
 function buildProfileAvatarUrl(fileNameOrPath: string): string {
   const value = String(fileNameOrPath ?? "").trim();

@@ -45,6 +45,8 @@ export type QuantityRequiredProject = {
 export type SubItem = {
   product_id?: string;
   quantity?: string | number;
+  quantity_harvested?: string | number;
+  delivery_harvest_date?: string;
   uom?: string;
 };
 

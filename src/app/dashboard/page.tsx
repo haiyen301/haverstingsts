@@ -126,10 +126,48 @@ function hasDeliveryHarvestDate(item: Record<string, unknown>): boolean {
   return monthKeyFromSubitem(item) !== null;
 }
 
+function parseDeliveryDate(item: Record<string, unknown>): Date | null {
+  const raw = item.delivery_harvest_date;
+  const s = String(raw ?? "").trim();
+  if (!s || s === "0000-00-00" || s === "null") return null;
+  const datePart = s.includes(" ") ? s.split(" ")[0] : s;
+  const m = datePart.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const dNum = Number(m[3]);
+  const d = new Date(y, mo - 1, dNum);
+  if (Number.isNaN(d.getTime())) return null;
+  return d;
+}
+
+function parseYmdToLocalDate(value?: string): Date | null {
+  const s = String(value ?? "").trim();
+  if (!s) return null;
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const out = new Date(y, mo - 1, d);
+  if (Number.isNaN(out.getTime())) return null;
+  return out;
+}
+
 export default function DashboardPage() {
   const t = useAppTranslations();
   const [selectedCountry, setSelectedCountry] = useState<string | null>(null);
   const [selectedFarmId, setSelectedFarmId] = useState<string | null>(null);
+  const [selectedDateRange, setSelectedDateRange] = useState<{ from?: string; to?: string }>(() => {
+    const now = new Date();
+    const oneYearAgo = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+    const toYmd = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    return {
+      from: toYmd(oneYearAgo),
+      to: toYmd(now),
+    };
+  });
   const [deliveredByMonthMode, setDeliveredByMonthMode] = useState<"sprig" | "sod">("sprig");
   const [rows, setRows] = useState<MondayProjectServerRow[]>([]);
   const [showAnalyticsPanels, setShowAnalyticsPanels] = useState(true);
@@ -300,27 +338,47 @@ export default function DashboardPage() {
   const isDeleted = (row: MondayProjectServerRow): boolean =>
     String((row as Record<string, unknown>).deleted ?? "0").trim() === "1";
 
+  const isSubitemInSelectedDateRange = (item: Record<string, unknown>): boolean => {
+    const fromDate = parseYmdToLocalDate(selectedDateRange.from);
+    const toDate = parseYmdToLocalDate(selectedDateRange.to);
+    const deliveryDate = parseDeliveryDate(item);
+
+    if (!fromDate && !toDate) return true;
+    if (!deliveryDate) return false;
+    if (fromDate && deliveryDate < fromDate) return false;
+    if (toDate && deliveryDate > toDate) return false;
+    return true;
+  };
+
   const allProjectCount = useMemo(() => {
     const ids = new Set<string>();
     for (const row of rows) {
       if (isDeleted(row)) continue;
+      const hasAnyInDateRange = parseSubitems((row as Record<string, unknown>).subitems).some((item) =>
+        isSubitemInSelectedDateRange(item as Record<string, unknown>),
+      );
+      if (!hasAnyInDateRange) continue;
       const id = String((row as Record<string, unknown>).project_id ?? row.id ?? "").trim();
       if (id) ids.add(id);
     }
     return ids.size;
-  }, [rows]);
+  }, [rows, selectedDateRange.from, selectedDateRange.to]);
 
   const totalCurrentProjects = useMemo(() => {
     const ids = new Set<string>();
     for (const row of rows) {
       if (isDeleted(row)) continue;
+      const hasAnyInDateRange = parseSubitems((row as Record<string, unknown>).subitems).some((item) =>
+        isSubitemInSelectedDateRange(item as Record<string, unknown>),
+      );
+      if (!hasAnyInDateRange) continue;
       const status = normalizeStatus((row as Record<string, unknown>).status_app ?? row.status);
       if (!(status === "Ongoing" || status === "Future" || status === "Warning")) continue;
       const id = String((row as Record<string, unknown>).project_id ?? row.id ?? "").trim();
       if (id) ids.add(id);
     }
     return ids.size;
-  }, [rows]);
+  }, [rows, selectedDateRange.from, selectedDateRange.to]);
 
   const deliveredTotals = useMemo(() => {
     let sprigKg = 0;
@@ -328,6 +386,7 @@ export default function DashboardPage() {
     for (const row of rows) {
       if (isDeleted(row)) continue;
       for (const item of parseSubitems((row as Record<string, unknown>).subitems)) {
+        if (!isSubitemInSelectedDateRange(item as Record<string, unknown>)) continue;
         const qtyRaw = item.quantity_harvested ?? item.quantity ?? 0;
         const qty = Number(String(qtyRaw).replace(/,/g, "").trim());
         if (!Number.isFinite(qty)) continue;
@@ -337,7 +396,7 @@ export default function DashboardPage() {
       }
     }
     return { sprigKg, sodM2 };
-  }, [rows]);
+  }, [rows, selectedDateRange.from, selectedDateRange.to]);
 
   const countryProjectsChartData = useMemo(() => {
     const counts = new Map<string, { country: string; projects: number }>();
@@ -348,6 +407,10 @@ export default function DashboardPage() {
       const countryId = String(rec.country_id ?? "").trim();
       if (!countryId) continue;
       if (selectedCountry && countryId !== selectedCountry) continue;
+      const hasAnyInDateRange = parseSubitems(rec.subitems).some((item) =>
+        isSubitemInSelectedDateRange(item as Record<string, unknown>),
+      );
+      if (!hasAnyInDateRange) continue;
 
       const projectId = String(rec.project_id ?? rec.id ?? "").trim();
       if (!projectId) continue;
@@ -387,7 +450,7 @@ export default function DashboardPage() {
     }
 
     return Array.from(counts.values()).sort((a, b) => a.country.localeCompare(b.country));
-  }, [rows, countriesRef, selectedCountry]);
+  }, [rows, countriesRef, selectedCountry, selectedDateRange.from, selectedDateRange.to]);
 
   const grassDistributionByUnit = useMemo(() => {
     const productNameById = new Map<string, string>();
@@ -407,6 +470,7 @@ export default function DashboardPage() {
       const subitems = parseSubitems((row as Record<string, unknown>).subitems);
       for (const item of subitems) {
         if (String(item.deleted ?? "0").trim() === "1") continue;
+        if (!isSubitemInSelectedDateRange(item as Record<string, unknown>)) continue;
         const farmId = String(item.farm_id ?? "").trim();
         if (selectedFarmId && farmId !== selectedFarmId) continue;
 
@@ -438,7 +502,7 @@ export default function DashboardPage() {
       kg: toSeries(qtyByProductKg),
       m2: toSeries(qtyByProductM2),
     };
-  }, [productsRef, rows, selectedFarmId]);
+  }, [productsRef, rows, selectedFarmId, selectedDateRange.from, selectedDateRange.to]);
 
   const grassDistributionData = useMemo(() => {
     return deliveredByMonthMode === "sprig" ? grassDistributionByUnit.kg : grassDistributionByUnit.m2;
@@ -468,6 +532,7 @@ export default function DashboardPage() {
       const subitems = parseSubitems((row as Record<string, unknown>).subitems);
       for (const item of subitems) {
         if (String(item.deleted ?? "0").trim() === "1") continue;
+        if (!isSubitemInSelectedDateRange(item as Record<string, unknown>)) continue;
         const farmId = String(item.farm_id ?? "").trim();
         if (selectedFarmId && farmId !== selectedFarmId) continue;
 
@@ -493,15 +558,32 @@ export default function DashboardPage() {
       month: label,
       total: totals.get(key) ?? 0,
     }));
-  }, [rows, selectedFarmId, deliveredByMonthMode]);
+  }, [rows, selectedFarmId, deliveredByMonthMode, selectedDateRange.from, selectedDateRange.to]);
 
   const deliveredByMonthUnitLabel = deliveredByMonthMode === "sprig" ? "kg" : "m2";
 
-  /** Per-farm horizontal bars: Y = farm, X = quantity for the current calendar month only. */
+  /** Per-farm horizontal bars: Y = farm, X = quantity in selected date range (fallback: current month). */
   const deliveredByFarmComposed = useMemo(() => {
     const now = new Date();
-    const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    const startOfCurrentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const endOfCurrentMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
     const currentMonthLabel = now.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+
+    const fromRaw = selectedDateRange.from ? new Date(selectedDateRange.from) : null;
+    const toRaw = selectedDateRange.to ? new Date(selectedDateRange.to) : null;
+    const fromDate = fromRaw && !Number.isNaN(fromRaw.getTime()) ? fromRaw : null;
+    const toDate = toRaw && !Number.isNaN(toRaw.getTime()) ? toRaw : null;
+    const hasSelectedRange = Boolean(fromDate || toDate);
+
+    const formatDay = (d: Date) =>
+      d.toLocaleDateString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" });
+    let rangeLabel = currentMonthLabel;
+    if (hasSelectedRange) {
+      const start = fromDate ?? toDate!;
+      const end = toDate ?? fromDate!;
+      const [s, e] = start.getTime() <= end.getTime() ? [start, end] : [end, start];
+      rangeLabel = `${formatDay(s)} - ${formatDay(e)}`;
+    }
 
     const wantSprig = deliveredByMonthMode === "sprig";
 
@@ -529,6 +611,7 @@ export default function DashboardPage() {
       const subitems = parseSubitems(rec.subitems);
       for (const item of subitems) {
         if (String(item.deleted ?? "0").trim() === "1") continue;
+        if (!isSubitemInSelectedDateRange(item as Record<string, unknown>)) continue;
         const farmId = String(item.farm_id ?? "").trim();
         if (!farmIds.has(farmId)) continue;
 
@@ -539,8 +622,11 @@ export default function DashboardPage() {
           continue;
         }
 
-        const monthKey = monthKeyFromSubitem(item as Record<string, unknown>);
-        if (!monthKey || monthKey !== currentMonthKey) continue;
+        if (!hasSelectedRange) {
+          const deliveryDate = parseDeliveryDate(item as Record<string, unknown>);
+          if (!deliveryDate) continue;
+          if (deliveryDate < startOfCurrentMonth || deliveryDate > endOfCurrentMonth) continue;
+        }
 
         const qtyRaw = item.quantity_harvested ?? item.quantity ?? 0;
         const qty = Number(String(qtyRaw).replace(/,/g, "").trim());
@@ -555,18 +641,52 @@ export default function DashboardPage() {
       total: perFarmTotal.get(f.farmId) ?? 0,
     }));
 
-    return { chartRows, currentMonthLabel };
-  }, [rows, farmFilters, selectedCountry, selectedFarmId, deliveredByMonthMode]);
+    return { chartRows, rangeLabel };
+  }, [rows, farmFilters, selectedCountry, selectedFarmId, deliveredByMonthMode, selectedDateRange.from, selectedDateRange.to]);
 
-  /** Rolling 6 months: one line per farm (up to 6), same sprig/sod + country/farm filters as the farm chart above. */
+  /** Rolling months by selected date range (fallback: last 6 months). */
   const deliveredSixMonthFarmTrend = useMemo(() => {
-    const now = new Date();
     const monthSlots: { key: string; label: string }[] = [];
-    for (let i = 5; i >= 0; i--) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-      const label = d.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
-      monthSlots.push({ key, label });
+    const fromRaw = selectedDateRange.from ? new Date(selectedDateRange.from) : null;
+    const toRaw = selectedDateRange.to ? new Date(selectedDateRange.to) : null;
+
+    const hasRange =
+      (fromRaw && !Number.isNaN(fromRaw.getTime())) ||
+      (toRaw && !Number.isNaN(toRaw.getTime()));
+
+    if (hasRange) {
+      const fromMonth = fromRaw && !Number.isNaN(fromRaw.getTime())
+        ? new Date(fromRaw.getFullYear(), fromRaw.getMonth(), 1)
+        : null;
+      const toMonth = toRaw && !Number.isNaN(toRaw.getTime())
+        ? new Date(toRaw.getFullYear(), toRaw.getMonth(), 1)
+        : null;
+
+      let start = fromMonth ?? toMonth!;
+      let end = toMonth ?? fromMonth!;
+      if (start.getTime() > end.getTime()) {
+        const tmp = start;
+        start = end;
+        end = tmp;
+      }
+
+      for (
+        let d = new Date(start.getFullYear(), start.getMonth(), 1);
+        d.getTime() <= end.getTime();
+        d = new Date(d.getFullYear(), d.getMonth() + 1, 1)
+      ) {
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+        const label = d.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
+        monthSlots.push({ key, label });
+      }
+    } else {
+      const now = new Date();
+      for (let i = 5; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+        const label = d.toLocaleDateString("en-US", { month: "short", year: "2-digit" });
+        monthSlots.push({ key, label });
+      }
     }
 
     const wantSprig = deliveredByMonthMode === "sprig";
@@ -597,6 +717,7 @@ export default function DashboardPage() {
       const subitems = parseSubitems(rec.subitems);
       for (const item of subitems) {
         if (String(item.deleted ?? "0").trim() === "1") continue;
+        if (!isSubitemInSelectedDateRange(item as Record<string, unknown>)) continue;
         const fid = String(item.farm_id ?? "").trim();
         if (!farmIds.has(fid)) continue;
 
@@ -633,8 +754,8 @@ export default function DashboardPage() {
       name: f.farmName,
     }));
 
-    return { data, series };
-  }, [rows, farmFilters, selectedCountry, selectedFarmId, deliveredByMonthMode]);
+    return { data, series, monthCount: monthSlots.length };
+  }, [rows, farmFilters, selectedCountry, selectedFarmId, deliveredByMonthMode, selectedDateRange.from, selectedDateRange.to]);
 
   /**
    * All-farm view: one row per (project × product_id). Quantities are split per grass; names from Zustand `products`.
@@ -709,6 +830,7 @@ export default function DashboardPage() {
 
       for (const item of subitems) {
         if (String(item.deleted ?? "0").trim() === "1") continue;
+        if (!isSubitemInSelectedDateRange(item as Record<string, unknown>)) continue;
         const farmId = String(item.farm_id ?? "").trim();
         if (!farmIdSet.has(farmId)) continue;
         const uom = String(item.uom ?? "").trim().toLowerCase();
@@ -789,7 +911,7 @@ export default function DashboardPage() {
     });
 
     return out;
-  }, [rows, farmFilters, productsRef, selectedCountry, selectedFarmId, deliveredByMonthMode, t]);
+  }, [rows, farmFilters, productsRef, selectedCountry, selectedFarmId, deliveredByMonthMode, t, selectedDateRange.from, selectedDateRange.to]);
 
   const sortedAllFarmProjectDetailRows = useMemo(() => {
     const list = [...allFarmProjectDetailRows];
@@ -875,6 +997,7 @@ export default function DashboardPage() {
 
       for (const item of subitems) {
         if (String(item.deleted ?? "0").trim() === "1") continue;
+        if (!isSubitemInSelectedDateRange(item as Record<string, unknown>)) continue;
         const farmId = String(item.farm_id ?? "").trim();
         if (farmId !== selectedFarmId) continue;
         const uom = String(item.uom ?? "").trim().toLowerCase();
@@ -919,7 +1042,7 @@ export default function DashboardPage() {
     }
 
     return out;
-  }, [rows, selectedFarmId, selectedCountry, deliveredByMonthMode, t]);
+  }, [rows, selectedFarmId, selectedCountry, deliveredByMonthMode, t, selectedDateRange.from, selectedDateRange.to]);
 
   const sortedSingleFarmProjectDetailRows = useMemo(() => {
     const list = [...singleFarmProjectDetailRows];
@@ -1014,43 +1137,81 @@ export default function DashboardPage() {
             </div>
 
             <div className="mb-6">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex flex-wrap gap-2">
+              <div className="mb-6 flex min-w-[320px] flex-wrap items-end gap-2">
+                <label className="flex min-w-[150px] flex-col gap-1 text-xs text-gray-600">
+                  <span>From (yyyy-mm-dd)</span>
+                  <input
+                    type="date"
+                    value={selectedDateRange.from ?? ""}
+                    onChange={(e) =>
+                      setSelectedDateRange((prev) => ({
+                        ...prev,
+                        from: e.target.value || undefined,
+                      }))
+                    }
+                    className="h-10 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 focus:border-[#1F7A4C] focus:outline-none"
+                  />
+                </label>
+                <label className="flex min-w-[150px] flex-col gap-1 text-xs text-gray-600">
+                  <span>To (yyyy-mm-dd)</span>
+                  <input
+                    type="date"
+                    value={selectedDateRange.to ?? ""}
+                    onChange={(e) =>
+                      setSelectedDateRange((prev) => ({
+                        ...prev,
+                        to: e.target.value || undefined,
+                      }))
+                    }
+                    className="h-10 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 focus:border-[#1F7A4C] focus:outline-none"
+                  />
+                </label>
                 <button
-                  onClick={() => {
-                    setSelectedCountry(null);
-                    setSelectedFarmId(null);
-                  }}
-                  className={`px-4 py-2 rounded-lg border transition-colors ${selectedCountry === null
-                    ? " text-[var(--primary-color)] border-[var(--primary-color)]"
-                    : "bg-white text-gray-700 border-gray-300 hover:border-[#1F7A4C]"
-                    }`}
                   type="button"
+                  onClick={() => setSelectedDateRange({})}
+                  className="inline-flex shrink-0 items-center rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 transition-colors hover:border-[#1F7A4C] hover:text-[#1F7A4C]"
                 >
-                  {t("Dashboard.allCountries")}
+                  Clear date
                 </button>
-                {farmFilters.map((f) => (
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-1 flex-wrap items-center gap-2">
                   <button
-                    key={f.farmId}
                     onClick={() => {
-                      setSelectedFarmId(f.farmId);
-                      setSelectedCountry(f.countryId);
+                      setSelectedCountry(null);
+                      setSelectedFarmId(null);
                     }}
-                    className={`px-4 py-2 rounded-lg border transition-colors flex items-center gap-2 ${selectedFarmId === f.farmId
+                    className={`px-4 py-2 rounded-lg border transition-colors ${selectedCountry === null
                       ? " text-[var(--primary-color)] border-[var(--primary-color)]"
                       : "bg-white text-gray-700 border-gray-300 hover:border-[#1F7A4C]"
                       }`}
                     type="button"
                   >
-                    <FarmCountryFlag
-                      countryCode={f.countryCode}
-                      flagEmoji={f.flag}
-                      active={selectedFarmId === f.farmId}
-                    />
-                    {f.farmName}
+                    {t("Dashboard.allCountries")}
                   </button>
-                ))}
+                  {farmFilters.map((f) => (
+                    <button
+                      key={f.farmId}
+                      onClick={() => {
+                        setSelectedFarmId(f.farmId);
+                        setSelectedCountry(f.countryId);
+                      }}
+                      className={`px-4 py-2 rounded-lg border transition-colors flex items-center gap-2 ${selectedFarmId === f.farmId
+                        ? " text-[var(--primary-color)] border-[var(--primary-color)]"
+                        : "bg-white text-gray-700 border-gray-300 hover:border-[#1F7A4C]"
+                        }`}
+                      type="button"
+                    >
+                      <FarmCountryFlag
+                        countryCode={f.countryCode}
+                        flagEmoji={f.flag}
+                        active={selectedFarmId === f.farmId}
+                      />
+                      {f.farmName}
+                    </button>
+                  ))}
                 </div>
+
 
                 <button
                   type="button"
@@ -1066,230 +1227,234 @@ export default function DashboardPage() {
 
             {showAnalyticsPanels ? (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-              <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
-                <h2 className="text-lg font-semibold text-gray-900 mb-4">{t("Dashboard.projectsByCountry")}</h2>
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={countryProjectsChartData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                    <XAxis dataKey="country" tick={{ fontSize: 12 }} />
-                    <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: "white",
-                        border: "1px solid #e5e7eb",
-                        borderRadius: "8px",
-                      }}
-                    />
-                    <Bar dataKey="projects" fill="#1F7A4C" radius={[8, 8, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-
-              <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-lg font-semibold text-gray-900">{t("Dashboard.grassTypeDistribution")}</h2>
-                  <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden">
-                    <button
-                      type="button"
-                      onClick={() => setDeliveredByMonthMode("sprig")}
-                      className={`px-3 py-1 text-xs ${deliveredByMonthMode === "sprig" ? "bg-[#1F7A4C] text-white" : "bg-white text-gray-700"}`}
-                    >
-                      {t("Dashboard.sprigKgToggle")}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setDeliveredByMonthMode("sod")}
-                      className={`px-3 py-1 text-xs ${deliveredByMonthMode === "sod" ? "bg-[#1F7A4C] text-white" : "bg-white text-gray-700"}`}
-                    >
-                      {t("Dashboard.sodM2Toggle")}
-                    </button>
-                  </div>
-                </div>
-                <ResponsiveContainer width="100%" height={300}>
-                  <PieChart>
-                    <Pie
-                      data={grassDistributionData}
-                      dataKey="value"
-                      nameKey="grass"
-                      cx="50%"
-                      cy="50%"
-                      outerRadius={100}
-                      label={(entry: unknown) =>
-                        `${String((entry as { grass?: string }).grass ?? "")} ${String(
-                          ((entry as { percent?: number }).percent ?? 0) * 100,
-                        ).slice(0, 2)}%`
-                      }
-                      labelLine={false}
-                    >
-                      {grassDistributionData.map((entry, index) => (
-                        <Cell key={entry.productId} fill={COLORS[index % COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      formatter={(value: number) => `${value.toLocaleString()} ${grassPieUnitLabel}`}
-                      contentStyle={{
-                        backgroundColor: "white",
-                        border: "1px solid #e5e7eb",
-                        borderRadius: "8px",
-                      }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-
-              <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
-                <div className="flex items-center justify-between mb-2">
-                  <div>
-                    <h2 className="text-lg font-semibold text-gray-900">
-                      {deliveredByMonthMode === "sprig"
-                        ? t("Dashboard.deliveredByFarmSprig")
-                        : t("Dashboard.deliveredByFarmSod")}
-                    </h2>
-                    <p className="text-xs text-gray-500 mt-1">
-                      {t("Dashboard.farmAxisHintPrefix")}{" "}
-                      <span className="font-medium text-gray-600">
-                        {deliveredByFarmComposed.currentMonthLabel}
-                      </span>{" "}
-                      {t("Dashboard.currentMonthOnly")}
-                    </p>
-                  </div>
-                  <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => setDeliveredByMonthMode("sprig")}
-                      className={`px-3 py-1 text-xs ${deliveredByMonthMode === "sprig" ? "bg-[#1F7A4C] text-white" : "bg-white text-gray-700"}`}
-                    >
-                      {t("Dashboard.sprigKg")}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setDeliveredByMonthMode("sod")}
-                      className={`px-3 py-1 text-xs ${deliveredByMonthMode === "sod" ? "bg-[#1F7A4C] text-white" : "bg-white text-gray-700"}`}
-                    >
-                      {t("Dashboard.sodM2")}
-                    </button>
-                  </div>
-                </div>
-                {deliveredByFarmComposed.chartRows.length === 0 ? (
-                  <p className="text-sm text-gray-500 py-8">
-                    {t("Dashboard.noFarmsForFilters")}
-                  </p>
-                ) : (
-                  <ResponsiveContainer
-                    width="100%"
-                    height={Math.max(320, deliveredByFarmComposed.chartRows.length * 40)}
-                  >
-                    <ComposedChart
-                      layout="vertical"
-                      data={deliveredByFarmComposed.chartRows}
-                      margin={{ top: 8, right: 24, left: 8, bottom: 8 }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" horizontal={false} />
-                      <XAxis
-                        type="number"
-                        tick={{ fontSize: 11 }}
-                        tickFormatter={(v: number) => v.toLocaleString()}
-                        label={{
-                          value: `${t("Common.quantity")} (${deliveredByMonthUnitLabel})`,
-                          position: "insideBottom",
-                          offset: -4,
-                          style: { fontSize: 11, fill: "#6b7280" },
-                        }}
-                      />
-                      <YAxis
-                        type="category"
-                        dataKey="farm"
-                        width={120}
-                        tick={{ fontSize: 11 }}
-                        interval={0}
-                      />
+                <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+                  <h2 className="text-lg font-semibold text-gray-900 mb-4">{t("Dashboard.projectsByCountry")}</h2>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={countryProjectsChartData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                      <XAxis dataKey="country" tick={{ fontSize: 12 }} />
+                      <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
                       <Tooltip
-                        formatter={(value: number) => [
-                          `${value.toLocaleString()} ${deliveredByMonthUnitLabel}`,
-                          deliveredByFarmComposed.currentMonthLabel,
-                        ]}
                         contentStyle={{
                           backgroundColor: "white",
                           border: "1px solid #e5e7eb",
                           borderRadius: "8px",
                         }}
                       />
-                      <Bar
-                        dataKey="total"
-                        name={deliveredByFarmComposed.currentMonthLabel}
-                        fill={deliveredByMonthMode === "sprig" ? "#1F7A4C" : "#2E9B5F"}
-                        radius={[0, 8, 8, 0]}
-                        barSize={18}
-                      />
-                    </ComposedChart>
+                      <Bar dataKey="projects" fill="#1F7A4C" radius={[8, 8, 0, 0]} />
+                    </BarChart>
                   </ResponsiveContainer>
-                )}
-              </div>
-
-              <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
-                <div className="flex items-center justify-between mb-4">
-                  <h2 className="text-lg font-semibold text-gray-900">{t("Dashboard.sixMonthDeliveryTrends")}</h2>
-                  <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden">
-                    <button
-                      type="button"
-                      onClick={() => setDeliveredByMonthMode("sprig")}
-                      className={`px-3 py-1 text-xs ${deliveredByMonthMode === "sprig" ? "bg-[#1F7A4C] text-white" : "bg-white text-gray-700"}`}
-                    >
-                      {t("Dashboard.sprigKg")}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setDeliveredByMonthMode("sod")}
-                      className={`px-3 py-1 text-xs ${deliveredByMonthMode === "sod" ? "bg-[#1F7A4C] text-white" : "bg-white text-gray-700"}`}
-                    >
-                      {t("Dashboard.sodM2")}
-                    </button>
-                  </div>
                 </div>
-                {/* <p className="text-xs text-gray-500 mb-3">
+
+                <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-lg font-semibold text-gray-900">{t("Dashboard.grassTypeDistribution")}</h2>
+                    <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={() => setDeliveredByMonthMode("sprig")}
+                        className={`px-3 py-1 text-xs ${deliveredByMonthMode === "sprig" ? "bg-[#1F7A4C] text-white" : "bg-white text-gray-700"}`}
+                      >
+                        {t("Dashboard.sprigKgToggle")}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDeliveredByMonthMode("sod")}
+                        className={`px-3 py-1 text-xs ${deliveredByMonthMode === "sod" ? "bg-[#1F7A4C] text-white" : "bg-white text-gray-700"}`}
+                      >
+                        {t("Dashboard.sodM2Toggle")}
+                      </button>
+                    </div>
+                  </div>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <PieChart>
+                      <Pie
+                        data={grassDistributionData}
+                        dataKey="value"
+                        nameKey="grass"
+                        cx="50%"
+                        cy="50%"
+                        outerRadius={100}
+                        label={(entry: unknown) =>
+                          `${String((entry as { grass?: string }).grass ?? "")} ${String(
+                            ((entry as { percent?: number }).percent ?? 0) * 100,
+                          ).slice(0, 2)}%`
+                        }
+                        labelLine={false}
+                      >
+                        {grassDistributionData.map((entry, index) => (
+                          <Cell key={entry.productId} fill={COLORS[index % COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        formatter={(value: number) => `${value.toLocaleString()} ${grassPieUnitLabel}`}
+                        contentStyle={{
+                          backgroundColor: "white",
+                          border: "1px solid #e5e7eb",
+                          borderRadius: "8px",
+                        }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+
+                <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <h2 className="text-lg font-semibold text-gray-900">
+                        {deliveredByMonthMode === "sprig"
+                          ? t("Dashboard.deliveredByFarmSprig")
+                          : t("Dashboard.deliveredByFarmSod")}
+                      </h2>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {t("Dashboard.farmAxisHintPrefix")}{" "}
+                        <span className="font-medium text-gray-600">
+                          {deliveredByFarmComposed.rangeLabel}
+                        </span>{" "}
+                        {selectedDateRange.from || selectedDateRange.to ? "" : t("Dashboard.currentMonthOnly")}
+                      </p>
+                    </div>
+                    <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setDeliveredByMonthMode("sprig")}
+                        className={`px-3 py-1 text-xs ${deliveredByMonthMode === "sprig" ? "bg-[#1F7A4C] text-white" : "bg-white text-gray-700"}`}
+                      >
+                        {t("Dashboard.sprigKg")}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDeliveredByMonthMode("sod")}
+                        className={`px-3 py-1 text-xs ${deliveredByMonthMode === "sod" ? "bg-[#1F7A4C] text-white" : "bg-white text-gray-700"}`}
+                      >
+                        {t("Dashboard.sodM2")}
+                      </button>
+                    </div>
+                  </div>
+                  {deliveredByFarmComposed.chartRows.length === 0 ? (
+                    <p className="text-sm text-gray-500 py-8">
+                      {t("Dashboard.noFarmsForFilters")}
+                    </p>
+                  ) : (
+                    <ResponsiveContainer
+                      width="100%"
+                      height={Math.max(320, deliveredByFarmComposed.chartRows.length * 40)}
+                    >
+                      <ComposedChart
+                        layout="vertical"
+                        data={deliveredByFarmComposed.chartRows}
+                        margin={{ top: 8, right: 24, left: 8, bottom: 8 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" horizontal={false} />
+                        <XAxis
+                          type="number"
+                          tick={{ fontSize: 11 }}
+                          tickFormatter={(v: number) => v.toLocaleString()}
+                          label={{
+                            value: `${t("Common.quantity")} (${deliveredByMonthUnitLabel})`,
+                            position: "insideBottom",
+                            offset: -4,
+                            style: { fontSize: 11, fill: "#6b7280" },
+                          }}
+                        />
+                        <YAxis
+                          type="category"
+                          dataKey="farm"
+                          width={120}
+                          tick={{ fontSize: 11 }}
+                          interval={0}
+                        />
+                        <Tooltip
+                          formatter={(value: number) => [
+                            `${value.toLocaleString()} ${deliveredByMonthUnitLabel}`,
+                            deliveredByFarmComposed.rangeLabel,
+                          ]}
+                          contentStyle={{
+                            backgroundColor: "white",
+                            border: "1px solid #e5e7eb",
+                            borderRadius: "8px",
+                          }}
+                        />
+                        <Bar
+                          dataKey="total"
+                          name={deliveredByFarmComposed.rangeLabel}
+                          fill={deliveredByMonthMode === "sprig" ? "#1F7A4C" : "#2E9B5F"}
+                          radius={[0, 8, 8, 0]}
+                          barSize={18}
+                        />
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
+
+                <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-lg font-semibold text-gray-900">
+                      {deliveredSixMonthFarmTrend.monthCount === 6 && !selectedDateRange.from && !selectedDateRange.to
+                        ? t("Dashboard.sixMonthDeliveryTrends")
+                        : `${deliveredSixMonthFarmTrend.monthCount} Month Delivery Trends`}
+                    </h2>
+                    <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={() => setDeliveredByMonthMode("sprig")}
+                        className={`px-3 py-1 text-xs ${deliveredByMonthMode === "sprig" ? "bg-[#1F7A4C] text-white" : "bg-white text-gray-700"}`}
+                      >
+                        {t("Dashboard.sprigKg")}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDeliveredByMonthMode("sod")}
+                        className={`px-3 py-1 text-xs ${deliveredByMonthMode === "sod" ? "bg-[#1F7A4C] text-white" : "bg-white text-gray-700"}`}
+                      >
+                        {t("Dashboard.sodM2")}
+                      </button>
+                    </div>
+                  </div>
+                  {/* <p className="text-xs text-gray-500 mb-3">
                   {t("Dashboard.rollingSixMonthsHint")}
                 </p> */}
-                {deliveredSixMonthFarmTrend.series.length === 0 ? (
-                  <p className="text-sm text-gray-500 py-8">
-                    {t("Dashboard.noTrendsForFilters")}
-                  </p>
-                ) : (
-                  <ResponsiveContainer width="100%" height={320}>
-                    <LineChart data={deliveredSixMonthFarmTrend.data} margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                      <XAxis dataKey="month" tick={{ fontSize: 12 }} />
-                      <YAxis tick={{ fontSize: 12 }} tickFormatter={(v: number) => v.toLocaleString()} />
-                      <Tooltip
-                        formatter={(value: number) => `${value.toLocaleString()} ${deliveredByMonthUnitLabel}`}
-                        contentStyle={{
-                          backgroundColor: "white",
-                          border: "1px solid #e5e7eb",
-                          borderRadius: "8px",
-                        }}
-                      />
-                      <Legend
-                        wrapperStyle={{ fontSize: 12, paddingTop: 16 }}
-                        formatter={(value) => <span className="text-gray-700">{value}</span>}
-                      />
-                      {deliveredSixMonthFarmTrend.series.map((s, i) => {
-                        const stroke = COLORS[i % COLORS.length];
-                        return (
-                          <Line
-                            key={s.dataKey}
-                            type="monotone"
-                            dataKey={s.dataKey}
-                            name={s.name}
-                            stroke={stroke}
-                            strokeWidth={2}
-                            dot={{ r: 4, fill: "#fff", stroke, strokeWidth: 2 }}
-                            activeDot={{ r: 5, stroke, strokeWidth: 2, fill: "#fff" }}
-                          />
-                        );
-                      })}
-                    </LineChart>
-                  </ResponsiveContainer>
-                )}
-              </div>
+                  {deliveredSixMonthFarmTrend.series.length === 0 ? (
+                    <p className="text-sm text-gray-500 py-8">
+                      {t("Dashboard.noTrendsForFilters")}
+                    </p>
+                  ) : (
+                    <ResponsiveContainer width="100%" height={320}>
+                      <LineChart data={deliveredSixMonthFarmTrend.data} margin={{ top: 8, right: 16, left: 8, bottom: 8 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                        <XAxis dataKey="month" tick={{ fontSize: 12 }} />
+                        <YAxis tick={{ fontSize: 12 }} tickFormatter={(v: number) => v.toLocaleString()} />
+                        <Tooltip
+                          formatter={(value: number) => `${value.toLocaleString()} ${deliveredByMonthUnitLabel}`}
+                          contentStyle={{
+                            backgroundColor: "white",
+                            border: "1px solid #e5e7eb",
+                            borderRadius: "8px",
+                          }}
+                        />
+                        <Legend
+                          wrapperStyle={{ fontSize: 12, paddingTop: 16 }}
+                          formatter={(value) => <span className="text-gray-700">{value}</span>}
+                        />
+                        {deliveredSixMonthFarmTrend.series.map((s, i) => {
+                          const stroke = COLORS[i % COLORS.length];
+                          return (
+                            <Line
+                              key={s.dataKey}
+                              type="monotone"
+                              dataKey={s.dataKey}
+                              name={s.name}
+                              stroke={stroke}
+                              strokeWidth={2}
+                              dot={{ r: 4, fill: "#fff", stroke, strokeWidth: 2 }}
+                              activeDot={{ r: 5, stroke, strokeWidth: 2, fill: "#fff" }}
+                            />
+                          );
+                        })}
+                      </LineChart>
+                    </ResponsiveContainer>
+                  )}
+                </div>
               </div>
             ) : (
               <div className="mb-6 rounded-lg border border-dashed border-gray-300 bg-white p-4 text-sm text-gray-600">

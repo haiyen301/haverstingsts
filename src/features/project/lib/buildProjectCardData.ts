@@ -11,6 +11,9 @@ import type {
 } from "@/entities/projects";
 import { parseJsonMaybe } from "./parseJson";
 
+const DEFAULT_ASSIGNEE_AVATAR =
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='32' fill='%23E5E7EB'/%3E%3Ccircle cx='32' cy='24' r='12' fill='%239CA3AF'/%3E%3Cpath d='M12 56c2.8-11.2 11-16 20-16s17.2 4.8 20 16' fill='%239CA3AF'/%3E%3C/svg%3E";
+
 function parseNumber(v: unknown): number {
   if (typeof v === "number") return Number.isFinite(v) ? v : 0;
   if (typeof v === "string") {
@@ -57,26 +60,31 @@ function parseKeyAreas(value: unknown): { full: string; display: string } {
 
 function extractFileNameFromProjectImg(projectImg: unknown): string | null {
   const parsed = parseJsonMaybe(projectImg);
-
-  if (Array.isArray(parsed) && parsed.length > 0) {
-    const first = parsed[0] as unknown;
-    if (first && typeof first === "object" && "file_name" in (first as Record<string, unknown>)) {
-      const name = String((first as Record<string, unknown>).file_name ?? "").trim();
-      return name || null;
+  const pickFileName = (v: unknown, allowPlainString = false): string | null => {
+    if (!v) return null;
+    if (typeof v === "string") {
+      const s = v.trim();
+      return allowPlainString ? s || null : null;
     }
-    if (typeof first === "string" && first.trim()) return first.trim();
-  }
-
-  if (parsed && typeof parsed === "object" && "file_name" in (parsed as Record<string, unknown>)) {
-    const name = String((parsed as Record<string, unknown>).file_name ?? "").trim();
-    return name || null;
-  }
-
-  if (typeof parsed === "string" && parsed.trim()) {
-    return parsed.trim();
-  }
-
-  return null;
+    if (Array.isArray(v)) {
+      for (const item of v) {
+        const hit = pickFileName(item, allowPlainString);
+        if (hit) return hit;
+      }
+      return null;
+    }
+    if (typeof v === "object") {
+      const rec = v as Record<string, unknown>;
+      const direct = String(rec.file_name ?? "").trim();
+      if (direct) return direct;
+      for (const value of Object.values(rec)) {
+        const hit = pickFileName(value, false);
+        if (hit) return hit;
+      }
+    }
+    return null;
+  };
+  return pickFileName(parsed, true);
 }
 
 /** Resolve relative harvesting file path to absolute URL (Flutter UrlContainer.harvestingHref). */
@@ -117,8 +125,25 @@ function normalizeSubitems(raw: unknown): SubItem[] {
     .map((x) => ({
       product_id: String(x.product_id ?? "").trim() || undefined,
       quantity: x.quantity as string | number | undefined,
+      quantity_harvested: x.quantity_harvested as string | number | undefined,
+      delivery_harvest_date: String(x.delivery_harvest_date ?? "").trim() || undefined,
       uom: String(x.uom ?? "").trim() || undefined,
     }));
+}
+
+function hasActualDeliveryDate(subitem: SubItem): boolean {
+  const raw = String((subitem as SubItem & { delivery_harvest_date?: unknown }).delivery_harvest_date ?? "").trim();
+  if (!raw || raw === "0000-00-00" || raw === "null") return false;
+  const datePart = raw.includes(" ") ? raw.split(" ")[0] : raw;
+  const d = new Date(datePart);
+  return !Number.isNaN(d.getTime());
+}
+
+function getSubitemDeliveredQuantity(subitem: SubItem): number {
+  if (!hasActualDeliveryDate(subitem)) return 0;
+  const harvested = parseNumber((subitem as SubItem & { quantity_harvested?: unknown }).quantity_harvested);
+  if (harvested > 0) return harvested;
+  return parseNumber(subitem.quantity);
 }
 
 function calculateDeliveredQuantity(subitems: SubItem[], productId?: string, uom?: string): number {
@@ -132,7 +157,7 @@ function calculateDeliveredQuantity(subitems: SubItem[], productId?: string, uom
       const su = String(s.uom ?? "").toLowerCase().trim();
       if (su !== uomNorm) continue;
     }
-    total += parseNumber(s.quantity);
+    total += getSubitemDeliveredQuantity(s);
   }
   return total;
 }
@@ -176,7 +201,7 @@ function calculateProgress(subitems: SubItem[], requirements: QuantityRequiredPr
   for (const s of subitems) {
     const pid = String(s.product_id ?? "").trim();
     if (!pid) continue;
-    const q = parseNumber(s.quantity);
+    const q = getSubitemDeliveredQuantity(s);
     if (q <= 0) continue;
     deliveredByProduct.set(pid, (deliveredByProduct.get(pid) ?? 0) + q);
   }
@@ -250,7 +275,7 @@ export function buildProjectDataFromServerRow(
     const requiredQty = parseNumber(r.quantity);
     const deliveredQty = calculateDeliveredQuantity(subitems, r.product_id, r.uom);
     const remaining = Math.max(0, requiredQty - deliveredQty);
-    const percentage = requiredQty > 0 ? Math.round((remaining / requiredQty) * 100) : 0;
+    const percentage = requiredQty > 0 ? Math.round((deliveredQty / requiredQty) * 100) : 0;
 
     const productName = options.getProductNameById?.(r.product_id) || r.product_id || "N/A";
     const uom = String(r.uom ?? "").trim();
@@ -289,7 +314,7 @@ export function buildProjectDataFromServerRow(
     ].filter(Boolean),
     assignee: {
       name: assigneeName,
-      avatar: assigneeAvatar || "https://i.pravatar.cc/64?img=11",
+      avatar: assigneeAvatar || DEFAULT_ASSIGNEE_AVATAR,
     },
   };
 }
