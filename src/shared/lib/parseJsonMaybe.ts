@@ -10,7 +10,18 @@ export function parseJsonMaybe(v: unknown): unknown {
     try {
       return JSON.parse(s) as unknown;
     } catch {
-      return v;
+      // Some STS payloads are python-like strings (single quotes, None/True/False).
+      // Try a conservative normalization fallback before giving up.
+      try {
+        const normalized = s
+          .replace(/\bNone\b/g, "null")
+          .replace(/\bTrue\b/g, "true")
+          .replace(/\bFalse\b/g, "false")
+          .replace(/'/g, "\"");
+        return JSON.parse(normalized) as unknown;
+      } catch {
+        return v;
+      }
     }
   }
   return v;

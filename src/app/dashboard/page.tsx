@@ -24,6 +24,7 @@ import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { fetchMondayProjectRowsFromServer, type MondayProjectServerRow } from "@/entities/projects";
 import { parseSubitems } from "@/shared/lib/parseJsonMaybe";
+import { parseJsonMaybe } from "@/shared/lib/parseJsonMaybe";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
 import { FarmCountryFlag } from "./FarmCountryFlag";
 import { SortableTh } from "@/components/ui/sortable-th";
@@ -126,6 +127,12 @@ function hasDeliveryHarvestDate(item: Record<string, unknown>): boolean {
   return monthKeyFromSubitem(item) !== null;
 }
 
+function parseRequirementItems(raw: unknown): Array<Record<string, unknown>> {
+  const parsed = parseJsonMaybe(raw);
+  if (!Array.isArray(parsed)) return [];
+  return parsed.filter((x) => !!x && typeof x === "object") as Array<Record<string, unknown>>;
+}
+
 function parseDeliveryDate(item: Record<string, unknown>): Date | null {
   const raw = item.delivery_harvest_date;
   const s = String(raw ?? "").trim();
@@ -152,6 +159,24 @@ function parseYmdToLocalDate(value?: string): Date | null {
   const out = new Date(y, mo - 1, d);
   if (Number.isNaN(out.getTime())) return null;
   return out;
+}
+
+function hasActualHarvestDate(item: Record<string, unknown>): boolean {
+  const actual = String(item.actual_harvest_date ?? "").trim();
+  if (actual && actual !== "0000-00-00" && actual !== "null") {
+    const actualDatePart = actual.includes(" ") ? actual.split(" ")[0] : actual;
+    const actualDate = new Date(actualDatePart);
+    if (!Number.isNaN(actualDate.getTime())) return true;
+  }
+
+  const estimated = String(item.estimated_harvest_date ?? "").trim();
+  if (estimated && estimated !== "0000-00-00" && estimated !== "null") {
+    const estimatedDatePart = estimated.includes(" ") ? estimated.split(" ")[0] : estimated;
+    const estimatedDate = new Date(estimatedDatePart);
+    if (!Number.isNaN(estimatedDate.getTime())) return true;
+  }
+
+  return false;
 }
 
 export default function DashboardPage() {
@@ -342,9 +367,12 @@ export default function DashboardPage() {
     const fromDate = parseYmdToLocalDate(selectedDateRange.from);
     const toDate = parseYmdToLocalDate(selectedDateRange.to);
     const deliveryDate = parseDeliveryDate(item);
+    const itemFarmId = String(item.farm_id ?? "").trim();
 
     if (!fromDate && !toDate) return true;
-    if (!deliveryDate) return false;
+    // When a specific farm is selected, keep undated rows for that farm
+    // so dashboard doesn't go blank due to missing delivery_harvest_date.
+    if (!deliveryDate) return Boolean(selectedFarmId && itemFarmId === selectedFarmId);
     if (fromDate && deliveryDate < fromDate) return false;
     if (toDate && deliveryDate > toDate) return false;
     return true;
@@ -354,6 +382,14 @@ export default function DashboardPage() {
     const ids = new Set<string>();
     for (const row of rows) {
       if (isDeleted(row)) continue;
+      if (selectedFarmId) {
+        const hasSelectedFarm = parseSubitems((row as Record<string, unknown>).subitems).some((item) => {
+          if (String((item as Record<string, unknown>).deleted ?? "0").trim() === "1") return false;
+          const farmId = String((item as Record<string, unknown>).farm_id ?? "").trim();
+          return farmId === selectedFarmId;
+        });
+        if (!hasSelectedFarm) continue;
+      }
       const hasAnyInDateRange = parseSubitems((row as Record<string, unknown>).subitems).some((item) =>
         isSubitemInSelectedDateRange(item as Record<string, unknown>),
       );
@@ -362,12 +398,20 @@ export default function DashboardPage() {
       if (id) ids.add(id);
     }
     return ids.size;
-  }, [rows, selectedDateRange.from, selectedDateRange.to]);
+  }, [rows, selectedDateRange.from, selectedDateRange.to, selectedFarmId]);
 
   const totalCurrentProjects = useMemo(() => {
     const ids = new Set<string>();
     for (const row of rows) {
       if (isDeleted(row)) continue;
+      if (selectedFarmId) {
+        const hasSelectedFarm = parseSubitems((row as Record<string, unknown>).subitems).some((item) => {
+          if (String((item as Record<string, unknown>).deleted ?? "0").trim() === "1") return false;
+          const farmId = String((item as Record<string, unknown>).farm_id ?? "").trim();
+          return farmId === selectedFarmId;
+        });
+        if (!hasSelectedFarm) continue;
+      }
       const hasAnyInDateRange = parseSubitems((row as Record<string, unknown>).subitems).some((item) =>
         isSubitemInSelectedDateRange(item as Record<string, unknown>),
       );
@@ -378,7 +422,7 @@ export default function DashboardPage() {
       if (id) ids.add(id);
     }
     return ids.size;
-  }, [rows, selectedDateRange.from, selectedDateRange.to]);
+  }, [rows, selectedDateRange.from, selectedDateRange.to, selectedFarmId]);
 
   const deliveredTotals = useMemo(() => {
     let sprigKg = 0;
@@ -386,7 +430,10 @@ export default function DashboardPage() {
     for (const row of rows) {
       if (isDeleted(row)) continue;
       for (const item of parseSubitems((row as Record<string, unknown>).subitems)) {
+        if (String((item as Record<string, unknown>).deleted ?? "0").trim() === "1") continue;
         if (!isSubitemInSelectedDateRange(item as Record<string, unknown>)) continue;
+        const farmId = String((item as Record<string, unknown>).farm_id ?? "").trim();
+        if (selectedFarmId && farmId !== selectedFarmId) continue;
         const qtyRaw = item.quantity_harvested ?? item.quantity ?? 0;
         const qty = Number(String(qtyRaw).replace(/,/g, "").trim());
         if (!Number.isFinite(qty)) continue;
@@ -396,21 +443,37 @@ export default function DashboardPage() {
       }
     }
     return { sprigKg, sodM2 };
-  }, [rows, selectedDateRange.from, selectedDateRange.to]);
+  }, [rows, selectedDateRange.from, selectedDateRange.to, selectedFarmId]);
 
   const countryProjectsChartData = useMemo(() => {
+    const selectedFarmCountryId = selectedFarmId
+      ? farmFilters.find((f) => f.farmId === selectedFarmId)?.countryId ?? null
+      : null;
+    const effectiveCountryId = selectedFarmCountryId ?? selectedCountry;
     const counts = new Map<string, { country: string; projects: number }>();
 
     for (const row of rows) {
       if (isDeleted(row)) continue;
       const rec = row as Record<string, unknown>;
-      const countryId = String(rec.country_id ?? "").trim();
-      if (!countryId) continue;
-      if (selectedCountry && countryId !== selectedCountry) continue;
+      if (selectedFarmId) {
+        const hasSelectedFarm = parseSubitems(rec.subitems).some((item) => {
+          if (String((item as Record<string, unknown>).deleted ?? "0").trim() === "1") return false;
+          const farmId = String((item as Record<string, unknown>).farm_id ?? "").trim();
+          return farmId === selectedFarmId;
+        });
+        if (!hasSelectedFarm) continue;
+      }
       const hasAnyInDateRange = parseSubitems(rec.subitems).some((item) =>
         isSubitemInSelectedDateRange(item as Record<string, unknown>),
       );
       if (!hasAnyInDateRange) continue;
+
+      const rowCountryId = String(rec.country_id ?? "").trim();
+      const countryId = selectedFarmId
+        ? String(selectedFarmCountryId ?? rowCountryId).trim()
+        : rowCountryId;
+      if (!countryId) continue;
+      if (!selectedFarmId && effectiveCountryId && countryId !== effectiveCountryId) continue;
 
       const projectId = String(rec.project_id ?? rec.id ?? "").trim();
       if (!projectId) continue;
@@ -450,7 +513,7 @@ export default function DashboardPage() {
     }
 
     return Array.from(counts.values()).sort((a, b) => a.country.localeCompare(b.country));
-  }, [rows, countriesRef, selectedCountry, selectedDateRange.from, selectedDateRange.to]);
+  }, [rows, countriesRef, selectedCountry, selectedDateRange.from, selectedDateRange.to, selectedFarmId, farmFilters]);
 
   const grassDistributionByUnit = useMemo(() => {
     const productNameById = new Map<string, string>();
@@ -606,11 +669,13 @@ export default function DashboardPage() {
       if (isDeleted(row)) continue;
       const rec = row as Record<string, unknown>;
       const rowCountry = String(rec.country_id ?? "").trim();
-      if (selectedCountry && rowCountry !== selectedCountry) continue;
+      if (!selectedFarmId && selectedCountry && rowCountry !== selectedCountry) continue;
 
       const subitems = parseSubitems(rec.subitems);
       for (const item of subitems) {
         if (String(item.deleted ?? "0").trim() === "1") continue;
+        // Delivered-by-farm chart only counts rows that have delivery date.
+        if (!hasDeliveryHarvestDate(item as Record<string, unknown>)) continue;
         if (!isSubitemInSelectedDateRange(item as Record<string, unknown>)) continue;
         const farmId = String(item.farm_id ?? "").trim();
         if (!farmIds.has(farmId)) continue;
@@ -712,7 +777,7 @@ export default function DashboardPage() {
       if (isDeleted(row)) continue;
       const rec = row as Record<string, unknown>;
       const rowCountry = String(rec.country_id ?? "").trim();
-      if (selectedCountry && rowCountry !== selectedCountry) continue;
+      if (!selectedFarmId && selectedCountry && rowCountry !== selectedCountry) continue;
 
       const subitems = parseSubitems(rec.subitems);
       for (const item of subitems) {
@@ -786,7 +851,7 @@ export default function DashboardPage() {
     for (const row of rows) {
       if (isDeleted(row)) continue;
       const rec = row as Record<string, unknown>;
-      if (selectedCountry && String(rec.country_id ?? "").trim() !== selectedCountry) continue;
+      if (!selectedFarmId && selectedCountry && String(rec.country_id ?? "").trim() !== selectedCountry) continue;
       const projectId = String(rec.project_id ?? rec.id ?? "").trim();
       if (!projectId) continue;
       const list = byProjectId.get(projectId);
@@ -794,7 +859,7 @@ export default function DashboardPage() {
       else byProjectId.set(projectId, [row]);
     }
 
-    type PerProduct = { requested: number; delivered: number; activeHarvests: number };
+    type PerProduct = { requested: number; delivered: number; deliveredForActive: number; activeHarvests: number };
     const NONE_KEY = "__no_product__";
 
     const out: Array<{
@@ -813,12 +878,15 @@ export default function DashboardPage() {
     for (const [projectId, projectRows] of byProjectId) {
       const rec = projectRows[0] as Record<string, unknown>;
       const subitems = projectRows.flatMap((r) => parseSubitems((r as Record<string, unknown>).subitems));
+      const requirements = projectRows.flatMap((r) =>
+        parseRequirementItems((r as Record<string, unknown>).quantity_required_sprig_sod),
+      );
 
       const byProduct = new Map<string, PerProduct>();
       const touch = (key: string): PerProduct => {
         let p = byProduct.get(key);
         if (!p) {
-          p = { requested: 0, delivered: 0, activeHarvests: 0 };
+          p = { requested: 0, delivered: 0, deliveredForActive: 0, activeHarvests: 0 };
           byProduct.set(key, p);
         }
         return p;
@@ -827,6 +895,24 @@ export default function DashboardPage() {
       let contractAmount = 0;
       let amountDelivered = 0;
       let hasLine = false;
+
+      for (const req of requirements) {
+        const farmId = String(req.farm_id ?? "").trim();
+        if (farmId && !farmIdSet.has(farmId)) continue;
+        const uom = String(req.uom ?? "").trim().toLowerCase();
+        if (wantSprig) {
+          if (uom !== "kg") continue;
+        } else if (!(uom === "m2" || uom === "m²" || uom === "sqm")) {
+          continue;
+        }
+        const rawPid = String(req.product_id ?? "").trim();
+        const pKey = rawPid || NONE_KEY;
+        const per = touch(pKey);
+        const reqQty = Number(String(req.quantity ?? 0).replace(/,/g, "").trim());
+        if (!Number.isFinite(reqQty) || reqQty <= 0) continue;
+        contractAmount += reqQty;
+        per.requested += reqQty;
+      }
 
       for (const item of subitems) {
         if (String(item.deleted ?? "0").trim() === "1") continue;
@@ -845,21 +931,20 @@ export default function DashboardPage() {
         const pKey = rawPid || NONE_KEY;
         const per = touch(pKey);
 
-        const reqQty = Number(String(item.quantity ?? 0).replace(/,/g, "").trim());
-        if (Number.isFinite(reqQty) && reqQty > 0) {
-          contractAmount += reqQty;
-          per.requested += reqQty;
-        }
-
         const itemRec = item as Record<string, unknown>;
-        if (!hasDeliveryHarvestDate(itemRec)) {
+        const hasDeliveryDate = hasDeliveryHarvestDate(itemRec);
+        if (!hasDeliveryDate) {
           per.activeHarvests += 1;
-        } else {
-          const qtyRaw = item.quantity_harvested ?? item.quantity ?? 0;
-          const q = Number(String(qtyRaw).replace(/,/g, "").trim());
-          if (Number.isFinite(q) && q > 0) {
+        }
+        const qtyRaw = item.quantity_harvested ?? item.quantity ?? 0;
+        const q = Number(String(qtyRaw).replace(/,/g, "").trim());
+        if (Number.isFinite(q) && q > 0) {
+          if (hasDeliveryDate) {
             amountDelivered += q;
             per.delivered += q;
+          }
+          if (hasActualHarvestDate(itemRec)) {
+            per.deliveredForActive += q;
           }
         }
       }
@@ -867,10 +952,6 @@ export default function DashboardPage() {
       if (!hasLine) continue;
 
       const customerName = String(rec.title ?? rec.name ?? rec.alias_title ?? projectId).trim() || projectId;
-      const st = normalizeStatus(rec.status_app ?? rec.status);
-      const isDone = st === "Done";
-      const activeProjects = !isDone && contractAmount > amountDelivered + 0.0001 ? 1 : 0;
-
       const productKeys = Array.from(byProduct.keys()).filter((k) => {
         const b = byProduct.get(k)!;
         return b.requested > 0 || b.activeHarvests > 0 || b.delivered > 0;
@@ -887,6 +968,7 @@ export default function DashboardPage() {
         const contractAmount = b.requested;
         const amountDelivered = b.delivered;
         const amountOutstanding = Math.max(0, contractAmount - amountDelivered);
+        const activeProjects = contractAmount > (b.deliveredForActive ?? 0) + 0.0001 ? 1 : 0;
         out.push({
           projectId,
           productId,
@@ -985,7 +1067,7 @@ export default function DashboardPage() {
       if (isDeleted(row)) continue;
       const rec = row as Record<string, unknown>;
       const rowCountry = String(rec.country_id ?? "").trim();
-      if (selectedCountry && rowCountry !== selectedCountry) continue;
+      if (!selectedFarmId && selectedCountry && rowCountry !== selectedCountry) continue;
       const projectId = String(rec.project_id ?? rec.id ?? "").trim();
       if (!projectId) continue;
 
@@ -994,6 +1076,27 @@ export default function DashboardPage() {
       let activeHarvests = 0;
       let hasLine = false;
       const subitems = parseSubitems(rec.subitems);
+      const requirements = parseRequirementItems(rec.quantity_required_sprig_sod);
+      const requiredByProduct = new Map<string, number>();
+      const deliveredByProduct = new Map<string, number>();
+      const NONE_KEY = "__no_product__";
+
+      for (const req of requirements) {
+        const farmId = String(req.farm_id ?? "").trim();
+        if (farmId && farmId !== selectedFarmId) continue;
+        const uom = String(req.uom ?? "").trim().toLowerCase();
+        if (wantSprig) {
+          if (uom !== "kg") continue;
+        } else if (!(uom === "m2" || uom === "m²" || uom === "sqm")) {
+          continue;
+        }
+        const productKey = String(req.product_id ?? "").trim() || NONE_KEY;
+        const reqQty = Number(String(req.quantity ?? 0).replace(/,/g, "").trim());
+        if (Number.isFinite(reqQty) && reqQty > 0) {
+          contractAmount += reqQty;
+          requiredByProduct.set(productKey, (requiredByProduct.get(productKey) ?? 0) + reqQty);
+        }
+      }
 
       for (const item of subitems) {
         if (String(item.deleted ?? "0").trim() === "1") continue;
@@ -1008,26 +1111,42 @@ export default function DashboardPage() {
         }
         hasLine = true;
 
-        const reqQty = Number(String(item.quantity ?? 0).replace(/,/g, "").trim());
-        if (Number.isFinite(reqQty) && reqQty > 0) contractAmount += reqQty;
-
         const itemRec = item as Record<string, unknown>;
-        if (!hasDeliveryHarvestDate(itemRec)) {
+        const hasDeliveryDate = hasDeliveryHarvestDate(itemRec);
+        if (!hasDeliveryDate) {
           activeHarvests += 1;
-        } else {
-          const qtyRaw = item.quantity_harvested ?? item.quantity ?? 0;
-          const q = Number(String(qtyRaw).replace(/,/g, "").trim());
-          if (Number.isFinite(q) && q > 0) amountDelivered += q;
+        }
+        const qtyRaw = item.quantity_harvested ?? item.quantity ?? 0;
+        const q = Number(String(qtyRaw).replace(/,/g, "").trim());
+        if (Number.isFinite(q) && q > 0) {
+          if (hasDeliveryDate) {
+            amountDelivered += q;
+          }
+          if (hasActualHarvestDate(itemRec)) {
+            const productKey = String(item.product_id ?? "").trim() || NONE_KEY;
+            deliveredByProduct.set(productKey, (deliveredByProduct.get(productKey) ?? 0) + q);
+          }
         }
       }
 
       if (!hasLine) continue;
 
       const customerName = String(rec.title ?? rec.name ?? rec.alias_title ?? projectId).trim() || projectId;
-      const st = normalizeStatus(rec.status_app ?? rec.status);
-      const isDone = st === "Done";
       const amountOutstanding = Math.max(0, contractAmount - amountDelivered);
-      const activeProjects = !isDone && contractAmount > amountDelivered + 0.0001 ? 1 : 0;
+      const productKeys = new Set<string>([
+        ...requiredByProduct.keys(),
+        ...deliveredByProduct.keys(),
+      ]);
+      let hasOutstandingByGrass = false;
+      for (const key of productKeys) {
+        const req = requiredByProduct.get(key) ?? 0;
+        const del = deliveredByProduct.get(key) ?? 0;
+        if (req > del + 0.0001) {
+          hasOutstandingByGrass = true;
+          break;
+        }
+      }
+      const activeProjects = hasOutstandingByGrass ? 1 : 0;
 
       out.push({
         projectId,
@@ -1194,7 +1313,8 @@ export default function DashboardPage() {
                       key={f.farmId}
                       onClick={() => {
                         setSelectedFarmId(f.farmId);
-                        setSelectedCountry(f.countryId);
+                      // When a specific farm is selected, avoid extra country coupling.
+                      setSelectedCountry(null);
                       }}
                       className={`px-4 py-2 rounded-lg border transition-colors flex items-center gap-2 ${selectedFarmId === f.farmId
                         ? " text-[var(--primary-color)] border-[var(--primary-color)]"
