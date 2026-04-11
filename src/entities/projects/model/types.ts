@@ -46,7 +46,10 @@ export type SubItem = {
   product_id?: string;
   quantity?: string | number;
   quantity_harvested?: string | number;
+  /** Delivered to site / committed delivery */
   delivery_harvest_date?: string;
+  /** Harvest completed (fallback when delivery date not set yet) */
+  actual_harvest_date?: string;
   uom?: string;
 };
 

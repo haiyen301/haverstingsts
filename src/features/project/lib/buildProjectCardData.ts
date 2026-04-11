@@ -10,6 +10,7 @@ import type {
   SubItem,
 } from "@/entities/projects";
 import { parseJsonMaybe } from "./parseJson";
+import { calculateDeliveredQuantity } from "./subitemDeliveredQuantity";
 
 const DEFAULT_ASSIGNEE_AVATAR =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='32' fill='%23E5E7EB'/%3E%3Ccircle cx='32' cy='24' r='12' fill='%239CA3AF'/%3E%3Cpath d='M12 56c2.8-11.2 11-16 20-16s17.2 4.8 20 16' fill='%239CA3AF'/%3E%3C/svg%3E";
@@ -127,39 +128,9 @@ function normalizeSubitems(raw: unknown): SubItem[] {
       quantity: x.quantity as string | number | undefined,
       quantity_harvested: x.quantity_harvested as string | number | undefined,
       delivery_harvest_date: String(x.delivery_harvest_date ?? "").trim() || undefined,
+      actual_harvest_date: String(x.actual_harvest_date ?? "").trim() || undefined,
       uom: String(x.uom ?? "").trim() || undefined,
     }));
-}
-
-function hasActualDeliveryDate(subitem: SubItem): boolean {
-  const raw = String((subitem as SubItem & { delivery_harvest_date?: unknown }).delivery_harvest_date ?? "").trim();
-  if (!raw || raw === "0000-00-00" || raw === "null") return false;
-  const datePart = raw.includes(" ") ? raw.split(" ")[0] : raw;
-  const d = new Date(datePart);
-  return !Number.isNaN(d.getTime());
-}
-
-function getSubitemDeliveredQuantity(subitem: SubItem): number {
-  if (!hasActualDeliveryDate(subitem)) return 0;
-  const harvested = parseNumber((subitem as SubItem & { quantity_harvested?: unknown }).quantity_harvested);
-  if (harvested > 0) return harvested;
-  return parseNumber(subitem.quantity);
-}
-
-function calculateDeliveredQuantity(subitems: SubItem[], productId?: string, uom?: string): number {
-  if (!productId) return 0;
-  const uomNorm = String(uom ?? "").toLowerCase().trim();
-
-  let total = 0;
-  for (const s of subitems) {
-    if (String(s.product_id ?? "") !== productId) continue;
-    if (uomNorm) {
-      const su = String(s.uom ?? "").toLowerCase().trim();
-      if (su !== uomNorm) continue;
-    }
-    total += getSubitemDeliveredQuantity(s);
-  }
-  return total;
 }
 
 function computeMondayStatus(
@@ -193,33 +164,22 @@ function computeMondayStatus(
   return "Warning";
 }
 
-/** Flutter _calculateProgress: satisfied requirements / total requirements * 100 */
+/**
+ * Overall progress: sum(delivered per requirement) / sum(required), same basis as row %.
+ * (Legacy Flutter-style “count of fully satisfied lines” made the bar stay at 0% until 100% delivered.)
+ */
 function calculateProgress(subitems: SubItem[], requirements: QuantityRequiredProject[]): number {
-  if (!requirements.length) return 0;
-
-  const deliveredByProduct = new Map<string, number>();
-  for (const s of subitems) {
-    const pid = String(s.product_id ?? "").trim();
-    if (!pid) continue;
-    const q = getSubitemDeliveredQuantity(s);
-    if (q <= 0) continue;
-    deliveredByProduct.set(pid, (deliveredByProduct.get(pid) ?? 0) + q);
-  }
-
-  let total = 0;
-  let satisfied = 0;
-
+  let totalRequired = 0;
+  let totalDelivered = 0;
   for (const r of requirements) {
     const pid = String(r.product_id ?? "").trim();
     const required = parseNumber(r.quantity);
     if (!pid || required <= 0) continue;
-
-    total += 1;
-    const delivered = deliveredByProduct.get(pid) ?? 0;
-    if (delivered >= required) satisfied += 1;
+    totalRequired += required;
+    totalDelivered += calculateDeliveredQuantity(subitems, r.product_id, r.uom);
   }
-
-  return total > 0 ? (satisfied / total) * 100 : 0;
+  if (totalRequired <= 0) return 0;
+  return Math.round((totalDelivered / totalRequired) * 100);
 }
 
 /**

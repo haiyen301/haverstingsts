@@ -27,6 +27,7 @@ import {
 import { formatDateDisplay, isValidDate } from "@/shared/lib/format/date";
 import { zoneIdToLabel } from "@/shared/lib/harvestReferenceData";
 import { parseJsonMaybe, parseSubitems } from "@/shared/lib/parseJsonMaybe";
+import { calculateDeliveredQuantity } from "@/features/project/lib/subitemDeliveredQuantity";
 import { iconPaths } from "@/lib/assets/images";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
 import { SortableTh } from "@/components/ui/sortable-th";
@@ -85,26 +86,6 @@ function parseNumber(v: unknown): number {
 function parseRequirements(raw: unknown): Array<Record<string, unknown>> {
   const p = parseJsonMaybe(raw);
   return Array.isArray(p) ? (p.filter((x) => !!x && typeof x === "object") as Array<Record<string, unknown>>) : [];
-}
-
-function deliveredByProduct(
-  subitems: Array<Record<string, unknown>>,
-  productId: string,
-  uom: string,
-): number {
-  const product = productId.trim();
-  const uomNorm = uom.trim().toLowerCase();
-  let total = 0;
-  for (const s of subitems) {
-    const sid = String(s.product_id ?? "").trim();
-    if (!product || sid !== product) continue;
-    if (uomNorm) {
-      const su = String(s.uom ?? "").trim().toLowerCase();
-      if (su !== uomNorm) continue;
-    }
-    total += parseNumber(s.quantity);
-  }
-  return total;
 }
 
 function normalizeUomKey(uomRaw: string): string {
@@ -233,7 +214,7 @@ export default function ProjectDetailPage() {
             const reqUomRaw = String(req.uom ?? "").trim();
             const reqUomKey = normalizeUomKey(reqUomRaw);
             const required = parseNumber(req.quantity);
-            const delivered = deliveredByProduct(projectSubitems, productId, reqUomRaw);
+            const delivered = calculateDeliveredQuantity(projectSubitems, productId, reqUomRaw);
             const remaining = Math.max(0, required - delivered);
             const mapKey = `${productId}::${reqUomKey}`;
             remainingByProductUom.set(mapKey, remaining);
@@ -371,7 +352,7 @@ export default function ProjectDetailPage() {
       const productId = String(r.product_id ?? "").trim();
       const uom = String(r.uom ?? "").trim();
       const required = parseNumber(r.quantity);
-      const delivered = deliveredByProduct(subitems, productId, uom);
+      const delivered = calculateDeliveredQuantity(subitems, productId, uom);
       const remaining = Math.max(0, required - delivered);
       const progress = required > 0 ? Math.round((delivered / required) * 100) : 0;
       const productName =

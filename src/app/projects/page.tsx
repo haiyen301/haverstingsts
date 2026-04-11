@@ -85,7 +85,10 @@ export default function ProjectListPage() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [countryFilterIds, setCountryFilterIds] = useState<string[]>([]);
   const [grassFilterIds, setGrassFilterIds] = useState<string[]>([]);
-  const [statusFilterValues, setStatusFilterValues] = useState<string[]>([]);
+  const [statusFilterValues, setStatusFilterValues] = useState<string[]>([
+    "Ongoing",
+    "Future",
+  ]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<MondayProjectServerRow[]>([]);
