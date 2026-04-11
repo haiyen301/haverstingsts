@@ -16,6 +16,7 @@ import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
 import { SortableTh } from "@/components/ui/sortable-th";
 import { useTableColumnSort } from "@/shared/hooks/useTableColumnSort";
 import { compareNumbers, compareStrings } from "@/shared/lib/tableSort";
+import { normalizeProjectTypeFromImportCell } from "@/features/project/lib/projectTypeDisplay";
 
 type FieldKey =
   | "projectName"
@@ -195,11 +196,7 @@ function tryParseDate(v: unknown): string {
 }
 
 function normalizeProjectType(v: string): string {
-  const s = normalizeLoose(v);
-  if (!s) return "";
-  if (s === "new" || s.includes("new")) return "new";
-  if (s === "renovation" || s.includes("reno")) return "renovation";
-  return "";
+  return normalizeProjectTypeFromImportCell(v);
 }
 
 function normalizeHoles(v: string): string {

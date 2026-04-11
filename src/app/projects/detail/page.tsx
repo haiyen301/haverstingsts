@@ -33,6 +33,7 @@ import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
 import { SortableTh } from "@/components/ui/sortable-th";
 import { useTableColumnSort } from "@/shared/hooks/useTableColumnSort";
 import { compareNumbers, compareStrings } from "@/shared/lib/tableSort";
+import { translateProjectType } from "@/features/project/lib/projectTypeDisplay";
 import { Swiper, SwiperSlide } from "swiper/react";
 import { FreeMode } from "swiper/modules";
 import { Fancybox } from "@fancyapps/ui";
@@ -100,6 +101,7 @@ export default function ProjectDetailPage() {
   // `ProjectDetail.harvestedArea`). Using namespaces matches the JSON shape and yields stable `t`.
   const t = useAppTranslations("ProjectDetail");
   const tForm = useAppTranslations("HarvestForm");
+  const tProjectForm = useAppTranslations("ProjectForm");
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -335,14 +337,18 @@ export default function ProjectDetailPage() {
       architect: String((r as Record<string, unknown>).golf_course_architect ?? "-"),
       country: countryMap.get(countryId) || String(r.country ?? "-"),
       pic: staffMap.get(picId) || picId || "-",
-      projectType: String(r.project_type ?? "-"),
+      projectType: (() => {
+        const raw = String(r.project_type ?? "").trim();
+        if (!raw) return "-";
+        return translateProjectType(raw, (k) => tProjectForm(k));
+      })(),
       holes: String(r.no_of_holes ?? "-"),
       estimateStartDate: formatDateDisplay((r as Record<string, unknown>).estimate_start_date),
       actualStartDate: formatDateDisplay((r as Record<string, unknown>).actual_start_date),
       endDate: formatDateDisplay(r.deadline),
       keyAreas: String(r.key_areas ?? "").split(",").map((x) => x.trim()).filter(Boolean),
     };
-  }, [projectRow, projectTitleMap, countryMap, staffMap]);
+  }, [projectRow, projectTitleMap, countryMap, staffMap, tProjectForm]);
 
   const grassRows = useMemo<GrassRow[]>(() => {
     if (!projectRow) return [];

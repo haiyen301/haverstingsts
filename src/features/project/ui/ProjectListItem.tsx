@@ -20,6 +20,7 @@ import {
   isPlaceholderAssigneeAvatarUrl,
   resolveStaffAvatarImageUrl,
 } from "../lib/staffAvatarUrl";
+import { translateProjectType } from "../lib/projectTypeDisplay";
 
 function getProgressColor(progress: number) {
   void progress;
@@ -86,6 +87,10 @@ export function ProjectListItem({
     getUserNameById: getUserNameById ?? options?.getUserNameById,
     getProductNameById: getProductNameById ?? options?.getProductNameById,
     getUserAvatarById: getUserAvatarById ?? options?.getUserAvatarById,
+    getProjectTypeLabel:
+      options?.getProjectTypeLabel ??
+      ((raw) =>
+        translateProjectType(String(raw ?? ""), (k) => tBase(`ProjectForm.${k}`))),
   };
   const data = project ?? (serverRow ? buildProjectDataFromServerRow(serverRow, mergedOptions) : null);
   const countries = useHarvestingDataStore((s) => s.countries);

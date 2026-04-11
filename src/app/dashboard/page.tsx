@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   BarChart,
   Bar,
@@ -1213,46 +1214,60 @@ export default function DashboardPage() {
 
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
-              <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+              <Link
+                href="/harvest"
+                className="block rounded-lg bg-white p-6 border border-gray-200 shadow-sm transition-shadow hover:shadow-md hover:border-gray-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1F7A4C] focus-visible:ring-offset-2"
+              >
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm text-gray-600">{t("Dashboard.totalFarms")}</span>
                   <MapPin className="w-5 h-5 text-blue-600" />
                 </div>
                 <div className="text-2xl font-semibold text-gray-900">{totalFarms}</div>
-                {/* <p className="text-xs text-green-600 mt-1">Active operations</p> */}
-              </div>
+              </Link>
 
-              <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+              <Link
+                href="/projects"
+                className="block rounded-lg bg-white p-6 border border-gray-200 shadow-sm transition-shadow hover:shadow-md hover:border-gray-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1F7A4C] focus-visible:ring-offset-2"
+              >
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm text-gray-600">{t("Dashboard.totalCurrentProjects")}</span>
                   <Package className="w-5 h-5 text-purple-600" />
                 </div>
                 <div className="text-2xl font-semibold text-gray-900">{totalCurrentProjects}</div>
-              </div>
+              </Link>
 
-              <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+              <Link
+                 href="/projects"
+                className="block rounded-lg bg-white p-6 border border-gray-200 shadow-sm transition-shadow hover:shadow-md hover:border-gray-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1F7A4C] focus-visible:ring-offset-2"
+              >
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm text-gray-600">{t("Dashboard.allProjects")}</span>
                   <TrendingUp className="w-5 h-5 text-green-600" />
                 </div>
                 <div className="text-2xl font-semibold text-gray-900">{allProjectCount}</div>
-              </div>
+              </Link>
 
-              <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+              <Link
+                href="/harvest"
+                className="block rounded-lg bg-white p-6 border border-gray-200 shadow-sm transition-shadow hover:shadow-md hover:border-gray-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1F7A4C] focus-visible:ring-offset-2"
+              >
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm text-gray-600">{t("Dashboard.totalSprigDelivered")}</span>
                   <Scale className="w-5 h-5 text-yellow-600" />
                 </div>
                 <div className="text-2xl font-semibold text-gray-900">{deliveredTotals.sprigKg.toLocaleString()} kg</div>
-              </div>
+              </Link>
 
-              <div className="bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
+              <Link
+                href="/harvest"
+                className="block rounded-lg bg-white p-6 border border-gray-200 shadow-sm transition-shadow hover:shadow-md hover:border-gray-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1F7A4C] focus-visible:ring-offset-2"
+              >
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm text-gray-600">{t("Dashboard.totalSodDelivered")}</span>
                   <Package className="w-5 h-5 text-blue-600" />
                 </div>
                 <div className="text-2xl font-semibold text-gray-900">{deliveredTotals.sodM2.toLocaleString()} m2</div>
-              </div>
+              </Link>
             </div>
 
             <div className="mb-6">
@@ -1292,6 +1307,19 @@ export default function DashboardPage() {
                 >
                   Clear date
                 </button>
+
+
+                <div>
+                <button
+                  type="button"
+                  onClick={() => setShowAnalyticsPanels((v) => !v)}
+                  className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:border-[#1F7A4C] hover:text-[#1F7A4C]"
+                  aria-pressed={!showAnalyticsPanels}
+                >
+                  {showAnalyticsPanels ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  {showAnalyticsPanels ? "Hide charts" : "Show charts"}
+                </button>
+                </div>
               </div>
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex flex-1 flex-wrap items-center gap-2">
@@ -1333,15 +1361,7 @@ export default function DashboardPage() {
                 </div>
 
 
-                <button
-                  type="button"
-                  onClick={() => setShowAnalyticsPanels((v) => !v)}
-                  className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:border-[#1F7A4C] hover:text-[#1F7A4C]"
-                  aria-pressed={!showAnalyticsPanels}
-                >
-                  {showAnalyticsPanels ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  {showAnalyticsPanels ? "Hide charts" : "Show charts"}
-                </button>
+                
               </div>
             </div>
 

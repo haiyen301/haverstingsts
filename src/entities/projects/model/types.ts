@@ -113,6 +113,8 @@ export interface BuildProjectDataOptions {
   getUserAvatarById?: (userId?: string) => string | undefined;
   /** Optional already-resolved image URL from row model */
   projectImageUrl?: string | null;
+  /** Localized or formatted label for `project_type` (card tag). */
+  getProjectTypeLabel?: (projectTypeRaw?: string) => string | undefined;
 }
 
 export interface MondayProjectEditArgs {

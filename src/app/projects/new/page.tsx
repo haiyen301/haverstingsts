@@ -14,6 +14,10 @@ import {
 } from "@/entities/projects";
 import { DatePicker } from "@/shared/ui/date-picker";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
+import {
+  PROJECT_TYPE_VALUES,
+  projectTypeMessageKey,
+} from "@/features/project/lib/projectTypeDisplay";
 
 interface GrassRow {
   id: string;
@@ -106,6 +110,25 @@ export default function ProjectInputPage() {
   const [grassRows, setGrassRows] = useState<GrassRow[]>([
     { id: "1", grass: "", type: "", required: "", delivered: "" },
   ]);
+
+  /** Include legacy / unknown stored values so edit mode can show the current selection. */
+  const projectTypeRadioValues = useMemo(() => {
+    const cur = formData.projectType.trim();
+    const canonical = PROJECT_TYPE_VALUES as readonly string[];
+    if (cur && !canonical.includes(cur)) {
+      return [cur, ...PROJECT_TYPE_VALUES];
+    }
+    return [...PROJECT_TYPE_VALUES];
+  }, [formData.projectType]);
+
+  const labelForProjectTypeOption = (type: string) => {
+    const mk = projectTypeMessageKey(type);
+    if (mk) return t(mk);
+    const low = type.toLowerCase();
+    if (low === "new" || low === "grassing_project") return t("typeNew");
+    if (low === "renovation" || low === "renovation_project") return t("typeRenovation");
+    return type;
+  };
 
   const projects = useHarvestingDataStore((s) => s.projects);
   const countries = useHarvestingDataStore((s) => s.countries);
@@ -828,16 +851,19 @@ export default function ProjectInputPage() {
               className="grid grid-cols-2 gap-3 rounded-lg border bg-white p-3"
               style={{ borderColor: projectTypeError ? "#dc2626" : "#e5e7eb" }}
             >
-              {["new", "renovation"].map((type) => (
+              {projectTypeRadioValues.map((type) => (
                 <label key={type} className="flex items-center gap-2 text-sm text-gray-700">
                   <input
                     type="radio"
                     name="projectType"
                     checked={formData.projectType === type}
-                    onChange={() => setFormData({ ...formData, projectType: type })}
+                    onChange={() => {
+                      setFormData({ ...formData, projectType: type });
+                      setProjectTypeError(null);
+                    }}
                     style={{ accentColor: "var(--color-primary)" }}
                   />
-                  {type === "new" ? t("typeNew") : t("typeRenovation")}
+                  {labelForProjectTypeOption(type)}
                 </label>
               ))}
             </div>

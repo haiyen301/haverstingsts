@@ -11,6 +11,7 @@ import type {
 } from "@/entities/projects";
 import { parseJsonMaybe } from "./parseJson";
 import { calculateDeliveredQuantity } from "./subitemDeliveredQuantity";
+import { formatProjectTypeForDisplay } from "./projectTypeDisplay";
 
 function parseNumber(v: unknown): number {
   if (typeof v === "number") return Number.isFinite(v) ? v : 0;
@@ -19,13 +20,6 @@ function parseNumber(v: unknown): number {
     return Number.isFinite(n) ? n : 0;
   }
   return 0;
-}
-
-function normalizeProjectType(v: unknown): string {
-  const t = String(v ?? "").toLowerCase().trim();
-  if (t === "new" || t === "grassing_project") return "New";
-  if (t === "renovation" || t === "renovation_project") return "Renovation";
-  return "";
 }
 
 function normalizeStatus(v: unknown): ProjectStatus {
@@ -258,14 +252,26 @@ export function buildProjectDataFromServerRow(
     endDate: endDate,
     image,
     progress,
-    status: row.status_app
-      ? normalizeStatus(row.status_app)
-      : row.status
-        ? normalizeStatus(row.status)
-        : computeMondayStatus(subitems, requirements, row.deadline),
+    /**
+     * When grass requirements exist, status follows delivered vs required + deadline (`computeMondayStatus`).
+     * Do not trust `status_app` alone — it can stay "Done" after partial delivery.
+     */
+    status:
+      requirements.length > 0
+        ? computeMondayStatus(subitems, requirements, row.deadline)
+        : row.status_app
+          ? normalizeStatus(row.status_app)
+          : row.status
+            ? normalizeStatus(row.status)
+            : computeMondayStatus(subitems, requirements, row.deadline),
     items,
     tags: [
-      normalizeProjectType(row.project_type),
+      (() => {
+        const raw = String(row.project_type ?? "").trim();
+        const fromOpt = options.getProjectTypeLabel?.(raw);
+        if (fromOpt) return fromOpt;
+        return formatProjectTypeForDisplay(row.project_type);
+      })(),
       noOfHoles ? `${noOfHoles} hole(s)` : "",
       keyAreas.display,
     ].filter(Boolean),
