@@ -49,6 +49,9 @@ type TopFieldErrors = Partial<
   >
 >;
 
+/** TEMP: bật `true` khi cần bắt buộc No. of holes & Key areas lại */
+const VALIDATE_HOLES_AND_KEY_AREAS = false;
+
 export default function ProjectInputPage() {
   const tBase = useAppTranslations();
   const t = (key: string) => tBase(`ProjectForm.${key}`);
@@ -450,10 +453,14 @@ export default function ProjectInputPage() {
     const nextProjectTypeError = !formData.projectType
       ? t("validationSelectProjectType")
       : null;
-    const nextHolesError = !formData.holes ? t("validationSelectHoles") : null;
-    const nextKeyAreasError = !formData.keyAreas.length
-      ? t("validationSelectKeyAreas")
-      : null;
+    const nextHolesError =
+      VALIDATE_HOLES_AND_KEY_AREAS && !formData.holes
+        ? t("validationSelectHoles")
+        : null;
+    const nextKeyAreasError =
+      VALIDATE_HOLES_AND_KEY_AREAS && !formData.keyAreas.length
+        ? t("validationSelectKeyAreas")
+        : null;
     setProjectTypeError(nextProjectTypeError);
     setHolesError(nextHolesError);
     setKeyAreasError(nextKeyAreasError);
