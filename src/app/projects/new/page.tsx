@@ -1,6 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type FormEvent,
+} from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { MoreVertical, Plus, Trash2 } from "lucide-react";
 
@@ -52,6 +58,9 @@ type TopFieldErrors = Partial<
 /** TEMP: bật `true` khi cần bắt buộc No. of holes & Key areas lại */
 const VALIDATE_HOLES_AND_KEY_AREAS = false;
 
+/** TEMP: tắt validate Company / Golf club / Architect / STS PIC (bật lại khi cần bắt buộc các trường này) */
+const VALIDATE_COMPANY_GOLF_ARCHITECT_PIC = false;
+
 export default function ProjectInputPage() {
   const tBase = useAppTranslations();
   const t = (key: string) => tBase(`ProjectForm.${key}`);
@@ -79,6 +88,15 @@ export default function ProjectInputPage() {
     }
     return "/projects";
   }, [returnToParam]);
+
+  const goBack = useCallback(() => {
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      router.back();
+      return;
+    }
+    router.push(returnTarget);
+  }, [router, returnTarget]);
+
   const [loading, setLoading] = useState(isEdit);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -106,7 +124,8 @@ export default function ProjectInputPage() {
     actualStartDate: "",
     endDate: "",
     projectType: "",
-    holes: "",
+    /** Tạo mới: mặc định "none" (radio đầu tiên). Chỉnh sửa: `applyEditRow` ghi đè từ API. */
+    holes: "none",
     keyAreas: [] as string[],
   });
 
@@ -328,15 +347,17 @@ export default function ProjectInputPage() {
     if (!projectName) {
       errors.projectName = t("projectNameRequired");
     }
-    if (!formData.company.trim()) errors.company = t("companyRequired");
-    if (!formData.golfClub.trim()) {
-      errors.golfClub = t("golfClubRequired");
+    if (VALIDATE_COMPANY_GOLF_ARCHITECT_PIC) {
+      if (!formData.company.trim()) errors.company = t("companyRequired");
+      if (!formData.golfClub.trim()) {
+        errors.golfClub = t("golfClubRequired");
+      }
+      if (!formData.architect.trim()) errors.architect = t("architectRequired");
+      if (!formData.stsPic.trim()) {
+        errors.stsPic = t("validationSelectPersonInCharge");
+      }
     }
-    if (!formData.architect.trim()) errors.architect = t("architectRequired");
     if (!formData.country.trim()) errors.country = t("validationSelectCountry");
-    if (!formData.stsPic.trim()) {
-      errors.stsPic = t("validationSelectPersonInCharge");
-    }
     if (!actualStartDate && !estimateStartDate) {
       const msg = t("startDatePairRequiredError");
       errors.estimateStartDate = msg;
@@ -623,10 +644,10 @@ export default function ProjectInputPage() {
 
             <div className="relative flex items-center justify-between bg-button-primary px-4 py-4 pr-11">
               <button
-                onClick={() => router.push(returnTarget)}
+                onClick={goBack}
                 className="inline-flex items-center gap-2 text-sm text-gray-700"
                 type="button"
-                aria-label="Back to projects"
+                aria-label="Back"
               >
                 <svg width="20" height="20" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
                   <path d="M3 6L2.29289 6.70711L1.58579 6L2.29289 5.29289L3 6ZM6.75 15.25C6.19772 15.25 5.75 14.8023 5.75 14.25C5.75 13.6977 6.19772 13.25 6.75 13.25L6.75 14.25L6.75 15.25ZM6.75 9.75L6.04289 10.4571L2.29289 6.70711L3 6L3.70711 5.29289L7.45711 9.04289L6.75 9.75ZM3 6L2.29289 5.29289L6.04289 1.54289L6.75 2.25L7.45711 2.95711L3.70711 6.70711L3 6ZM3 6L3 5L10.875 5L10.875 6L10.875 7L3 7L3 6ZM10.875 14.25L10.875 15.25L6.75 15.25L6.75 14.25L6.75 13.25L10.875 13.25L10.875 14.25ZM15 10.125L16 10.125C16 12.9555 13.7055 15.25 10.875 15.25L10.875 14.25L10.875 13.25C12.6009 13.25 14 11.8509 14 10.125L15 10.125ZM10.875 6L10.875 5C13.7055 5 16 7.29454 16 10.125L15 10.125L14 10.125C14 8.39911 12.6009 7 10.875 7L10.875 6Z" fill="white" />
@@ -890,7 +911,7 @@ export default function ProjectInputPage() {
                   className="grid grid-cols-4 gap-2 rounded-md"
                   style={{ outline: holesError ? "1px solid #dc2626" : "none" }}
                 >
-                  {["9", "18", "27", "36"].map((hole) => (
+                  {["none", "9", "18", "27", "36"].map((hole) => (
                     <label key={hole} className="flex items-center gap-1 text-sm">
                       <input
                         type="radio"

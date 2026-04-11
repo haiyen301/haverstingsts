@@ -95,6 +95,98 @@ function normalizeUomKey(uomRaw: string): string {
   return u;
 }
 
+type HarvestMapCtx = {
+  farmZones: unknown;
+  remainingByProductUom: Map<string, number>;
+  unitByProductUom: Map<string, string>;
+  productMap: Map<string, string>;
+};
+
+/**
+ * Map one harvesting-plan row OR one dynamic-table subitem to UI row.
+ * `react_get_harvesting_table` embeds harvest-like lines in `subitems`; `GET /api/harvesting`
+ * reads `project_harvesting_plan`. When the latter has no rows, we still show subitems.
+ */
+function mapHarvestRecordToHarvestRow(
+  r: Record<string, unknown>,
+  ctx: HarvestMapCtx,
+): HarvestRow {
+  const actual = String(r.actual_harvest_date ?? "").trim();
+  const estimated = String(r.estimated_harvest_date ?? "").trim();
+  const status = isValidDate(actual) ? "done" : "progressing";
+  const attachments: Array<{ label: string; url: string }> = HARVEST_ATTACHMENT_SOURCES.map(
+    (src) => ({
+      label: src.label,
+      url:
+        getAttachmentUrls(r[src.field])[0] ??
+        getFirstAttachmentUrlFromSubitems(r.subitems, src.field) ??
+        "",
+    }),
+  );
+
+  const uomRaw = String(r.uom ?? "").trim();
+  const uomLower = uomRaw.toLowerCase();
+  const ha = parseNumber(r.harvested_area);
+  const refHarvestQty = parseNumber(r.ref_hrv_qty_sprig);
+  const qty = parseNumber(r.quantity);
+  const productId = String(r.product_id ?? "").trim();
+  const uomKey = normalizeUomKey(uomRaw);
+  const remainingMapKey = `${productId}::${uomKey}`;
+  const remainingQty = ctx.remainingByProductUom.get(remainingMapKey);
+  const remainingUnit = ctx.unitByProductUom.get(remainingMapKey) ?? uomRaw;
+  const remainingQuantityDisplay =
+    remainingQty != null
+      ? `${remainingQty.toLocaleString()} ${remainingUnit}`.trim()
+      : null;
+  const harvestedAreaDisplay =
+    uomLower === "kg" && ha > 0 ? ha.toLocaleString() : null;
+  const refQtyDisplay =
+    refHarvestQty > 0 ? refHarvestQty.toLocaleString() : null;
+  const harvestedAreaM2Display =
+    uomLower === "m2" && (ha > 0 || qty > 0)
+      ? (ha > 0 ? ha : qty).toLocaleString()
+      : null;
+
+  const grassName = String(r.grass_name ?? r.commodity_name ?? "").trim();
+  const grass =
+    grassName || ctx.productMap.get(productId) || "-";
+
+  return {
+    id: String(r.id ?? ""),
+    productId,
+    uom: uomRaw,
+    status,
+    date: formatDateDisplay(isValidDate(actual) ? actual : estimated),
+    grass,
+    zone:
+      zoneIdToLabel(r.zone as string | undefined, ctx.farmZones) || "-",
+    quantity: `${parseNumber(r.quantity).toLocaleString()} ${uomRaw}`.trim() || "-",
+    remainingQuantityDisplay,
+    refQtyDisplay,
+    harvestedAreaDisplay,
+    harvestedAreaM2Display,
+    estimatedDate: formatDateDisplay(r.estimated_harvest_date),
+    actualDate: formatDateDisplay(r.actual_harvest_date),
+    deliveryDate: formatDateDisplay(r.delivery_harvest_date),
+    doSoNumber: String(r.do_so_number ?? "").trim() || "-",
+    truckNote: String(r.truck_note ?? "").trim() || "-",
+    attachments,
+  };
+}
+
+function subitemLooksLikeHarvestLine(sub: Record<string, unknown>): boolean {
+  const actual = String(sub.actual_harvest_date ?? "").trim();
+  const delivery = String(sub.delivery_harvest_date ?? "").trim();
+  const est = String(sub.estimated_harvest_date ?? "").trim();
+  const qty = parseNumber(sub.quantity);
+  return (
+    isValidDate(actual) ||
+    isValidDate(delivery) ||
+    isValidDate(est) ||
+    qty > 0
+  );
+}
+
 export default function ProjectDetailPage() {
   // Namespace-scoped translators: `useTranslations()` without a namespace + dynamic
   // `ProjectDetail.${key}` can fail to resolve some nested keys in next-intl 4 (fallback shows
@@ -230,70 +322,26 @@ export default function ProjectDetailPage() {
           });
           if (!mounted) return;
           const farmZonesForLabels = useHarvestingDataStore.getState().farmZones;
-          const parsed: HarvestRow[] = h.rows
+          const mapCtx: HarvestMapCtx = {
+            farmZones: farmZonesForLabels,
+            remainingByProductUom,
+            unitByProductUom,
+            productMap,
+          };
+          const fromPlan: HarvestRow[] = h.rows
             .filter((x): x is Record<string, unknown> => !!x && typeof x === "object")
-            .map((r) => {
-              const actual = String(r.actual_harvest_date ?? "").trim();
-              const estimated = String(r.estimated_harvest_date ?? "").trim();
-              const status = isValidDate(actual) ? "done" : "progressing";
-              // Always render 6 attachment slots; empty field -> placeholder preview.
-              const attachments: Array<{ label: string; url: string }> = HARVEST_ATTACHMENT_SOURCES.map(
-                (src) => ({
-                  label: src.label,
-                  // Prefer row-level field, fallback to subitems field.
-                  url:
-                    getAttachmentUrls(r[src.field])[0] ??
-                    getFirstAttachmentUrlFromSubitems(r.subitems, src.field) ??
-                    "",
-                }),
-              );
-
-              const uomRaw = String(r.uom ?? "").trim();
-              const uomLower = uomRaw.toLowerCase();
-              const ha = parseNumber(r.harvested_area);
-              const refHarvestQty = parseNumber(r.ref_hrv_qty_sprig);
-              const qty = parseNumber(r.quantity);
-              const productId = String(r.product_id ?? "").trim();
-              const uomKey = normalizeUomKey(uomRaw);
-              const remainingMapKey = `${productId}::${uomKey}`;
-              const remainingQty = remainingByProductUom.get(remainingMapKey);
-              const remainingUnit = unitByProductUom.get(remainingMapKey) ?? uomRaw;
-              const remainingQuantityDisplay =
-                remainingQty != null
-                  ? `${remainingQty.toLocaleString()} ${remainingUnit}`.trim()
-                  : null;
-              const harvestedAreaDisplay =
-                uomLower === "kg" && ha > 0 ? ha.toLocaleString() : null;
-              const refQtyDisplay =
-                refHarvestQty > 0 ? refHarvestQty.toLocaleString() : null;
-              const harvestedAreaM2Display =
-                uomLower === "m2" && (ha > 0 || qty > 0)
-                  ? (ha > 0 ? ha : qty).toLocaleString()
-                  : null;
-
-              return {
-                id: String(r.id ?? ""),
-                productId,
-                uom: uomRaw,
-                status,
-                date: formatDateDisplay(isValidDate(actual) ? actual : estimated),
-                grass: String(r.grass_name ?? r.commodity_name ?? "-"),
-                zone: zoneIdToLabel(r.zone as string | undefined, farmZonesForLabels) ||
-                  "-",
-                quantity: `${parseNumber(r.quantity).toLocaleString()} ${uomRaw}`,
-                remainingQuantityDisplay,
-                refQtyDisplay,
-                harvestedAreaDisplay,
-                harvestedAreaM2Display,
-                estimatedDate: formatDateDisplay(r.estimated_harvest_date),
-                actualDate: formatDateDisplay(r.actual_harvest_date),
-                deliveryDate: formatDateDisplay(r.delivery_harvest_date),
-                doSoNumber: String(r.do_so_number ?? "").trim() || "-",
-                truckNote: String(r.truck_note ?? "").trim() || "-",
-                attachments,
-              };
-            });
-          setHarvests(parsed);
+            .map((r) => mapHarvestRecordToHarvestRow(r, mapCtx));
+          const planIds = new Set(
+            fromPlan.map((x) => x.id).filter((id) => id !== ""),
+          );
+          const fromSubitemsOnly: HarvestRow[] = projectSubitems
+            .filter((sub) => {
+              const sid = String(sub.id ?? "").trim();
+              if (sid && planIds.has(sid)) return false;
+              return subitemLooksLikeHarvestLine(sub);
+            })
+            .map((sub) => mapHarvestRecordToHarvestRow(sub, mapCtx));
+          setHarvests([...fromPlan, ...fromSubitemsOnly]);
         }
       } catch (e) {
         if (!mounted) return;
@@ -325,16 +373,40 @@ export default function ProjectDetailPage() {
   const basic = useMemo(() => {
     const r = projectRow;
     if (!r) return null;
+    const rec = r as Record<string, unknown>;
     const projectId = String(r.project_id ?? "").trim();
     const countryId = String(r.country_id ?? "").trim();
     const picId = String(r.pic ?? "").trim();
+    /** Same field mapping as `projects/new` `applyEditRow` + `buildProjectDataFromServerRow` dates. */
+    const golfClubFromRow =
+      String(r.alias_title ?? "").trim() ||
+      String(r.name ?? r.title ?? "").trim();
+    const companyFromRow =
+      String(rec.company_name ?? "").trim() || String(r.alias_title ?? "").trim();
+    const keyAreasRaw = r.key_areas;
+    const keyAreasParsed = (() => {
+      const decoded = parseJsonMaybe(keyAreasRaw);
+      if (Array.isArray(decoded)) {
+        return decoded.map((x) => String(x).trim()).filter(Boolean);
+      }
+      if (typeof decoded === "string") {
+        return decoded
+          .split(/,\s*/)
+          .map((x) => x.trim())
+          .filter(Boolean);
+      }
+      return [];
+    })();
+    const actualStartRaw =
+      (rec.start_date as string | undefined) ??
+      (rec.actual_start_date as string | undefined);
     return {
       projectName:
         projectTitleMap.get(projectId) ||
         String((r.title ?? r.name ?? projectId) || "-"),
-      golfClub: String(r.name ?? r.title ?? "-"),
-      company: String(r.alias_title ?? "-"),
-      architect: String((r as Record<string, unknown>).golf_course_architect ?? "-"),
+      golfClub: golfClubFromRow || "-",
+      company: companyFromRow || "-",
+      architect: String(rec.golf_course_architect ?? "-"),
       country: countryMap.get(countryId) || String(r.country ?? "-"),
       pic: staffMap.get(picId) || picId || "-",
       projectType: (() => {
@@ -343,10 +415,10 @@ export default function ProjectDetailPage() {
         return translateProjectType(raw, (k) => tProjectForm(k));
       })(),
       holes: String(r.no_of_holes ?? "-"),
-      estimateStartDate: formatDateDisplay((r as Record<string, unknown>).estimate_start_date),
-      actualStartDate: formatDateDisplay((r as Record<string, unknown>).actual_start_date),
+      estimateStartDate: formatDateDisplay(rec.estimate_start_date),
+      actualStartDate: formatDateDisplay(actualStartRaw),
       endDate: formatDateDisplay(r.deadline),
-      keyAreas: String(r.key_areas ?? "").split(",").map((x) => x.trim()).filter(Boolean),
+      keyAreas: keyAreasParsed,
     };
   }, [projectRow, projectTitleMap, countryMap, staffMap, tProjectForm]);
 

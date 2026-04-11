@@ -61,7 +61,10 @@ export interface MondayProjectServerRow {
   project_id?: string | number;
   title?: string;
   name?: string;
+  /** Golf club / stadium label (matches `react_get_harvesting_table`). */
   alias_title?: string;
+  /** Company / customer name from dynamic table row. */
+  company_name?: string;
   country?: string;
   country_id?: string | number;
   no_of_holes?: string | number;
