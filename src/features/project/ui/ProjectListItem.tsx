@@ -16,7 +16,10 @@ import type { ProjectListItemProps } from "../model/projectListProps";
 import { countryNameByIdFromRows } from "@/shared/lib/harvestReferenceData";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
-import { getStsDomainUrl, STS_PUBLIC_PATHS } from "@/shared/config/stsUrls";
+import {
+  isPlaceholderAssigneeAvatarUrl,
+  resolveStaffAvatarImageUrl,
+} from "../lib/staffAvatarUrl";
 
 function getProgressColor(progress: number) {
   void progress;
@@ -62,46 +65,6 @@ const STATUS_CONFIG = {
 const DEFAULT_ASSIGNEE_AVATAR =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='32' fill='%23E5E7EB'/%3E%3Ccircle cx='32' cy='24' r='12' fill='%239CA3AF'/%3E%3Cpath d='M12 56c2.8-11.2 11-16 20-16s17.2 4.8 20 16' fill='%239CA3AF'/%3E%3C/svg%3E";
 
-function buildProfileAvatarUrl(fileNameOrPath: string): string {
-  const value = String(fileNameOrPath ?? "").trim();
-  if (!value) return "";
-  if (value.startsWith("http://") || value.startsWith("https://")) return value;
-  if (value.startsWith("//")) return `https:${value}`;
-  const root = getStsDomainUrl().replace(/\/$/, "");
-  if (!root) return value;
-  if (value.startsWith("/")) {
-    if (value.startsWith("/files/")) return `${root}${value}`;
-    return `${root}${STS_PUBLIC_PATHS.profileImages}/${value.replace(/^\/+/, "")}`;
-  }
-  if (value.includes("/")) {
-    if (value.startsWith("files/")) return `${root}/${value}`;
-    if (value.startsWith("profile_images/")) {
-      return `${root}/${STS_PUBLIC_PATHS.files}/${value}`;
-    }
-    return `${root}/${value}`;
-  }
-  return `${root}${STS_PUBLIC_PATHS.profileImages}/${value}`;
-}
-
-/** Mirrors Flutter parse of staff image payload to extract `file_name`. */
-function parseStaffAvatarFromRaw(raw: unknown): string {
-  const text = String(raw ?? "").trim();
-  if (!text) return "";
-  if (
-    text.startsWith("http://") ||
-    text.startsWith("https://") ||
-    text.startsWith("//")
-  ) {
-    return buildProfileAvatarUrl(text);
-  }
-  const phpFileName =
-    text.match(/["']?file_name["']?\s*[:=]\s*["']([^"']+)["']/i)?.[1] ??
-    text.match(/s:\d+:"file_name";s:\d+:"([^"]+)"/i)?.[1];
-  if (phpFileName) return buildProfileAvatarUrl(phpFileName);
-  if (text.includes("profile_images")) return buildProfileAvatarUrl(text);
-  return "";
-}
-
 export function ProjectListItem({
   project,
   serverRow,
@@ -133,24 +96,22 @@ export function ProjectListItem({
     return String(data?.country_name ?? "").trim();
   }, [countries, data?.country_id, data?.country_name]);
   const resolvedAssigneeAvatar = useMemo(() => {
-    const avatarFromCard = String(data?.assignee?.avatar ?? "").trim();
-    if (
-      avatarFromCard &&
-      !avatarFromCard.includes("i.pravatar.cc") &&
-      !avatarFromCard.includes("placehold.co")
-    ) {
-      return avatarFromCard;
-    }
     const assigneeId = String(
       (serverRow as Record<string, unknown> | undefined)?.pic ?? "",
     ).trim();
-    if (!assigneeId) return avatarFromCard || DEFAULT_ASSIGNEE_AVATAR;
-    const staffRow = (staffs as unknown[]).find((s) => {
-      if (!s || typeof s !== "object") return false;
-      return String((s as Record<string, unknown>).id ?? "").trim() === assigneeId;
-    }) as Record<string, unknown> | undefined;
-    const parsed = parseStaffAvatarFromRaw(staffRow?.image);
-    return parsed || avatarFromCard || DEFAULT_ASSIGNEE_AVATAR;
+    if (assigneeId) {
+      const staffRow = (staffs as unknown[]).find((s) => {
+        if (!s || typeof s !== "object") return false;
+        return String((s as Record<string, unknown>).id ?? "").trim() === assigneeId;
+      }) as Record<string, unknown> | undefined;
+      const fromStaff = resolveStaffAvatarImageUrl(staffRow?.image);
+      if (fromStaff) return fromStaff;
+    }
+    const avatarFromCard = String(data?.assignee?.avatar ?? "").trim();
+    if (avatarFromCard && !isPlaceholderAssigneeAvatarUrl(avatarFromCard)) {
+      return avatarFromCard;
+    }
+    return DEFAULT_ASSIGNEE_AVATAR;
   }, [data?.assignee?.avatar, serverRow, staffs]);
   if (!data) return null;
   const rowId = String(serverRow?.row_id ?? serverRow?.id ?? "").trim() || undefined;

@@ -7,7 +7,6 @@ import { AlignLeft, ArrowDown, Plus, Search, Upload } from "lucide-react";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 import RequireAuth from "@/features/auth/RequireAuth";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
-import { getStsDomainUrl, STS_PUBLIC_PATHS } from "@/shared/config/stsUrls";
 import { MultiSelect } from "@/components/ui/multi-select";
 import {
   fetchMondayProjectRowsFromServer,
@@ -21,19 +20,10 @@ import {
   sortMondayProjectRows,
 } from "@/features/project";
 import { parseJsonMaybe } from "@/shared/lib/parseJsonMaybe";
+import { resolveStaffAvatarImageUrl } from "@/features/project/lib/staffAvatarUrl";
 
 function toRecArray(rows: unknown[]): Record<string, unknown>[] {
   return rows.filter((x): x is Record<string, unknown> => !!x && typeof x === "object");
-}
-
-function parseStaffAvatarPath(raw: unknown): string | undefined {
-  const s = String(raw ?? "").trim();
-  if (!s) return undefined;
-  if (s.startsWith("http://") || s.startsWith("https://")) return s;
-  if (!s.includes("profile_images")) return undefined;
-  const m = s.match(/profile_images\/([^/"]+\.(?:png|jpe?g|gif|webp|svg))/i);
-  if (!m?.[1]) return undefined;
-  return `${getStsDomainUrl()}${STS_PUBLIC_PATHS.profileImages}/${m[1]}`;
 }
 
 function rowHasGrassProduct(row: MondayProjectServerRow, productId: string): boolean {
@@ -264,7 +254,7 @@ export default function ProjectListPage() {
     const map = new Map<string, string>();
     for (const r of toRecArray(staffsRef)) {
       const id = String(r.id ?? "").trim();
-      const avatar = parseStaffAvatarPath(r.image);
+      const avatar = resolveStaffAvatarImageUrl(r.image);
       if (id && avatar) map.set(id, avatar);
     }
     return map;

@@ -12,9 +12,6 @@ import type {
 import { parseJsonMaybe } from "./parseJson";
 import { calculateDeliveredQuantity } from "./subitemDeliveredQuantity";
 
-const DEFAULT_ASSIGNEE_AVATAR =
-  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='32' fill='%23E5E7EB'/%3E%3Ccircle cx='32' cy='24' r='12' fill='%239CA3AF'/%3E%3Cpath d='M12 56c2.8-11.2 11-16 20-16s17.2 4.8 20 16' fill='%239CA3AF'/%3E%3C/svg%3E";
-
 function parseNumber(v: unknown): number {
   if (typeof v === "number") return Number.isFinite(v) ? v : 0;
   if (typeof v === "string") {
@@ -274,7 +271,8 @@ export function buildProjectDataFromServerRow(
     ].filter(Boolean),
     assignee: {
       name: assigneeName,
-      avatar: assigneeAvatar || DEFAULT_ASSIGNEE_AVATAR,
+      /** Empty when lookup misses; UI (`ProjectListItem`) resolves from staff store + full parser. */
+      avatar: assigneeAvatar?.trim() || "",
     },
   };
 }
