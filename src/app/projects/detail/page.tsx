@@ -27,7 +27,8 @@ import {
 import { formatDateDisplay, isValidDate } from "@/shared/lib/format/date";
 import { zoneIdToLabel } from "@/shared/lib/harvestReferenceData";
 import { parseJsonMaybe, parseSubitems } from "@/shared/lib/parseJsonMaybe";
-import { calculateDeliveredQuantity } from "@/features/project/lib/subitemDeliveredQuantity";
+import { calculateDeliveredQuantityActualHarvestOnly } from "@/features/project/lib/subitemDeliveredQuantity";
+import { effectiveRequiredQuantityFromRecord } from "@/features/project/lib/effectiveRequirementQuantity";
 import { iconPaths } from "@/lib/assets/images";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
 import { SortableTh } from "@/components/ui/sortable-th";
@@ -307,8 +308,13 @@ export default function ProjectDetailPage() {
             if (!productId) continue;
             const reqUomRaw = String(req.uom ?? "").trim();
             const reqUomKey = normalizeUomKey(reqUomRaw);
-            const required = parseNumber(req.quantity);
-            const delivered = calculateDeliveredQuantity(projectSubitems, productId, reqUomRaw);
+            const required = effectiveRequiredQuantityFromRecord(req as Record<string, unknown>);
+            const delivered = calculateDeliveredQuantityActualHarvestOnly(
+              projectSubitems,
+              productId,
+              reqUomRaw,
+              projectId,
+            );
             const remaining = Math.max(0, required - delivered);
             const mapKey = `${productId}::${reqUomKey}`;
             remainingByProductUom.set(mapKey, remaining);
@@ -424,13 +430,19 @@ export default function ProjectDetailPage() {
 
   const grassRows = useMemo<GrassRow[]>(() => {
     if (!projectRow) return [];
+    const harvestProjectId = String(projectRow.project_id ?? "").trim();
     const req = parseRequirements(projectRow.quantity_required_sprig_sod);
     const subitems = parseSubitems(projectRow.subitems);
     return req.map((r, idx) => {
       const productId = String(r.product_id ?? "").trim();
       const uom = String(r.uom ?? "").trim();
-      const required = parseNumber(r.quantity);
-      const delivered = calculateDeliveredQuantity(subitems, productId, uom);
+      const required = effectiveRequiredQuantityFromRecord(r as Record<string, unknown>);
+      const delivered = calculateDeliveredQuantityActualHarvestOnly(
+        subitems,
+        productId,
+        uom,
+        harvestProjectId || undefined,
+      );
       const remaining = Math.max(0, required - delivered);
       const progress = required > 0 ? Math.round((delivered / required) * 100) : 0;
       const productName =

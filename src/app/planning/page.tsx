@@ -7,7 +7,7 @@ import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 import RequireAuth from "@/features/auth/RequireAuth";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { fetchMondayProjectRowsFromServer, type MondayProjectServerRow } from "@/entities/projects";
-import { parseSubitems } from "@/shared/lib/parseJsonMaybe";
+import { parseQuantityRequiredRows, parseSubitems } from "@/shared/lib/parseJsonMaybe";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
 
 type ScheduleType = "Harvest" | "Delivery";
@@ -171,7 +171,7 @@ export default function PlanningPage() {
         t("unknownProject");
 
       const requirementsRaw = row.quantity_required_sprig_sod;
-      const requirements = parseSubitems(requirementsRaw);
+      const requirements = parseQuantityRequiredRows(requirementsRaw);
       const requirementByProduct = new Map<string, { uom: string }>();
       for (const req of requirements) {
         const pid = String(req.product_id ?? "").trim();

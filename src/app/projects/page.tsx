@@ -12,11 +12,13 @@ import {
   fetchMondayProjectRowsFromServer,
   type MondayDynamicRowLike,
   type MondayProjectServerRow,
+  type ProjectStatus,
 } from "@/entities/projects";
 import {
   ProjectListItem,
   buildMondayEditArgs,
   mergeMondayDisplayData,
+  resolveMondayCardStatusForListFilter,
   sortMondayProjectRows,
 } from "@/features/project";
 import { parseJsonMaybe } from "@/shared/lib/parseJsonMaybe";

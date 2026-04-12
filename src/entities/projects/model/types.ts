@@ -38,11 +38,17 @@ export interface ProjectData {
 export type QuantityRequiredProject = {
   product_id?: string;
   quantity?: string | number;
+  /** M² target when `uom` is m² / sqm (parity with `quantity_required_sprig_sod` JSON). */
+  quantity_m2?: string | number | null;
+  /** Kg target when `uom` is kg. */
+  quantity_kg?: string | number | null;
   uom?: string;
   zone_id?: string;
 };
 
 export type SubItem = {
+  /** When set, must match parent Monday row `project_id` for harvest math (plan parity). */
+  project_id?: string;
   product_id?: string;
   quantity?: string | number;
   quantity_harvested?: string | number;
@@ -73,6 +79,8 @@ export interface MondayProjectServerRow {
   pic?: string | number;
   status?: string;
   status_app?: string;
+  /** When set: server plan-table gate (see Harvesting.php). True = any matching plan row has actual_harvest_date; false = Future by that gate; omit/null = legacy subitem-only path. */
+  harvest_plan_started?: boolean | null;
   deadline?: string;
   created_at?: string;
   lasted_updated?: string;

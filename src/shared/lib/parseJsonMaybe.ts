@@ -33,3 +33,21 @@ export function parseSubitems(raw: unknown): Array<Record<string, unknown>> {
     ? (p.filter((x) => !!x && typeof x === "object") as Array<Record<string, unknown>>)
     : [];
 }
+
+/**
+ * `quantity_required_sprig_sod` from API: array, JSON string, or `{ data: [...] }` (aligned with `buildProjectCardData.normalizeRequirements`).
+ */
+export function parseQuantityRequiredRows(raw: unknown): Array<Record<string, unknown>> {
+  const p = parseJsonMaybe(raw);
+  let list: unknown = p;
+  if (
+    list &&
+    typeof list === "object" &&
+    !Array.isArray(list) &&
+    Array.isArray((list as Record<string, unknown>).data)
+  ) {
+    list = (list as Record<string, unknown>).data;
+  }
+  if (!Array.isArray(list)) return [];
+  return list.filter((x) => !!x && typeof x === "object") as Array<Record<string, unknown>>;
+}

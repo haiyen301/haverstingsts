@@ -38,6 +38,7 @@ import { resolveHarvestDisplayUrl } from "@/shared/config/stsUrls";
 import { DatePicker } from "@/shared/ui/date-picker";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
 import { deleteMondayParentOrSubItem } from "@/entities/projects/api/projectsApi";
+import { effectiveRequiredQuantityForFormUom } from "@/features/project/lib/effectiveRequirementQuantity";
 
 const DOC_PHOTO_SLOTS: HarvestDocPhotoField[] = [
   "payment_img",
@@ -91,27 +92,17 @@ type QuantityRequirement = {
   uom: string | null;
 };
 
-/** Same order as Flutter `CreateHarvestingController.getRemainingQuantityForProduct`. */
+/** Server / Flutter `getRemainingQuantityForProduct` — branches use form UOM (`uomRaw`). */
 function getRequiredQtyForUom(req: QuantityRequirement, uomRaw: string): number {
-  const uomLower = uomRaw.trim().toLowerCase();
-  const normalized = uomLower === "m²" ? "m2" : uomLower;
-
-  if (normalized === "kg" && req.quantityKg != null) {
-    return req.quantityKg;
-  }
-  if (normalized === "m2" && req.quantityM2 != null) {
-    return req.quantityM2;
-  }
-  if (req.quantity != null && req.quantity > 0) {
-    return req.quantity;
-  }
-  if (req.quantityKg != null) {
-    return req.quantityKg;
-  }
-  if (req.quantityM2 != null) {
-    return req.quantityM2;
-  }
-  return 0;
+  return effectiveRequiredQuantityForFormUom(
+    {
+      quantity: req.quantity ?? undefined,
+      quantity_m2: req.quantityM2 ?? undefined,
+      quantity_kg: req.quantityKg ?? undefined,
+      uom: req.uom ?? undefined,
+    },
+    uomRaw,
+  );
 }
 
 /** Label unit for the helper line — matches `_remainingQuantityList` (kg first, else m²). */
@@ -160,15 +151,13 @@ function normUomKey(u: string): string {
   return s;
 }
 
-function parseOptionalQtyField(v: unknown): number | null {
-  if (v == null || v === "") {
+/** Column present in JSON (including `0`) — matches PHP / Dart for `quantity_kg` / `quantity_m2`. */
+function parseQtyColumnNullable(v: unknown): number | null {
+  if (v === undefined || v === null || v === "") {
     return null;
   }
-  const n = typeof v === "number" ? v : parseNum(v);
-  if (!Number.isFinite(n) || n === 0) {
-    return null;
-  }
-  return n;
+  const n = typeof v === "number" && Number.isFinite(v) ? v : parseNum(v);
+  return Number.isFinite(n) ? n : null;
 }
 
 type HarvestDeliveredRow = {
@@ -244,13 +233,14 @@ function parseRequirements(raw: unknown, productNameById: Map<string, string>) {
     const productId = String(row.product_id ?? "").trim();
     if (!productId) continue;
 
-    const quantityKg = parseOptionalQtyField(row.quantity_kg);
-    const quantityM2 = parseOptionalQtyField(row.quantity_m2);
+    const quantityKg = parseQtyColumnNullable(row.quantity_kg);
+    const quantityM2 = parseQtyColumnNullable(row.quantity_m2);
     /** Supports string `"10000"` or number from JSON. */
     const genericQty = parseNum(row.quantity);
     const uomRaw = String(row.uom ?? "").trim();
+    const qRaw = String(row.quantity ?? "").trim();
 
-    if (quantityKg == null && quantityM2 == null && genericQty <= 0) {
+    if (quantityKg == null && quantityM2 == null && qRaw === "") {
       continue;
     }
 
@@ -259,7 +249,7 @@ function parseRequirements(raw: unknown, productNameById: Map<string, string>) {
       grassName: productNameById.get(productId) ?? productId,
       quantityKg,
       quantityM2,
-      quantity: genericQty > 0 ? genericQty : null,
+      quantity: qRaw !== "" ? genericQty : null,
       uom: uomRaw || null,
     });
   }

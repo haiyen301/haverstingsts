@@ -24,8 +24,7 @@ import RequireAuth from "@/features/auth/RequireAuth";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { fetchMondayProjectRowsFromServer, type MondayProjectServerRow } from "@/entities/projects";
-import { parseSubitems } from "@/shared/lib/parseJsonMaybe";
-import { parseJsonMaybe } from "@/shared/lib/parseJsonMaybe";
+import { parseQuantityRequiredRows, parseSubitems } from "@/shared/lib/parseJsonMaybe";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
 import { FarmCountryFlag } from "./FarmCountryFlag";
 import { SortableTh } from "@/components/ui/sortable-th";
@@ -34,6 +33,7 @@ import {
   compareNumbers,
   compareStrings,
 } from "@/shared/lib/tableSort";
+import { effectiveRequiredQuantityFromRecord } from "@/features/project/lib/effectiveRequirementQuantity";
 
 type DashProjectSortKey =
   | "customerName"
@@ -129,9 +129,7 @@ function hasDeliveryHarvestDate(item: Record<string, unknown>): boolean {
 }
 
 function parseRequirementItems(raw: unknown): Array<Record<string, unknown>> {
-  const parsed = parseJsonMaybe(raw);
-  if (!Array.isArray(parsed)) return [];
-  return parsed.filter((x) => !!x && typeof x === "object") as Array<Record<string, unknown>>;
+  return parseQuantityRequiredRows(raw);
 }
 
 function parseDeliveryDate(item: Record<string, unknown>): Date | null {
@@ -909,7 +907,7 @@ export default function DashboardPage() {
         const rawPid = String(req.product_id ?? "").trim();
         const pKey = rawPid || NONE_KEY;
         const per = touch(pKey);
-        const reqQty = Number(String(req.quantity ?? 0).replace(/,/g, "").trim());
+        const reqQty = effectiveRequiredQuantityFromRecord(req);
         if (!Number.isFinite(reqQty) || reqQty <= 0) continue;
         contractAmount += reqQty;
         per.requested += reqQty;
@@ -1092,7 +1090,7 @@ export default function DashboardPage() {
           continue;
         }
         const productKey = String(req.product_id ?? "").trim() || NONE_KEY;
-        const reqQty = Number(String(req.quantity ?? 0).replace(/,/g, "").trim());
+        const reqQty = effectiveRequiredQuantityFromRecord(req);
         if (Number.isFinite(reqQty) && reqQty > 0) {
           contractAmount += reqQty;
           requiredByProduct.set(productKey, (requiredByProduct.get(productKey) ?? 0) + reqQty);

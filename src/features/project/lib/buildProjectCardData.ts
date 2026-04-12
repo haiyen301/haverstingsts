@@ -10,17 +10,12 @@ import type {
   SubItem,
 } from "@/entities/projects";
 import { parseJsonMaybe } from "./parseJson";
-import { calculateDeliveredQuantity } from "./subitemDeliveredQuantity";
+import {
+  calculateDeliveredQuantityActualHarvestOnly,
+  hasAnyActualHarvestMatchingRequirementLines,
+} from "./subitemDeliveredQuantity";
+import { effectiveRequiredQuantity } from "./effectiveRequirementQuantity";
 import { formatProjectTypeForDisplay } from "./projectTypeDisplay";
-
-function parseNumber(v: unknown): number {
-  if (typeof v === "number") return Number.isFinite(v) ? v : 0;
-  if (typeof v === "string") {
-    const n = Number(v.replace(/,/g, "").trim());
-    return Number.isFinite(n) ? n : 0;
-  }
-  return 0;
-}
 
 function normalizeStatus(v: unknown): ProjectStatus {
   const s = String(v ?? "").toLowerCase();
@@ -95,7 +90,15 @@ export function resolveReactHarvestingImageUrl(fileNameOrUrl: string): string {
 }
 
 function normalizeRequirements(raw: unknown): QuantityRequiredProject[] {
-  const parsed = parseJsonMaybe(raw);
+  let parsed = parseJsonMaybe(raw);
+  if (
+    parsed &&
+    typeof parsed === "object" &&
+    !Array.isArray(parsed) &&
+    Array.isArray((parsed as Record<string, unknown>).data)
+  ) {
+    parsed = (parsed as Record<string, unknown>).data as unknown[];
+  }
   if (!Array.isArray(parsed)) return [];
   return parsed
     .filter((x) => x && typeof x === "object")
@@ -103,6 +106,8 @@ function normalizeRequirements(raw: unknown): QuantityRequiredProject[] {
     .map((x) => ({
       product_id: String(x.product_id ?? "").trim() || undefined,
       quantity: x.quantity as string | number | undefined,
+      quantity_m2: x.quantity_m2 as string | number | null | undefined,
+      quantity_kg: x.quantity_kg as string | number | null | undefined,
       uom: String(x.uom ?? "").trim() || undefined,
       zone_id: String(x.zone_id ?? "").trim() || undefined,
     }));
@@ -115,6 +120,7 @@ function normalizeSubitems(raw: unknown): SubItem[] {
     .filter((x) => x && typeof x === "object")
     .map((x) => x as Record<string, unknown>)
     .map((x) => ({
+      project_id: String(x.project_id ?? "").trim() || undefined,
       product_id: String(x.product_id ?? "").trim() || undefined,
       quantity: x.quantity as string | number | undefined,
       quantity_harvested: x.quantity_harvested as string | number | undefined,
@@ -124,53 +130,146 @@ function normalizeSubitems(raw: unknown): SubItem[] {
     }));
 }
 
+/** Real deadline for Warning; empty / placeholder => no Warning (Done vs Ongoing from quantities only). */
+function hasDeadlineSetForWarning(deadlineRaw: unknown): boolean {
+  const s = String(deadlineRaw ?? "").trim();
+  if (!s || s === "0000-00-00" || s.toLowerCase() === "null") return false;
+  if (s.startsWith("0000-00-00")) return false;
+  const d = new Date(s.includes(" ") ? s.split(" ")[0]! : s);
+  return !Number.isNaN(d.getTime());
+}
+
+/** Signed calendar days until deadline (0 = today is deadline); null if invalid. */
+function deadlineCalendarDaysUntil(deadlineRaw: unknown): number | null {
+  if (!hasDeadlineSetForWarning(deadlineRaw)) return null;
+  const s = String(deadlineRaw ?? "").trim();
+  const part = (s.includes(" ") ? s.split(" ")[0]! : s).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(part)) return null;
+  const [y, m, d] = part.split("-").map((x) => Number.parseInt(x, 10));
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return null;
+  const deadlineUtc = Date.UTC(y, m - 1, d);
+  const now = new Date();
+  const todayUtc = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.round((deadlineUtc - todayUtc) / 86400000);
+}
+
+/** Matches Harvesting.php: overdue, or last 7 days up to and including deadline, when not fully delivered. */
+function shouldWarnDeadlineShortfall(deadlineRaw: unknown): boolean {
+  const diff = deadlineCalendarDaysUntil(deadlineRaw);
+  if (diff === null) return false;
+  return diff < 0 || diff <= 7;
+}
+
+/**
+ * Fallback when API omits status: mirrors server plan rules using subitems only
+ * (actual_harvest_date for Future or Done; Warning when deadline day has passed and short).
+ */
 function computeMondayStatus(
   subitems: SubItem[],
   requirements: QuantityRequiredProject[],
   deadlineRaw: unknown,
+  harvestProjectId?: string,
+  /** Parity with PHP: sts_project_harvesting_plan + quantity_required lines; null = infer from subitems only. */
+  harvestPlanStarted?: boolean | null,
 ): ProjectStatus {
   if (!requirements.length) return "Ongoing";
 
+  const hasPlannableLines = requirements.some(
+    (r) => String(r.product_id ?? "").trim() !== "" && effectiveRequiredQuantity(r) > 0,
+  );
+
+  if (hasPlannableLines) {
+    if (harvestPlanStarted === false) {
+      return "Future";
+    }
+    const subitemGate =
+      harvestPlanStarted === true ||
+      hasAnyActualHarvestMatchingRequirementLines(subitems, requirements, harvestProjectId);
+    if (!subitemGate) {
+      return "Future";
+    }
+  } else {
+    if (subitems.length === 0) return "Future";
+    const hasAnyQuantity = subitems.some((item) => {
+      const q = String(item.quantity ?? "").trim();
+      return q !== "" && q !== "0";
+    });
+    if (!hasAnyQuantity) return "Future";
+  }
+
   let allDone = true;
+  let anyEvaluated = false;
   for (const r of requirements) {
-    const requiredQty = parseNumber(r.quantity);
-    if (requiredQty <= 0) continue;
-    const delivered = calculateDeliveredQuantity(subitems, r.product_id, r.uom);
+    const pid = String(r.product_id ?? "").trim();
+    const requiredQty = effectiveRequiredQuantity(r);
+    if (!pid || requiredQty <= 0) continue;
+    anyEvaluated = true;
+    const delivered = calculateDeliveredQuantityActualHarvestOnly(
+      subitems,
+      r.product_id,
+      r.uom,
+      harvestProjectId,
+    );
     if (delivered < requiredQty) {
       allDone = false;
       break;
     }
   }
-  if (allDone) return "Done";
+  if (anyEvaluated && allDone) return "Done";
 
-  const deadline = String(deadlineRaw ?? "").trim();
-  if (!deadline) return "Ongoing";
+  if (shouldWarnDeadlineShortfall(deadlineRaw) && anyEvaluated && !allDone) return "Warning";
 
-  const d = new Date(deadline);
-  if (Number.isNaN(d.getTime())) return "Ongoing";
-
-  const today = new Date();
-  const endToday = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999);
-  if (d.getTime() > endToday.getTime()) return "Future";
-  return "Warning";
+  return "Ongoing";
 }
 
 /**
  * Overall progress: sum(delivered per requirement) / sum(required), same basis as row %.
  * (Legacy Flutter-style “count of fully satisfied lines” made the bar stay at 0% until 100% delivered.)
  */
-function calculateProgress(subitems: SubItem[], requirements: QuantityRequiredProject[]): number {
+function calculateProgress(
+  subitems: SubItem[],
+  requirements: QuantityRequiredProject[],
+  harvestProjectId?: string,
+): number {
   let totalRequired = 0;
   let totalDelivered = 0;
   for (const r of requirements) {
     const pid = String(r.product_id ?? "").trim();
-    const required = parseNumber(r.quantity);
+    const required = effectiveRequiredQuantity(r);
     if (!pid || required <= 0) continue;
     totalRequired += required;
-    totalDelivered += calculateDeliveredQuantity(subitems, r.product_id, r.uom);
+    totalDelivered += calculateDeliveredQuantityActualHarvestOnly(
+      subitems,
+      r.product_id,
+      r.uom,
+      harvestProjectId,
+    );
   }
   if (totalRequired <= 0) return 0;
   return Math.round((totalDelivered / totalRequired) * 100);
+}
+
+/**
+ * Same status resolution as the project card badge (`buildProjectDataFromServerRow.status`):
+ * when the API still says Ongoing but local quantities are fully delivered, treat as Done.
+ * Use this for list filters so multi-select matches what the user sees on the card.
+ */
+export function resolveMondayCardStatusForListFilter(row: MondayProjectServerRow): ProjectStatus {
+  const projectId = String(row.project_id ?? "").trim() || undefined;
+  const requirements = normalizeRequirements(row.quantity_required_sprig_sod);
+  const subitems = normalizeSubitems(row.subitems);
+  const localMondayStatus = computeMondayStatus(
+    subitems,
+    requirements,
+    row.deadline,
+    projectId,
+    row.harvest_plan_started,
+  );
+  const apiStatusRaw = String(row.status_app ?? row.status ?? "").trim();
+  if (apiStatusRaw === "") return localMondayStatus;
+  const apiNorm = normalizeStatus(apiStatusRaw);
+  if (apiNorm === "Ongoing" && localMondayStatus === "Done") return "Done";
+  return apiNorm;
 }
 
 /**
@@ -190,7 +289,25 @@ export function buildProjectDataFromServerRow(
   const keyAreas = parseKeyAreas(row.key_areas);
   const noOfHoles = String(row.no_of_holes ?? "").trim();
 
-  const progress = Math.round(calculateProgress(subitems, requirements));
+  const progress = Math.round(calculateProgress(subitems, requirements, projectId));
+
+  /** Harvesting.php sets this from `_mondayEffectiveStatusLabel` (includes per-line uom vs subitems). */
+  const apiStatusRaw = String(row.status_app ?? row.status ?? "").trim();
+  const localMondayStatus = computeMondayStatus(
+    subitems,
+    requirements,
+    row.deadline,
+    projectId,
+    row.harvest_plan_started,
+  );
+  const resolvedStatus: ProjectStatus =
+    apiStatusRaw !== ""
+      ? (() => {
+          const apiNorm = normalizeStatus(apiStatusRaw);
+          if (apiNorm === "Ongoing" && localMondayStatus === "Done") return "Done";
+          return apiNorm;
+        })()
+      : localMondayStatus;
 
   const projectImageFile = extractFileNameFromProjectImg(row.project_img);
   const image = options.projectImageUrl?.trim()
@@ -223,8 +340,13 @@ export function buildProjectDataFromServerRow(
   const assigneeAvatar = options.getUserAvatarById?.(String(row.pic ?? "").trim())?.trim();
 
   const items: ProjectItem[] = requirements.map((r) => {
-    const requiredQty = parseNumber(r.quantity);
-    const deliveredQty = calculateDeliveredQuantity(subitems, r.product_id, r.uom);
+    const requiredQty = effectiveRequiredQuantity(r);
+    const deliveredQty = calculateDeliveredQuantityActualHarvestOnly(
+      subitems,
+      r.product_id,
+      r.uom,
+      projectId,
+    );
     const remaining = Math.max(0, requiredQty - deliveredQty);
     const percentage = requiredQty > 0 ? Math.round((deliveredQty / requiredQty) * 100) : 0;
 
@@ -252,18 +374,8 @@ export function buildProjectDataFromServerRow(
     endDate: endDate,
     image,
     progress,
-    /**
-     * When grass requirements exist, status follows delivered vs required + deadline (`computeMondayStatus`).
-     * Do not trust `status_app` alone — it can stay "Done" after partial delivery.
-     */
-    status:
-      requirements.length > 0
-        ? computeMondayStatus(subitems, requirements, row.deadline)
-        : row.status_app
-          ? normalizeStatus(row.status_app)
-          : row.status
-            ? normalizeStatus(row.status)
-            : computeMondayStatus(subitems, requirements, row.deadline),
+    /** API status; if API says Ongoing but subitems satisfy all lines, show Done (matches table / PHP max(plan, subitems)). */
+    status: resolvedStatus,
     items,
     tags: [
       (() => {

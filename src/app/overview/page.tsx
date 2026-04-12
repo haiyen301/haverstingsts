@@ -13,9 +13,10 @@ import {
 import RequireAuth from "@/features/auth/RequireAuth";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 import { fetchMondayProjectRowsFromServer, type MondayProjectServerRow } from "@/entities/projects";
-import { parseSubitems } from "@/shared/lib/parseJsonMaybe";
+import { parseQuantityRequiredRows, parseSubitems } from "@/shared/lib/parseJsonMaybe";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
+import { effectiveRequiredQuantityFromRecord } from "@/features/project/lib/effectiveRequirementQuantity";
 
 type OverviewType = "grass" | "farm" | "project" | "country";
 
@@ -199,16 +200,17 @@ export default function OverviewPage() {
         String(row.country ?? "").trim().toUpperCase() ||
         fallbackNA;
 
-      const requirements = parseSubitems(row.quantity_required_sprig_sod);
+      const requirements = parseQuantityRequiredRows(row.quantity_required_sprig_sod);
       const subitems = parseSubitems(row.subitems);
 
       for (const req of requirements) {
         const productId = String(req.product_id ?? "").trim();
         if (!productId) continue;
+        const reqRec = req as Record<string, unknown>;
         const reqUom = normalizeUnit(req.uom);
         const grass = productMap.get(productId) || productId;
 
-        const quantity = parseNum(req.quantity);
+        const quantity = effectiveRequiredQuantityFromRecord(reqRec);
         const matchingItems = subitems
           .filter((x) => String(x.product_id ?? "").trim() === productId)
           .filter((x) => {
