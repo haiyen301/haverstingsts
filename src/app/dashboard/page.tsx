@@ -178,10 +178,20 @@ function hasActualHarvestDate(item: Record<string, unknown>): boolean {
   return false;
 }
 
+/** Trim, collapse inner whitespace, uppercase — for grouping / comparing customer names. */
+function normalizeCustomerNameKey(raw: string): string {
+  return String(raw ?? "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toUpperCase();
+}
+
 export default function DashboardPage() {
   const t = useAppTranslations();
   const [selectedCountry, setSelectedCountry] = useState<string | null>(null);
-  const [selectedFarmId, setSelectedFarmId] = useState<string | null>(null);
+  const [selectedFarmIds, setSelectedFarmIds] = useState<string[]>([]);
+  const selectedFarmIdSet = useMemo(() => new Set(selectedFarmIds), [selectedFarmIds]);
+  const hasFarmSelection = selectedFarmIds.length > 0;
   const [selectedDateRange, setSelectedDateRange] = useState<{ from?: string; to?: string }>(() => {
     const now = new Date();
     const oneYearAgo = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
@@ -369,9 +379,11 @@ export default function DashboardPage() {
     const itemFarmId = String(item.farm_id ?? "").trim();
 
     if (!fromDate && !toDate) return true;
-    // When a specific farm is selected, keep undated rows for that farm
+    // When farm(s) are selected, keep undated rows for those farms
     // so dashboard doesn't go blank due to missing delivery_harvest_date.
-    if (!deliveryDate) return Boolean(selectedFarmId && itemFarmId === selectedFarmId);
+    if (!deliveryDate) {
+      return hasFarmSelection && selectedFarmIdSet.has(itemFarmId);
+    }
     if (fromDate && deliveryDate < fromDate) return false;
     if (toDate && deliveryDate > toDate) return false;
     return true;
@@ -381,11 +393,11 @@ export default function DashboardPage() {
     const ids = new Set<string>();
     for (const row of rows) {
       if (isDeleted(row)) continue;
-      if (selectedFarmId) {
+      if (hasFarmSelection) {
         const hasSelectedFarm = parseSubitems((row as Record<string, unknown>).subitems).some((item) => {
           if (String((item as Record<string, unknown>).deleted ?? "0").trim() === "1") return false;
           const farmId = String((item as Record<string, unknown>).farm_id ?? "").trim();
-          return farmId === selectedFarmId;
+          return selectedFarmIdSet.has(farmId);
         });
         if (!hasSelectedFarm) continue;
       }
@@ -397,17 +409,17 @@ export default function DashboardPage() {
       if (id) ids.add(id);
     }
     return ids.size;
-  }, [rows, selectedDateRange.from, selectedDateRange.to, selectedFarmId]);
+  }, [rows, selectedDateRange.from, selectedDateRange.to, hasFarmSelection, selectedFarmIdSet]);
 
   const totalCurrentProjects = useMemo(() => {
     const ids = new Set<string>();
     for (const row of rows) {
       if (isDeleted(row)) continue;
-      if (selectedFarmId) {
+      if (hasFarmSelection) {
         const hasSelectedFarm = parseSubitems((row as Record<string, unknown>).subitems).some((item) => {
           if (String((item as Record<string, unknown>).deleted ?? "0").trim() === "1") return false;
           const farmId = String((item as Record<string, unknown>).farm_id ?? "").trim();
-          return farmId === selectedFarmId;
+          return selectedFarmIdSet.has(farmId);
         });
         if (!hasSelectedFarm) continue;
       }
@@ -421,7 +433,7 @@ export default function DashboardPage() {
       if (id) ids.add(id);
     }
     return ids.size;
-  }, [rows, selectedDateRange.from, selectedDateRange.to, selectedFarmId]);
+  }, [rows, selectedDateRange.from, selectedDateRange.to, hasFarmSelection, selectedFarmIdSet]);
 
   const deliveredTotals = useMemo(() => {
     let sprigKg = 0;
@@ -432,7 +444,7 @@ export default function DashboardPage() {
         if (String((item as Record<string, unknown>).deleted ?? "0").trim() === "1") continue;
         if (!isSubitemInSelectedDateRange(item as Record<string, unknown>)) continue;
         const farmId = String((item as Record<string, unknown>).farm_id ?? "").trim();
-        if (selectedFarmId && farmId !== selectedFarmId) continue;
+        if (hasFarmSelection && !selectedFarmIdSet.has(farmId)) continue;
         const qtyRaw = item.quantity_harvested ?? item.quantity ?? 0;
         const qty = Number(String(qtyRaw).replace(/,/g, "").trim());
         if (!Number.isFinite(qty)) continue;
@@ -442,23 +454,24 @@ export default function DashboardPage() {
       }
     }
     return { sprigKg, sodM2 };
-  }, [rows, selectedDateRange.from, selectedDateRange.to, selectedFarmId]);
+  }, [rows, selectedDateRange.from, selectedDateRange.to, hasFarmSelection, selectedFarmIdSet]);
 
   const countryProjectsChartData = useMemo(() => {
-    const selectedFarmCountryId = selectedFarmId
-      ? farmFilters.find((f) => f.farmId === selectedFarmId)?.countryId ?? null
-      : null;
-    const effectiveCountryId = selectedFarmCountryId ?? selectedCountry;
+    const singleSelectedFarmCountryId =
+      selectedFarmIds.length === 1
+        ? farmFilters.find((f) => f.farmId === selectedFarmIds[0])?.countryId ?? null
+        : null;
+    const effectiveCountryId = singleSelectedFarmCountryId ?? selectedCountry;
     const counts = new Map<string, { country: string; projects: number }>();
 
     for (const row of rows) {
       if (isDeleted(row)) continue;
       const rec = row as Record<string, unknown>;
-      if (selectedFarmId) {
+      if (hasFarmSelection) {
         const hasSelectedFarm = parseSubitems(rec.subitems).some((item) => {
           if (String((item as Record<string, unknown>).deleted ?? "0").trim() === "1") return false;
           const farmId = String((item as Record<string, unknown>).farm_id ?? "").trim();
-          return farmId === selectedFarmId;
+          return selectedFarmIdSet.has(farmId);
         });
         if (!hasSelectedFarm) continue;
       }
@@ -468,11 +481,12 @@ export default function DashboardPage() {
       if (!hasAnyInDateRange) continue;
 
       const rowCountryId = String(rec.country_id ?? "").trim();
-      const countryId = selectedFarmId
-        ? String(selectedFarmCountryId ?? rowCountryId).trim()
-        : rowCountryId;
+      const countryId =
+        selectedFarmIds.length === 1
+          ? String(singleSelectedFarmCountryId ?? rowCountryId).trim()
+          : rowCountryId;
       if (!countryId) continue;
-      if (!selectedFarmId && effectiveCountryId && countryId !== effectiveCountryId) continue;
+      if (!hasFarmSelection && effectiveCountryId && countryId !== effectiveCountryId) continue;
 
       const projectId = String(rec.project_id ?? rec.id ?? "").trim();
       if (!projectId) continue;
@@ -512,7 +526,17 @@ export default function DashboardPage() {
     }
 
     return Array.from(counts.values()).sort((a, b) => a.country.localeCompare(b.country));
-  }, [rows, countriesRef, selectedCountry, selectedDateRange.from, selectedDateRange.to, selectedFarmId, farmFilters]);
+  }, [
+    rows,
+    countriesRef,
+    selectedCountry,
+    selectedDateRange.from,
+    selectedDateRange.to,
+    hasFarmSelection,
+    selectedFarmIdSet,
+    selectedFarmIds,
+    farmFilters,
+  ]);
 
   const grassDistributionByUnit = useMemo(() => {
     const productNameById = new Map<string, string>();
@@ -534,7 +558,7 @@ export default function DashboardPage() {
         if (String(item.deleted ?? "0").trim() === "1") continue;
         if (!isSubitemInSelectedDateRange(item as Record<string, unknown>)) continue;
         const farmId = String(item.farm_id ?? "").trim();
-        if (selectedFarmId && farmId !== selectedFarmId) continue;
+        if (hasFarmSelection && !selectedFarmIdSet.has(farmId)) continue;
 
         const productId = String(item.product_id ?? "").trim();
         if (!productId) continue;
@@ -564,7 +588,7 @@ export default function DashboardPage() {
       kg: toSeries(qtyByProductKg),
       m2: toSeries(qtyByProductM2),
     };
-  }, [productsRef, rows, selectedFarmId, selectedDateRange.from, selectedDateRange.to]);
+  }, [productsRef, rows, hasFarmSelection, selectedFarmIdSet, selectedDateRange.from, selectedDateRange.to]);
 
   const grassDistributionData = useMemo(() => {
     return deliveredByMonthMode === "sprig" ? grassDistributionByUnit.kg : grassDistributionByUnit.m2;
@@ -596,7 +620,7 @@ export default function DashboardPage() {
         if (String(item.deleted ?? "0").trim() === "1") continue;
         if (!isSubitemInSelectedDateRange(item as Record<string, unknown>)) continue;
         const farmId = String(item.farm_id ?? "").trim();
-        if (selectedFarmId && farmId !== selectedFarmId) continue;
+        if (hasFarmSelection && !selectedFarmIdSet.has(farmId)) continue;
 
         const uom = String(item.uom ?? "").trim().toLowerCase();
         if (wantSprig) {
@@ -620,7 +644,7 @@ export default function DashboardPage() {
       month: label,
       total: totals.get(key) ?? 0,
     }));
-  }, [rows, selectedFarmId, deliveredByMonthMode, selectedDateRange.from, selectedDateRange.to]);
+  }, [rows, hasFarmSelection, selectedFarmIdSet, deliveredByMonthMode, selectedDateRange.from, selectedDateRange.to]);
 
   const deliveredByMonthUnitLabel = deliveredByMonthMode === "sprig" ? "kg" : "m2";
 
@@ -653,8 +677,8 @@ export default function DashboardPage() {
     if (selectedCountry) {
       farms = farms.filter((f) => f.countryId === selectedCountry);
     }
-    if (selectedFarmId) {
-      farms = farms.filter((f) => f.farmId === selectedFarmId);
+    if (hasFarmSelection) {
+      farms = farms.filter((f) => selectedFarmIdSet.has(f.farmId));
     }
     farms = farms.slice(0, 16);
 
@@ -668,7 +692,7 @@ export default function DashboardPage() {
       if (isDeleted(row)) continue;
       const rec = row as Record<string, unknown>;
       const rowCountry = String(rec.country_id ?? "").trim();
-      if (!selectedFarmId && selectedCountry && rowCountry !== selectedCountry) continue;
+      if (!hasFarmSelection && selectedCountry && rowCountry !== selectedCountry) continue;
 
       const subitems = parseSubitems(rec.subitems);
       for (const item of subitems) {
@@ -706,7 +730,16 @@ export default function DashboardPage() {
     }));
 
     return { chartRows, rangeLabel };
-  }, [rows, farmFilters, selectedCountry, selectedFarmId, deliveredByMonthMode, selectedDateRange.from, selectedDateRange.to]);
+  }, [
+    rows,
+    farmFilters,
+    selectedCountry,
+    hasFarmSelection,
+    selectedFarmIdSet,
+    deliveredByMonthMode,
+    selectedDateRange.from,
+    selectedDateRange.to,
+  ]);
 
   /** Rolling months by selected date range (fallback: last 6 months). */
   const deliveredSixMonthFarmTrend = useMemo(() => {
@@ -759,8 +792,8 @@ export default function DashboardPage() {
     if (selectedCountry) {
       farms = farms.filter((f) => f.countryId === selectedCountry);
     }
-    if (selectedFarmId) {
-      farms = farms.filter((f) => f.farmId === selectedFarmId);
+    if (hasFarmSelection) {
+      farms = farms.filter((f) => selectedFarmIdSet.has(f.farmId));
     }
     farms = farms.slice(0, 6);
 
@@ -776,7 +809,7 @@ export default function DashboardPage() {
       if (isDeleted(row)) continue;
       const rec = row as Record<string, unknown>;
       const rowCountry = String(rec.country_id ?? "").trim();
-      if (!selectedFarmId && selectedCountry && rowCountry !== selectedCountry) continue;
+      if (!hasFarmSelection && selectedCountry && rowCountry !== selectedCountry) continue;
 
       const subitems = parseSubitems(rec.subitems);
       for (const item of subitems) {
@@ -819,14 +852,23 @@ export default function DashboardPage() {
     }));
 
     return { data, series, monthCount: monthSlots.length };
-  }, [rows, farmFilters, selectedCountry, selectedFarmId, deliveredByMonthMode, selectedDateRange.from, selectedDateRange.to]);
+  }, [
+    rows,
+    farmFilters,
+    selectedCountry,
+    hasFarmSelection,
+    selectedFarmIdSet,
+    deliveredByMonthMode,
+    selectedDateRange.from,
+    selectedDateRange.to,
+  ]);
 
   /**
    * All-farm view: one row per (project × product_id). Quantities are split per grass; names from Zustand `products`.
    * Same project can appear on multiple rows (e.g. TifEagle Bermuda vs Zeon Zoysia). Sorted by grass, then customer.
    */
   const allFarmProjectDetailRows = useMemo(() => {
-    if (selectedFarmId) return [];
+    if (hasFarmSelection) return [];
     const wantSprig = deliveredByMonthMode === "sprig";
     let farms = farmFilters;
     if (selectedCountry) {
@@ -850,7 +892,7 @@ export default function DashboardPage() {
     for (const row of rows) {
       if (isDeleted(row)) continue;
       const rec = row as Record<string, unknown>;
-      if (!selectedFarmId && selectedCountry && String(rec.country_id ?? "").trim() !== selectedCountry) continue;
+      if (!hasFarmSelection && selectedCountry && String(rec.country_id ?? "").trim() !== selectedCountry) continue;
       const projectId = String(rec.project_id ?? rec.id ?? "").trim();
       if (!projectId) continue;
       const list = byProjectId.get(projectId);
@@ -992,16 +1034,68 @@ export default function DashboardPage() {
     });
 
     return out;
-  }, [rows, farmFilters, productsRef, selectedCountry, selectedFarmId, deliveredByMonthMode, t, selectedDateRange.from, selectedDateRange.to]);
+  }, [
+    rows,
+    farmFilters,
+    productsRef,
+    selectedCountry,
+    hasFarmSelection,
+    deliveredByMonthMode,
+    t,
+    selectedDateRange.from,
+    selectedDateRange.to,
+  ]);
 
-  const sortedAllFarmProjectDetailRows = useMemo(() => {
-    const list = [...allFarmProjectDetailRows];
+  /**
+   * All-farms project detail: one row per grass (product_id), totals across projects — no repeated grass rows.
+   */
+  const allFarmGrassSummaryRows = useMemo(() => {
+    type Agg = {
+      productId: string;
+      grassTypeLabel: string;
+      harvestTypeLabel: string;
+      activeProjects: number;
+      activeHarvests: number;
+      contractAmount: number;
+      amountDelivered: number;
+      amountOutstanding: number;
+    };
+    const byProduct = new Map<string, Agg>();
+    for (const row of allFarmProjectDetailRows) {
+      const key = row.productId.trim() ? row.productId : "__no_product__";
+      const existing = byProduct.get(key);
+      if (!existing) {
+        byProduct.set(key, {
+          productId: row.productId,
+          grassTypeLabel: row.grassTypeLabel,
+          harvestTypeLabel: row.harvestTypeLabel,
+          activeProjects: row.activeProjects,
+          activeHarvests: row.activeHarvests,
+          contractAmount: row.contractAmount,
+          amountDelivered: row.amountDelivered,
+          amountOutstanding: row.amountOutstanding,
+        });
+      } else {
+        existing.activeProjects += row.activeProjects;
+        existing.activeHarvests += row.activeHarvests;
+        existing.contractAmount += row.contractAmount;
+        existing.amountDelivered += row.amountDelivered;
+        existing.amountOutstanding += row.amountOutstanding;
+      }
+    }
+    return Array.from(byProduct.values()).sort((a, b) =>
+      a.grassTypeLabel.localeCompare(b.grassTypeLabel, undefined, { sensitivity: "base" }),
+    );
+  }, [allFarmProjectDetailRows]);
+
+  const sortedAllFarmGrassSummaryRows = useMemo(() => {
+    const list = [...allFarmGrassSummaryRows];
     list.sort((a, b) => {
       switch (sortKey) {
         case "grassTypeLabel":
           return compareStrings(a.grassTypeLabel, b.grassTypeLabel, sortDir);
         case "customerName":
-          return compareStrings(a.customerName, b.customerName, sortDir);
+          return compareStrings(a.grassTypeLabel, b.grassTypeLabel, sortDir);
         case "harvestTypeLabel":
           return compareStrings(a.harvestTypeLabel, b.harvestTypeLabel, sortDir);
         case "activeProjects":
@@ -1019,54 +1113,33 @@ export default function DashboardPage() {
       }
     });
     return list;
-  }, [allFarmProjectDetailRows, sortKey, sortDir]);
+  }, [allFarmGrassSummaryRows, sortKey, sortDir]);
 
-  /** Same rows with `grassRowSpan` for the first column (0 = skip grass `<td>`). */
-  const allFarmProjectTableRows = useMemo(() => {
-    const list = sortedAllFarmProjectDetailRows;
-    const out: Array<
-      (typeof list)[number] & {
-        grassRowSpan: number;
-      }
-    > = [];
-    let i = 0;
-    while (i < list.length) {
-      const label = list[i].grassTypeLabel;
-      let j = i + 1;
-      while (j < list.length && list[j].grassTypeLabel === label) j++;
-      const span = j - i;
-      for (let k = i; k < j; k++) {
-        out.push({
-          ...list[k],
-          grassRowSpan: k === i ? span : 0,
-        });
-      }
-      i = j;
-    }
-    return out;
-  }, [sortedAllFarmProjectDetailRows]);
-
-  /** One row per project for the selected farm (Sprig/Sod filter applies to numeric columns). */
-  const singleFarmProjectDetailRows = useMemo(() => {
-    if (!selectedFarmId) return [];
+  /**
+   * Selected farm(s): one row per project first, then rows merged by customer name
+   * (trim, collapse spaces, uppercase equality).
+   */
+  const selectedFarmsProjectCustomerRows = useMemo(() => {
+    if (!hasFarmSelection) return [];
     const wantSprig = deliveredByMonthMode === "sprig";
     const harvestTypeLabel = wantSprig ? t("Dashboard.sprigKg") : t("Dashboard.sodM2");
-    const out: Array<{
+    type PerProject = {
       projectId: string;
-      customerName: string;
+      customerNameRaw: string;
       harvestTypeLabel: string;
       activeProjects: number;
       activeHarvests: number;
       contractAmount: number;
       amountDelivered: number;
       amountOutstanding: number;
-    }> = [];
+    };
+    const perProject: PerProject[] = [];
 
     for (const row of rows) {
       if (isDeleted(row)) continue;
       const rec = row as Record<string, unknown>;
       const rowCountry = String(rec.country_id ?? "").trim();
-      if (!selectedFarmId && selectedCountry && rowCountry !== selectedCountry) continue;
+      if (!hasFarmSelection && selectedCountry && rowCountry !== selectedCountry) continue;
       const projectId = String(rec.project_id ?? rec.id ?? "").trim();
       if (!projectId) continue;
 
@@ -1082,7 +1155,7 @@ export default function DashboardPage() {
 
       for (const req of requirements) {
         const farmId = String(req.farm_id ?? "").trim();
-        if (farmId && farmId !== selectedFarmId) continue;
+        if (farmId && !selectedFarmIdSet.has(farmId)) continue;
         const uom = String(req.uom ?? "").trim().toLowerCase();
         if (wantSprig) {
           if (uom !== "kg") continue;
@@ -1101,7 +1174,7 @@ export default function DashboardPage() {
         if (String(item.deleted ?? "0").trim() === "1") continue;
         if (!isSubitemInSelectedDateRange(item as Record<string, unknown>)) continue;
         const farmId = String(item.farm_id ?? "").trim();
-        if (farmId !== selectedFarmId) continue;
+        if (!selectedFarmIdSet.has(farmId)) continue;
         const uom = String(item.uom ?? "").trim().toLowerCase();
         if (wantSprig) {
           if (uom !== "kg") continue;
@@ -1130,8 +1203,8 @@ export default function DashboardPage() {
 
       if (!hasLine) continue;
 
-      const customerName = String(rec.title ?? rec.name ?? rec.alias_title ?? projectId).trim() || projectId;
-      const amountOutstanding = Math.max(0, contractAmount - amountDelivered);
+      const customerNameRaw =
+        String(rec.title ?? rec.name ?? rec.alias_title ?? projectId).trim().replace(/\s+/g, " ") || projectId;
       const productKeys = new Set<string>([
         ...requiredByProduct.keys(),
         ...deliveredByProduct.keys(),
@@ -1147,29 +1220,79 @@ export default function DashboardPage() {
       }
       const activeProjects = hasOutstandingByGrass ? 1 : 0;
 
-      out.push({
+      perProject.push({
         projectId,
-        customerName,
+        customerNameRaw,
         harvestTypeLabel,
         activeProjects,
         activeHarvests,
         contractAmount,
         amountDelivered,
-        amountOutstanding,
+        amountOutstanding: Math.max(0, contractAmount - amountDelivered),
       });
     }
 
-    return out;
-  }, [rows, selectedFarmId, selectedCountry, deliveredByMonthMode, t, selectedDateRange.from, selectedDateRange.to]);
+    type Merged = {
+      customerSortKey: string;
+      customerName: string;
+      harvestTypeLabel: string;
+      activeProjects: number;
+      activeHarvests: number;
+      contractAmount: number;
+      amountDelivered: number;
+      amountOutstanding: number;
+    };
+    const byCustomer = new Map<string, Merged>();
 
-  const sortedSingleFarmProjectDetailRows = useMemo(() => {
-    const list = [...singleFarmProjectDetailRows];
+    for (const pr of perProject) {
+      const key =
+        normalizeCustomerNameKey(pr.customerNameRaw) ||
+        `__PROJECT__${pr.projectId}`.toUpperCase();
+      const displayName = pr.customerNameRaw.trim().replace(/\s+/g, " ") || pr.projectId;
+      const existing = byCustomer.get(key);
+      if (!existing) {
+        byCustomer.set(key, {
+          customerSortKey: key,
+          customerName: displayName,
+          harvestTypeLabel: pr.harvestTypeLabel,
+          activeProjects: pr.activeProjects,
+          activeHarvests: pr.activeHarvests,
+          contractAmount: pr.contractAmount,
+          amountDelivered: pr.amountDelivered,
+          amountOutstanding: pr.amountOutstanding,
+        });
+      } else {
+        existing.activeProjects += pr.activeProjects;
+        existing.activeHarvests += pr.activeHarvests;
+        existing.contractAmount += pr.contractAmount;
+        existing.amountDelivered += pr.amountDelivered;
+        existing.amountOutstanding = Math.max(
+          0,
+          existing.contractAmount - existing.amountDelivered,
+        );
+      }
+    }
+
+    return Array.from(byCustomer.values());
+  }, [
+    rows,
+    hasFarmSelection,
+    selectedFarmIdSet,
+    selectedCountry,
+    deliveredByMonthMode,
+    t,
+    selectedDateRange.from,
+    selectedDateRange.to,
+  ]);
+
+  const sortedSelectedFarmsProjectCustomerRows = useMemo(() => {
+    const list = [...selectedFarmsProjectCustomerRows];
     const key =
       sortKey === "grassTypeLabel" ? "customerName" : sortKey;
     list.sort((a, b) => {
       switch (key) {
         case "customerName":
-          return compareStrings(a.customerName, b.customerName, sortDir);
+          return compareStrings(a.customerSortKey, b.customerSortKey, sortDir);
         case "harvestTypeLabel":
           return compareStrings(a.harvestTypeLabel, b.harvestTypeLabel, sortDir);
         case "activeProjects":
@@ -1187,11 +1310,14 @@ export default function DashboardPage() {
       }
     });
     return list;
-  }, [singleFarmProjectDetailRows, sortKey, sortDir]);
+  }, [selectedFarmsProjectCustomerRows, sortKey, sortDir]);
 
-  const selectedFarmName = selectedFarmId
-    ? farmFilters.find((f) => f.farmId === selectedFarmId)?.farmName ?? ""
-    : "";
+  const selectedFarmNamesLabel = useMemo(() => {
+    if (selectedFarmIds.length === 0) return "";
+    return selectedFarmIds
+      .map((id) => farmFilters.find((f) => f.farmId === id)?.farmName ?? id)
+      .join(", ");
+  }, [selectedFarmIds, farmFilters]);
 
   return (
     <RequireAuth>
@@ -1324,9 +1450,9 @@ export default function DashboardPage() {
                   <button
                     onClick={() => {
                       setSelectedCountry(null);
-                      setSelectedFarmId(null);
+                      setSelectedFarmIds([]);
                     }}
-                    className={`px-4 py-2 rounded-lg border transition-colors ${selectedCountry === null
+                    className={`px-4 py-2 rounded-lg border transition-colors ${selectedCountry === null && selectedFarmIds.length === 0
                       ? " text-[var(--primary-color)] border-[var(--primary-color)]"
                       : "bg-white text-gray-700 border-gray-300 hover:border-[#1F7A4C]"
                       }`}
@@ -1334,28 +1460,36 @@ export default function DashboardPage() {
                   >
                     {t("Dashboard.allCountries")}
                   </button>
-                  {farmFilters.map((f) => (
+                  {farmFilters.map((f) => {
+                    const farmSelected = selectedFarmIds.includes(f.farmId);
+                    return (
                     <button
                       key={f.farmId}
                       onClick={() => {
-                        setSelectedFarmId(f.farmId);
-                      // When a specific farm is selected, avoid extra country coupling.
-                      setSelectedCountry(null);
+                        setSelectedCountry(null);
+                        setSelectedFarmIds((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(f.farmId)) next.delete(f.farmId);
+                          else next.add(f.farmId);
+                          return Array.from(next);
+                        });
                       }}
-                      className={`px-4 py-2 rounded-lg border transition-colors flex items-center gap-2 ${selectedFarmId === f.farmId
+                      className={`px-4 py-2 rounded-lg border transition-colors flex items-center gap-2 ${farmSelected
                         ? " text-[var(--primary-color)] border-[var(--primary-color)]"
                         : "bg-white text-gray-700 border-gray-300 hover:border-[#1F7A4C]"
                         }`}
                       type="button"
+                      aria-pressed={farmSelected}
                     >
                       <FarmCountryFlag
                         countryCode={f.countryCode}
                         flagEmoji={f.flag}
-                        active={selectedFarmId === f.farmId}
+                        active={farmSelected}
                       />
                       {f.farmName}
                     </button>
-                  ))}
+                    );
+                  })}
                 </div>
 
 
@@ -1620,15 +1754,15 @@ export default function DashboardPage() {
                 </div>
                 <div>
                   <h2 className="text-lg font-semibold text-gray-900">
-                    {selectedFarmId ? t("Projects.projectDetails") : t("Projects.projectDetailsAllFarms")}
-                    {selectedFarmId && selectedFarmName ? (
-                      <span className="ml-2 font-normal text-gray-600">— {selectedFarmName}</span>
+                    {hasFarmSelection ? t("Projects.projectDetails") : t("Projects.projectDetailsAllFarms")}
+                    {hasFarmSelection && selectedFarmNamesLabel ? (
+                      <span className="ml-2 font-normal text-gray-600">— {selectedFarmNamesLabel}</span>
                     ) : null}
                   </h2>
                 </div>
               </div>
               <div className="hidden md:block overflow-x-auto">
-                {selectedFarmId ? (
+                {hasFarmSelection ? (
                   <table className="w-full min-w-[56rem]">
                     <thead className="bg-gray-50 border-b border-gray-200">
                       <tr>
@@ -1691,15 +1825,15 @@ export default function DashboardPage() {
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                      {sortedSingleFarmProjectDetailRows.length === 0 ? (
+                      {sortedSelectedFarmsProjectCustomerRows.length === 0 ? (
                         <tr>
                           <td colSpan={7} className="px-6 py-8 text-center text-sm text-gray-500">
                             {t("Dashboard.noProjectsForFarm")}
                           </td>
                         </tr>
                       ) : null}
-                      {sortedSingleFarmProjectDetailRows.map((row) => (
-                        <tr key={row.projectId} className="hover:bg-gray-50">
+                      {sortedSelectedFarmsProjectCustomerRows.map((row) => (
+                        <tr key={row.customerSortKey} className="hover:bg-gray-50">
                           <td className="px-4 py-3 text-sm font-medium text-gray-900 max-w-[14rem] truncate" title={row.customerName}>
                             {row.customerName}
                           </td>
@@ -1776,23 +1910,18 @@ export default function DashboardPage() {
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                      {sortedAllFarmProjectDetailRows.length === 0 ? (
+                      {sortedAllFarmGrassSummaryRows.length === 0 ? (
                         <tr>
                           <td colSpan={7} className="px-6 py-8 text-center text-sm text-gray-500">
                             {t("Dashboard.noProjectsForFilters")}
                           </td>
                         </tr>
                       ) : null}
-                      {allFarmProjectTableRows.map((row) => (
-                        <tr key={`${row.projectId}-${row.productId || "none"}`} className="hover:bg-gray-50">
-                          {row.grassRowSpan > 0 ? (
-                            <td
-                              rowSpan={row.grassRowSpan}
-                              className="px-4 py-3 align-top text-sm font-medium text-gray-900 border-r border-gray-100 "
-                            >
-                              {row.grassTypeLabel}
-                            </td>
-                          ) : null}
+                      {sortedAllFarmGrassSummaryRows.map((row) => (
+                        <tr key={row.productId || "none"} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 text-sm font-medium text-gray-900 border-r border-gray-100">
+                            {row.grassTypeLabel}
+                          </td>
                           <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">{row.harvestTypeLabel}</td>
                           <td className="px-4 py-3 text-sm text-gray-900">{row.activeProjects}</td>
                           <td className="px-4 py-3 text-sm text-gray-900">{row.activeHarvests}</td>
@@ -1807,15 +1936,15 @@ export default function DashboardPage() {
               </div>
 
               <div className="md:hidden divide-y divide-gray-200">
-                {selectedFarmId ? (
+                {hasFarmSelection ? (
                   <>
-                    {sortedSingleFarmProjectDetailRows.length === 0 ? (
+                    {sortedSelectedFarmsProjectCustomerRows.length === 0 ? (
                       <div className="p-6 text-center text-sm text-gray-500">
                         {t("Dashboard.noProjectsForFarm")}
                       </div>
                     ) : null}
-                    {sortedSingleFarmProjectDetailRows.map((row) => (
-                      <div key={row.projectId} className="p-4">
+                    {sortedSelectedFarmsProjectCustomerRows.map((row) => (
+                      <div key={row.customerSortKey} className="p-4">
                         <h3 className="font-medium text-gray-900 mb-4">{row.customerName}</h3>
                         <div className="grid grid-cols-2 gap-3 text-sm">
                           <div>
@@ -1848,62 +1977,47 @@ export default function DashboardPage() {
                   </>
                 ) : (
                   <>
-                    {sortedAllFarmProjectDetailRows.length === 0 ? (
+                    {sortedAllFarmGrassSummaryRows.length === 0 ? (
                       <div className="p-6 text-center text-sm text-gray-500">
                         {t("Dashboard.noProjectsForFilters")}
                       </div>
                     ) : null}
-                    {(() => {
-                      const groups: Array<{ grass: string; rows: typeof sortedAllFarmProjectDetailRows }> = [];
-                      for (const r of sortedAllFarmProjectDetailRows) {
-                        const last = groups[groups.length - 1];
-                        if (last && last.grass === r.grassTypeLabel) last.rows.push(r);
-                        else groups.push({ grass: r.grassTypeLabel, rows: [r] });
-                      }
-                      return groups.map((g, gi) => (
-                        <div key={`${g.grass}-${gi}`} className="border-b border-gray-200 last:border-b-0">
-                          <div className="px-4 py-2 bg-gray-50 text-xs font-semibold uppercase tracking-wide text-gray-600">
-                            {g.grass}
+                    {sortedAllFarmGrassSummaryRows.map((row) => (
+                      <div
+                        key={row.productId || "none"}
+                        className="p-4 border-b border-gray-200 last:border-b-0 bg-white"
+                      >
+                        <h3 className="font-medium text-gray-900 mb-3 truncate" title={row.grassTypeLabel}>
+                          {row.grassTypeLabel}
+                        </h3>
+                        <div className="grid grid-cols-2 gap-3 text-sm">
+                          <div>
+                            <span className="text-gray-600">{t("Dashboard.harvestType")}</span>
+                            <div className="font-medium text-gray-900">{row.harvestTypeLabel}</div>
                           </div>
-                          {g.rows.map((row) => (
-                            <div
-                              key={`${row.projectId}-${row.productId || "none"}`}
-                              className="p-4 border-t border-gray-100 bg-white"
-                            >
-                              <h3 className="font-medium text-gray-900 mb-3 truncate" title={row.customerName}>
-                                {row.customerName}
-                              </h3>
-                              <div className="grid grid-cols-2 gap-3 text-sm">
-                                <div>
-                                  <span className="text-gray-600">{t("Dashboard.harvestType")}</span>
-                                  <div className="font-medium text-gray-900">{row.harvestTypeLabel}</div>
-                                </div>
-                                <div>
-                                  <span className="text-gray-600">{t("Dashboard.activeProjects")}</span>
-                                  <div className="font-medium text-gray-900">{row.activeProjects}</div>
-                                </div>
-                                <div>
-                                  <span className="text-gray-600">{t("Dashboard.activeHarvests")}</span>
-                                  <div className="font-medium text-gray-900">{row.activeHarvests}</div>
-                                </div>
-                                <div>
-                                  <span className="text-gray-600">{t("Dashboard.contractAmount")} ({deliveredByMonthUnitLabel})</span>
-                                  <div className="font-medium text-gray-900">{row.contractAmount.toLocaleString()}</div>
-                                </div>
-                                <div>
-                                  <span className="text-gray-600">{t("Dashboard.amountDelivered")} ({deliveredByMonthUnitLabel})</span>
-                                  <div className="font-medium text-gray-900">{row.amountDelivered.toLocaleString()}</div>
-                                </div>
-                                <div>
-                                  <span className="text-gray-600">{t("Dashboard.amountOutstanding")} ({deliveredByMonthUnitLabel})</span>
-                                  <div className="font-medium text-gray-900">{row.amountOutstanding.toLocaleString()}</div>
-                                </div>
-                              </div>
-                            </div>
-                          ))}
+                          <div>
+                            <span className="text-gray-600">{t("Dashboard.activeProjects")}</span>
+                            <div className="font-medium text-gray-900">{row.activeProjects}</div>
+                          </div>
+                          <div>
+                            <span className="text-gray-600">{t("Dashboard.activeHarvests")}</span>
+                            <div className="font-medium text-gray-900">{row.activeHarvests}</div>
+                          </div>
+                          <div>
+                            <span className="text-gray-600">{t("Dashboard.contractAmount")} ({deliveredByMonthUnitLabel})</span>
+                            <div className="font-medium text-gray-900">{row.contractAmount.toLocaleString()}</div>
+                          </div>
+                          <div>
+                            <span className="text-gray-600">{t("Dashboard.amountDelivered")} ({deliveredByMonthUnitLabel})</span>
+                            <div className="font-medium text-gray-900">{row.amountDelivered.toLocaleString()}</div>
+                          </div>
+                          <div>
+                            <span className="text-gray-600">{t("Dashboard.amountOutstanding")} ({deliveredByMonthUnitLabel})</span>
+                            <div className="font-medium text-gray-900">{row.amountOutstanding.toLocaleString()}</div>
+                          </div>
                         </div>
-                      ));
-                    })()}
+                      </div>
+                    ))}
                   </>
                 )}
               </div>
