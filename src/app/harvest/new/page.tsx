@@ -49,6 +49,9 @@ const DOC_PHOTO_SLOTS: HarvestDocPhotoField[] = [
   "truck_loaded_img",
 ];
 
+/** Backend validates `tableId` for both parent/sub delete, even though sub-delete only uses `rowId`. */
+const SUB_DELETE_TABLE_ID_FALLBACK = "subitem";
+
 const emptyForm = {
   grass: "",
   harvestType: "",
@@ -103,27 +106,6 @@ function getRequiredQtyForUom(req: QuantityRequirement, uomRaw: string): number 
     },
     uomRaw,
   );
-}
-
-/** Label unit for the helper line — matches `_remainingQuantityList` (kg first, else m²). */
-function getRemainingDisplayUnit(req: QuantityRequirement): string {
-  if (req.quantityKg != null && req.quantityKg > 0) {
-    return "kg";
-  }
-  if (req.quantityM2 != null && req.quantityM2 > 0) {
-    return "m²";
-  }
-  if (req.uom?.trim()) {
-    const u = req.uom.trim().toLowerCase();
-    if (u === "kg" || u === "kgs") {
-      return "kg";
-    }
-    if (u === "m2" || u === "m²" || u === "sqm") {
-      return "m²";
-    }
-    return req.uom.trim();
-  }
-  return "";
 }
 
 function defaultUomForRequirement(req: QuantityRequirement): string {
@@ -254,6 +236,19 @@ function parseRequirements(raw: unknown, productNameById: Map<string, string>) {
     });
   }
   return out;
+}
+
+function requirementMatchesFormUom(req: QuantityRequirement, formUomRaw: string): boolean {
+  const formKey = normUomKey(formUomRaw);
+  if (formKey === "kg") {
+    if (req.quantityKg != null) return true;
+    return normUomKey(req.uom ?? "") === "kg";
+  }
+  if (formKey === "m2") {
+    if (req.quantityM2 != null) return true;
+    return normUomKey(req.uom ?? "") === "m2";
+  }
+  return false;
 }
 
 function parseHarvestDeliveredRow(raw: unknown): HarvestDeliveredRow | null {
@@ -614,7 +609,7 @@ function HarvestInputPageInner() {
   };
 
   const onConfirmDeleteHarvest = async () => {
-    if (!editId || !editTableId) {
+    if (!editId) {
       setSubmitError("Missing delete identifiers.");
       setConfirmDeleteOpen(false);
       return;
@@ -623,7 +618,7 @@ function HarvestInputPageInner() {
       setDeleting(true);
       setSubmitError(null);
       await deleteMondayParentOrSubItem({
-        tableId: editTableId,
+        tableId: editTableId || SUB_DELETE_TABLE_ID_FALLBACK,
         tableName: editTableName.trim() || "Harvesting",
         rowId: editId,
         type: "sub",
@@ -724,10 +719,15 @@ function HarvestInputPageInner() {
   const requirementForGrass = useMemo(() => {
     const productId = formData.grass.trim();
     if (!productId) return null;
-    return (
-      selectedProjectRequirements.find((r) => r.productId === productId) ?? null
+    const sameProduct = selectedProjectRequirements.filter(
+      (r) => r.productId === productId,
     );
-  }, [formData.grass, selectedProjectRequirements]);
+    if (sameProduct.length === 0) return null;
+    const matchByFormUom = sameProduct.find((r) =>
+      requirementMatchesFormUom(r, formData.uom),
+    );
+    return matchByFormUom ?? sameProduct[0] ?? null;
+  }, [formData.grass, formData.uom, selectedProjectRequirements]);
 
   const deliveredQuantityForSelection = useMemo(() => {
     if (!requirementForGrass) return 0;
@@ -755,14 +755,11 @@ function HarvestInputPageInner() {
 
   /** Unit label under Quantity — same source as Flutter `remainingInfo['unit']`, else current UoM. */
   const remainingDisplayUnit = useMemo(() => {
-    if (!requirementForGrass) return "";
-    const fromReq = getRemainingDisplayUnit(requirementForGrass);
-    if (fromReq) return fromReq;
     const u = formData.uom.trim();
     if (u.toLowerCase() === "kg") return "kg";
     if (u.toLowerCase() === "m2") return "m²";
     return u || "M2";
-  }, [formData.uom, requirementForGrass]);
+  }, [formData.uom]);
 
   useEffect(() => {
     if (!harvestDateTouched) return;
@@ -1064,6 +1061,40 @@ function HarvestInputPageInner() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
+                  {t("unit")}
+                </label>
+                <select
+                  value={formData.uom}
+                  onChange={(e) => {
+                    const uom = e.target.value;
+                    setFormData((prev) => ({
+                      ...prev,
+                      // Keep current unsaved quantity when toggling UOM.
+                      quantity: prev.quantity,
+                      uom,
+                      referenceHarvestQuantity:
+                        uom.trim().toLowerCase() === "m2"
+                          ? prev.referenceHarvestQuantity
+                          : "",
+                      harvestedArea:
+                        uom.trim().toLowerCase() === "m2" ? "" : prev.harvestedArea,
+                    }));
+                    setFieldErrors((prev) => ({
+                      ...prev,
+                      harvestedArea: undefined,
+                      referenceHarvestQuantity: undefined,
+                    }));
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#1F7A4C] focus:border-transparent disabled:bg-gray-100"
+                  disabled={formDisabled}
+                >
+                  <option value="M2">M2</option>
+                  <option value="Kg">Kg</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
                   {tCommon("quantity")}
                 </label>
                 <input
@@ -1168,37 +1199,6 @@ function HarvestInputPageInner() {
               ) : null}
 
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {t("unit")}
-                </label>
-                <select
-                  value={formData.uom}
-                  onChange={(e) => {
-                    const uom = e.target.value;
-                    setFormData({
-                      ...formData,
-                      uom,
-                      referenceHarvestQuantity:
-                        uom.trim().toLowerCase() === "m2"
-                          ? formData.referenceHarvestQuantity
-                          : "",
-                      harvestedArea:
-                        uom.trim().toLowerCase() === "m2" ? "" : formData.harvestedArea,
-                    });
-                    setFieldErrors((prev) => ({
-                      ...prev,
-                      harvestedArea: undefined,
-                      referenceHarvestQuantity: undefined,
-                    }));
-                  }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#1F7A4C] focus:border-transparent disabled:bg-gray-100"
-                  disabled={formDisabled}
-                >
-                  <option value="M2">M2</option>
-                  <option value="Kg">Kg</option>
-                </select>
-              </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -1324,7 +1324,7 @@ function HarvestInputPageInner() {
                 ) : null}
               </div>
 
-             
+
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">

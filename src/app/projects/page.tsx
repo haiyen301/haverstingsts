@@ -2,6 +2,32 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+
+function parseCsvParam(v: string | null): string[] {
+  return String(v ?? "")
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
+/** No `status` in URL → Flutter-style default; empty param → no status filter. */
+function parseStatusFilterFromUrl(raw: string | null): string[] {
+  if (raw === null) return ["Ongoing", "Future"];
+  return parseCsvParam(raw);
+}
+
+function urlSearchParamsEquivalent(
+  builtQs: string,
+  current: Pick<URLSearchParams, "toString" | "keys" | "get">,
+): boolean {
+  const a = new URLSearchParams(builtQs);
+  const b = new URLSearchParams(current.toString());
+  const keys = new Set([...a.keys(), ...b.keys()]);
+  for (const k of keys) {
+    if ((a.get(k) ?? "") !== (b.get(k) ?? "")) return false;
+  }
+  return true;
+}
 import { AlignLeft, ArrowDown, Plus, Search, Upload } from "lucide-react";
 
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
@@ -41,6 +67,19 @@ function rowHasGrassProduct(row: MondayProjectServerRow, productId: string): boo
   });
 }
 
+function rowHasFarmInSubitems(row: MondayProjectServerRow, farmId: string): boolean {
+  const fid = String(farmId ?? "").trim();
+  if (!fid) return false;
+  const raw = (row as Record<string, unknown>).subitems;
+  const parsed = parseJsonMaybe(raw);
+  if (!Array.isArray(parsed)) return false;
+  return parsed.some((item) => {
+    if (!item || typeof item !== "object") return false;
+    const rec = item as Record<string, unknown>;
+    return String(rec.farm_id ?? "").trim() === fid;
+  });
+}
+
 function normalizeProjectStatusLabel(v: unknown): string {
   const s = String(v ?? "").toLowerCase().trim();
   if (!s) return "";
@@ -69,23 +108,40 @@ export default function ProjectListPage() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const [search, setSearch] = useState(() => searchParams.get("q") ?? "");
+  const [debouncedSearch, setDebouncedSearch] = useState(
+    () => (searchParams.get("q") ?? "").trim(),
+  );
+  const [countryFilterIds, setCountryFilterIds] = useState(() =>
+    parseCsvParam(searchParams.get("country")),
+  );
+  const [farmFilterIds, setFarmFilterIds] = useState(() =>
+    parseCsvParam(searchParams.get("farm")),
+  );
+  const [grassFilterIds, setGrassFilterIds] = useState(() =>
+    parseCsvParam(searchParams.get("grass")),
+  );
+  const [statusFilterValues, setStatusFilterValues] = useState(() =>
+    parseStatusFilterFromUrl(searchParams.get("status")),
+  );
+
   const returnTo = useMemo(() => {
-    const query = searchParams.toString();
-    return query ? `${pathname}?${query}` : pathname;
-  }, [pathname, searchParams]);
-  const [search, setSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [countryFilterIds, setCountryFilterIds] = useState<string[]>([]);
-  const [grassFilterIds, setGrassFilterIds] = useState<string[]>([]);
-  const [statusFilterValues, setStatusFilterValues] = useState<string[]>([
-    "Ongoing",
-    "Future",
-  ]);
+    const params = new URLSearchParams();
+    const q = debouncedSearch.trim();
+    if (q) params.set("q", q);
+    if (countryFilterIds.length) params.set("country", countryFilterIds.join(","));
+    if (farmFilterIds.length) params.set("farm", farmFilterIds.join(","));
+    if (grassFilterIds.length) params.set("grass", grassFilterIds.join(","));
+    params.set("status", statusFilterValues.join(","));
+    const qs = params.toString();
+    return qs ? `${pathname}?${qs}` : pathname;
+  }, [pathname, debouncedSearch, countryFilterIds, farmFilterIds, grassFilterIds, statusFilterValues]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<MondayProjectServerRow[]>([]);
   const projectsRef = useHarvestingDataStore((s) => s.projects);
   const countriesRef = useHarvestingDataStore((s) => s.countries);
+  const farmsRef = useHarvestingDataStore((s) => s.farms);
   const staffsRef = useHarvestingDataStore((s) => s.staffs);
   const productsRef = useHarvestingDataStore((s) => s.products);
   const fetchAllHarvestingReferenceData = useHarvestingDataStore(
@@ -103,6 +159,28 @@ export default function ProjectListPage() {
     }, 400);
     return () => clearTimeout(handle);
   }, [search]);
+
+  useEffect(() => {
+    const params = new URLSearchParams();
+    const q = debouncedSearch.trim();
+    if (q) params.set("q", q);
+    if (countryFilterIds.length) params.set("country", countryFilterIds.join(","));
+    if (farmFilterIds.length) params.set("farm", farmFilterIds.join(","));
+    if (grassFilterIds.length) params.set("grass", grassFilterIds.join(","));
+    params.set("status", statusFilterValues.join(","));
+    const qs = params.toString();
+    if (urlSearchParamsEquivalent(qs, searchParams)) return;
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  }, [
+    countryFilterIds,
+    debouncedSearch,
+    farmFilterIds,
+    grassFilterIds,
+    pathname,
+    router,
+    searchParams,
+    statusFilterValues,
+  ]);
 
   useEffect(() => {
     let mounted = true;
@@ -179,7 +257,6 @@ export default function ProjectListPage() {
         }
       }
     }
-
     const mergedRows = rows.map((data) => {
       const rowId = String(data.row_id ?? data.id ?? "").trim();
       const rowData =
@@ -213,12 +290,17 @@ export default function ProjectListPage() {
         countryFilterIds.length === 0 ||
         countryFilterIds.includes(String(rec.country_id ?? "").trim()) ||
         (recProjectId ? allowedProjectIdsByCountry.has(recProjectId) : false);
+      const farmOk =
+        farmFilterIds.length === 0 ||
+        farmFilterIds.some((id) =>
+          rowHasFarmInSubitems(data as MondayProjectServerRow, id),
+        );
       const grassOk =
         grassFilterIds.length === 0 ||
         grassFilterIds.some((id) => rowHasGrassProduct(data as MondayProjectServerRow, id));
-      return countryOk && grassOk;
+      return countryOk && farmOk && grassOk;
     });
-  }, [rows, countryFilterIds, grassFilterIds]);
+  }, [rows, countryFilterIds, farmFilterIds, grassFilterIds]);
 
   const projectTitleMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -294,6 +376,17 @@ export default function ProjectListPage() {
     return list;
   }, [productsRef]);
 
+  const farmOptions = useMemo(() => {
+    const list = toRecArray(farmsRef)
+      .map((r) => ({
+        id: String(r.id ?? "").trim(),
+        name: String(r.name ?? r.title ?? "").trim(),
+      }))
+      .filter((x) => x.id && x.name);
+    list.sort((a, b) => a.name.localeCompare(b.name));
+    return list;
+  }, [farmsRef]);
+
   return (
     <RequireAuth>
       <DashboardLayout>
@@ -339,7 +432,7 @@ export default function ProjectListPage() {
               <Search className="pointer-events-none absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" />
             </div>
 
-            <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-4">
 
               <div className="flex w-full items-center gap-1">
                 <MultiSelect
@@ -347,6 +440,21 @@ export default function ProjectListPage() {
                   values={countryFilterIds}
                   onChange={setCountryFilterIds}
                   placeholder="All countries"
+                  rightIcon={
+                    <>
+                      <AlignLeft className="h-3.5 w-3.5" />
+                      <ArrowDown className="h-3.5 w-3.5" />
+                    </>
+                  }
+                />
+              </div>
+
+              <div className="flex w-full items-center gap-1">
+                <MultiSelect
+                  options={farmOptions.map((f) => ({ value: f.id, label: f.name }))}
+                  values={farmFilterIds}
+                  onChange={setFarmFilterIds}
+                  placeholder="All farms"
                   rightIcon={
                     <>
                       <AlignLeft className="h-3.5 w-3.5" />
@@ -421,7 +529,7 @@ export default function ProjectListPage() {
                       rowData,
                     );
                     router.push(
-                      `/projects/detail?rowId=${encodeURIComponent(args.rowId ?? "")}&tableId=${encodeURIComponent(args.tableId ?? "")}`,
+                      `/projects/detail?rowId=${encodeURIComponent(args.rowId ?? "")}&tableId=${encodeURIComponent(args.tableId ?? "")}&returnTo=${encodeURIComponent(returnTo)}`,
                     );
                   }}
                 />

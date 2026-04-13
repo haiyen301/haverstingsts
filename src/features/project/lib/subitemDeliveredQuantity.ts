@@ -19,7 +19,7 @@ export function isValidHarvestRelatedDate(raw: unknown): boolean {
   return !Number.isNaN(d.getTime());
 }
 
-/** Server / `project_harvesting_plan`: only rows with real `actual_harvest_date` count toward Done. */
+/** Server / `project_harvesting_plan`: rows with real `actual_harvest_date`. */
 export function isValidActualHarvestDate(raw: unknown): boolean {
   const s = String(raw ?? "").trim();
   if (!s || s === "0000-00-00" || s.toLowerCase() === "null") return false;
@@ -55,20 +55,11 @@ export function normalizeUomForHarvestMatch(uom: unknown): string {
     .replace(/\s+/g, "");
 }
 
-/**
- * Count quantity toward delivered when the load is confirmed by either:
- * - `delivery_harvest_date` (delivered / scheduled to site), or
- * - `actual_harvest_date` (harvest done; delivery date may still be empty).
- * Quantity: prefer `quantity_harvested` when > 0, else `quantity`.
- */
+/** Count quantity toward delivered only when `delivery_harvest_date` is valid. */
 export function getSubitemDeliveredQuantity(subitem: SubitemLike): number {
   const s = subitem as Record<string, unknown>;
   const deliveryOk = isValidHarvestRelatedDate(s.delivery_harvest_date);
-  const actualOk = isValidHarvestRelatedDate(s.actual_harvest_date);
-  // Either date is enough (OR). Only skip when neither is set / valid.
-  if (!(deliveryOk || actualOk)) return 0;
-  const harvested = parseNumber(s.quantity_harvested);
-  if (harvested > 0) return harvested;
+  if (!deliveryOk) return 0;
   return parseNumber(s.quantity);
 }
 
@@ -97,17 +88,15 @@ export function calculateDeliveredQuantity(
   return total;
 }
 
-function subitemQtyIfActualOnly(s: Record<string, unknown>): number {
-  if (!isValidActualHarvestDate(s.actual_harvest_date)) return 0;
-  const harvested = parseNumber(s.quantity_harvested);
-  if (harvested > 0) return harvested;
+function subitemQtyIfDeliveredOnly(s: Record<string, unknown>): number {
+  if (!isValidHarvestRelatedDate(s.delivery_harvest_date)) return 0;
   return parseNumber(s.quantity);
 }
 
 /**
- * Sum like PHP `_mondaySubitemHarvestQtyCountedIfActual` / plan rows with `actual_harvest_date` only.
+ * Sum like PHP `_mondaySubitemHarvestQtyCountedIfDelivered` (delivery_harvest_date only).
  */
-export function calculateDeliveredQuantityActualHarvestOnly(
+export function calculateDeliveredQuantityDeliveryOnly(
   subitems: ReadonlyArray<SubitemLike>,
   productId?: string,
   uom?: string,
@@ -124,7 +113,7 @@ export function calculateDeliveredQuantityActualHarvestOnly(
       const su = normalizeUomForHarvestMatch(s.uom);
       if (su !== uomNorm) continue;
     }
-    total += subitemQtyIfActualOnly(s);
+    total += subitemQtyIfDeliveredOnly(s);
   }
   return total;
 }
@@ -167,6 +156,36 @@ export function hasAnyActualHarvestMatchingRequirementLines(
       if (!subitemBelongsToHarvestProject(s, harvestProjectId)) continue;
       if (!subitemMatchesRequirementHarvestLine(s, pid, requiredUomNorm, allowBlankSubitemUom)) continue;
       if (isValidActualHarvestDate(s.actual_harvest_date)) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * True if some subitem has `delivery_harvest_date` and matches a requirement line by product_id + UOM
+ * on the same `harvestProjectId` when provided.
+ */
+export function hasAnyDeliveryHarvestMatchingRequirementLines(
+  subitems: ReadonlyArray<SubitemLike>,
+  requirements: ReadonlyArray<QuantityRequiredProject>,
+  harvestProjectId?: string,
+): boolean {
+  const lineCountByProductId: Record<string, number> = {};
+  for (const r of requirements) {
+    const p = String(r.product_id ?? "").trim();
+    if (p) lineCountByProductId[p] = (lineCountByProductId[p] ?? 0) + 1;
+  }
+  for (const r of requirements) {
+    const pid = String(r.product_id ?? "").trim();
+    if (!pid) continue;
+    if (effectiveRequiredQuantity(r) <= 0) continue;
+    const requiredUomNorm = normalizeUomForHarvestMatch(r.uom);
+    const allowBlankSubitemUom = (lineCountByProductId[pid] ?? 0) === 1;
+    for (const item of subitems) {
+      const s = item as Record<string, unknown>;
+      if (!subitemBelongsToHarvestProject(s, harvestProjectId)) continue;
+      if (!subitemMatchesRequirementHarvestLine(s, pid, requiredUomNorm, allowBlankSubitemUom)) continue;
+      if (isValidHarvestRelatedDate(s.delivery_harvest_date)) return true;
     }
   }
   return false;

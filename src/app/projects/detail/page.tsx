@@ -9,6 +9,8 @@ import {
   MapPin,
   Calendar,
   Image as ImageIcon,
+  Trash2,
+  Filter,
 } from "lucide-react";
 
 import RequireAuth from "@/features/auth/RequireAuth";
@@ -18,6 +20,7 @@ import {
   fetchMondayProjectRowsFromServer,
   type MondayProjectServerRow,
 } from "@/entities/projects";
+import { deleteMondayParentOrSubItem } from "@/entities/projects/api/projectsApi";
 import { stsProxyGetHarvestingIndex } from "@/shared/api/stsProxyClient";
 import {
   HARVEST_ATTACHMENT_SOURCES,
@@ -27,7 +30,7 @@ import {
 import { formatDateDisplay, isValidDate } from "@/shared/lib/format/date";
 import { zoneIdToLabel } from "@/shared/lib/harvestReferenceData";
 import { parseJsonMaybe, parseSubitems } from "@/shared/lib/parseJsonMaybe";
-import { calculateDeliveredQuantityActualHarvestOnly } from "@/features/project/lib/subitemDeliveredQuantity";
+import { calculateDeliveredQuantityDeliveryOnly } from "@/features/project/lib/subitemDeliveredQuantity";
 import { effectiveRequiredQuantityFromRecord } from "@/features/project/lib/effectiveRequirementQuantity";
 import { iconPaths } from "@/lib/assets/images";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
@@ -35,6 +38,7 @@ import { SortableTh } from "@/components/ui/sortable-th";
 import { useTableColumnSort } from "@/shared/hooks/useTableColumnSort";
 import { compareNumbers, compareStrings } from "@/shared/lib/tableSort";
 import { translateProjectType } from "@/features/project/lib/projectTypeDisplay";
+import { DatePicker } from "@/shared/ui/date-picker";
 import { Swiper, SwiperSlide } from "swiper/react";
 import { FreeMode } from "swiper/modules";
 import { Fancybox } from "@fancyapps/ui";
@@ -55,9 +59,14 @@ type GrassSortKey = "name" | "required" | "delivered" | "remaining" | "progress"
 
 type HarvestRow = {
   id: string;
+  /** Monday / dynamic table id for `react_delete_parent_or_sub_item`. */
+  tableId: string;
+  tableName: string;
   productId: string;
   uom: string;
   status: "done" | "progressing";
+  /** ISO yyyy-mm-dd for date-range filter. */
+  filterDate: string;
   date: string;
   grass: string;
   zone: string;
@@ -101,6 +110,9 @@ type HarvestMapCtx = {
   remainingByProductUom: Map<string, number>;
   unitByProductUom: Map<string, string>;
   productMap: Map<string, string>;
+  /** Subitem rows may omit `table_id`; use parent project row as fallback. */
+  defaultTableId?: string;
+  defaultTableName?: string;
 };
 
 /**
@@ -152,11 +164,27 @@ function mapHarvestRecordToHarvestRow(
   const grass =
     grassName || ctx.productMap.get(productId) || "-";
 
+  const tableId =
+    String(r.table_id ?? "").trim() || String(ctx.defaultTableId ?? "").trim();
+  const tableNameRaw = String(r.table_name ?? "").trim();
+  const tableName =
+    tableNameRaw ||
+    String(ctx.defaultTableName ?? "").trim() ||
+    "Harvesting";
+  const filterDate = isValidDate(actual)
+    ? actual.slice(0, 10)
+    : isValidDate(estimated)
+      ? estimated.slice(0, 10)
+      : "";
+
   return {
     id: String(r.id ?? ""),
+    tableId,
+    tableName,
     productId,
     uom: uomRaw,
     status,
+    filterDate,
     date: formatDateDisplay(isValidDate(actual) ? actual : estimated),
     grass,
     zone:
@@ -175,6 +203,20 @@ function mapHarvestRecordToHarvestRow(
   };
 }
 
+function safeProjectsListHref(raw: string | null | undefined): string {
+  const fallback = "/projects";
+  const s0 = String(raw ?? "").trim();
+  if (!s0) return fallback;
+  let s = s0;
+  try {
+    s = decodeURIComponent(s0);
+  } catch {
+    s = s0;
+  }
+  if (!s.startsWith("/projects") || s.startsWith("//")) return fallback;
+  return s;
+}
+
 function subitemLooksLikeHarvestLine(sub: Record<string, unknown>): boolean {
   const actual = String(sub.actual_harvest_date ?? "").trim();
   const delivery = String(sub.delivery_harvest_date ?? "").trim();
@@ -188,6 +230,14 @@ function subitemLooksLikeHarvestLine(sub: Record<string, unknown>): boolean {
   );
 }
 
+function normalizeDateFilterInput(v: string): string {
+  const s = v.trim().replace(/\//g, "-");
+  if (!s) return "";
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (!m) return "";
+  return `${m[1]}-${m[2]}-${m[3]}`;
+}
+
 export default function ProjectDetailPage() {
   // Namespace-scoped translators: `useTranslations()` without a namespace + dynamic
   // `ProjectDetail.${key}` can fail to resolve some nested keys in next-intl 4 (fallback shows
@@ -195,6 +245,8 @@ export default function ProjectDetailPage() {
   const t = useAppTranslations("ProjectDetail");
   const tForm = useAppTranslations("HarvestForm");
   const tProjectForm = useAppTranslations("ProjectForm");
+  const tBase = useAppTranslations();
+  const tCommon = (key: string) => tBase(`Common.${key}`);
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -204,6 +256,11 @@ export default function ProjectDetailPage() {
     const query = searchParams.toString();
     return query ? `${pathname}?${query}` : pathname;
   }, [pathname, searchParams]);
+
+  const projectsListBackHref = useMemo(
+    () => safeProjectsListHref(searchParams.get("returnTo")),
+    [searchParams],
+  );
 
   const projectsRef = useHarvestingDataStore((s) => s.projects);
   const countriesRef = useHarvestingDataStore((s) => s.countries);
@@ -218,6 +275,15 @@ export default function ProjectDetailPage() {
   const [projectRow, setProjectRow] = useState<MondayProjectServerRow | null>(null);
   const [harvests, setHarvests] = useState<HarvestRow[]>([]);
   const [expandedHarvestId, setExpandedHarvestId] = useState<string | null>(null);
+  const [harvestDeleteTarget, setHarvestDeleteTarget] = useState<HarvestRow | null>(
+    null,
+  );
+  const [harvestDeleting, setHarvestDeleting] = useState(false);
+  const [harvestDeleteError, setHarvestDeleteError] = useState<string | null>(null);
+  const [harvestFilterOpen, setHarvestFilterOpen] = useState(false);
+  const [harvestGrassFilter, setHarvestGrassFilter] = useState("");
+  const [harvestDateFrom, setHarvestDateFrom] = useState("");
+  const [harvestDateTo, setHarvestDateTo] = useState("");
   const currentProjectId = useMemo(
     () => String(projectRow?.project_id ?? "").trim(),
     [projectRow],
@@ -309,7 +375,7 @@ export default function ProjectDetailPage() {
             const reqUomRaw = String(req.uom ?? "").trim();
             const reqUomKey = normalizeUomKey(reqUomRaw);
             const required = effectiveRequiredQuantityFromRecord(req as Record<string, unknown>);
-            const delivered = calculateDeliveredQuantityActualHarvestOnly(
+            const delivered = calculateDeliveredQuantityDeliveryOnly(
               projectSubitems,
               productId,
               reqUomRaw,
@@ -328,25 +394,35 @@ export default function ProjectDetailPage() {
           });
           if (!mounted) return;
           const farmZonesForLabels = useHarvestingDataStore.getState().farmZones;
-          const mapCtx: HarvestMapCtx = {
+          const fallbackTableId = String(row.table_id ?? tableId ?? "").trim();
+          const fallbackTableName =
+            String(row.table_name ?? "Harvesting").trim() || "Harvesting";
+          const mapCtxBase: HarvestMapCtx = {
             farmZones: farmZonesForLabels,
             remainingByProductUom,
             unitByProductUom,
             productMap,
+            defaultTableId: fallbackTableId,
+            defaultTableName: fallbackTableName,
           };
           const fromPlan: HarvestRow[] = h.rows
             .filter((x): x is Record<string, unknown> => !!x && typeof x === "object")
-            .map((r) => mapHarvestRecordToHarvestRow(r, mapCtx));
+            .map((r) => mapHarvestRecordToHarvestRow(r, mapCtxBase));
           const planIds = new Set(
             fromPlan.map((x) => x.id).filter((id) => id !== ""),
           );
+          const mapCtxSub: HarvestMapCtx = {
+            ...mapCtxBase,
+            defaultTableId: fallbackTableId,
+            defaultTableName: fallbackTableName,
+          };
           const fromSubitemsOnly: HarvestRow[] = projectSubitems
             .filter((sub) => {
               const sid = String(sub.id ?? "").trim();
               if (sid && planIds.has(sid)) return false;
               return subitemLooksLikeHarvestLine(sub);
             })
-            .map((sub) => mapHarvestRecordToHarvestRow(sub, mapCtx));
+            .map((sub) => mapHarvestRecordToHarvestRow(sub, mapCtxSub));
           setHarvests([...fromPlan, ...fromSubitemsOnly]);
         }
       } catch (e) {
@@ -437,7 +513,7 @@ export default function ProjectDetailPage() {
       const productId = String(r.product_id ?? "").trim();
       const uom = String(r.uom ?? "").trim();
       const required = effectiveRequiredQuantityFromRecord(r as Record<string, unknown>);
-      const delivered = calculateDeliveredQuantityActualHarvestOnly(
+      const delivered = calculateDeliveredQuantityDeliveryOnly(
         subitems,
         productId,
         uom,
@@ -483,6 +559,65 @@ export default function ProjectDetailPage() {
     return list;
   }, [grassRows, sortKey, sortDir]);
 
+  const harvestGrassOptions = useMemo(() => {
+    return Array.from(
+      new Set(
+        harvests
+          .map((h) => h.grass.trim())
+          .filter(Boolean),
+      ),
+    ).sort((a, b) => a.localeCompare(b));
+  }, [harvests]);
+
+  const filteredHarvests = useMemo(() => {
+    const fromIso = normalizeDateFilterInput(harvestDateFrom);
+    const toIso = normalizeDateFilterInput(harvestDateTo);
+    return harvests.filter((h) => {
+      if (harvestGrassFilter && h.grass !== harvestGrassFilter) return false;
+      if (fromIso && h.filterDate && h.filterDate < fromIso) return false;
+      if (toIso && h.filterDate && h.filterDate > toIso) return false;
+      if ((fromIso || toIso) && !h.filterDate) return false;
+      return true;
+    });
+  }, [harvestDateFrom, harvestDateTo, harvestGrassFilter, harvests]);
+  const hasActiveHarvestFilters = Boolean(
+    harvestGrassFilter.trim() ||
+      normalizeDateFilterInput(harvestDateFrom) ||
+      normalizeDateFilterInput(harvestDateTo),
+  );
+
+  const canDeleteHarvestRow = (h: HarvestRow) =>
+    Boolean(String(h.id ?? "").trim());
+
+  const onConfirmDeleteHarvestFromDetail = async () => {
+    const target = harvestDeleteTarget;
+    if (!target?.id?.trim() || !target.tableId?.trim()) {
+      setHarvestDeleteError(t("deleteHarvestMissingIds"));
+      setHarvestDeleteTarget(null);
+      return;
+    }
+    try {
+      setHarvestDeleting(true);
+      setHarvestDeleteError(null);
+      await deleteMondayParentOrSubItem({
+        tableId: target.tableId,
+        tableName: target.tableName.trim() || "Harvesting",
+        rowId: target.id,
+        type: "sub",
+      });
+      const removedId = target.id;
+      setHarvestDeleteTarget(null);
+      setHarvests((prev) => prev.filter((x) => x.id !== removedId));
+      setExpandedHarvestId((cur) => (cur === removedId ? null : cur));
+    } catch (e) {
+      setHarvestDeleteError(
+        e instanceof Error ? e.message : t("deleteHarvestFailed"),
+      );
+    } finally {
+      setHarvestDeleting(false);
+    }
+  };
+
   return (
     <RequireAuth>
       <DashboardLayout>
@@ -490,7 +625,7 @@ export default function ProjectDetailPage() {
           <div className="mb-6 flex items-center justify-between gap-4">
             <button
               type="button"
-              onClick={() => router.push("/projects")}
+              onClick={() => router.push(projectsListBackHref)}
               className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
             >
               <ArrowLeft className="h-4 w-4" />
@@ -662,11 +797,71 @@ export default function ProjectDetailPage() {
                   </button>
                 </div>
                 <div className="p-6 lg:p-8">
+                  {harvestDeleteError ? (
+                    <p className="mb-3 text-sm text-red-600" role="alert">
+                      {harvestDeleteError}
+                    </p>
+                  ) : null}
+                  <div className="mb-4 flex justify-between gap-2">
+                    {hasActiveHarvestFilters ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setHarvestGrassFilter("");
+                          setHarvestDateFrom("");
+                          setHarvestDateTo("");
+                        }}
+                        className="inline-flex items-center rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                      >
+                        {t("clearFilters")}
+                      </button>
+                    ) : (
+                      <div />
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setHarvestFilterOpen((v) => !v)}
+                      className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                    >
+                      <span>{t("filter")}</span>
+                      <Filter className="h-4 w-4" />
+                    </button>
+                  </div>
+                  {harvestFilterOpen ? (
+                    <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+                      <select
+                        value={harvestGrassFilter}
+                        onChange={(e) => setHarvestGrassFilter(e.target.value)}
+                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                      >
+                        <option value="">{t("allGrassTypes")}</option>
+                        {harvestGrassOptions.map((g) => (
+                          <option key={g} value={g}>
+                            {g}
+                          </option>
+                        ))}
+                      </select>
+                      <DatePicker
+                        value={normalizeDateFilterInput(harvestDateFrom)}
+                        onChange={setHarvestDateFrom}
+                        placeholder={t("fromDate")}
+                        className="h-[42px]"
+                      />
+                      <DatePicker
+                        value={normalizeDateFilterInput(harvestDateTo)}
+                        onChange={setHarvestDateTo}
+                        placeholder={t("toDate")}
+                        className="h-[42px]"
+                      />
+                    </div>
+                  ) : null}
                   {harvests.length === 0 ? (
                     <p className="text-sm text-gray-600">{t("noHarvestRecords")}</p>
+                  ) : filteredHarvests.length === 0 ? (
+                    <p className="text-sm text-gray-600">{t("noHarvestRecordsFiltered")}</p>
                   ) : (
                     <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-                      {harvests.map((h, idx) => {
+                      {filteredHarvests.map((h, idx) => {
                         const isExpanded = expandedHarvestId === h.id;
                         return (
                           <div
@@ -696,23 +891,24 @@ export default function ProjectDetailPage() {
                               </span>
                             </div>
 
-                            <div className="absolute right-3 top-1 flex items-center gap-3">
-                              {isExpanded ? (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    router.push(
-                                      `/harvest/new?id=${encodeURIComponent(h.id)}&returnTo=${encodeURIComponent(returnTo)}`,
-                                    )
-                                  }
-                                  className="rounded-lg p-2 text-[#5a7d3c] transition-colors hover:bg-green-50"
-                                >
-                                  <svg width="20" height="20" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                    <path d="M2.25 14.5H8.55H14.5M0.5 13.268V10.608L10.4159 1.06225C10.7907 0.701519 11.2906 0.5 11.8107 0.5H12.1203C13.1081 0.5 13.8925 1.33059 13.8362 2.31671C13.8128 2.72543 13.6444 3.11239 13.3611 3.40793L4.42 12.736L1.13147 13.7774C1.0841 13.7924 1.03472 13.8 0.985037 13.8C0.717158 13.8 0.5 13.5826 0.5 13.3148C0.5 13.1198 0.5 13.0218 0.5 13.268Z" stroke="#1f7a4c" />
-                                  </svg>
+                            <div className="absolute right-3 top-1 flex items-center">
+                              {/* {isExpanded ? ( */}
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  router.push(
+                                    `/harvest/new?id=${encodeURIComponent(h.id)}&returnTo=${encodeURIComponent(returnTo)}`,
+                                  )
+                                }
+                                className="rounded-lg p-2 text-[#5a7d3c] transition-colors hover:bg-green-50"
+                              >
+                                <svg width="20" height="20" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                  <path d="M2.25 14.5H8.55H14.5M0.5 13.268V10.608L10.4159 1.06225C10.7907 0.701519 11.2906 0.5 11.8107 0.5H12.1203C13.1081 0.5 13.8925 1.33059 13.8362 2.31671C13.8128 2.72543 13.6444 3.11239 13.3611 3.40793L4.42 12.736L1.13147 13.7774C1.0841 13.7924 1.03472 13.8 0.985037 13.8C0.717158 13.8 0.5 13.5826 0.5 13.3148C0.5 13.1198 0.5 13.0218 0.5 13.268Z" stroke="#1f7a4c" />
+                                </svg>
 
-                                </button>
-                              ) : null}
+                              </button>
+                              {/* ) : null} */}
+
                               <button
                                 type="button"
                                 onClick={() => setExpandedHarvestId(isExpanded ? null : h.id)}
@@ -732,7 +928,6 @@ export default function ProjectDetailPage() {
                                 )}
                               </button>
 
-
                             </div>
 
                             {isExpanded ? (
@@ -742,11 +937,11 @@ export default function ProjectDetailPage() {
                                   <p>
                                     <span className="inline-block w-[110px] text-gray-500">{t("quantity")} </span>
                                     {h.quantity}
-                                   
+
                                     <span className="mt-1 ml-[110px] block text-xs text-gray-500">
                                       {t("Remqty")} {h.remainingQuantityDisplay ? h.remainingQuantityDisplay : '-'}
                                     </span>
-                                    
+
                                   </p>
                                   <p>
                                     <span className="inline-block w-[110px] text-gray-500 align-top">
@@ -767,7 +962,7 @@ export default function ProjectDetailPage() {
                                   <p><span className="inline-block w-[110px] text-gray-500">{t("zone")} </span>{h.zone}</p>
                                   <p><span className="inline-block w-[110px] text-gray-500">{t("displayDate")} </span>{h.date}</p>
 
-                                  
+
                                 </div>
                                 <div className="grid grid-cols-1 gap-3 border-b border-gray-200 pb-4 sm:grid-cols-2">
                                   <p><span className="inline-block w-[110px] text-gray-500">{t("estimateDate")} </span>{h.estimatedDate}</p>
@@ -827,6 +1022,27 @@ export default function ProjectDetailPage() {
                                     ))}
                                   </Swiper>
                                 </div>
+                                <div className="flex justify-end">
+                                  {isExpanded ? (
+                                    <button
+                                      type="button"
+                                      disabled={!canDeleteHarvestRow(h)}
+                                      title={
+                                        canDeleteHarvestRow(h)
+                                          ? t("deleteHarvestAria")
+                                          : t("deleteHarvestUnavailable")
+                                      }
+                                      aria-label={t("deleteHarvestAria")}
+                                      onClick={() => {
+                                        setHarvestDeleteError(null);
+                                        setHarvestDeleteTarget(h);
+                                      }}
+                                      className="flex gap-2 border rounded-lg p-2 text-gray-300 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
+                                    >
+                                      <Trash2 className="h-5 w-5" /> Delete
+                                    </button>
+                                  ) : null}
+                                </div>
                               </div>
                             ) : (
                               <div className="space-y-2 text-sm">
@@ -847,6 +1063,52 @@ export default function ProjectDetailPage() {
           )}
         </div>
       </DashboardLayout>
+
+      {harvestDeleteTarget ? (
+        <div
+          className="fixed inset-0 z-70 flex items-center justify-center bg-black/40 p-4"
+          role="presentation"
+          onClick={() => {
+            if (!harvestDeleting) setHarvestDeleteTarget(null);
+          }}
+        >
+          <div
+            className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="delete-harvest-detail-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2
+              id="delete-harvest-detail-title"
+              className="text-lg font-semibold text-gray-900"
+            >
+              {t("confirmDeleteHarvestTitle")}
+            </h2>
+            <p className="mt-2 text-sm text-gray-600">
+              {t("confirmDeleteHarvestMessage")}
+            </p>
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-lg px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
+                onClick={() => setHarvestDeleteTarget(null)}
+                disabled={harvestDeleting}
+              >
+                {tCommon("cancel")}
+              </button>
+              <button
+                type="button"
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-60"
+                onClick={() => void onConfirmDeleteHarvestFromDetail()}
+                disabled={harvestDeleting}
+              >
+                {harvestDeleting ? t("deletingHarvest") : tCommon("delete")}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </RequireAuth>
   );
 }

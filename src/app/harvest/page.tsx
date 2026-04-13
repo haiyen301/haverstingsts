@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   Search,
   Plus,
@@ -109,6 +109,24 @@ function toCsvFilter(values: string[]): string {
   return Array.from(new Set(values.map((x) => String(x).trim()).filter(Boolean))).join(",");
 }
 
+function parsePageParam(v: string | null): number {
+  const n = parseInt(String(v ?? "").trim(), 10);
+  return Number.isFinite(n) && n >= 1 ? n : 1;
+}
+
+function urlSearchParamsEquivalent(
+  builtQs: string,
+  current: Pick<URLSearchParams, "toString" | "keys" | "get">,
+): boolean {
+  const a = new URLSearchParams(builtQs);
+  const b = new URLSearchParams(current.toString());
+  const keys = new Set([...a.keys(), ...b.keys()]);
+  for (const k of keys) {
+    if ((a.get(k) ?? "") !== (b.get(k) ?? "")) return false;
+  }
+  return true;
+}
+
 type HarvestSortKey =
   | "date"
   | "project"
@@ -143,7 +161,7 @@ function normalizeHarvestRow(raw: unknown): HarvestListRow | null {
 export default function HarvestListPage() {
   const router = useRouter();
   const pathname = usePathname();
-  const returnTo = pathname || "/harvest";
+  const searchParams = useSearchParams();
   const farms = useHarvestingDataStore((s) => s.farms);
   const projects = useHarvestingDataStore((s) => s.projects);
   const farmZones = useHarvestingDataStore((s) => s.farmZones);
@@ -183,6 +201,69 @@ export default function HarvestListPage() {
   const [totalM2, setTotalM2] = useState("0");
   const [totalKg, setTotalKg] = useState("0");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+
+  useLayoutEffect(() => {
+    const q = searchParams.get("q") ?? "";
+    const farm = searchParams.get("farm") ?? "";
+    const project = searchParams.get("project") ?? "";
+    const status = searchParams.get("status") ?? "";
+    const p = parsePageParam(searchParams.get("page"));
+    setHarvestListSearch(q);
+    setHarvestListFarmFilter(farm);
+    setHarvestListProjectFilter(project);
+    setHarvestListStatusFilter(status);
+    setPage(p);
+    setDebouncedSearch(q.trim());
+  }, [
+    searchParams,
+    setHarvestListFarmFilter,
+    setHarvestListProjectFilter,
+    setHarvestListSearch,
+    setHarvestListStatusFilter,
+  ]);
+
+  const returnTo = useMemo(() => {
+    const params = new URLSearchParams();
+    const q = harvestListSearch.trim();
+    if (q) params.set("q", q);
+    if (harvestListFarmFilter.trim()) params.set("farm", harvestListFarmFilter.trim());
+    if (harvestListProjectFilter.trim()) params.set("project", harvestListProjectFilter.trim());
+    if (harvestListStatusFilter.trim()) params.set("status", harvestListStatusFilter.trim());
+    if (page > 1) params.set("page", String(page));
+    const qs = params.toString();
+    const base = pathname || "/harvest";
+    return qs ? `${base}?${qs}` : base;
+  }, [
+    harvestListFarmFilter,
+    harvestListProjectFilter,
+    harvestListSearch,
+    harvestListStatusFilter,
+    page,
+    pathname,
+  ]);
+
+  useEffect(() => {
+    const params = new URLSearchParams();
+    const q = harvestListSearch.trim();
+    if (q) params.set("q", q);
+    if (harvestListFarmFilter.trim()) params.set("farm", harvestListFarmFilter.trim());
+    if (harvestListProjectFilter.trim()) params.set("project", harvestListProjectFilter.trim());
+    if (harvestListStatusFilter.trim()) params.set("status", harvestListStatusFilter.trim());
+    if (page > 1) params.set("page", String(page));
+    const qs = params.toString();
+    if (urlSearchParamsEquivalent(qs, searchParams)) return;
+    const base = pathname || "/harvest";
+    router.replace(qs ? `${base}?${qs}` : base, { scroll: false });
+  }, [
+    harvestListFarmFilter,
+    harvestListProjectFilter,
+    harvestListSearch,
+    harvestListStatusFilter,
+    page,
+    pathname,
+    router,
+    searchParams,
+  ]);
 
   const { sortKey, sortDir, onSort } = useTableColumnSort<HarvestSortKey>(
     "date",

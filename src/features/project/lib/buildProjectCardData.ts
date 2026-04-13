@@ -11,7 +11,8 @@ import type {
 } from "@/entities/projects";
 import { parseJsonMaybe } from "./parseJson";
 import {
-  calculateDeliveredQuantityActualHarvestOnly,
+  calculateDeliveredQuantityDeliveryOnly,
+  hasAnyDeliveryHarvestMatchingRequirementLines,
   hasAnyActualHarvestMatchingRequirementLines,
 } from "./subitemDeliveredQuantity";
 import { effectiveRequiredQuantity } from "./effectiveRequirementQuantity";
@@ -161,8 +162,7 @@ function shouldWarnDeadlineShortfall(deadlineRaw: unknown): boolean {
 }
 
 /**
- * Fallback when API omits status: mirrors server plan rules using subitems only
- * (actual_harvest_date for Future or Done; Warning when deadline day has passed and short).
+ * Fallback when API omits status: mirrors server plan rules.
  */
 function computeMondayStatus(
   subitems: SubItem[],
@@ -182,10 +182,7 @@ function computeMondayStatus(
     if (harvestPlanStarted === false) {
       return "Future";
     }
-    const subitemGate =
-      harvestPlanStarted === true ||
-      hasAnyActualHarvestMatchingRequirementLines(subitems, requirements, harvestProjectId);
-    if (!subitemGate) {
+    if (harvestPlanStarted == null && !hasAnyDeliveryHarvestMatchingRequirementLines(subitems, requirements, harvestProjectId)) {
       return "Future";
     }
   } else {
@@ -204,7 +201,7 @@ function computeMondayStatus(
     const requiredQty = effectiveRequiredQuantity(r);
     if (!pid || requiredQty <= 0) continue;
     anyEvaluated = true;
-    const delivered = calculateDeliveredQuantityActualHarvestOnly(
+    const delivered = calculateDeliveredQuantityDeliveryOnly(
       subitems,
       r.product_id,
       r.uom,
@@ -216,6 +213,14 @@ function computeMondayStatus(
     }
   }
   if (anyEvaluated && allDone) return "Done";
+
+  // Business rule: actual date without delivery date remains Ongoing (never Warning).
+  if (
+    hasAnyActualHarvestMatchingRequirementLines(subitems, requirements, harvestProjectId) &&
+    !hasAnyDeliveryHarvestMatchingRequirementLines(subitems, requirements, harvestProjectId)
+  ) {
+    return "Ongoing";
+  }
 
   if (shouldWarnDeadlineShortfall(deadlineRaw) && anyEvaluated && !allDone) return "Warning";
 
@@ -238,7 +243,7 @@ function calculateProgress(
     const required = effectiveRequiredQuantity(r);
     if (!pid || required <= 0) continue;
     totalRequired += required;
-    totalDelivered += calculateDeliveredQuantityActualHarvestOnly(
+    totalDelivered += calculateDeliveredQuantityDeliveryOnly(
       subitems,
       r.product_id,
       r.uom,
@@ -341,7 +346,7 @@ export function buildProjectDataFromServerRow(
 
   const items: ProjectItem[] = requirements.map((r) => {
     const requiredQty = effectiveRequiredQuantity(r);
-    const deliveredQty = calculateDeliveredQuantityActualHarvestOnly(
+    const deliveredQty = calculateDeliveredQuantityDeliveryOnly(
       subitems,
       r.product_id,
       r.uom,
@@ -374,7 +379,7 @@ export function buildProjectDataFromServerRow(
     endDate: endDate,
     image,
     progress,
-    /** API status; if API says Ongoing but subitems satisfy all lines, show Done (matches table / PHP max(plan, subitems)). */
+    /** API status; if API says Ongoing but delivery quantities satisfy all lines, show Done. */
     status: resolvedStatus,
     items,
     tags: [

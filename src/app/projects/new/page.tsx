@@ -8,7 +8,7 @@ import {
   type FormEvent,
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { MoreVertical, Plus, Trash2 } from "lucide-react";
+import { Check, MoreVertical, Plus, Trash2 } from "lucide-react";
 
 import RequireAuth from "@/features/auth/RequireAuth";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
@@ -55,11 +55,31 @@ type TopFieldErrors = Partial<
   >
 >;
 
-/** TEMP: bật `true` khi cần bắt buộc No. of holes & Key areas lại */
-const VALIDATE_HOLES_AND_KEY_AREAS = false;
-
 /** TEMP: tắt validate Company / Golf club / Architect / STS PIC (bật lại khi cần bắt buộc các trường này) */
 const VALIDATE_COMPANY_GOLF_ARCHITECT_PIC = false;
+
+const GOLF_COURSE_TYPES_REQUIRING_HOLES = [
+  "Golf Course - New",
+  "Golf Course - Renovation",
+] as const;
+const GOLF_COURSE_TYPES_REQUIRING_HOLES_NORMALIZED = new Set(
+  GOLF_COURSE_TYPES_REQUIRING_HOLES.map((v) => v.toLowerCase()),
+);
+
+const HOLE_OPTIONS = [
+  { value: "none", label: "None" },
+  { value: "9", label: "9" },
+  { value: "18", label: "18" },
+  { value: "27", label: "27" },
+  { value: "36", label: "36" },
+] as const;
+
+function normalizeHoleValue(raw: unknown): string {
+  const value = String(raw ?? "").trim();
+  if (!value) return "";
+  if (value.toLowerCase() === "none") return "none";
+  return value;
+}
 
 export default function ProjectInputPage() {
   const tBase = useAppTranslations();
@@ -68,9 +88,9 @@ export default function ProjectInputPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const editRowId = searchParams.get("rowId")?.trim() ?? "";
-  const editTableId = searchParams.get("tableId")?.trim() ?? "";
+  const editTableIdFromQuery = searchParams.get("tableId")?.trim() ?? "";
   const returnToParam = searchParams.get("returnTo")?.trim() ?? "";
-  const isEdit = Boolean(editRowId && editTableId);
+  const isEdit = Boolean(editRowId);
   const returnTarget = useMemo(() => {
     if (!returnToParam) return "/projects";
     let decoded = returnToParam;
@@ -101,6 +121,7 @@ export default function ProjectInputPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [defaultTableId, setDefaultTableId] = useState("");
+  const [editTableId, setEditTableId] = useState(editTableIdFromQuery);
   const [projectTypeError, setProjectTypeError] = useState<string | null>(null);
   const [holesError, setHolesError] = useState<string | null>(null);
   const [keyAreasError, setKeyAreasError] = useState<string | null>(null);
@@ -124,8 +145,7 @@ export default function ProjectInputPage() {
     actualStartDate: "",
     endDate: "",
     projectType: "",
-    /** Tạo mới: mặc định "none" (radio đầu tiên). Chỉnh sửa: `applyEditRow` ghi đè từ API. */
-    holes: "none",
+    holes: "",
     keyAreas: [] as string[],
   });
 
@@ -152,6 +172,10 @@ export default function ProjectInputPage() {
     return type;
   };
 
+  const requiresHoles = GOLF_COURSE_TYPES_REQUIRING_HOLES_NORMALIZED.has(
+    formData.projectType.trim().toLowerCase(),
+  );
+
   const projects = useHarvestingDataStore((s) => s.projects);
   const countries = useHarvestingDataStore((s) => s.countries);
   const staffs = useHarvestingDataStore((s) => s.staffs);
@@ -171,6 +195,10 @@ export default function ProjectInputPage() {
   useEffect(() => {
     if (!isEdit) setEditProjectIdForLabel("");
   }, [isEdit]);
+
+  useEffect(() => {
+    setEditTableId(editTableIdFromQuery);
+  }, [editTableIdFromQuery, editRowId]);
 
   /** When reference `projects` loads after the row, replace raw id in the name field with title. */
   useEffect(() => {
@@ -277,8 +305,8 @@ export default function ProjectInputPage() {
   }, [isEdit]);
 
   const addGrassRow = () => {
-    setGrassRows([
-      ...grassRows,
+    setGrassRows((prev) => [
+      ...prev,
       {
         id: Date.now().toString(),
         grass: "",
@@ -290,9 +318,10 @@ export default function ProjectInputPage() {
   };
 
   const removeGrassRow = (id: string) => {
-    if (grassRows.length > 1) {
-      setGrassRows(grassRows.filter((row) => row.id !== id));
-    }
+    setGrassRows((prev) => {
+      if (prev.length <= 1) return prev;
+      return prev.filter((row) => row.id !== id);
+    });
   };
 
   const updateGrassRow = (
@@ -300,8 +329,8 @@ export default function ProjectInputPage() {
     field: keyof GrassRow,
     value: string,
   ) => {
-    setGrassRows(
-      grassRows.map((row) => (row.id === id ? { ...row, [field]: value } : row)),
+    setGrassRows((prev) =>
+      prev.map((row) => (row.id === id ? { ...row, [field]: value } : row)),
     );
   };
 
@@ -417,6 +446,8 @@ export default function ProjectInputPage() {
     const titleFromRow = String(row.title ?? "").trim();
     const projectNameDisplay = fromList?.label ?? (titleFromRow || projectId);
     setEditTableName(String(row.table_name ?? "").trim());
+    const rowTableId = String(row.table_id ?? "").trim();
+    if (rowTableId) setEditTableId(rowTableId);
     setFormData({
       projectName: projectNameDisplay,
       golfClub: String(row.alias_title ?? "").trim(),
@@ -430,7 +461,7 @@ export default function ProjectInputPage() {
       actualStartDate: String((row as Record<string, unknown>).start_date ?? "").trim(),
       endDate: String(row.deadline ?? "").trim(),
       projectType: String(row.project_type ?? "").trim(),
-      holes: String(row.no_of_holes ?? "").trim(),
+      holes: normalizeHoleValue(row.no_of_holes),
       keyAreas: String(row.key_areas ?? "")
         .split(",")
         .map((x) => x.trim())
@@ -471,17 +502,12 @@ export default function ProjectInputPage() {
     const textFieldError = firstTopFieldError(topFieldErrors);
     const nextStartDateError =
       topFieldErrors.actualStartDate ?? topFieldErrors.estimateStartDate ?? null;
-    const nextProjectTypeError = !formData.projectType
-      ? t("validationSelectProjectType")
-      : null;
+    const nextProjectTypeError = null;
     const nextHolesError =
-      VALIDATE_HOLES_AND_KEY_AREAS && !formData.holes
+      requiresHoles && !formData.holes
         ? t("validationSelectHoles")
         : null;
-    const nextKeyAreasError =
-      VALIDATE_HOLES_AND_KEY_AREAS && !formData.keyAreas.length
-        ? t("validationSelectKeyAreas")
-        : null;
+    const nextKeyAreasError = null;
     setProjectTypeError(nextProjectTypeError);
     setHolesError(nextHolesError);
     setKeyAreasError(nextKeyAreasError);
@@ -501,7 +527,6 @@ export default function ProjectInputPage() {
     const firstError =
       textFieldError ??
       nextStartDateError ??
-      nextProjectTypeError ??
       nextHolesError ??
       nextKeyAreasError;
     if (firstError) {
@@ -554,6 +579,7 @@ export default function ProjectInputPage() {
       // `client_source: nextjs` + `project_name` triggers server-side project resolve/create only for
       // this app. Flutter sends `project_id` from its own flow and must not set `client_source`, or
       // duplicate `sts_projects` rows would be created.
+      const normalizedHoles = formData.holes.trim() || "none";
       const payload: Record<string, unknown> = {
         id: resolvedRowId,
         table_id: resolvedTableId,
@@ -569,7 +595,7 @@ export default function ProjectInputPage() {
           country_id: formData.country,
           pic: formData.stsPic,
           project_type: formData.projectType,
-          no_of_holes: formData.holes,
+          no_of_holes: normalizedHoles,
           key_areas: formData.keyAreas.join(","),
           quantity_required_sprig_sod: grassRows.map((r) => ({
             id: r.id,
@@ -876,23 +902,36 @@ export default function ProjectInputPage() {
               {t("projectType")}
             </label>
             <div
-              className="grid grid-cols-2 gap-3 rounded-lg border bg-white p-3"
+              className="grid grid-cols-1 gap-2 rounded-lg border bg-white p-3"
               style={{ borderColor: projectTypeError ? "#dc2626" : "#e5e7eb" }}
             >
               {projectTypeRadioValues.map((type) => (
-                <label key={type} className="flex items-center gap-2 text-sm text-gray-700">
-                  <input
-                    type="radio"
-                    name="projectType"
-                    checked={formData.projectType === type}
-                    onChange={() => {
-                      setFormData({ ...formData, projectType: type });
-                      setProjectTypeError(null);
-                    }}
-                    style={{ accentColor: "var(--color-primary)" }}
-                  />
-                  {labelForProjectTypeOption(type)}
-                </label>
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => {
+                    const nextType = formData.projectType === type ? "" : type;
+                    setFormData({ ...formData, projectType: nextType });
+                    setProjectTypeError(null);
+                    setHolesError(null);
+                  }}
+                  className="relative block cursor-pointer text-left"
+                >
+                  <span
+                    className={`flex min-h-11 items-center justify-center rounded-md border px-3 text-sm transition-colors ${
+                      formData.projectType === type
+                        ? "border-[var(--color-primary)] bg-white text-[var(--color-primary)]"
+                        : "border-transparent bg-gray-100 text-gray-700"
+                    }`}
+                  >
+                    {labelForProjectTypeOption(type)}
+                  </span>
+                  {formData.projectType === type ? (
+                    <span className="absolute left-1.5 top-1.5 inline-flex h-4 w-4 items-center justify-center rounded-full bg-[var(--color-primary)] text-white">
+                      <Check className="h-3 w-3" />
+                    </span>
+                  ) : null}
+                </button>
               ))}
             </div>
             {projectTypeError ? (
@@ -911,17 +950,32 @@ export default function ProjectInputPage() {
                   className="grid grid-cols-4 gap-2 rounded-md"
                   style={{ outline: holesError ? "1px solid #dc2626" : "none" }}
                 >
-                  {["none", "9", "18", "27", "36"].map((hole) => (
-                    <label key={hole} className="flex items-center gap-1 text-sm">
-                      <input
-                        type="radio"
-                        name="holes"
-                        checked={formData.holes === hole}
-                        onChange={() => setFormData({ ...formData, holes: hole })}
-                        style={{ accentColor: "var(--color-primary)" }}
-                      />
-                      {hole}
-                    </label>
+                  {HOLE_OPTIONS.map((hole) => (
+                    <button
+                      key={hole.value}
+                      type="button"
+                      onClick={() => {
+                        const nextHoles = formData.holes === hole.value ? "" : hole.value;
+                        setFormData({ ...formData, holes: nextHoles });
+                        setHolesError(null);
+                      }}
+                      className="relative block cursor-pointer text-left"
+                    >
+                      <span
+                        className={`flex min-h-10 items-center justify-center rounded-md border px-3 text-sm transition-colors ${
+                          formData.holes === hole.value
+                            ? "border-[var(--color-primary)] bg-white text-[var(--color-primary)]"
+                            : "border-transparent bg-gray-100 text-gray-700"
+                        }`}
+                      >
+                        {hole.label}
+                      </span>
+                      {formData.holes === hole.value ? (
+                        <span className="absolute left-1.5 top-1.5 inline-flex h-4 w-4 items-center justify-center rounded-full bg-[var(--color-primary)] text-white">
+                          <Check className="h-3 w-3" />
+                        </span>
+                      ) : null}
+                    </button>
                   ))}
                 </div>
                 {holesError ? <p className="mt-1 text-xs text-red-600">{holesError}</p> : null}
@@ -933,19 +987,33 @@ export default function ProjectInputPage() {
                   style={{ outline: keyAreasError ? "1px solid #dc2626" : "none" }}
                 >
                   {["Tees", "Roughs", "Fairways", "Greens"].map((area) => (
-                    <label key={area} className="flex items-center gap-2 text-sm">
+                    <label key={area} className="relative block cursor-pointer">
                       <input
                         type="checkbox"
+                        className="sr-only"
                         checked={formData.keyAreas.includes(area)}
                         onChange={(e) => {
                           const next = e.target.checked
                             ? [...formData.keyAreas, area]
                             : formData.keyAreas.filter((x) => x !== area);
                           setFormData({ ...formData, keyAreas: next });
+                          setKeyAreasError(null);
                         }}
-                        style={{ accentColor: "var(--color-primary)" }}
                       />
-                      {area}
+                      <span
+                        className={`flex min-h-10 items-center justify-center rounded-md border px-3 text-sm transition-colors ${
+                          formData.keyAreas.includes(area)
+                            ? "border-[var(--color-primary)] bg-white text-[var(--color-primary)]"
+                            : "border-transparent bg-gray-100 text-gray-700"
+                        }`}
+                      >
+                        {area}
+                      </span>
+                      {formData.keyAreas.includes(area) ? (
+                        <span className="absolute left-1.5 top-1.5 inline-flex h-4 w-4 items-center justify-center rounded-full bg-[var(--color-primary)] text-white">
+                          <Check className="h-3 w-3" />
+                        </span>
+                      ) : null}
                     </label>
                   ))}
                 </div>
