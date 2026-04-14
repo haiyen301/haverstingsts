@@ -1,14 +1,15 @@
 import { NextResponse } from "next/server";
 
-import { getStsApiUrl } from "@/shared/api/stsLogin";
+import { getStsApiUrlCandidates } from "@/shared/api/stsLogin";
 import { resolveStsBearerFromRequest } from "@/shared/server/stsAuthBearer";
+import { fetchWithBaseUrlFallback } from "@/shared/server/stsUpstreamFetch";
 
 function upstreamFetchErrorMessage(err: unknown): string {
   const e = err as { cause?: { code?: string; message?: string }; message?: string };
   const code = e?.cause?.code;
   const msg = e?.cause?.message ?? e?.message ?? String(err);
   if (code === "EHOSTUNREACH" || /EHOSTUNREACH/i.test(msg)) {
-    return "Cannot reach API server (host unreachable). Check NEXT_PUBLIC_STS_API_BASE_URL, VPN, and that the STSPortal host is on the same network.";
+    return "Cannot reach API server (host unreachable). Check NEXT_PUBLIC_STS_API_BASE_URLS (or NEXT_PUBLIC_STS_API_BASE_URL), VPN, and that the STSPortal host is on the same network.";
   }
   if (code === "ECONNREFUSED" || /ECONNREFUSED/i.test(msg)) {
     return "Connection refused by API server. Is STSPortal running and the port correct?";
@@ -32,19 +33,20 @@ export async function GET(
   }
 
   const upstreamPath = `/api/${path.join("/")}`;
-  const upstreamBase = getStsApiUrl(upstreamPath);
-  if (!upstreamBase) {
+  const upstreamCandidates = getStsApiUrlCandidates(upstreamPath);
+  if (!upstreamCandidates.length) {
     return NextResponse.json(
       {
         success: false,
-        message: "Missing env NEXT_PUBLIC_STS_API_BASE_URL.",
+        message:
+          "Missing env NEXT_PUBLIC_STS_API_BASE_URLS (or NEXT_PUBLIC_STS_API_BASE_URL).",
       },
       { status: 500 },
     );
   }
 
   const search = new URL(req.url).search;
-  const upstreamUrl = `${upstreamBase}${search}`;
+  const upstreamUrls = upstreamCandidates.map((base) => `${base}${search}`);
 
   const auth = await resolveStsBearerFromRequest(req);
   if (!auth?.startsWith("Bearer ")) {
@@ -56,19 +58,20 @@ export async function GET(
 
   let upstreamRes: Response;
   try {
-    upstreamRes = await fetch(upstreamUrl, {
+    const result = await fetchWithBaseUrlFallback(upstreamUrls, {
       method: "GET",
       headers: {
         Accept: "application/json",
         Authorization: auth,
       },
     });
+    upstreamRes = result.response;
   } catch (err) {
     return NextResponse.json(
       {
         success: false,
         message: upstreamFetchErrorMessage(err),
-        upstreamUrl,
+        upstreamUrl: upstreamUrls[0],
       },
       { status: 502 },
     );
@@ -100,12 +103,13 @@ export async function POST(
     );
   }
 
-  const upstreamUrl = getStsApiUrl(`/api/${path.join("/")}`);
-  if (!upstreamUrl) {
+  const upstreamUrls = getStsApiUrlCandidates(`/api/${path.join("/")}`);
+  if (!upstreamUrls.length) {
     return NextResponse.json(
       {
         success: false,
-        message: "Missing env NEXT_PUBLIC_STS_API_BASE_URL.",
+        message:
+          "Missing env NEXT_PUBLIC_STS_API_BASE_URLS (or NEXT_PUBLIC_STS_API_BASE_URL).",
       },
       { status: 500 },
     );
@@ -125,7 +129,7 @@ export async function POST(
 
   let upstreamRes: Response;
   try {
-    upstreamRes = await fetch(upstreamUrl, {
+    const result = await fetchWithBaseUrlFallback(upstreamUrls, {
       method: "POST",
       headers: isJson
         ? {
@@ -137,12 +141,13 @@ export async function POST(
           },
       body,
     });
+    upstreamRes = result.response;
   } catch (err) {
     return NextResponse.json(
       {
         success: false,
         message: upstreamFetchErrorMessage(err),
-        upstreamUrl,
+        upstreamUrl: upstreamUrls[0],
       },
       { status: 502 },
     );

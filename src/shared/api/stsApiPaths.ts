@@ -31,4 +31,12 @@ export const STS_API_PATHS = {
   mondayDeleteParentOrSubItem: "/api/harvesting/react_delete_parent_or_sub_item",
   /** POST multipart: `records` JSON + `*_image` files (see Flutter `flutterAddNewSubRow`). */
   flutterAddHarvestSubRow: "/api/harvesting/flutter_add_new_sub_row",
+  /** GET `Timeline::index` — query: `from`, `to` (Y-m-d H:i:s), optional `include_unscheduled`, `unscheduled_limit`. */
+  timeline: "/api/timeline",
+  /** GET `Timeline::detail` — query: `id`. */
+  timelineDetail: "/api/timeline/detail",
+  /** POST create/update task (`Timeline::save`). */
+  timelineSave: "/api/timeline/save",
+  /** POST soft-delete (`Timeline::remove`). */
+  timelineRemove: "/api/timeline/remove",
 } as const;

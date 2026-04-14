@@ -114,12 +114,9 @@ function parsePageParam(v: string | null): number {
   return Number.isFinite(n) && n >= 1 ? n : 1;
 }
 
-function urlSearchParamsEquivalent(
-  builtQs: string,
-  current: Pick<URLSearchParams, "toString" | "keys" | "get">,
-): boolean {
+function urlSearchParamsEquivalent(builtQs: string, currentQs: string): boolean {
   const a = new URLSearchParams(builtQs);
-  const b = new URLSearchParams(current.toString());
+  const b = new URLSearchParams(currentQs);
   const keys = new Set([...a.keys(), ...b.keys()]);
   for (const k of keys) {
     if ((a.get(k) ?? "") !== (b.get(k) ?? "")) return false;
@@ -201,21 +198,25 @@ export default function HarvestListPage() {
   const [totalM2, setTotalM2] = useState("0");
   const [totalKg, setTotalKg] = useState("0");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [urlReady, setUrlReady] = useState(false);
+  const searchParamsKey = searchParams.toString();
 
   useLayoutEffect(() => {
-    const q = searchParams.get("q") ?? "";
-    const farm = searchParams.get("farm") ?? "";
-    const project = searchParams.get("project") ?? "";
-    const status = searchParams.get("status") ?? "";
-    const p = parsePageParam(searchParams.get("page"));
+    const parsed = new URLSearchParams(searchParamsKey);
+    const q = parsed.get("q") ?? "";
+    const farm = parsed.get("farm") ?? "";
+    const project = parsed.get("project") ?? "";
+    const status = parsed.get("status") ?? "";
+    const p = parsePageParam(parsed.get("page"));
     setHarvestListSearch(q);
     setHarvestListFarmFilter(farm);
     setHarvestListProjectFilter(project);
     setHarvestListStatusFilter(status);
     setPage(p);
     setDebouncedSearch(q.trim());
+    setUrlReady(true);
   }, [
-    searchParams,
+    searchParamsKey,
     setHarvestListFarmFilter,
     setHarvestListProjectFilter,
     setHarvestListSearch,
@@ -243,6 +244,7 @@ export default function HarvestListPage() {
   ]);
 
   useEffect(() => {
+    if (!urlReady) return;
     const params = new URLSearchParams();
     const q = harvestListSearch.trim();
     if (q) params.set("q", q);
@@ -251,7 +253,7 @@ export default function HarvestListPage() {
     if (harvestListStatusFilter.trim()) params.set("status", harvestListStatusFilter.trim());
     if (page > 1) params.set("page", String(page));
     const qs = params.toString();
-    if (urlSearchParamsEquivalent(qs, searchParams)) return;
+    if (urlSearchParamsEquivalent(qs, searchParamsKey)) return;
     const base = pathname || "/harvest";
     router.replace(qs ? `${base}?${qs}` : base, { scroll: false });
   }, [
@@ -262,7 +264,8 @@ export default function HarvestListPage() {
     page,
     pathname,
     router,
-    searchParams,
+    searchParamsKey,
+    urlReady,
   ]);
 
   const { sortKey, sortDir, onSort } = useTableColumnSort<HarvestSortKey>(
@@ -633,7 +636,7 @@ export default function HarvestListPage() {
                               ? zoneLabel(harvest.zone) || harvest.zone
                               : "—"}
                           </td>
-                          <td className="px-6 py-4 text-sm text-gray-900">
+                          <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-900">
                             {harvest.qtyLabel}
                           </td>
                           <td className="px-6 py-4">

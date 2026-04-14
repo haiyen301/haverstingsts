@@ -70,6 +70,37 @@ export function buildStsProxyGetUrl(
   return q ? `${base}?${q}` : base;
 }
 
+/**
+ * GET returning the full JSON object after `success` is true (e.g. endpoints that add
+ * keys besides `data`, such as `unscheduled` on `/api/timeline`).
+ */
+export async function stsProxyGetFullJson(
+  /** Full path including query, e.g. `/api/timeline?from=…&to=…`. */
+  pathWithOptionalQuery: string,
+): Promise<Record<string, unknown>> {
+  if (typeof window === "undefined") {
+    throw new Error("stsProxyGetFullJson is client-only");
+  }
+  const url = pathWithOptionalQuery.startsWith("/api/")
+    ? pathWithOptionalQuery
+    : getInternalStsProxyUrl(pathWithOptionalQuery);
+  const res = await fetch(url, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+    },
+    credentials: SAME_ORIGIN,
+  });
+  let json: StsJsonResponse;
+  try {
+    json = (await res.json()) as StsJsonResponse;
+  } catch {
+    throw new Error("Invalid JSON response");
+  }
+  await assertStsSuccessOrThrow(json, res);
+  return json as Record<string, unknown>;
+}
+
 /** GET via same-origin proxy; requires HttpOnly session cookie from login. */
 export async function stsProxyGet<T = unknown>(upstreamApiPath: string): Promise<T> {
   if (typeof window === "undefined") {

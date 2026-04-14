@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 
 import { AUTH_COOKIE_NAME } from "@/shared/lib/authCookie";
-import { getStsLoginUrl } from "@/shared/api/stsLogin";
+import { getStsApiUrlCandidates, STS_LOGIN_PATHS } from "@/shared/api/stsLogin";
 import { AUTH_COOKIE_OPTIONS } from "@/shared/server/stsAuthBearer";
+import {
+  fetchJsonWithBaseUrlFallback,
+} from "@/shared/server/stsUpstreamFetch";
 
 type LoginRequestBody = {
   email?: string;
@@ -19,12 +22,13 @@ function stripTokenFromLoginJson(data: unknown): unknown {
 }
 
 export async function POST(req: Request) {
-  const upstreamUrl = getStsLoginUrl();
-  if (!upstreamUrl) {
+  const upstreamUrls = getStsApiUrlCandidates(STS_LOGIN_PATHS.login);
+  if (!upstreamUrls.length) {
     return NextResponse.json(
       {
         success: false,
-        message: "Missing env NEXT_PUBLIC_STS_API_BASE_URL.",
+        message:
+          "Missing env NEXT_PUBLIC_STS_API_BASE_URLS (or NEXT_PUBLIC_STS_API_BASE_URL).",
       },
       { status: 500 },
     );
@@ -55,7 +59,7 @@ export async function POST(req: Request) {
   form.append("email", email);
   form.append("password", password);
 
-  const upstreamRes = await fetch(upstreamUrl, {
+  const upstream = await fetchJsonWithBaseUrlFallback(upstreamUrls, {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
@@ -63,10 +67,12 @@ export async function POST(req: Request) {
     },
     body: form.toString(),
   });
+  if (!upstream.ok) {
+    return NextResponse.json(upstream.payload, { status: upstream.status });
+  }
 
-  const data = await upstreamRes
-    .json()
-    .catch(async () => ({ success: false, message: "Invalid upstream JSON." }));
+  const upstreamRes = upstream.response;
+  const data = upstream.data;
 
   const token =
     data &&
