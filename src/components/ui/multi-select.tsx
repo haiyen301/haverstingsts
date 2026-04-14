@@ -1,7 +1,7 @@
 "use client";
 
-import { Check } from "lucide-react";
-import type { ReactNode } from "react";
+import { Check, Search } from "lucide-react";
+import { useMemo, useState, type ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -30,6 +30,7 @@ export function MultiSelect({
   rightIcon,
   disabled = false,
 }: MultiSelectProps) {
+  const [keyword, setKeyword] = useState("");
   const selected = values.length;
   const label =
     selected === 0
@@ -37,6 +38,11 @@ export function MultiSelect({
       : selected === 1
         ? options.find((x) => x.value === values[0])?.label ?? placeholder
         : `${selected} selected`;
+  const normalizedKeyword = keyword.trim().toLowerCase();
+  const filteredOptions = useMemo(() => {
+    if (!normalizedKeyword) return options;
+    return options.filter((opt) => opt.label.toLowerCase().includes(normalizedKeyword));
+  }, [options, normalizedKeyword]);
 
   const toggleValue = (value: string) => {
     const exists = values.includes(value);
@@ -64,8 +70,18 @@ export function MultiSelect({
           ) : null}
         </button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-[260px] p-2">
-        <div className="mb-1 flex items-center justify-end">
+      <PopoverContent align="start" className="w-[300px] p-2">
+        <div className="mb-2 flex items-center gap-2">
+          <div className="relative flex-1">
+            <input
+              type="text"
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
+              placeholder="Search..."
+              className="h-8 w-full rounded-md border border-gray-300 bg-white pl-2 pr-2 text-xs text-gray-700 placeholder:text-gray-400 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[#1F7A4C]"
+            />
+            <Search className="pointer-events-none absolute right-1 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
+          </div>
           <button
             type="button"
             onClick={() => onChange([])}
@@ -76,7 +92,10 @@ export function MultiSelect({
           </button>
         </div>
         <div className="max-h-64 overflow-auto">
-          {options.map((opt) => {
+          {filteredOptions.length === 0 ? (
+            <p className="px-2 py-2 text-xs text-gray-500">No options found.</p>
+          ) : null}
+          {filteredOptions.map((opt) => {
             const checked = values.includes(opt.value);
             return (
               <button
