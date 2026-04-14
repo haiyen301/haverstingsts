@@ -26,8 +26,33 @@ export const INTERNAL_API = {
   },
 } as const;
 
+const STS_API_BASE_URLS_ENV_KEY = "NEXT_PUBLIC_STS_API_BASE_URLS";
+
+function normalizeBaseUrl(value: string): string {
+  return value.trim().replace(/\/$/, "");
+}
+
+/**
+ * Parse all configured STS API base URLs.
+ * Priority:
+ * 1) `NEXT_PUBLIC_STS_API_BASE_URLS` (comma/newline/space separated)
+ * 2) `NEXT_PUBLIC_STS_API_BASE_URL` (single fallback)
+ */
+export function getStsApiBaseUrls(): string[] {
+  const listRaw = process.env[STS_API_BASE_URLS_ENV_KEY] ?? "";
+  const primary = process.env.NEXT_PUBLIC_STS_API_BASE_URL ?? "";
+
+  const parsed = listRaw
+    .split(/[\s,]+/)
+    .map(normalizeBaseUrl)
+    .filter(Boolean);
+
+  const merged = [...parsed, normalizeBaseUrl(primary)].filter(Boolean);
+  return Array.from(new Set(merged));
+}
+
 export function getStsApiBaseUrl() {
-  return process.env.NEXT_PUBLIC_STS_API_BASE_URL ?? "";
+  return getStsApiBaseUrls()[0] ?? "";
 }
 
 /**
@@ -43,16 +68,21 @@ export function getStsSiteRootUrl(): string {
 
 /** Build absolute URL to STSPortal (e.g. `/api/base/...`). Empty if base URL missing. */
 export function getStsApiUrl(path: string) {
-  const baseUrl = getStsApiBaseUrl().replace(/\/$/, "");
+  const baseUrl = getStsApiBaseUrl();
   if (!baseUrl) return "";
   const p = path.startsWith("/") ? path : `/${path}`;
   return `${baseUrl}${p}`;
 }
 
+/** Build all API URL candidates from configured base URLs. */
+export function getStsApiUrlCandidates(path: string): string[] {
+  const bases = getStsApiBaseUrls();
+  if (!bases.length) return [];
+  const p = path.startsWith("/") ? path : `/${path}`;
+  return bases.map((baseUrl) => `${baseUrl}${p}`);
+}
+
 /** Full upstream URL for STSPortal login (empty if base URL is not configured). */
 export function getStsLoginUrl() {
-  const baseUrl = getStsApiBaseUrl();
-  if (!baseUrl) return "";
-  const path = STS_LOGIN_PATHS.login;
-  return `${baseUrl}${path.startsWith("/") ? "" : "/"}${path}`;
+  return getStsApiUrl(STS_LOGIN_PATHS.login);
 }

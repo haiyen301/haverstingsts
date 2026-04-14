@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 
-import { getStsApiUrl, STS_LOGIN_PATHS } from "@/shared/api/stsLogin";
+import { getStsApiUrlCandidates, STS_LOGIN_PATHS } from "@/shared/api/stsLogin";
 import { AUTH_COOKIE_NAME } from "@/shared/lib/authCookie";
 import { AUTH_COOKIE_OPTIONS } from "@/shared/server/stsAuthBearer";
+import {
+  fetchJsonWithBaseUrlFallback,
+} from "@/shared/server/stsUpstreamFetch";
 
 function stripTokenFromRegisterJson(data: unknown): unknown {
   if (!data || typeof data !== "object") return data;
@@ -40,12 +43,13 @@ type Body = {
 };
 
 export async function POST(req: Request) {
-  const upstreamUrl = getStsApiUrl(STS_LOGIN_PATHS.register);
-  if (!upstreamUrl) {
+  const upstreamUrls = getStsApiUrlCandidates(STS_LOGIN_PATHS.register);
+  if (!upstreamUrls.length) {
     return NextResponse.json(
       {
         success: false,
-        message: "Missing env NEXT_PUBLIC_STS_API_BASE_URL.",
+        message:
+          "Missing env NEXT_PUBLIC_STS_API_BASE_URLS (or NEXT_PUBLIC_STS_API_BASE_URL).",
       },
       { status: 500 },
     );
@@ -86,7 +90,7 @@ export async function POST(req: Request) {
   form.append("password", password);
   if (company_name) form.append("company_name", company_name);
 
-  const upstreamRes = await fetch(upstreamUrl, {
+  const upstream = await fetchJsonWithBaseUrlFallback(upstreamUrls, {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
@@ -94,10 +98,12 @@ export async function POST(req: Request) {
     },
     body: form.toString(),
   });
+  if (!upstream.ok) {
+    return NextResponse.json(upstream.payload, { status: upstream.status });
+  }
 
-  const data = await upstreamRes
-    .json()
-    .catch(async () => ({ success: false, message: "Invalid upstream JSON." }));
+  const upstreamRes = upstream.response;
+  const data = upstream.data;
 
   const token = extractRegisterToken(data);
   if (

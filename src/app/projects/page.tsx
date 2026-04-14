@@ -16,12 +16,9 @@ function parseStatusFilterFromUrl(raw: string | null): string[] {
   return parseCsvParam(raw);
 }
 
-function urlSearchParamsEquivalent(
-  builtQs: string,
-  current: Pick<URLSearchParams, "toString" | "keys" | "get">,
-): boolean {
+function urlSearchParamsEquivalent(builtQs: string, currentQs: string): boolean {
   const a = new URLSearchParams(builtQs);
-  const b = new URLSearchParams(current.toString());
+  const b = new URLSearchParams(currentQs);
   const keys = new Set([...a.keys(), ...b.keys()]);
   for (const k of keys) {
     if ((a.get(k) ?? "") !== (b.get(k) ?? "")) return false;
@@ -108,6 +105,8 @@ export default function ProjectListPage() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const searchParamsKey = searchParams.toString();
+  const [urlReady, setUrlReady] = useState(false);
   const [search, setSearch] = useState(() => searchParams.get("q") ?? "");
   const [debouncedSearch, setDebouncedSearch] = useState(
     () => (searchParams.get("q") ?? "").trim(),
@@ -124,6 +123,17 @@ export default function ProjectListPage() {
   const [statusFilterValues, setStatusFilterValues] = useState(() =>
     parseStatusFilterFromUrl(searchParams.get("status")),
   );
+
+  useEffect(() => {
+    const parsed = new URLSearchParams(searchParamsKey);
+    setSearch(parsed.get("q") ?? "");
+    setDebouncedSearch((parsed.get("q") ?? "").trim());
+    setCountryFilterIds(parseCsvParam(parsed.get("country")));
+    setFarmFilterIds(parseCsvParam(parsed.get("farm")));
+    setGrassFilterIds(parseCsvParam(parsed.get("grass")));
+    setStatusFilterValues(parseStatusFilterFromUrl(parsed.get("status")));
+    setUrlReady(true);
+  }, [searchParamsKey]);
 
   const returnTo = useMemo(() => {
     const params = new URLSearchParams();
@@ -161,6 +171,7 @@ export default function ProjectListPage() {
   }, [search]);
 
   useEffect(() => {
+    if (!urlReady) return;
     const params = new URLSearchParams();
     const q = debouncedSearch.trim();
     if (q) params.set("q", q);
@@ -169,7 +180,7 @@ export default function ProjectListPage() {
     if (grassFilterIds.length) params.set("grass", grassFilterIds.join(","));
     params.set("status", statusFilterValues.join(","));
     const qs = params.toString();
-    if (urlSearchParamsEquivalent(qs, searchParams)) return;
+    if (urlSearchParamsEquivalent(qs, searchParamsKey)) return;
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
   }, [
     countryFilterIds,
@@ -178,8 +189,9 @@ export default function ProjectListPage() {
     grassFilterIds,
     pathname,
     router,
-    searchParams,
+    searchParamsKey,
     statusFilterValues,
+    urlReady,
   ]);
 
   useEffect(() => {
