@@ -986,7 +986,7 @@ export default function ProjectInputPage() {
                   className="grid grid-cols-2 gap-2 rounded-md"
                   style={{ outline: keyAreasError ? "1px solid #dc2626" : "none" }}
                 >
-                  {["Tees", "Roughs", "Fairways", "Greens"].map((area) => (
+                  {["Tees", "Roughs", "Fairways", "Greens", "Bunkers"].map((area) => (
                     <label key={area} className="relative block cursor-pointer">
                       <input
                         type="checkbox"

@@ -46,6 +46,7 @@ import {
 } from "@/features/project";
 import { parseJsonMaybe } from "@/shared/lib/parseJsonMaybe";
 import { resolveStaffAvatarImageUrl } from "@/features/project/lib/staffAvatarUrl";
+import { stsProxyGetHarvestingIndex } from "@/shared/api/stsProxyClient";
 
 function toRecArray(rows: unknown[]): Record<string, unknown>[] {
   return rows.filter((x): x is Record<string, unknown> => !!x && typeof x === "object");
@@ -74,6 +75,50 @@ function rowHasFarmInSubitems(row: MondayProjectServerRow, farmId: string): bool
     if (!item || typeof item !== "object") return false;
     const rec = item as Record<string, unknown>;
     return String(rec.farm_id ?? "").trim() === fid;
+  });
+}
+
+function parseRowSubitems(raw: unknown): Array<Record<string, unknown>> {
+  const parsed = parseJsonMaybe(raw);
+  if (!Array.isArray(parsed)) return [];
+  return parsed.filter((x): x is Record<string, unknown> => !!x && typeof x === "object");
+}
+
+function mergeProjectSubitemsWithPlanRows(
+  projectRows: Array<Record<string, unknown>>,
+  harvestPlanRows: Array<Record<string, unknown>>,
+): Array<Record<string, unknown>> {
+  if (projectRows.length === 0 || harvestPlanRows.length === 0) return projectRows;
+  const planByProjectId = new Map<string, Array<Record<string, unknown>>>();
+  for (const row of harvestPlanRows) {
+    const pid = String(row.project_id ?? "").trim();
+    if (!pid) continue;
+    const list = planByProjectId.get(pid) ?? [];
+    list.push(row);
+    planByProjectId.set(pid, list);
+  }
+  return projectRows.map((row) => {
+    const projectId = String(row.project_id ?? "").trim();
+    if (!projectId) return row;
+    const planRows = planByProjectId.get(projectId) ?? [];
+    if (planRows.length === 0) return row;
+    const existingSubitems = parseRowSubitems(row.subitems);
+    const planIds = new Set(
+      planRows
+        .map((x) => String(x.id ?? "").trim())
+        .filter(Boolean),
+    );
+    const merged = [
+      ...planRows,
+      ...existingSubitems.filter((x) => {
+        const sid = String(x.id ?? "").trim();
+        return !sid || !planIds.has(sid);
+      }),
+    ];
+    return {
+      ...row,
+      subitems: JSON.stringify(merged),
+    };
   });
 }
 
@@ -213,7 +258,30 @@ export default function ProjectListPage() {
         });
         if (!mounted) return;
         const rawRows = res.rows as unknown as Record<string, unknown>[];
-        setRows(sortMondayProjectRows(rawRows));
+        let enrichedRows = rawRows;
+        try {
+          const allHarvestRows: Array<Record<string, unknown>> = [];
+          let page = 1;
+          let totalPages = 1;
+          const maxPages = 20;
+          do {
+            const harvestRes = await stsProxyGetHarvestingIndex({
+              page,
+              per_page: 200,
+            });
+            allHarvestRows.push(
+              ...harvestRes.rows.filter(
+                (x): x is Record<string, unknown> => !!x && typeof x === "object",
+              ),
+            );
+            totalPages = Math.max(1, harvestRes.totalPages);
+            page += 1;
+          } while (page <= totalPages && page <= maxPages);
+          enrichedRows = mergeProjectSubitemsWithPlanRows(rawRows, allHarvestRows);
+        } catch {
+          enrichedRows = rawRows;
+        }
+        setRows(sortMondayProjectRows(enrichedRows));
       } catch (e) {
         if (!mounted) return;
         setRows([]);
@@ -272,8 +340,13 @@ export default function ProjectListPage() {
     const mergedRows = rows.map((data) => {
       const rowId = String(data.row_id ?? data.id ?? "").trim();
       const rowData =
-        rows.find((row) => String(row.row_id ?? row.id ?? "").trim() === rowId) ??
-        null;
+        rows.find((row) => {
+          const candidateRowId = String(row.row_id ?? row.id ?? "").trim();
+          if (candidateRowId !== rowId) return false;
+          const dataTableId = String(data.table_id ?? "").trim();
+          if (!dataTableId) return true;
+          return String(row.table_id ?? "").trim() === dataTableId;
+        }) ?? null;
 
       const rowDataLike: MondayDynamicRowLike | null = rowData
         ? {
@@ -540,8 +613,9 @@ export default function ProjectListPage() {
                       data as unknown as Record<string, unknown>,
                       rowData,
                     );
+                    const projectId = String((data as Record<string, unknown>).project_id ?? "").trim();
                     router.push(
-                      `/projects/detail?rowId=${encodeURIComponent(args.rowId ?? "")}&tableId=${encodeURIComponent(args.tableId ?? "")}&returnTo=${encodeURIComponent(returnTo)}`,
+                      `/projects/detail?rowId=${encodeURIComponent(args.rowId ?? "")}&tableId=${encodeURIComponent(args.tableId ?? "")}&projectId=${encodeURIComponent(projectId)}&returnTo=${encodeURIComponent(returnTo)}`,
                     );
                   }}
                 />

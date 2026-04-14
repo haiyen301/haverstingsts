@@ -230,6 +230,31 @@ function subitemLooksLikeHarvestLine(sub: Record<string, unknown>): boolean {
   );
 }
 
+function buildDeliveredQuantitySourceRows(
+  projectSubitems: Array<Record<string, unknown>>,
+  planRows: Array<Record<string, unknown>>,
+  projectId: string,
+): Array<Record<string, unknown>> {
+  const normalizedProjectId = projectId.trim();
+  const fromPlan = planRows.filter((row) => {
+    const pid = String(row.project_id ?? "").trim();
+    return !normalizedProjectId || pid === normalizedProjectId;
+  });
+  const planIds = new Set(
+    fromPlan
+      .map((row) => String(row.id ?? "").trim())
+      .filter(Boolean),
+  );
+  const fromSubitemsOnly = projectSubitems.filter((sub) => {
+    const pid = String(sub.project_id ?? "").trim();
+    if (pid && normalizedProjectId && pid !== normalizedProjectId) return false;
+    const sid = String(sub.id ?? "").trim();
+    if (sid && planIds.has(sid)) return false;
+    return subitemLooksLikeHarvestLine(sub);
+  });
+  return [...fromPlan, ...fromSubitemsOnly];
+}
+
 function normalizeDateFilterInput(v: string): string {
   const s = v.trim().replace(/\//g, "-");
   if (!s) return "";
@@ -252,6 +277,7 @@ export default function ProjectDetailPage() {
   const searchParams = useSearchParams();
   const rowId = searchParams.get("rowId")?.trim() ?? "";
   const tableId = searchParams.get("tableId")?.trim() ?? "";
+  const projectIdFromQuery = searchParams.get("projectId")?.trim() ?? "";
   const returnTo = useMemo(() => {
     const query = searchParams.toString();
     return query ? `${pathname}?${query}` : pathname;
@@ -273,6 +299,9 @@ export default function ProjectDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [projectRow, setProjectRow] = useState<MondayProjectServerRow | null>(null);
+  const [deliveredQuantityRows, setDeliveredQuantityRows] = useState<
+    Array<Record<string, unknown>>
+  >([]);
   const [harvests, setHarvests] = useState<HarvestRow[]>([]);
   const [expandedHarvestId, setExpandedHarvestId] = useState<string | null>(null);
   const [harvestDeleteTarget, setHarvestDeleteTarget] = useState<HarvestRow | null>(
@@ -353,20 +382,44 @@ export default function ProjectDetailPage() {
         }
         const res = await fetchMondayProjectRowsFromServer({ page: 1, perPage: 300 });
         if (!mounted) return;
-        const row =
-          res.rows.find((r) => String(r.row_id ?? "").trim() === rowId) ??
-          res.rows.find((r) => String(r.id ?? "").trim() === rowId) ??
-          null;
+        const normalizedTableId = tableId.trim();
+        const normalizedProjectId = projectIdFromQuery.trim();
+        const matchesRowAndMaybeTable = (r: MondayProjectServerRow): boolean => {
+          const rowIdMatches =
+            String(r.row_id ?? "").trim() === rowId ||
+            String(r.id ?? "").trim() === rowId;
+          if (!rowIdMatches) return false;
+          if (!normalizedTableId) return true;
+          if (String(r.table_id ?? "").trim() !== normalizedTableId) return false;
+          if (!normalizedProjectId) return true;
+          return String(r.project_id ?? "").trim() === normalizedProjectId;
+        };
+        const row = res.rows.find(matchesRowAndMaybeTable) ?? null;
         if (!row) {
           setError(t("cannotFindDetail"));
           return;
         }
         setProjectRow(row);
 
-        const projectId = String(row.project_id ?? "").trim();
+        const projectId = String(projectIdFromQuery || row.project_id || "").trim();
         if (projectId) {
           const requirementRows = parseRequirements(row.quantity_required_sprig_sod);
           const projectSubitems = parseSubitems(row.subitems);
+          const h = await stsProxyGetHarvestingIndex({
+            project_id: projectId,
+            per_page: 30,
+            page: 1,
+          });
+          if (!mounted) return;
+          const planRows = h.rows.filter(
+            (x): x is Record<string, unknown> => !!x && typeof x === "object",
+          );
+          const deliveredRows = buildDeliveredQuantitySourceRows(
+            projectSubitems,
+            planRows,
+            projectId,
+          );
+          setDeliveredQuantityRows(deliveredRows);
           const remainingByProductUom = new Map<string, number>();
           const unitByProductUom = new Map<string, string>();
           for (const req of requirementRows) {
@@ -376,7 +429,7 @@ export default function ProjectDetailPage() {
             const reqUomKey = normalizeUomKey(reqUomRaw);
             const required = effectiveRequiredQuantityFromRecord(req as Record<string, unknown>);
             const delivered = calculateDeliveredQuantityDeliveryOnly(
-              projectSubitems,
+              deliveredRows,
               productId,
               reqUomRaw,
               projectId,
@@ -387,12 +440,6 @@ export default function ProjectDetailPage() {
             unitByProductUom.set(mapKey, reqUomRaw || "-");
           }
 
-          const h = await stsProxyGetHarvestingIndex({
-            project_id: projectId,
-            per_page: 30,
-            page: 1,
-          });
-          if (!mounted) return;
           const farmZonesForLabels = useHarvestingDataStore.getState().farmZones;
           const fallbackTableId = String(row.table_id ?? tableId ?? "").trim();
           const fallbackTableName =
@@ -405,8 +452,8 @@ export default function ProjectDetailPage() {
             defaultTableId: fallbackTableId,
             defaultTableName: fallbackTableName,
           };
-          const fromPlan: HarvestRow[] = h.rows
-            .filter((x): x is Record<string, unknown> => !!x && typeof x === "object")
+          const fromPlan: HarvestRow[] = planRows
+            .filter((x) => String(x.project_id ?? "").trim() === projectId)
             .map((r) => mapHarvestRecordToHarvestRow(r, mapCtxBase));
           const planIds = new Set(
             fromPlan.map((x) => x.id).filter((id) => id !== ""),
@@ -418,6 +465,8 @@ export default function ProjectDetailPage() {
           };
           const fromSubitemsOnly: HarvestRow[] = projectSubitems
             .filter((sub) => {
+              const subProjectId = String(sub.project_id ?? "").trim();
+              if (subProjectId && subProjectId !== projectId) return false;
               const sid = String(sub.id ?? "").trim();
               if (sid && planIds.has(sid)) return false;
               return subitemLooksLikeHarvestLine(sub);
@@ -430,6 +479,7 @@ export default function ProjectDetailPage() {
         setError(
           e instanceof Error ? e.message : t("loadError"),
         );
+        setDeliveredQuantityRows([]);
       } finally {
         if (mounted) setLoading(false);
       }
@@ -508,13 +558,16 @@ export default function ProjectDetailPage() {
     if (!projectRow) return [];
     const harvestProjectId = String(projectRow.project_id ?? "").trim();
     const req = parseRequirements(projectRow.quantity_required_sprig_sod);
-    const subitems = parseSubitems(projectRow.subitems);
+    const sourceRows =
+      deliveredQuantityRows.length > 0
+        ? deliveredQuantityRows
+        : parseSubitems(projectRow.subitems);
     return req.map((r, idx) => {
       const productId = String(r.product_id ?? "").trim();
       const uom = String(r.uom ?? "").trim();
       const required = effectiveRequiredQuantityFromRecord(r as Record<string, unknown>);
       const delivered = calculateDeliveredQuantityDeliveryOnly(
-        subitems,
+        sourceRows,
         productId,
         uom,
         harvestProjectId || undefined,
@@ -534,7 +587,7 @@ export default function ProjectDetailPage() {
         progress: Math.max(0, Math.min(100, progress)),
       };
     });
-  }, [projectRow, productMap, t]);
+  }, [deliveredQuantityRows, projectRow, productMap, t]);
 
   const { sortKey, sortDir, onSort } = useTableColumnSort<GrassSortKey>("name");
 
@@ -572,12 +625,24 @@ export default function ProjectDetailPage() {
   const filteredHarvests = useMemo(() => {
     const fromIso = normalizeDateFilterInput(harvestDateFrom);
     const toIso = normalizeDateFilterInput(harvestDateTo);
-    return harvests.filter((h) => {
+    const filtered = harvests.filter((h) => {
       if (harvestGrassFilter && h.grass !== harvestGrassFilter) return false;
       if (fromIso && h.filterDate && h.filterDate < fromIso) return false;
       if (toIso && h.filterDate && h.filterDate > toIso) return false;
       if ((fromIso || toIso) && !h.filterDate) return false;
       return true;
+    });
+    return filtered.sort((a, b) => {
+      // Newest harvest date first; empty/invalid dates go to the end.
+      const ad = a.filterDate.trim();
+      const bd = b.filterDate.trim();
+      if (ad && bd) {
+        if (ad !== bd) return bd.localeCompare(ad);
+        return String(b.id).localeCompare(String(a.id));
+      }
+      if (ad && !bd) return -1;
+      if (!ad && bd) return 1;
+      return String(b.id).localeCompare(String(a.id));
     });
   }, [harvestDateFrom, harvestDateTo, harvestGrassFilter, harvests]);
   const hasActiveHarvestFilters = Boolean(

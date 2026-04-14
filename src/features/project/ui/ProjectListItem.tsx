@@ -210,22 +210,24 @@ export function ProjectListItem({
   return (
     <div
       className="relative overflow-hidden bg-white rounded-2xl shadow-sm hover:shadow-lg transition-all duration-200 flex flex-col"
-      role={canEdit ? "button" : undefined}
-      tabIndex={canEdit ? 0 : undefined}
-      onClick={canEdit ? handleCardClick : undefined}
-      onKeyDown={
-        canEdit
-          ? (e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              handleEdit();
-            }
-          }
-          : undefined
-      }
       style={{ border: "1px solid #e5e7eb", borderLeft: `4px solid ${cfg.border}` }}
     >
-      <div className="px-5 pt-5 pb-4">
+      <div
+        className={`px-5 pt-5 pb-4 ${canEdit ? "cursor-pointer hover:bg-gray-50 transition-colors duration-150" : ""}`}
+        role={canEdit ? "button" : undefined}
+        tabIndex={canEdit ? 0 : undefined}
+        onClick={canEdit ? handleCardClick : undefined}
+        onKeyDown={
+          canEdit
+            ? (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                handleEdit();
+              }
+            }
+            : undefined
+        }
+      >
         <div className="flex items-start gap-4">
       
             <img

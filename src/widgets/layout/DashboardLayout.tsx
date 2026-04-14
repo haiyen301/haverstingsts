@@ -75,7 +75,7 @@ export function DashboardLayout({ children, hideAppNav = false }: DashboardLayou
     { path: "/projects", label: t("Nav.projects"), icon: FolderKanban },
     { path: "/overview", label: t("Nav.overview"), icon: Table2 },
     { path: "/planning", label: t("Nav.planning"), icon: Calendar },
-    { path: "/timeline", label: t("Nav.timeline"), icon: GanttChart },
+    // { path: "/timeline", label: t("Nav.timeline"), icon: GanttChart },
     { path: "/forecasting", label: t("Nav.forecasting"), icon: BarChart3 },
     ...(canAccessInventoryImport
       ? [{ path: "/inventory-import", label: t("Nav.inventoryImport"), icon: FileSpreadsheet }]
