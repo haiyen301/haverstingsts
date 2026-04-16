@@ -157,6 +157,11 @@ type DynamicProjectRow = {
   quantity_required_sprig_sod?: unknown;
 };
 
+type AsiaLocationItem = {
+  name: string;
+  href: string;
+};
+
 function parseNum(v: unknown): number {
   const n = Number.parseFloat(String(v ?? "").replaceAll(",", "").trim());
   return Number.isFinite(n) ? n : 0;
@@ -538,6 +543,9 @@ function HarvestInputPageInner() {
   const [deleteMenuOpen, setDeleteMenuOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [asiaLocations, setAsiaLocations] = useState<AsiaLocationItem[]>([]);
+  const [asiaLoading, setAsiaLoading] = useState(false);
+  const [asiaError, setAsiaError] = useState<string | null>(null);
   const filteredZoneEntries = useMemo(() => {
     const farmLabel = farmOptions.find((f) => f.id === formData.farm)?.label ?? "";
     return filterZoneEntriesByFarmName(zoneEntries, farmLabel);
@@ -563,6 +571,42 @@ function HarvestInputPageInner() {
     };
     return t(keyMap[field]);
   };
+
+  useEffect(() => {
+    let cancelled = false;
+    setAsiaLoading(true);
+    setAsiaError(null);
+    void (async () => {
+      try {
+        const res = await fetch("/api/accuweather/asia", { cache: "no-store" });
+        if (!res.ok) {
+          throw new Error(`Load failed (${res.status})`);
+        }
+        const payload = (await res.json()) as {
+          locations?: AsiaLocationItem[];
+          error?: string;
+        };
+        if (cancelled) return;
+        if (payload.error) {
+          throw new Error(payload.error);
+        }
+        setAsiaLocations(Array.isArray(payload.locations) ? payload.locations : []);
+      } catch (error) {
+        if (cancelled) return;
+        setAsiaLocations([]);
+        setAsiaError(
+          error instanceof Error ? error.message : "Failed to load locations",
+        );
+      } finally {
+        if (!cancelled) {
+          setAsiaLoading(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!editId) {
@@ -1027,6 +1071,30 @@ function HarvestInputPageInner() {
               </p>
             </div>
             <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-lg">
+              <div className="border-b border-gray-100 bg-gray-50 px-4 py-3 lg:px-5">
+                <p className="text-sm font-semibold text-gray-800">
+                  AccuWeather - Châu Á
+                </p>
+                {asiaLoading ? (
+                  <p className="mt-2 text-xs text-gray-500">Đang tải danh sách quốc gia...</p>
+                ) : asiaError ? (
+                  <p className="mt-2 text-xs text-red-600">Lỗi tải dữ liệu: {asiaError}</p>
+                ) : (
+                  <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+                    {asiaLocations.map((item) => (
+                      <a
+                        key={`${item.name}-${item.href}`}
+                        href={item.href}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs text-[#1F7A4C] underline-offset-2 hover:underline"
+                      >
+                        {item.name}
+                      </a>
+                    ))}
+                  </div>
+                )}
+              </div>
               <form
                 onSubmit={handleSubmit}
                 noValidate

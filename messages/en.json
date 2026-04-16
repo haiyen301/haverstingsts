@@ -31,7 +31,8 @@
     "planning": "Planning",
     "timeline": "Timeline",
     "forecasting": "Forecasting",
-    "inventoryImport": "Inventory Import"
+    "inventoryImport": "Inventory Import",
+    "weather": "Weather"
   },
   "SidebarProfile": {
     "languageLabel": "Language",
@@ -365,10 +366,10 @@
     "progress": "Progress",
     "statusDone": "Done",
     "statusProgressing": "Progressing",
-    "date": "Date:",
-    "grass": "Grass:",
-    "quantity": "Quantity:",
-    "zone": "Zone:",
+    "date": "Date",
+    "grass": "Grass",
+    "quantity": "Quantity",
+    "zone": "Zone",
     "displayDate": "Display Date:",
     "estimateDate": "Estimate Date:",
     "actualDate": "Actual Date:",

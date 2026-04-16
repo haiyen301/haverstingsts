@@ -31,7 +31,8 @@
     "planning": "การวางแผน",
     "timeline": "ไทม์ไลน์",
     "forecasting": "การพยากรณ์",
-    "inventoryImport": "นำเข้าสินค้าคงคลัง"
+    "inventoryImport": "นำเข้าสินค้าคงคลัง",
+    "weather": "สภาพอากาศ"
   },
   "SidebarProfile": {
     "languageLabel": "ภาษา",
@@ -365,11 +366,11 @@
     "progress": "ความคืบหน้า",
     "statusDone": "เสร็จสิ้น",
     "statusProgressing": "กำลังดำเนินการ",
-    "date": "วันที่:",
-    "grass": "หญ้า:",
-    "quantity": "จำนวน:",
+    "date": "วันที่",
+    "grass": "หญ้า",
+    "quantity": "จำนวน",
     "Remqty": "จำนวนคงเหลือ:",
-    "zone": "โซน:",
+    "zone": "โซน",
     "displayDate": "วันที่แสดงผล:",
     "estimateDate": "วันที่โดยประมาณ:",
     "actualDate": "วันที่จริง:",

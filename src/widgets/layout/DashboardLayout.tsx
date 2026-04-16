@@ -16,6 +16,7 @@ import {
   X,
   PanelLeftClose,
   PanelLeftOpen,
+  Sun,
 } from "lucide-react";
 
 import { images } from "@/lib/assets/images";
@@ -80,6 +81,7 @@ export function DashboardLayout({ children, hideAppNav = false }: DashboardLayou
     ...(canAccessInventoryImport
       ? [{ path: "/inventory-import", label: t("Nav.inventoryImport"), icon: FileSpreadsheet }]
       : []),
+    { path: "/weather", label: t("Nav.weather"), icon: Sun },
   ];
 
   const isActive = (path: string) => {
