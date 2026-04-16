@@ -31,7 +31,8 @@
     "planning": "Lập kế hoạch",
     "timeline": "Dòng thời gian",
     "forecasting": "Dự báo",
-    "inventoryImport": "Import tồn kho"
+    "inventoryImport": "Import tồn kho",
+    "weather": "Thời tiết"
   },
   "SidebarProfile": {
     "languageLabel": "Ngôn ngữ",
@@ -365,11 +366,11 @@
     "progress": "Tiến độ",
     "statusDone": "Hoàn thành",
     "statusProgressing": "Đang thực hiện",
-    "date": "Ngày:",
-    "grass": "Loại cỏ:",
-    "quantity": "Số lượng:",
+    "date": "Ngày",
+    "grass": "Loại cỏ",
+    "quantity": "Số lượng",
     "Remqty": "SL còn lại:",
-    "zone": "Khu vực:",
+    "zone": "Khu vực",
     "displayDate": "Ngày hiển thị:",
     "estimateDate": "Ngày dự kiến:",
     "actualDate": "Ngày thực tế:",

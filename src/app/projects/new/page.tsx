@@ -24,6 +24,7 @@ import {
   PROJECT_TYPE_VALUES,
   projectTypeMessageKey,
 } from "@/features/project/lib/projectTypeDisplay";
+import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 
 interface GrassRow {
   id: string;
@@ -425,6 +426,24 @@ export default function ProjectInputPage() {
     return null;
   };
 
+  const scrollToField = useCallback((elementId: string) => {
+    if (typeof window === "undefined") return;
+    const element = document.getElementById(elementId);
+    if (!element) return;
+    element.scrollIntoView({ behavior: "smooth", block: "center" });
+    const focusTarget =
+      element instanceof HTMLInputElement ||
+      element instanceof HTMLSelectElement ||
+      element instanceof HTMLTextAreaElement
+        ? element
+        : (element.querySelector(
+            "input, select, textarea, button, [tabindex]",
+          ) as HTMLElement | null);
+    if (focusTarget && "focus" in focusTarget) {
+      focusTarget.focus();
+    }
+  }, []);
+
   useEffect(() => {
     if (!startDateTouched) return;
     const pairError = getStartDatePairError(
@@ -499,6 +518,19 @@ export default function ProjectInputPage() {
 
     const topFieldErrors = getTopFieldErrors();
     setFieldErrors(topFieldErrors);
+    const orderedTopFieldKeys: (keyof TopFieldErrors)[] = [
+      "projectName",
+      "company",
+      "golfClub",
+      "architect",
+      "country",
+      "stsPic",
+      "estimateStartDate",
+      "actualStartDate",
+      "endDate",
+    ];
+    const firstTopFieldErrorKey =
+      orderedTopFieldKeys.find((key) => Boolean(topFieldErrors[key])) ?? null;
     const textFieldError = firstTopFieldError(topFieldErrors);
     const nextStartDateError =
       topFieldErrors.actualStartDate ?? topFieldErrors.estimateStartDate ?? null;
@@ -531,15 +563,33 @@ export default function ProjectInputPage() {
       nextKeyAreasError;
     if (firstError) {
       setError(firstError);
+      const topFieldScrollMap: Record<keyof TopFieldErrors, string> = {
+        projectName: "project-name",
+        company: "project-company",
+        golfClub: "project-golf-club",
+        architect: "project-architect",
+        country: "project-country",
+        stsPic: "project-sts-pic",
+        estimateStartDate: "project-estimate-start-date",
+        actualStartDate: "project-actual-start-date",
+        endDate: "project-end-date",
+      };
+      if (firstTopFieldErrorKey) {
+        scrollToField(topFieldScrollMap[firstTopFieldErrorKey]);
+      } else if (nextHolesError) {
+        scrollToField("project-holes");
+      }
       return;
     }
 
     if (!hasCompleteGrassItem) {
       setError(noCompleteGrassError);
+      scrollToField("project-grass-info");
       return;
     }
     if (hasInvalidGrassItem) {
       setError(invalidGrassError);
+      scrollToField("project-grass-info");
       return;
     }
 
@@ -653,46 +703,56 @@ export default function ProjectInputPage() {
 
   return (
     <RequireAuth>
-      <div className="min-h-screen bg-gray-50 pb-20">
-        <div className="max-w-md mx-auto">
-          <div className="relative mx-4 mt-3 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-lg">
-            {/* Top-right (Flutter: Positioned top: 15, right: 10 on card stack) */}
-            {isEdit ? (
-              <button
-                type="button"
-                onClick={showDeleteMenu}
-                className="absolute right-2.5 top-[15px] z-10 inline-flex items-center justify-center rounded-lg p-1 text-white hover:bg-white/15"
-                aria-label={t("moreActions")}
-              >
-                <MoreVertical className="h-6 w-6" strokeWidth={2.25} />
-              </button>
-            ) : null}
-
-            <div className="relative flex items-center justify-between bg-button-primary px-4 py-4 pr-11">
+      <DashboardLayout>
+        <div className="min-h-screen bg-gray-50 pb-10 lg:pb-14">
+          <div className="w-full px-4 pt-4 lg:px-8 lg:pt-8">
+            <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
               <button
                 onClick={goBack}
-                className="inline-flex items-center gap-2 text-sm text-gray-700"
+                className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
                 type="button"
                 aria-label="Back"
               >
                 <svg width="20" height="20" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M3 6L2.29289 6.70711L1.58579 6L2.29289 5.29289L3 6ZM6.75 15.25C6.19772 15.25 5.75 14.8023 5.75 14.25C5.75 13.6977 6.19772 13.25 6.75 13.25L6.75 14.25L6.75 15.25ZM6.75 9.75L6.04289 10.4571L2.29289 6.70711L3 6L3.70711 5.29289L7.45711 9.04289L6.75 9.75ZM3 6L2.29289 5.29289L6.04289 1.54289L6.75 2.25L7.45711 2.95711L3.70711 6.70711L3 6ZM3 6L3 5L10.875 5L10.875 6L10.875 7L3 7L3 6ZM10.875 14.25L10.875 15.25L6.75 15.25L6.75 14.25L6.75 13.25L10.875 13.25L10.875 14.25ZM15 10.125L16 10.125C16 12.9555 13.7055 15.25 10.875 15.25L10.875 14.25L10.875 13.25C12.6009 13.25 14 11.8509 14 10.125L15 10.125ZM10.875 6L10.875 5C13.7055 5 16 7.29454 16 10.125L15 10.125L14 10.125C14 8.39911 12.6009 7 10.875 7L10.875 6Z" fill="white" />
+                  <path d="M3 6L2.29289 6.70711L1.58579 6L2.29289 5.29289L3 6ZM6.75 15.25C6.19772 15.25 5.75 14.8023 5.75 14.25C5.75 13.6977 6.19772 13.25 6.75 13.25L6.75 14.25L6.75 15.25ZM6.75 9.75L6.04289 10.4571L2.29289 6.70711L3 6L3.70711 5.29289L7.45711 9.04289L6.75 9.75ZM3 6L2.29289 5.29289L6.04289 1.54289L6.75 2.25L7.45711 2.95711L3.70711 6.70711L3 6ZM3 6L3 5L10.875 5L10.875 6L10.875 7L3 7L3 6ZM10.875 14.25L10.875 15.25L6.75 15.25L6.75 14.25L6.75 13.25L10.875 13.25L10.875 14.25ZM15 10.125L16 10.125C16 12.9555 13.7055 15.25 10.875 15.25L10.875 14.25L10.875 13.25C12.6009 13.25 14 11.8509 14 10.125L15 10.125ZM10.875 6L10.875 5C13.7055 5 16 7.29454 16 10.125L15 10.125L14 10.125C14 8.39911 12.6009 7 10.875 7L10.875 6Z" fill="#374151" />
                 </svg>
+                <span>Back</span>
               </button>
-              <h1 className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-base font-semibold uppercase tracking-wider text-white pointer-events-none">
+              <div className="flex items-center gap-2">
+                {isEdit ? (
+                  <button
+                    type="button"
+                    onClick={showDeleteMenu}
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+                    aria-label={t("moreActions")}
+                  >
+                    <MoreVertical className="h-5 w-5" strokeWidth={2.25} />
+                  </button>
+                ) : null}
+              </div>
+            </div>
+            <div className="mb-6">
+              <h1 className="text-2xl font-semibold text-gray-900 lg:text-3xl">
                 {isEdit ? t("editTitle") : t("newTitle")}
               </h1>
-              <span className="w-8 shrink-0" aria-hidden />
+              <p className="mt-1 text-sm text-gray-500">
+                {t("projectName")} • {t("projectType")} • {t("grassRequirements")}
+              </p>
             </div>
+            <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-lg">
 
-            {/* Form */}
-            <form onSubmit={handleSubmit} noValidate className="p-4 space-y-4">
+                {/* Form */}
+                <form
+                  onSubmit={handleSubmit}
+                  noValidate
+                  className="space-y-3 p-4 lg:p-5 [&_input]:py-1.5 [&_select]:py-1.5 [&_textarea]:py-1.5"
+                >
           {loading ? <p className="text-sm text-gray-600">{t("loadingProject")}</p> : null}
           {/*
             With `client_source: nextjs`, `data.project_name` is resolved on the server (Flutter uses
             `project_id` from its own API instead).
           */}
-          <div>
+          <div id="project-basic-info">
             <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="project-name">
               {t("projectName")}
             </label>
@@ -718,11 +778,13 @@ export default function ProjectInputPage() {
           </div>
 
           {/* Company */}
+          <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               {tCommon("company")}
             </label>
             <input
+              id="project-company"
               type="text"
               value={formData.company}
               onChange={(e) => {
@@ -745,6 +807,7 @@ export default function ProjectInputPage() {
               {t("golfClub")}
             </label>
             <input
+              id="project-golf-club"
               type="text"
               value={formData.golfClub}
               onChange={(e) => {
@@ -760,13 +823,16 @@ export default function ProjectInputPage() {
               <p className="mt-1 text-xs text-red-600">{fieldErrors.golfClub}</p>
             ) : null}
           </div>
+          </div>
 
           {/* Architect */}
+          <div className="grid gap-3 lg:grid-cols-3">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               {t("architect")}
             </label>
             <input
+              id="project-architect"
               type="text"
               value={formData.architect}
               onChange={(e) => {
@@ -789,6 +855,7 @@ export default function ProjectInputPage() {
               {tCommon("country")}
             </label>
             <select
+              id="project-country"
               value={formData.country}
               onChange={(e) => {
                 setFormData({ ...formData, country: e.target.value });
@@ -809,6 +876,7 @@ export default function ProjectInputPage() {
               <p className="mt-1 text-xs text-red-600">{fieldErrors.country}</p>
             ) : null}
           </div>
+          </div>
 
           {/* STS PIC */}
           <div>
@@ -816,6 +884,7 @@ export default function ProjectInputPage() {
               {t("stsPic")}
             </label>
             <select
+              id="project-sts-pic"
               value={formData.stsPic}
               onChange={(e) => {
                 setFormData({ ...formData, stsPic: e.target.value });
@@ -837,7 +906,8 @@ export default function ProjectInputPage() {
             ) : null}
           </div>
 
-          <div>
+          <div id="project-setup-info" className="grid gap-4 lg:grid-cols-3">
+          <div id="project-estimate-start-date">
             <label className="block text-sm font-medium text-gray-700 mb-1">
               {t("estimateStartDate")}
             </label>
@@ -857,7 +927,7 @@ export default function ProjectInputPage() {
             ) : null}
           </div>
 
-          <div>
+          <div id="project-actual-start-date">
             <label className="block text-sm font-medium text-gray-700 mb-1">
               {t("actualStartDate")}
             </label>
@@ -879,7 +949,7 @@ export default function ProjectInputPage() {
             )}
           </div>
 
-          <div>
+          <div id="project-end-date">
             <label className="block text-sm font-medium text-gray-700 mb-1">
               {t("endDate")}
             </label>
@@ -895,6 +965,7 @@ export default function ProjectInputPage() {
               <p className="mt-1 text-xs text-red-600">{fieldErrors.endDate}</p>
             ) : null}
           </div>
+          </div>
 
           {/* Project Type */}
           <div>
@@ -902,7 +973,7 @@ export default function ProjectInputPage() {
               {t("projectType")}
             </label>
             <div
-              className="grid grid-cols-1 gap-2 rounded-lg border bg-white p-3"
+              className="grid grid-cols-1 gap-2 rounded-lg border bg-white p-3 lg:grid-cols-2 xl:grid-cols-3"
               style={{ borderColor: projectTypeError ? "#dc2626" : "#e5e7eb" }}
             >
               {projectTypeRadioValues.map((type) => (
@@ -943,11 +1014,11 @@ export default function ProjectInputPage() {
             <label className="block text-sm font-medium text-gray-700 mb-2">
               {t("details")}
             </label>
-            <div className="rounded-lg border border-gray-200 bg-white p-3 space-y-3">
-              <div>
+            <div className="space-y-3 rounded-lg border border-gray-200 bg-white p-3 lg:grid lg:grid-cols-2 lg:gap-4 lg:space-y-0">
+              <div id="project-holes">
                 <p className="mb-2 text-sm text-gray-600">{t("noOfHoles")}</p>
                 <div
-                  className="grid grid-cols-4 gap-2 rounded-md"
+                  className="grid grid-cols-3 gap-2 rounded-md xl:grid-cols-5"
                   style={{ outline: holesError ? "1px solid #dc2626" : "none" }}
                 >
                   {HOLE_OPTIONS.map((hole) => (
@@ -1025,7 +1096,7 @@ export default function ProjectInputPage() {
           </div>
 
           {/* Grass Requirements Section */}
-          <div className="pt-4 border-t border-gray-200">
+          <div id="project-grass-info" className="pt-4 border-t border-gray-200">
             <div className="flex items-center justify-between mb-3">
               <label className="text-sm font-medium text-gray-700">
                 {t("grassRequirements")}
@@ -1060,7 +1131,7 @@ export default function ProjectInputPage() {
                   )}
                 </div>
 
-                <div className="space-y-3">
+                <div className="grid gap-3 lg:grid-cols-3">
                   <select
                     value={row.grass}
                     onChange={(e) =>
@@ -1088,26 +1159,19 @@ export default function ProjectInputPage() {
                     <option value="M2">M2</option>
                   </select>
 
-                  <div className="grid gap-3">
-                    <div>
-                      <input
-                        type="number"
-                        value={row.required}
-                        onChange={(e) =>
-                          updateGrassRow(
-                            row.id,
-                            "required",
-                            e.target.value,
-                          )
-                        }
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#1F7A4C] focus:border-transparent text-sm"
-                       placeholder={t("requiredPlaceholder")}
-                      />
-                    </div>
-                  </div>
-                    
-
-            
+                  <input
+                    type="number"
+                    value={row.required}
+                    onChange={(e) =>
+                      updateGrassRow(
+                        row.id,
+                        "required",
+                        e.target.value,
+                      )
+                    }
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-transparent focus:ring-2 focus:ring-[#1F7A4C]"
+                    placeholder={t("requiredPlaceholder")}
+                  />
                 </div>
               </div>
             ))}
@@ -1124,10 +1188,10 @@ export default function ProjectInputPage() {
           >
             {saving ? t("saving") : isEdit ? t("updateProject") : t("createProject")}
           </button>
-            </form>
-          </div>
+                </form>
+              </div>
         </div>
-      </div>
+        </div>
 
       {deleteMenuOpen ? (
         <>
@@ -1205,6 +1269,7 @@ export default function ProjectInputPage() {
           </div>
         </div>
       ) : null}
+      </DashboardLayout>
     </RequireAuth>
   );
 }

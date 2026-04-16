@@ -25,7 +25,7 @@ function urlSearchParamsEquivalent(builtQs: string, currentQs: string): boolean 
   }
   return true;
 }
-import { AlignLeft, ArrowDown, Plus, Search, Upload } from "lucide-react";
+import { AlignLeft, ArrowDown, Loader2, Plus, Search, Upload } from "lucide-react";
 
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 import RequireAuth from "@/features/auth/RequireAuth";
@@ -192,6 +192,7 @@ export default function ProjectListPage() {
     return qs ? `${pathname}?${qs}` : pathname;
   }, [pathname, debouncedSearch, countryFilterIds, farmFilterIds, grassFilterIds, statusFilterValues]);
   const [loading, setLoading] = useState(true);
+  const [backgroundLoading, setBackgroundLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<MondayProjectServerRow[]>([]);
   const projectsRef = useHarvestingDataStore((s) => s.projects);
@@ -249,46 +250,74 @@ export default function ProjectListPage() {
           .map((x) => normalizeProjectStatusLabel(x))
           .filter(Boolean)
           .join(",");
-        const res = await fetchMondayProjectRowsFromServer({
+        const quickPerPage = 30;
+        const fullPerPage = 100;
+
+        // Fast first paint: request a smaller page size, render immediately.
+        const quickRes = await fetchMondayProjectRowsFromServer({
           module: "project",
           search: debouncedSearch || undefined,
           page: 1,
-          perPage: 100,
+          perPage: quickPerPage,
           status: statusQuery || undefined,
         });
         if (!mounted) return;
-        const rawRows = res.rows as unknown as Record<string, unknown>[];
-        let enrichedRows = rawRows;
-        try {
-          const allHarvestRows: Array<Record<string, unknown>> = [];
-          let page = 1;
-          let totalPages = 1;
-          const maxPages = 20;
-          do {
-            const harvestRes = await stsProxyGetHarvestingIndex({
-              page,
-              per_page: 200,
+        let baseRows = quickRes.rows as unknown as Record<string, unknown>[];
+        setRows(sortMondayProjectRows(baseRows));
+        setLoading(false);
+
+        // Continue loading the full page size in background, then refresh list.
+        void (async () => {
+          if (mounted) setBackgroundLoading(true);
+          try {
+            const fullRes = await fetchMondayProjectRowsFromServer({
+              module: "project",
+              search: debouncedSearch || undefined,
+              page: 1,
+              perPage: fullPerPage,
+              status: statusQuery || undefined,
             });
-            allHarvestRows.push(
-              ...harvestRes.rows.filter(
-                (x): x is Record<string, unknown> => !!x && typeof x === "object",
-              ),
-            );
-            totalPages = Math.max(1, harvestRes.totalPages);
-            page += 1;
-          } while (page <= totalPages && page <= maxPages);
-          enrichedRows = mergeProjectSubitemsWithPlanRows(rawRows, allHarvestRows);
-        } catch {
-          enrichedRows = rawRows;
-        }
-        setRows(sortMondayProjectRows(enrichedRows));
+            if (!mounted) return;
+            const fullRows = fullRes.rows as unknown as Record<string, unknown>[];
+            if (fullRows.length > 0) {
+              baseRows = fullRows;
+              setRows(sortMondayProjectRows(baseRows));
+            }
+
+            const allHarvestRows: Array<Record<string, unknown>> = [];
+            let page = 1;
+            let totalPages = 1;
+            const maxPages = 20;
+            do {
+              const harvestRes = await stsProxyGetHarvestingIndex({
+                page,
+                per_page: 200,
+              });
+              allHarvestRows.push(
+                ...harvestRes.rows.filter(
+                  (x): x is Record<string, unknown> => !!x && typeof x === "object",
+                ),
+              );
+              totalPages = Math.max(1, harvestRes.totalPages);
+              page += 1;
+            } while (page <= totalPages && page <= maxPages);
+
+            if (!mounted) return;
+            const enrichedRows = mergeProjectSubitemsWithPlanRows(baseRows, allHarvestRows);
+            setRows(sortMondayProjectRows(enrichedRows));
+          } catch {
+            // Keep already-rendered base rows if enrichment fails.
+          } finally {
+            if (mounted) setBackgroundLoading(false);
+          }
+        })();
       } catch (e) {
         if (!mounted) return;
         setRows([]);
         setError(e instanceof Error ? e.message : "Failed to load projects.");
-      } finally {
-        if (mounted) setLoading(false);
+        setBackgroundLoading(false);
       }
+      if (mounted) setLoading(false);
     })();
     return () => {
       mounted = false;
@@ -598,28 +627,36 @@ export default function ProjectListPage() {
           ) : projects.length === 0 ? (
             <p className="text-sm text-gray-600">No projects found.</p>
           ) : (
-            <div className="grid grid-cols-1 gap-6 min-[1300px]:grid-cols-2">
-              {projects.map(({ data, rowData }) => (
-                <ProjectListItem
-                  key={String(data.row_id ?? data.id)}
-                  serverRow={data}
-                  getProjectTitleById={(id?: string) => (id ? projectTitleMap.get(id) : undefined)}
-                  getCountryNameById={(id?: string) => (id ? countryNameMap.get(id) : undefined)}
-                  getUserNameById={(id?: string) => (id ? staffNameMap.get(id) : undefined)}
-                  getUserAvatarById={(id?: string) => (id ? staffAvatarMap.get(id) : undefined)}
-                  getProductNameById={(id?: string) => (id ? productNameMap.get(id) : undefined)}
-                  onEditProject={() => {
-                    const args = buildMondayEditArgs(
-                      data as unknown as Record<string, unknown>,
-                      rowData,
-                    );
-                    const projectId = String((data as Record<string, unknown>).project_id ?? "").trim();
-                    router.push(
-                      `/projects/detail?rowId=${encodeURIComponent(args.rowId ?? "")}&tableId=${encodeURIComponent(args.tableId ?? "")}&projectId=${encodeURIComponent(projectId)}&returnTo=${encodeURIComponent(returnTo)}`,
-                    );
-                  }}
-                />
-              ))}
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 gap-6 min-[1300px]:grid-cols-2">
+                {projects.map(({ data, rowData }) => (
+                  <ProjectListItem
+                    key={String(data.row_id ?? data.id)}
+                    serverRow={data}
+                    getProjectTitleById={(id?: string) => (id ? projectTitleMap.get(id) : undefined)}
+                    getCountryNameById={(id?: string) => (id ? countryNameMap.get(id) : undefined)}
+                    getUserNameById={(id?: string) => (id ? staffNameMap.get(id) : undefined)}
+                    getUserAvatarById={(id?: string) => (id ? staffAvatarMap.get(id) : undefined)}
+                    getProductNameById={(id?: string) => (id ? productNameMap.get(id) : undefined)}
+                    onEditProject={() => {
+                      const args = buildMondayEditArgs(
+                        data as unknown as Record<string, unknown>,
+                        rowData,
+                      );
+                      const projectId = String((data as Record<string, unknown>).project_id ?? "").trim();
+                      router.push(
+                        `/projects/detail?rowId=${encodeURIComponent(args.rowId ?? "")}&tableId=${encodeURIComponent(args.tableId ?? "")}&projectId=${encodeURIComponent(projectId)}&returnTo=${encodeURIComponent(returnTo)}`,
+                      );
+                    }}
+                  />
+                ))}
+              </div>
+              {backgroundLoading ? (
+                <div className="flex items-center justify-center gap-2 rounded-full border border-gray-200 bg-white px-4 py-2 text-sm text-gray-600">
+                  <Loader2 className="h-4 w-4 animate-spin text-[#1F7A4C]" />
+                  <span>Updating projects...</span>
+                </div>
+              ) : null}
             </div>
           )}
         </div>
