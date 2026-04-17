@@ -113,12 +113,19 @@ export default function WeatherPage() {
     setLoadingOpenMeteo(true);
     setOpenMeteoError(null);
     try {
+      const qs = new URLSearchParams({
+        locationId: preset.id,
+        forecastDays: "16",
+      });
       const res = await fetch(
-        `/api/weather/open-meteo?locationId=${encodeURIComponent(preset.id)}&forecastDays=16`,
-        { cache: "no-store" },
+        `/api/weather/db_open_meteo?${qs.toString()}`,
+        {
+          cache: "no-store",
+          credentials: "same-origin",
+        },
       );
       if (!res.ok) {
-        throw new Error(`Open-Meteo fetch failed (${res.status})`);
+        throw new Error(`STSPortal weather fetch failed (${res.status})`);
       }
       const payload = (await res.json()) as {
         success?: boolean;

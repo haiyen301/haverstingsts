@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { getStsApiUrlCandidates } from "@/shared/api/stsLogin";
 import { resolveStsBearerFromRequest } from "@/shared/server/stsAuthBearer";
+import { isTrustedSameOriginRequest } from "@/shared/server/csrfOrigin";
 import { fetchWithBaseUrlFallback } from "@/shared/server/stsUpstreamFetch";
 
 function upstreamFetchErrorMessage(err: unknown): string {
@@ -95,6 +96,13 @@ export async function POST(
   req: Request,
   context: { params: Promise<{ path: string[] }> },
 ) {
+  if (!isTrustedSameOriginRequest(req)) {
+    return NextResponse.json(
+      { success: false, message: "Blocked by CSRF protection (origin mismatch)." },
+      { status: 403 },
+    );
+  }
+
   const { path } = await context.params;
   if (!path?.length) {
     return NextResponse.json(
