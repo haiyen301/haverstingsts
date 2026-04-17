@@ -1337,6 +1337,53 @@ export default function DashboardPage() {
           </div>
 
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <div className="mb-6 flex min-w-[320px] flex-wrap items-end gap-2">
+              <label className="flex min-w-[150px] flex-col gap-1 text-xs text-gray-600">
+                <span>From (yyyy-mm-dd)</span>
+                <input
+                  type="date"
+                  value={selectedDateRange.from ?? ""}
+                  onChange={(e) =>
+                    setSelectedDateRange((prev) => ({
+                      ...prev,
+                      from: e.target.value || undefined,
+                    }))
+                  }
+                  className="h-10 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 focus:border-[#1F7A4C] focus:outline-none"
+                />
+              </label>
+              <label className="flex min-w-[150px] flex-col gap-1 text-xs text-gray-600">
+                <span>To (yyyy-mm-dd)</span>
+                <input
+                  type="date"
+                  value={selectedDateRange.to ?? ""}
+                  onChange={(e) =>
+                    setSelectedDateRange((prev) => ({
+                      ...prev,
+                      to: e.target.value || undefined,
+                    }))
+                  }
+                  className="h-10 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 focus:border-[#1F7A4C] focus:outline-none"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() => setSelectedDateRange({})}
+                className="inline-flex shrink-0 items-center rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 transition-colors hover:border-[#1F7A4C] hover:text-[#1F7A4C]"
+              >
+                Clear date
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowAnalyticsPanels((v) => !v)}
+                className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:border-[#1F7A4C] hover:text-[#1F7A4C]"
+                aria-pressed={!showAnalyticsPanels}
+              >
+                {showAnalyticsPanels ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                {showAnalyticsPanels ? "Hide charts" : "Show charts"}
+              </button>
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
               <Link
                 href="/harvest"
@@ -1395,56 +1442,6 @@ export default function DashboardPage() {
             </div>
 
             <div className="mb-6">
-              <div className="mb-6 flex min-w-[320px] flex-wrap items-end gap-2">
-                <label className="flex min-w-[150px] flex-col gap-1 text-xs text-gray-600">
-                  <span>From (yyyy-mm-dd)</span>
-                  <input
-                    type="date"
-                    value={selectedDateRange.from ?? ""}
-                    onChange={(e) =>
-                      setSelectedDateRange((prev) => ({
-                        ...prev,
-                        from: e.target.value || undefined,
-                      }))
-                    }
-                    className="h-10 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 focus:border-[#1F7A4C] focus:outline-none"
-                  />
-                </label>
-                <label className="flex min-w-[150px] flex-col gap-1 text-xs text-gray-600">
-                  <span>To (yyyy-mm-dd)</span>
-                  <input
-                    type="date"
-                    value={selectedDateRange.to ?? ""}
-                    onChange={(e) =>
-                      setSelectedDateRange((prev) => ({
-                        ...prev,
-                        to: e.target.value || undefined,
-                      }))
-                    }
-                    className="h-10 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-800 focus:border-[#1F7A4C] focus:outline-none"
-                  />
-                </label>
-                <button
-                  type="button"
-                  onClick={() => setSelectedDateRange({})}
-                  className="inline-flex shrink-0 items-center rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 transition-colors hover:border-[#1F7A4C] hover:text-[#1F7A4C]"
-                >
-                  Clear date
-                </button>
-
-
-                <div>
-                <button
-                  type="button"
-                  onClick={() => setShowAnalyticsPanels((v) => !v)}
-                  className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:border-[#1F7A4C] hover:text-[#1F7A4C]"
-                  aria-pressed={!showAnalyticsPanels}
-                >
-                  {showAnalyticsPanels ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  {showAnalyticsPanels ? "Hide charts" : "Show charts"}
-                </button>
-                </div>
-              </div>
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex flex-1 flex-wrap items-center gap-2">
                   <button
