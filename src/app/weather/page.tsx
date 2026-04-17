@@ -310,7 +310,7 @@ export default function WeatherPage() {
           >
             <div className="mb-4">
               <h1 className="text-2xl font-semibold text-gray-900 lg:text-3xl">
-                Weather - Open-Meteo
+                Weather
               </h1>
             </div>
             <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-lg">

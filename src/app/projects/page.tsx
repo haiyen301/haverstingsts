@@ -48,6 +48,10 @@ import { parseJsonMaybe } from "@/shared/lib/parseJsonMaybe";
 import { resolveStaffAvatarImageUrl } from "@/features/project/lib/staffAvatarUrl";
 import { stsProxyGetHarvestingIndex } from "@/shared/api/stsProxyClient";
 
+function formatNumber(v: number): string {
+  return new Intl.NumberFormat().format(Math.max(0, Math.floor(v)));
+}
+
 function toRecArray(rows: unknown[]): Record<string, unknown>[] {
   return rows.filter((x): x is Record<string, unknown> => !!x && typeof x === "object");
 }
@@ -501,6 +505,13 @@ export default function ProjectListPage() {
     return list;
   }, [farmsRef]);
 
+  const pageStart = projects.length > 0 ? 1 : 0;
+  const pageEnd = projects.length;
+  const approxTotalLabel =
+    projects.length >= 100
+      ? `${formatNumber(projects.length)}+`
+      : formatNumber(projects.length);
+
   return (
     <RequireAuth>
       <DashboardLayout>
@@ -628,6 +639,9 @@ export default function ProjectListPage() {
             <p className="text-sm text-gray-600">No projects found.</p>
           ) : (
             <div className="space-y-3">
+              <div className="text-sm text-gray-600">
+                {pageStart} - {pageEnd} of {approxTotalLabel} projects
+              </div>
               <div className="grid grid-cols-1 gap-6 min-[1300px]:grid-cols-2">
                 {projects.map(({ data, rowData }) => (
                   <ProjectListItem

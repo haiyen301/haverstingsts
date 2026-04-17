@@ -433,12 +433,12 @@ export default function ProjectInputPage() {
     element.scrollIntoView({ behavior: "smooth", block: "center" });
     const focusTarget =
       element instanceof HTMLInputElement ||
-      element instanceof HTMLSelectElement ||
-      element instanceof HTMLTextAreaElement
+        element instanceof HTMLSelectElement ||
+        element instanceof HTMLTextAreaElement
         ? element
         : (element.querySelector(
-            "input, select, textarea, button, [tabindex]",
-          ) as HTMLElement | null);
+          "input, select, textarea, button, [tabindex]",
+        ) as HTMLElement | null);
     if (focusTarget && "focus" in focusTarget) {
       focusTarget.focus();
     }
@@ -741,534 +741,526 @@ export default function ProjectInputPage() {
             </div>
             <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-lg">
 
-                {/* Form */}
-                <form
-                  onSubmit={handleSubmit}
-                  noValidate
-                  className="space-y-3 p-4 lg:p-5 [&_input]:py-1.5 [&_select]:py-1.5 [&_textarea]:py-1.5"
-                >
-          {loading ? <p className="text-sm text-gray-600">{t("loadingProject")}</p> : null}
-          {/*
+              {/* Form */}
+              <form
+                onSubmit={handleSubmit}
+                noValidate
+                  className="space-y-3 p-4 lg:p-5 [&_input]:h-10 [&_input]:py-0 [&_select]:h-10 [&_select]:py-0 [&_textarea]:py-1.5"
+              >
+                {loading ? <p className="text-sm text-gray-600">{t("loadingProject")}</p> : null}
+                {/*
             With `client_source: nextjs`, `data.project_name` is resolved on the server (Flutter uses
             `project_id` from its own API instead).
           */}
-          <div id="project-basic-info">
-            <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="project-name">
-              {t("projectName")}
-            </label>
-            <input
-              id="project-name"
-              name="projectName"
-              type="text"
-              value={formData.projectName}
-              onChange={(e) => {
-                setFormData({ ...formData, projectName: e.target.value });
-                setFieldErrors((prev) => ({ ...prev, projectName: undefined }));
-              }}
-              placeholder={t("projectNamePlaceholder")}
-              autoComplete="off"
-              aria-invalid={Boolean(fieldErrors.projectName)}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-[#1F7A4C] focus:border-transparent ${
-                fieldErrors.projectName ? "border-red-500" : "border-gray-300"
-              }`}
-            />
-            {fieldErrors.projectName ? (
-              <p className="mt-1 text-xs text-red-600">{fieldErrors.projectName}</p>
-            ) : null}
-          </div>
-
-          {/* Company */}
-          <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              {tCommon("company")}
-            </label>
-            <input
-              id="project-company"
-              type="text"
-              value={formData.company}
-              onChange={(e) => {
-                setFormData({ ...formData, company: e.target.value });
-                setFieldErrors((prev) => ({ ...prev, company: undefined }));
-              }}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-[#1F7A4C] focus:border-transparent ${
-                fieldErrors.company ? "border-red-500" : "border-gray-300"
-              }`}
-              placeholder={t("companyPlaceholder")}
-            />
-            {fieldErrors.company ? (
-              <p className="mt-1 text-xs text-red-600">{fieldErrors.company}</p>
-            ) : null}
-          </div>
-
-          {/* Golf Club */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t("golfClub")}
-            </label>
-            <input
-              id="project-golf-club"
-              type="text"
-              value={formData.golfClub}
-              onChange={(e) => {
-                setFormData({ ...formData, golfClub: e.target.value });
-                setFieldErrors((prev) => ({ ...prev, golfClub: undefined }));
-              }}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-[#1F7A4C] focus:border-transparent ${
-                fieldErrors.golfClub ? "border-red-500" : "border-gray-300"
-              }`}
-              placeholder={t("golfClubPlaceholder")}
-            />
-            {fieldErrors.golfClub ? (
-              <p className="mt-1 text-xs text-red-600">{fieldErrors.golfClub}</p>
-            ) : null}
-          </div>
-          </div>
-
-          {/* Architect */}
-          <div className="grid gap-3 lg:grid-cols-3">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t("architect")}
-            </label>
-            <input
-              id="project-architect"
-              type="text"
-              value={formData.architect}
-              onChange={(e) => {
-                setFormData({ ...formData, architect: e.target.value });
-                setFieldErrors((prev) => ({ ...prev, architect: undefined }));
-              }}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-[#1F7A4C] focus:border-transparent ${
-                fieldErrors.architect ? "border-red-500" : "border-gray-300"
-              }`}
-              placeholder={t("architectPlaceholder")}
-            />
-            {fieldErrors.architect ? (
-              <p className="mt-1 text-xs text-red-600">{fieldErrors.architect}</p>
-            ) : null}
-          </div>
-
-          {/* Country */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              {tCommon("country")}
-            </label>
-            <select
-              id="project-country"
-              value={formData.country}
-              onChange={(e) => {
-                setFormData({ ...formData, country: e.target.value });
-                setFieldErrors((prev) => ({ ...prev, country: undefined }));
-              }}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-[#1F7A4C] focus:border-transparent ${
-                fieldErrors.country ? "border-red-500" : "border-gray-300"
-              }`}
-            >
-              <option value="">{t("selectCountry")}</option>
-              {countryOptions.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-            {fieldErrors.country ? (
-              <p className="mt-1 text-xs text-red-600">{fieldErrors.country}</p>
-            ) : null}
-          </div>
-          </div>
-
-          {/* STS PIC */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t("stsPic")}
-            </label>
-            <select
-              id="project-sts-pic"
-              value={formData.stsPic}
-              onChange={(e) => {
-                setFormData({ ...formData, stsPic: e.target.value });
-                setFieldErrors((prev) => ({ ...prev, stsPic: undefined }));
-              }}
-              className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-[#1F7A4C] focus:border-transparent ${
-                fieldErrors.stsPic ? "border-red-500" : "border-gray-300"
-              }`}
-            >
-              <option value="">{t("selectPersonInCharge")}</option>
-              {staffOptions.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-            {fieldErrors.stsPic ? (
-              <p className="mt-1 text-xs text-red-600">{fieldErrors.stsPic}</p>
-            ) : null}
-          </div>
-
-          <div id="project-setup-info" className="grid gap-4 lg:grid-cols-3">
-          <div id="project-estimate-start-date">
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t("estimateStartDate")}
-            </label>
-            <DatePicker
-              value={formData.estimateStartDate}
-              onChange={(value) => {
-                setFormData({ ...formData, estimateStartDate: value });
-                setFieldErrors((prev) => ({ ...prev, estimateStartDate: undefined }));
-              }}
-              onBlur={() => setStartDateTouched(true)}
-              hasError={Boolean(fieldErrors.estimateStartDate || startDateError)}
-            />
-            {fieldErrors.estimateStartDate ? (
-              <p className="mt-1 text-xs text-red-600">
-                {fieldErrors.estimateStartDate}
-              </p>
-            ) : null}
-          </div>
-
-          <div id="project-actual-start-date">
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t("actualStartDate")}
-            </label>
-            <DatePicker
-              value={formData.actualStartDate}
-              onChange={(value) => {
-                setFormData({ ...formData, actualStartDate: value });
-                setFieldErrors((prev) => ({ ...prev, actualStartDate: undefined }));
-              }}
-              onBlur={() => setStartDateTouched(true)}
-              hasError={Boolean(fieldErrors.actualStartDate || startDateError)}
-            />
-            {startDateError ? (
-              <p className="mt-1 text-xs text-red-600">{startDateError}</p>
-            ) : (
-              <p className="mt-1 text-xs text-gray-500">
-                {t("startDatePairHint")}
-              </p>
-            )}
-          </div>
-
-          <div id="project-end-date">
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              {t("endDate")}
-            </label>
-            <DatePicker
-              value={formData.endDate}
-              onChange={(value) => {
-                setFormData({ ...formData, endDate: value });
-                setFieldErrors((prev) => ({ ...prev, endDate: undefined }));
-              }}
-              hasError={Boolean(fieldErrors.endDate)}
-            />
-            {fieldErrors.endDate ? (
-              <p className="mt-1 text-xs text-red-600">{fieldErrors.endDate}</p>
-            ) : null}
-          </div>
-          </div>
-
-          {/* Project Type */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              {t("projectType")}
-            </label>
-            <div
-              className="grid grid-cols-1 gap-2 rounded-lg border bg-white p-3 lg:grid-cols-2 xl:grid-cols-3"
-              style={{ borderColor: projectTypeError ? "#dc2626" : "#e5e7eb" }}
-            >
-              {projectTypeRadioValues.map((type) => (
-                <button
-                  key={type}
-                  type="button"
-                  onClick={() => {
-                    const nextType = formData.projectType === type ? "" : type;
-                    setFormData({ ...formData, projectType: nextType });
-                    setProjectTypeError(null);
-                    setHolesError(null);
-                  }}
-                  className="relative block cursor-pointer text-left"
-                >
-                  <span
-                    className={`flex min-h-11 items-center justify-center rounded-md border px-3 text-sm transition-colors ${
-                      formData.projectType === type
-                        ? "border-[var(--color-primary)] bg-white text-[var(--color-primary)]"
-                        : "border-transparent bg-gray-100 text-gray-700"
-                    }`}
-                  >
-                    {labelForProjectTypeOption(type)}
-                  </span>
-                  {formData.projectType === type ? (
-                    <span className="absolute left-1.5 top-1.5 inline-flex h-4 w-4 items-center justify-center rounded-full bg-[var(--color-primary)] text-white">
-                      <Check className="h-3 w-3" />
-                    </span>
-                  ) : null}
-                </button>
-              ))}
-            </div>
-            {projectTypeError ? (
-              <p className="mt-1 text-xs text-red-600">{projectTypeError}</p>
-            ) : null}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              {t("details")}
-            </label>
-            <div className="space-y-3 rounded-lg border border-gray-200 bg-white p-3 lg:grid lg:grid-cols-2 lg:gap-4 lg:space-y-0">
-              <div id="project-holes">
-                <p className="mb-2 text-sm text-gray-600">{t("noOfHoles")}</p>
-                <div
-                  className="grid grid-cols-3 gap-2 rounded-md xl:grid-cols-5"
-                  style={{ outline: holesError ? "1px solid #dc2626" : "none" }}
-                >
-                  {HOLE_OPTIONS.map((hole) => (
-                    <button
-                      key={hole.value}
-                      type="button"
-                      onClick={() => {
-                        const nextHoles = formData.holes === hole.value ? "" : hole.value;
-                        setFormData({ ...formData, holes: nextHoles });
-                        setHolesError(null);
-                      }}
-                      className="relative block cursor-pointer text-left"
-                    >
-                      <span
-                        className={`flex min-h-10 items-center justify-center rounded-md border px-3 text-sm transition-colors ${
-                          formData.holes === hole.value
-                            ? "border-[var(--color-primary)] bg-white text-[var(--color-primary)]"
-                            : "border-transparent bg-gray-100 text-gray-700"
-                        }`}
-                      >
-                        {hole.label}
-                      </span>
-                      {formData.holes === hole.value ? (
-                        <span className="absolute left-1.5 top-1.5 inline-flex h-4 w-4 items-center justify-center rounded-full bg-[var(--color-primary)] text-white">
-                          <Check className="h-3 w-3" />
-                        </span>
-                      ) : null}
-                    </button>
-                  ))}
-                </div>
-                {holesError ? <p className="mt-1 text-xs text-red-600">{holesError}</p> : null}
-              </div>
-              <div>
-                <p className="mb-2 text-sm text-gray-600">{t("keyAreas")}</p>
-                <div
-                  className="grid grid-cols-2 gap-2 rounded-md"
-                  style={{ outline: keyAreasError ? "1px solid #dc2626" : "none" }}
-                >
-                  {["Tees", "Roughs", "Fairways", "Greens", "Bunkers"].map((area) => (
-                    <label key={area} className="relative block cursor-pointer">
-                      <input
-                        type="checkbox"
-                        className="sr-only"
-                        checked={formData.keyAreas.includes(area)}
-                        onChange={(e) => {
-                          const next = e.target.checked
-                            ? [...formData.keyAreas, area]
-                            : formData.keyAreas.filter((x) => x !== area);
-                          setFormData({ ...formData, keyAreas: next });
-                          setKeyAreasError(null);
-                        }}
-                      />
-                      <span
-                        className={`flex min-h-10 items-center justify-center rounded-md border px-3 text-sm transition-colors ${
-                          formData.keyAreas.includes(area)
-                            ? "border-[var(--color-primary)] bg-white text-[var(--color-primary)]"
-                            : "border-transparent bg-gray-100 text-gray-700"
-                        }`}
-                      >
-                        {area}
-                      </span>
-                      {formData.keyAreas.includes(area) ? (
-                        <span className="absolute left-1.5 top-1.5 inline-flex h-4 w-4 items-center justify-center rounded-full bg-[var(--color-primary)] text-white">
-                          <Check className="h-3 w-3" />
-                        </span>
-                      ) : null}
+                <div id="project-basic-info" className="grid gap-3 lg:grid-cols-2 pb-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="project-name">
+                      {t("projectName")}
                     </label>
-                  ))}
+                    <input
+                      id="project-name"
+                      name="projectName"
+                      type="text"
+                      value={formData.projectName}
+                      onChange={(e) => {
+                        setFormData({ ...formData, projectName: e.target.value });
+                        setFieldErrors((prev) => ({ ...prev, projectName: undefined }));
+                      }}
+                      placeholder={t("projectNamePlaceholder")}
+                      autoComplete="off"
+                      aria-invalid={Boolean(fieldErrors.projectName)}
+                      className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-[#1F7A4C] focus:border-transparent ${fieldErrors.projectName ? "border-red-500" : "border-gray-300"
+                        }`}
+                    />
+                    {fieldErrors.projectName ? (
+                      <p className="mt-1 text-xs text-red-600">{fieldErrors.projectName}</p>
+                    ) : null}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      {t("stsPic")}
+                    </label>
+                    <select
+                      id="project-sts-pic"
+                      value={formData.stsPic}
+                      onChange={(e) => {
+                        setFormData({ ...formData, stsPic: e.target.value });
+                        setFieldErrors((prev) => ({ ...prev, stsPic: undefined }));
+                      }}
+                      className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-[#1F7A4C] focus:border-transparent ${fieldErrors.stsPic ? "border-red-500" : "border-gray-300"
+                        }`}
+                    >
+                      <option value="">{t("selectPersonInCharge")}</option>
+                      {staffOptions.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </select>
+                    {fieldErrors.stsPic ? (
+                      <p className="mt-1 text-xs text-red-600">{fieldErrors.stsPic}</p>
+                    ) : null}
+                  </div>
                 </div>
-                {keyAreasError ? (
-                  <p className="mt-1 text-xs text-red-600">{keyAreasError}</p>
-                ) : null}
-              </div>
-            </div>
-          </div>
 
-          {/* Grass Requirements Section */}
-          <div id="project-grass-info" className="pt-4 border-t border-gray-200">
-            <div className="flex items-center justify-between mb-3">
-              <label className="text-sm font-medium text-gray-700">
-                {t("grassRequirements")}
-              </label>
-              <button
-                type="button"
-                onClick={addGrassRow}
-                className="flex items-center gap-1 px-3 py-1.5 text-sm bg-button-primary text-white rounded-lg hover:bg-[#196A40] transition-colors"
-              >
-                <Plus className="w-4 h-4" />
-                {tCommon("add")}
-              </button>
-            </div>
+                {/* Company */}
+                <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3 pb-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      {tCommon("company")}
+                    </label>
+                    <input
+                      id="project-company"
+                      type="text"
+                      value={formData.company}
+                      onChange={(e) => {
+                        setFormData({ ...formData, company: e.target.value });
+                        setFieldErrors((prev) => ({ ...prev, company: undefined }));
+                      }}
+                      className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-[#1F7A4C] focus:border-transparent ${fieldErrors.company ? "border-red-500" : "border-gray-300"
+                        }`}
+                      placeholder={t("companyPlaceholder")}
+                    />
+                    {fieldErrors.company ? (
+                      <p className="mt-1 text-xs text-red-600">{fieldErrors.company}</p>
+                    ) : null}
+                  </div>
 
-            {grassRows.map((row) => (
-              <div
-                key={row.id}
-                className="mb-4 p-4 bg-white rounded-lg border border-gray-200"
-              >
-                <div className="flex justify-between items-start mb-3">
-                  <span className="text-sm font-medium text-gray-700">
-                    {t("grassType")}
-                  </span>
-                  {grassRows.length > 1 && (
+                  {/* Golf Club */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      {t("golfClub")}
+                    </label>
+                    <input
+                      id="project-golf-club"
+                      type="text"
+                      value={formData.golfClub}
+                      onChange={(e) => {
+                        setFormData({ ...formData, golfClub: e.target.value });
+                        setFieldErrors((prev) => ({ ...prev, golfClub: undefined }));
+                      }}
+                      className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-[#1F7A4C] focus:border-transparent ${fieldErrors.golfClub ? "border-red-500" : "border-gray-300"
+                        }`}
+                      placeholder={t("golfClubPlaceholder")}
+                    />
+                    {fieldErrors.golfClub ? (
+                      <p className="mt-1 text-xs text-red-600">{fieldErrors.golfClub}</p>
+                    ) : null}
+                  </div>
+                </div>
+
+                {/* Architect */}
+                <div className="grid gap-3 lg:grid-cols-3 pb-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      {t("architect")}
+                    </label>
+                    <input
+                      id="project-architect"
+                      type="text"
+                      value={formData.architect}
+                      onChange={(e) => {
+                        setFormData({ ...formData, architect: e.target.value });
+                        setFieldErrors((prev) => ({ ...prev, architect: undefined }));
+                      }}
+                      className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-[#1F7A4C] focus:border-transparent ${fieldErrors.architect ? "border-red-500" : "border-gray-300"
+                        }`}
+                      placeholder={t("architectPlaceholder")}
+                    />
+                    {fieldErrors.architect ? (
+                      <p className="mt-1 text-xs text-red-600">{fieldErrors.architect}</p>
+                    ) : null}
+                  </div>
+
+                  {/* Country */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      {tCommon("country")}
+                    </label>
+                    <select
+                      id="project-country"
+                      value={formData.country}
+                      onChange={(e) => {
+                        setFormData({ ...formData, country: e.target.value });
+                        setFieldErrors((prev) => ({ ...prev, country: undefined }));
+                      }}
+                      className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-[#1F7A4C] focus:border-transparent ${fieldErrors.country ? "border-red-500" : "border-gray-300"
+                        }`}
+                    >
+                      <option value="">{t("selectCountry")}</option>
+                      {countryOptions.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                    {fieldErrors.country ? (
+                      <p className="mt-1 text-xs text-red-600">{fieldErrors.country}</p>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div id="project-setup-info" className="grid gap-4 lg:grid-cols-3 pb-4">
+                  <div id="project-estimate-start-date">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      {t("estimateStartDate")}
+                    </label>
+                    <DatePicker
+                      value={formData.estimateStartDate}
+                      onChange={(value) => {
+                        setFormData({ ...formData, estimateStartDate: value });
+                        setFieldErrors((prev) => ({ ...prev, estimateStartDate: undefined }));
+                      }}
+                      onBlur={() => setStartDateTouched(true)}
+                      hasError={Boolean(fieldErrors.estimateStartDate || startDateError)}
+                    />
+                    {fieldErrors.estimateStartDate ? (
+                      <p className="mt-1 text-xs text-red-600">
+                        {fieldErrors.estimateStartDate}
+                      </p>
+                    ) : null}
+                  </div>
+
+                  <div id="project-actual-start-date">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      {t("actualStartDate")}
+                    </label>
+                    <DatePicker
+                      value={formData.actualStartDate}
+                      onChange={(value) => {
+                        setFormData({ ...formData, actualStartDate: value });
+                        setFieldErrors((prev) => ({ ...prev, actualStartDate: undefined }));
+                      }}
+                      onBlur={() => setStartDateTouched(true)}
+                      hasError={Boolean(fieldErrors.actualStartDate || startDateError)}
+                    />
+                    {startDateError ? (
+                      <p className="mt-1 text-xs text-red-600">{startDateError}</p>
+                    ) : (
+                      <p className="mt-1 text-xs text-gray-500">
+                        {t("startDatePairHint")}
+                      </p>
+                    )}
+                  </div>
+
+                  <div id="project-end-date">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      {t("endDate")}
+                    </label>
+                    <DatePicker
+                      value={formData.endDate}
+                      onChange={(value) => {
+                        setFormData({ ...formData, endDate: value });
+                        setFieldErrors((prev) => ({ ...prev, endDate: undefined }));
+                      }}
+                      hasError={Boolean(fieldErrors.endDate)}
+                    />
+                    {fieldErrors.endDate ? (
+                      <p className="mt-1 text-xs text-red-600">{fieldErrors.endDate}</p>
+                    ) : null}
+                  </div>
+                </div>
+
+                {/* Project Type */}
+                <div className="pb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    {t("projectType")}
+                  </label>
+                  <div
+                    className="grid grid-cols-1 gap-2 rounded-lg border bg-white p-3 lg:grid-cols-2 xl:grid-cols-3"
+                    style={{ borderColor: projectTypeError ? "#dc2626" : "#e5e7eb" }}
+                  >
+                    {projectTypeRadioValues.map((type) => (
+                      <button
+                        key={type}
+                        type="button"
+                        onClick={() => {
+                          const nextType = formData.projectType === type ? "" : type;
+                          setFormData({ ...formData, projectType: nextType });
+                          setProjectTypeError(null);
+                          setHolesError(null);
+                        }}
+                        className="relative block cursor-pointer text-left"
+                      >
+                        <span
+                          className={`flex min-h-11 items-center justify-center rounded-md border px-3 text-sm transition-colors ${formData.projectType === type
+                              ? "border-[var(--color-primary)] bg-white text-[var(--color-primary)]"
+                              : "border-transparent bg-gray-100 text-gray-700"
+                            }`}
+                        >
+                          {labelForProjectTypeOption(type)}
+                        </span>
+                        {formData.projectType === type ? (
+                          <span className="absolute left-1.5 top-1.5 inline-flex h-4 w-4 items-center justify-center rounded-full bg-[var(--color-primary)] text-white">
+                            <Check className="h-3 w-3" />
+                          </span>
+                        ) : null}
+                      </button>
+                    ))}
+                  </div>
+                  {projectTypeError ? (
+                    <p className="mt-1 text-xs text-red-600">{projectTypeError}</p>
+                  ) : null}
+                </div>
+
+                <div className="pb-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    {t("details")}
+                  </label>
+                  <div className="space-y-3 rounded-lg border border-gray-200 bg-white p-3 lg:grid lg:grid-cols-2 lg:gap-4 lg:space-y-0 pb-4">
+                    <div id="project-holes">
+                      <p className="mb-2 text-sm text-gray-600">{t("noOfHoles")}</p>
+                      <div
+                        className="grid grid-cols-3 gap-2 rounded-md xl:grid-cols-5"
+                        style={{ outline: holesError ? "1px solid #dc2626" : "none" }}
+                      >
+                        {HOLE_OPTIONS.map((hole) => (
+                          <button
+                            key={hole.value}
+                            type="button"
+                            onClick={() => {
+                              const nextHoles = formData.holes === hole.value ? "" : hole.value;
+                              setFormData({ ...formData, holes: nextHoles });
+                              setHolesError(null);
+                            }}
+                            className="relative block cursor-pointer text-left"
+                          >
+                            <span
+                              className={`flex min-h-10 items-center justify-center rounded-md border px-3 text-sm transition-colors ${formData.holes === hole.value
+                                  ? "border-[var(--color-primary)] bg-white text-[var(--color-primary)]"
+                                  : "border-transparent bg-gray-100 text-gray-700"
+                                }`}
+                            >
+                              {hole.label}
+                            </span>
+                            {formData.holes === hole.value ? (
+                              <span className="absolute left-1.5 top-1.5 inline-flex h-4 w-4 items-center justify-center rounded-full bg-[var(--color-primary)] text-white">
+                                <Check className="h-3 w-3" />
+                              </span>
+                            ) : null}
+                          </button>
+                        ))}
+                      </div>
+                      {holesError ? <p className="mt-1 text-xs text-red-600">{holesError}</p> : null}
+                    </div>
+                    <div>
+                      <p className="mb-2 text-sm text-gray-600">{t("keyAreas")}</p>
+                      <div
+                        className="grid grid-cols-2 gap-2 rounded-md"
+                        style={{ outline: keyAreasError ? "1px solid #dc2626" : "none" }}
+                      >
+                        {["Tees", "Roughs", "Fairways", "Greens", "Bunkers"].map((area) => (
+                          <label key={area} className="relative block cursor-pointer">
+                            <input
+                              type="checkbox"
+                              className="sr-only"
+                              checked={formData.keyAreas.includes(area)}
+                              onChange={(e) => {
+                                const next = e.target.checked
+                                  ? [...formData.keyAreas, area]
+                                  : formData.keyAreas.filter((x) => x !== area);
+                                setFormData({ ...formData, keyAreas: next });
+                                setKeyAreasError(null);
+                              }}
+                            />
+                            <span
+                              className={`flex min-h-10 items-center justify-center rounded-md border px-3 text-sm transition-colors ${formData.keyAreas.includes(area)
+                                  ? "border-[var(--color-primary)] bg-white text-[var(--color-primary)]"
+                                  : "border-transparent bg-gray-100 text-gray-700"
+                                }`}
+                            >
+                              {area}
+                            </span>
+                            {formData.keyAreas.includes(area) ? (
+                              <span className="absolute left-1.5 top-1.5 inline-flex h-4 w-4 items-center justify-center rounded-full bg-[var(--color-primary)] text-white">
+                                <Check className="h-3 w-3" />
+                              </span>
+                            ) : null}
+                          </label>
+                        ))}
+                      </div>
+                      {keyAreasError ? (
+                        <p className="mt-1 text-xs text-red-600">{keyAreasError}</p>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Grass Requirements Section */}
+                <div id="project-grass-info" className="pt-4 border-t border-gray-200">
+                  <div className="flex items-center justify-between mb-3">
+                    <label className="text-sm font-medium text-gray-700">
+                      {t("grassRequirements")}
+                    </label>
                     <button
                       type="button"
-                      onClick={() => removeGrassRow(row.id)}
-                      className="p-1 text-red-600 hover:bg-red-50 rounded"
+                      onClick={addGrassRow}
+                      className="flex items-center gap-1 px-3 py-1.5 text-sm bg-button-primary text-white rounded-lg hover:bg-[#196A40] transition-colors"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Plus className="w-4 h-4" />
+                      {tCommon("add")}
                     </button>
-                  )}
+                  </div>
+
+                  {grassRows.map((row) => (
+                    <div
+                      key={row.id}
+                      className="mb-4 p-4 bg-white rounded-lg border border-gray-200"
+                    >
+                      <div className="flex justify-between items-start mb-3">
+                        <span className="text-sm font-medium text-gray-700">
+                          {t("grassType")}
+                        </span>
+                        {grassRows.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removeGrassRow(row.id)}
+                            className="p-1 text-red-600 hover:bg-red-50 rounded"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="grid gap-3 lg:grid-cols-3">
+                        <select
+                          value={row.grass}
+                          onChange={(e) =>
+                            updateGrassRow(row.id, "grass", e.target.value)
+                          }
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[var(--color-primary)] focus:border-[var(--color-primary)] text-sm"
+                        >
+                          <option value="">{t("selectGrass")}</option>
+                          {productOptions.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.name}
+                            </option>
+                          ))}
+                        </select>
+
+                        <select
+                          value={row.type}
+                          onChange={(e) =>
+                            updateGrassRow(row.id, "type", e.target.value)
+                          }
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[var(--color-primary)] focus:border-[var(--color-primary)] text-sm"
+                        >
+                          <option value="">{t("kgOrM2")}</option>
+                          <option value="Kg">Kg</option>
+                          <option value="M2">M2</option>
+                        </select>
+
+                        <input
+                          type="number"
+                          value={row.required}
+                          onChange={(e) =>
+                            updateGrassRow(
+                              row.id,
+                              "required",
+                              e.target.value,
+                            )
+                          }
+                          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-transparent focus:ring-2 focus:ring-[#1F7A4C]"
+                          placeholder={t("requiredPlaceholder")}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                  {grassValidationError ? (
+                    <p className="mt-1 text-xs text-red-600">{grassValidationError}</p>
+                  ) : null}
                 </div>
 
-                <div className="grid gap-3 lg:grid-cols-3">
-                  <select
-                    value={row.grass}
-                    onChange={(e) =>
-                      updateGrassRow(row.id, "grass", e.target.value)
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[var(--color-primary)] focus:border-[var(--color-primary)] text-sm"
-                  >
-                    <option value="">{t("selectGrass")}</option>
-                    {productOptions.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                      </option>
-                    ))}
-                  </select>
-
-                  <select
-                    value={row.type}
-                    onChange={(e) =>
-                      updateGrassRow(row.id, "type", e.target.value)
-                    }
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[var(--color-primary)] focus:border-[var(--color-primary)] text-sm"
-                  >
-                    <option value="">{t("kgOrM2")}</option>
-                    <option value="Kg">Kg</option>
-                    <option value="M2">M2</option>
-                  </select>
-
-                  <input
-                    type="number"
-                    value={row.required}
-                    onChange={(e) =>
-                      updateGrassRow(
-                        row.id,
-                        "required",
-                        e.target.value,
-                      )
-                    }
-                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-transparent focus:ring-2 focus:ring-[#1F7A4C]"
-                    placeholder={t("requiredPlaceholder")}
-                  />
-                </div>
-              </div>
-            ))}
-            {grassValidationError ? (
-              <p className="mt-1 text-xs text-red-600">{grassValidationError}</p>
-            ) : null}
-          </div>
-
-          {/* Submit Button */}
-          <button
-            type="submit"
-            disabled={loading || saving}
-            className="w-full py-3 bg-button-primary text-white rounded-lg font-medium hover:bg-[#196A40] transition-colors mt-6 disabled:opacity-60"
-          >
-            {saving ? t("saving") : isEdit ? t("updateProject") : t("createProject")}
-          </button>
-                </form>
-              </div>
-        </div>
-        </div>
-
-      {deleteMenuOpen ? (
-        <>
-          <button
-            type="button"
-            className="fixed inset-0 z-[60] bg-black/40"
-            aria-label={t("closeMenuAria")}
-            onClick={closeDeleteMenu}
-          />
-          <div
-            className="fixed inset-x-0 bottom-0 z-[61] mx-auto max-w-md rounded-t-2xl border border-gray-200 bg-white shadow-lg"
-            role="dialog"
-            aria-label={t("actionsTitle")}
-          >
-            <div className="py-2">
-              <button
-                type="button"
-                className="flex w-full items-center gap-3 px-4 py-3 text-left text-red-600 hover:bg-red-50"
-                onClick={onPickDeleteFromSheet}
-              >
-                <Trash2 className="h-5 w-5 shrink-0" />
-                <span className="font-medium">{tCommon("delete")}</span>
-              </button>
-              <button
-                type="button"
-                className="flex w-full items-center gap-3 px-4 py-3 text-left text-gray-800 hover:bg-gray-50"
-                onClick={closeDeleteMenu}
-              >
-                <span className="pl-8 font-medium">{tCommon("cancel")}</span>
-              </button>
-            </div>
-          </div>
-        </>
-      ) : null}
-
-      {confirmDeleteOpen ? (
-        <div
-          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4"
-          role="presentation"
-          onClick={() => {
-            if (!deleting) setConfirmDeleteOpen(false);
-          }}
-        >
-          <div
-            className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl"
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="delete-project-title"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2 id="delete-project-title" className="text-lg font-semibold text-gray-900">
-              {t("confirmDeleteTitle")}
-            </h2>
-            <p className="mt-2 text-sm text-gray-600">
-              {t("confirmDeleteMessage")}
-            </p>
-            <div className="mt-6 flex justify-end gap-2">
-              <button
-                type="button"
-                className="rounded-lg px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
-                onClick={() => setConfirmDeleteOpen(false)}
-                disabled={deleting}
-              >
-                {tCommon("cancel")}
-              </button>
-              <button
-                type="button"
-                className="rounded-lg px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 disabled:opacity-60"
-                onClick={() => void onConfirmDeleteProject()}
-                disabled={deleting}
-              >
-                {deleting ? t("deleting") : tCommon("delete")}
-              </button>
+                {/* Submit Button */}
+                <button
+                  type="submit"
+                  disabled={loading || saving}
+                  className="w-full py-3 bg-button-primary text-white rounded-lg font-medium hover:bg-[#196A40] transition-colors mt-6 disabled:opacity-60"
+                >
+                  {saving ? t("saving") : isEdit ? t("updateProject") : t("createProject")}
+                </button>
+              </form>
             </div>
           </div>
         </div>
-      ) : null}
+
+        {deleteMenuOpen ? (
+          <>
+            <button
+              type="button"
+              className="fixed inset-0 z-[60] bg-black/40"
+              aria-label={t("closeMenuAria")}
+              onClick={closeDeleteMenu}
+            />
+            <div
+              className="fixed inset-x-0 bottom-0 z-[61] mx-auto max-w-md rounded-t-2xl border border-gray-200 bg-white shadow-lg"
+              role="dialog"
+              aria-label={t("actionsTitle")}
+            >
+              <div className="py-2">
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-3 px-4 py-3 text-left text-red-600 hover:bg-red-50"
+                  onClick={onPickDeleteFromSheet}
+                >
+                  <Trash2 className="h-5 w-5 shrink-0" />
+                  <span className="font-medium">{tCommon("delete")}</span>
+                </button>
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-3 px-4 py-3 text-left text-gray-800 hover:bg-gray-50"
+                  onClick={closeDeleteMenu}
+                >
+                  <span className="pl-8 font-medium">{tCommon("cancel")}</span>
+                </button>
+              </div>
+            </div>
+          </>
+        ) : null}
+
+        {confirmDeleteOpen ? (
+          <div
+            className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4"
+            role="presentation"
+            onClick={() => {
+              if (!deleting) setConfirmDeleteOpen(false);
+            }}
+          >
+            <div
+              className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl"
+              role="alertdialog"
+              aria-modal="true"
+              aria-labelledby="delete-project-title"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h2 id="delete-project-title" className="text-lg font-semibold text-gray-900">
+                {t("confirmDeleteTitle")}
+              </h2>
+              <p className="mt-2 text-sm text-gray-600">
+                {t("confirmDeleteMessage")}
+              </p>
+              <div className="mt-6 flex justify-end gap-2">
+                <button
+                  type="button"
+                  className="rounded-lg px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
+                  onClick={() => setConfirmDeleteOpen(false)}
+                  disabled={deleting}
+                >
+                  {tCommon("cancel")}
+                </button>
+                <button
+                  type="button"
+                  className="rounded-lg px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 disabled:opacity-60"
+                  onClick={() => void onConfirmDeleteProject()}
+                  disabled={deleting}
+                >
+                  {deleting ? t("deleting") : tCommon("delete")}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </DashboardLayout>
     </RequireAuth>
   );

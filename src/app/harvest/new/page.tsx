@@ -40,7 +40,6 @@ import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
 import { deleteMondayParentOrSubItem } from "@/entities/projects/api/projectsApi";
 import { effectiveRequiredQuantityForFormUom } from "@/features/project/lib/effectiveRequirementQuantity";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
-import { ACCUWEATHER_ASIA_BROWSE_LINKS } from "@/data/accuweatherAsiaBrowseLinks";
 
 const DOC_PHOTO_SLOTS: HarvestDocPhotoField[] = [
   "payment_img",
@@ -1028,32 +1027,10 @@ function HarvestInputPageInner() {
               </p>
             </div>
             <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-lg">
-              <div className="border-b border-gray-100 bg-gray-50 px-4 py-3 lg:px-5">
-                <p className="text-sm font-semibold text-gray-800">
-                  AccuWeather - Châu Á
-                </p>
-                <p className="mt-1 text-xs text-gray-500">
-                  Liên kết tĩnh (API AccuWeather đã chuyển vào{" "}
-                  <code className="rounded bg-gray-100 px-1">backup/app-api-accuweather</code>).
-                </p>
-                <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
-                  {ACCUWEATHER_ASIA_BROWSE_LINKS.map((item) => (
-                    <a
-                      key={`${item.name}-${item.href}`}
-                      href={item.href}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-xs text-[#1F7A4C] underline-offset-2 hover:underline"
-                    >
-                      {item.name}
-                    </a>
-                  ))}
-                </div>
-              </div>
               <form
                 onSubmit={handleSubmit}
                 noValidate
-                className="mx-auto max-w-6xl p-4 lg:p-5 [&_input]:py-1.5 [&_select]:py-1.5 [&_textarea]:py-1.5"
+                className="mx-auto max-w-6xl p-4 lg:p-5 [&_input]:h-10 [&_input]:py-0 [&_select]:h-10 [&_select]:py-0 [&_textarea]:py-1.5"
                 aria-label={editId ? t("editAriaLabel") : t("newAriaLabel")}
               >
 
