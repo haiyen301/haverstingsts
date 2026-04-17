@@ -459,11 +459,12 @@ export default function WeatherPage() {
                                         <div className="shrink-0 text-[30px] font-semibold leading-none text-gray-700">
                                           {cell.temp ?? "-"}°
                                         </div>
-                                        <div className="shrink-0 text-[14px] leading-none text-gray-500">
-                                          Rain: {cell.precipitationProb ?? "-"}%
-                                        </div>
+                                       
                                         <div className="w-full truncate text-center text-[16px] leading-tight text-gray-600">
                                           {weatherIconFromCode(cell.weatherCode ?? undefined).label}
+                                        </div>
+                                        <div className="shrink-0 text-[14px] leading-none text-gray-500">
+                                          Rain: {cell.precipitationProb ?? "-"}%
                                         </div>
                                       </div>
                                     ) : (
