@@ -7,27 +7,28 @@ CRON_TZ_REGION="${CRON_TZ_REGION:-Asia/Ho_Chi_Minh}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# If API_BASE_URL is not provided, try loading from env files.
+# Load project env first (secrets + optional API_BASE_URL), even if API_BASE_URL is preset in cron.
+APP_ENV="${APP_ENV:-production}"
+ENV_FILE=""
+if [[ "$APP_ENV" == "production" && -f "$PROJECT_ROOT/.env.production" ]]; then
+  ENV_FILE="$PROJECT_ROOT/.env.production"
+elif [[ -f "$PROJECT_ROOT/.env.development" ]]; then
+  ENV_FILE="$PROJECT_ROOT/.env.development"
+elif [[ -f "$PROJECT_ROOT/.env" ]]; then
+  ENV_FILE="$PROJECT_ROOT/.env"
+fi
+if [[ -n "$ENV_FILE" ]]; then
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+fi
+
+# Resolve API base when cron did not export it.
 if [[ -z "${API_BASE_URL:-}" ]]; then
-  APP_ENV="${APP_ENV:-production}"
-  ENV_FILE=""
-  if [[ "$APP_ENV" == "production" && -f "$PROJECT_ROOT/.env.production" ]]; then
-    ENV_FILE="$PROJECT_ROOT/.env.production"
-  elif [[ -f "$PROJECT_ROOT/.env.development" ]]; then
-    ENV_FILE="$PROJECT_ROOT/.env.development"
-  elif [[ -f "$PROJECT_ROOT/.env" ]]; then
-    ENV_FILE="$PROJECT_ROOT/.env"
-  fi
-
-  if [[ -n "$ENV_FILE" ]]; then
-    # shellcheck disable=SC1090
-    source "$ENV_FILE"
-  fi
-
-  # Prefer first host from NEXT_PUBLIC_STS_API_BASE_URLS
   if [[ -n "${NEXT_PUBLIC_STS_API_BASE_URLS:-}" ]]; then
     FIRST_BASE="$(printf '%s' "$NEXT_PUBLIC_STS_API_BASE_URLS" | awk -F',' '{print $1}' | xargs)"
     API_BASE_URL="$FIRST_BASE"
+  elif [[ -n "${NEXT_PUBLIC_STS_API_BASE_URL:-}" ]]; then
+    API_BASE_URL="$(printf '%s' "$NEXT_PUBLIC_STS_API_BASE_URL" | xargs)"
   else
     API_BASE_URL="http://127.0.0.1:3000"
   fi
@@ -37,7 +38,7 @@ fi
 API_BASE_URL="${API_BASE_URL:-http://127.0.0.1:3000}"
 IMPORT_TOKEN="${IMPORT_TOKEN:-REPLACE_WITH_IMPORT_TOKEN}"
 HMAC_SECRET="${HMAC_SECRET:-}"
-WEATHER_IMPORT_ENDPOINT_PATH="${WEATHER_IMPORT_ENDPOINT_PATH:-/api/weather/cron_open_meteo}"
+WEATHER_IMPORT_ENDPOINT_PATH="${WEATHER_IMPORT_ENDPOINT_PATH:-/api/weather/open-meteo}"
 LOCATION_IDS="${LOCATION_IDS:-ban-bueng-th,laem-chabang-th,semenyih-my,hoi-an-vn,phan-thiet-vn}"
 FORECAST_DAYS="${FORECAST_DAYS:-16}"
 PERSIST="${PERSIST:-1}"
@@ -47,6 +48,13 @@ DAY_INDEX="${DAY_INDEX:-0}"
 REQUEST_TIMEOUT="${REQUEST_TIMEOUT:-900}"
 DEBUG_AUTH="${DEBUG_AUTH:-0}"
 REQUIRE_HMAC="${REQUIRE_HMAC:-1}"
+
+# Reuse Next token when cron runs in import_token mode (REQUIRE_HMAC=0).
+if [[ -n "${OPEN_METEO_PULL_TOKEN:-}" ]]; then
+  if [[ -z "${IMPORT_TOKEN:-}" || "${IMPORT_TOKEN}" == "REPLACE_WITH_IMPORT_TOKEN" ]]; then
+    IMPORT_TOKEN="$OPEN_METEO_PULL_TOKEN"
+  fi
+fi
 
 # Optional log folder override
 LOG_DIR="${LOG_DIR:-/var/log/stsweather}"

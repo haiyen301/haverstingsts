@@ -1,0 +1,6 @@
+# Open-Meteo — stsrenew
+# Timezone for schedule fields below
+CRON_TZ=Asia/Ho_Chi_Minh
+APP_ENV=production
+# Daily 02:00 Ho Chi Minh
+0 2 * * * /bin/bash -lc 'mkdir -p /home/stsvps/stsportal/var/run /home/stsvps/stsportal/var/log && flock -n /home/stsvps/stsportal/var/run/cron_open_meteo.lock /bin/bash /home/stsvps/stsportal/scripts/cron_open_meteo_scan.sh >> /home/stsvps/stsportal/var/log/cron_open_meteo_runner.log 2>&1'

@@ -45,3 +45,4 @@ package-lock.json
 /public/flags/*.svg
 backup/
 logs/
+var/
