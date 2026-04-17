@@ -40,6 +40,7 @@ import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
 import { deleteMondayParentOrSubItem } from "@/entities/projects/api/projectsApi";
 import { effectiveRequiredQuantityForFormUom } from "@/features/project/lib/effectiveRequirementQuantity";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
+import { ACCUWEATHER_ASIA_BROWSE_LINKS } from "@/data/accuweatherAsiaBrowseLinks";
 
 const DOC_PHOTO_SLOTS: HarvestDocPhotoField[] = [
   "payment_img",
@@ -155,11 +156,6 @@ type DynamicProjectRow = {
   id_row?: string;
   table_id?: string;
   quantity_required_sprig_sod?: unknown;
-};
-
-type AsiaLocationItem = {
-  name: string;
-  href: string;
 };
 
 function parseNum(v: unknown): number {
@@ -543,9 +539,6 @@ function HarvestInputPageInner() {
   const [deleteMenuOpen, setDeleteMenuOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [asiaLocations, setAsiaLocations] = useState<AsiaLocationItem[]>([]);
-  const [asiaLoading, setAsiaLoading] = useState(false);
-  const [asiaError, setAsiaError] = useState<string | null>(null);
   const filteredZoneEntries = useMemo(() => {
     const farmLabel = farmOptions.find((f) => f.id === formData.farm)?.label ?? "";
     return filterZoneEntriesByFarmName(zoneEntries, farmLabel);
@@ -571,42 +564,6 @@ function HarvestInputPageInner() {
     };
     return t(keyMap[field]);
   };
-
-  useEffect(() => {
-    let cancelled = false;
-    setAsiaLoading(true);
-    setAsiaError(null);
-    void (async () => {
-      try {
-        const res = await fetch("/api/accuweather/asia", { cache: "no-store" });
-        if (!res.ok) {
-          throw new Error(`Load failed (${res.status})`);
-        }
-        const payload = (await res.json()) as {
-          locations?: AsiaLocationItem[];
-          error?: string;
-        };
-        if (cancelled) return;
-        if (payload.error) {
-          throw new Error(payload.error);
-        }
-        setAsiaLocations(Array.isArray(payload.locations) ? payload.locations : []);
-      } catch (error) {
-        if (cancelled) return;
-        setAsiaLocations([]);
-        setAsiaError(
-          error instanceof Error ? error.message : "Failed to load locations",
-        );
-      } finally {
-        if (!cancelled) {
-          setAsiaLoading(false);
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   useEffect(() => {
     if (!editId) {
@@ -1075,25 +1032,23 @@ function HarvestInputPageInner() {
                 <p className="text-sm font-semibold text-gray-800">
                   AccuWeather - Châu Á
                 </p>
-                {asiaLoading ? (
-                  <p className="mt-2 text-xs text-gray-500">Đang tải danh sách quốc gia...</p>
-                ) : asiaError ? (
-                  <p className="mt-2 text-xs text-red-600">Lỗi tải dữ liệu: {asiaError}</p>
-                ) : (
-                  <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
-                    {asiaLocations.map((item) => (
-                      <a
-                        key={`${item.name}-${item.href}`}
-                        href={item.href}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-xs text-[#1F7A4C] underline-offset-2 hover:underline"
-                      >
-                        {item.name}
-                      </a>
-                    ))}
-                  </div>
-                )}
+                <p className="mt-1 text-xs text-gray-500">
+                  Liên kết tĩnh (API AccuWeather đã chuyển vào{" "}
+                  <code className="rounded bg-gray-100 px-1">backup/app-api-accuweather</code>).
+                </p>
+                <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+                  {ACCUWEATHER_ASIA_BROWSE_LINKS.map((item) => (
+                    <a
+                      key={`${item.name}-${item.href}`}
+                      href={item.href}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-xs text-[#1F7A4C] underline-offset-2 hover:underline"
+                    >
+                      {item.name}
+                    </a>
+                  ))}
+                </div>
               </div>
               <form
                 onSubmit={handleSubmit}
