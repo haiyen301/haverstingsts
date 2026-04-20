@@ -139,6 +139,13 @@ function toIsoDate(y: number, m: number, d: number): string {
 function parseFlexibleDateString(raw: string): string {
   const s = raw.trim();
   if (!s) return "";
+  const isoDayOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (isoDayOnly) {
+    const y = Number.parseInt(isoDayOnly[1], 10);
+    const m = Number.parseInt(isoDayOnly[2], 10);
+    const d = Number.parseInt(isoDayOnly[3], 10);
+    return toIsoDate(y, m, d);
+  }
   const firstChunk = s.split(" ")[0]?.trim() ?? s;
   const cleaned = firstChunk.replace(/\./g, "/").replace(/-/g, "/");
   const parts = cleaned.split("/").map((x) => x.trim()).filter(Boolean);
@@ -158,17 +165,31 @@ function parseFlexibleDateString(raw: string): string {
       }
     }
   }
-  const d = new Date(s);
-  if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  const parsed = new Date(s);
+  if (!Number.isNaN(parsed.getTime())) {
+    return toIsoDate(parsed.getFullYear(), parsed.getMonth() + 1, parsed.getDate());
+  }
   return "";
 }
 
-function tryParseDate(v: unknown): string {
+/** Date from the Excel parser: use the instance as-is; read y/m/d with local getters (no UTC conversion). */
+function dateToIsoFromExcelDate(d: Date): string {
+  return toIsoDate(d.getFullYear(), d.getMonth() + 1, d.getDate());
+}
+
+type ExcelDateParseOpts = {
+  /** Workbook uses 1904 date system (Excel Mac); required for correct serial → day when cell is number. */
+  date1904?: boolean;
+};
+
+function tryParseDate(v: unknown, opts?: ExcelDateParseOpts): string {
   if (v instanceof Date && !Number.isNaN(v.getTime())) {
-    return v.toISOString().slice(0, 10);
+    return dateToIsoFromExcelDate(v);
   }
   if (typeof v === "number") {
-    const excelDate = XLSX.SSF.parse_date_code(v);
+    const excelDate = XLSX.SSF.parse_date_code(v, {
+      date1904: opts?.date1904 === true,
+    });
     if (excelDate) {
       const yyyy = String(excelDate.y).padStart(4, "0");
       const mm = String(excelDate.m).padStart(2, "0");
@@ -179,6 +200,18 @@ function tryParseDate(v: unknown): string {
   const s = toStringSafe(v);
   if (!s) return "";
   return parseFlexibleDateString(s);
+}
+
+// Logs `[HarvestImport:dates] …` in the browser console. Set to `true` to debug in production builds.
+const DEBUG_IMPORT_DATES =
+  typeof process !== "undefined" && process.env.NODE_ENV === "development";
+
+function logHarvestImportDates(
+  label: string,
+  payload: Record<string, unknown>,
+): void {
+  if (!DEBUG_IMPORT_DATES) return;
+  console.log(`[HarvestImport:dates] ${label}`, payload);
 }
 
 function normalizeHarvestType(v: string): { harvestType: "Sod" | "Sprig" | ""; uom: "M2" | "Kg" } {
@@ -271,6 +304,8 @@ export default function HarvestImportPage() {
   const [error, setError] = useState("");
   const [summary, setSummary] = useState("");
   const [currentFileHash, setCurrentFileHash] = useState("");
+  /** Matches `wb.Workbook.WBProps.date1904` from the uploaded file (SheetJS). */
+  const [workbookDate1904, setWorkbookDate1904] = useState(false);
   const [sameFileWarning, setSameFileWarning] = useState("");
   const [dynamicRowCache, setDynamicRowCache] = useState<
     Map<string, { idRow: string; tableId: string }>
@@ -353,17 +388,25 @@ export default function HarvestImportPage() {
         harvestType: ht.harvestType || "",
         quantity: toStringSafe(get("quantity")).replaceAll(",", ""),
         uom: ht.uom,
-        estimatedDate: tryParseDate(get("estimatedDate")),
-        actualDate: tryParseDate(get("actualDate")),
-        deliveryDate: tryParseDate(get("deliveryDate")),
-        doSoDate: tryParseDate(get("doSoDate")),
+        estimatedDate: tryParseDate(get("estimatedDate"), {
+          date1904: workbookDate1904,
+        }),
+        actualDate: tryParseDate(get("actualDate"), {
+          date1904: workbookDate1904,
+        }),
+        deliveryDate: tryParseDate(get("deliveryDate"), {
+          date1904: workbookDate1904,
+        }),
+        doSoDate: tryParseDate(get("doSoDate"), {
+          date1904: workbookDate1904,
+        }),
         doSoNumber: toStringSafe(get("doSoNumber")),
         truckNote: toStringSafe(get("truckNote")),
         licensePlate: toStringSafe(get("licensePlate")),
         harvestedArea: toStringSafe(get("harvestedArea")).replaceAll(",", ""),
       };
     });
-  }, [mapping, rows]);
+  }, [mapping, rows, workbookDate1904]);
 
   type HarvestImportSortKey =
     | "index"
@@ -480,6 +523,12 @@ export default function HarvestImportPage() {
     }
     const buf = await file.arrayBuffer();
     const wb = XLSX.read(buf, { type: "array", cellDates: true });
+    const wbProps = (wb as { Workbook?: { WBProps?: { date1904?: boolean | string | number } } })
+      .Workbook?.WBProps;
+    const d1904 = wbProps?.date1904;
+    setWorkbookDate1904(
+      d1904 === true || d1904 === 1 || d1904 === "true" || d1904 === "1",
+    );
     const sheet = wb.Sheets[wb.SheetNames[0]];
     if (!sheet) {
       setError(t("invalidSheet"));
@@ -500,6 +549,55 @@ export default function HarvestImportPage() {
   const runTest = async () => {
     setTesting(true);
     try {
+      if (mapping) {
+        const dateKeys: FieldKey[] = [
+          "estimatedDate",
+          "actualDate",
+          "deliveryDate",
+          "doSoDate",
+        ];
+        logHarvestImportDates("test data (column mapping + raw vs parsed)", {
+          workbookDate1904,
+          mappingDates: Object.fromEntries(
+            dateKeys.map((k) => [k, mapping[k] || ""]),
+          ),
+          firstRows: mappedRows.slice(0, 8).map((r) => ({
+            row: r.rowNumber,
+            raw: {
+              estimatedDate: mapping.estimatedDate
+                ? r.source[mapping.estimatedDate]
+                : undefined,
+              actualDate: mapping.actualDate
+                ? r.source[mapping.actualDate]
+                : undefined,
+              deliveryDate: mapping.deliveryDate
+                ? r.source[mapping.deliveryDate]
+                : undefined,
+              doSoDate: mapping.doSoDate ? r.source[mapping.doSoDate] : undefined,
+            },
+            rawTypes: {
+              estimatedDate: mapping.estimatedDate
+                ? typeof r.source[mapping.estimatedDate]
+                : undefined,
+              actualDate: mapping.actualDate
+                ? typeof r.source[mapping.actualDate]
+                : undefined,
+              deliveryDate: mapping.deliveryDate
+                ? typeof r.source[mapping.deliveryDate]
+                : undefined,
+              doSoDate: mapping.doSoDate
+                ? typeof r.source[mapping.doSoDate]
+                : undefined,
+            },
+            parsed: {
+              estimatedDate: r.estimatedDate,
+              actualDate: r.actualDate,
+              deliveryDate: r.deliveryDate,
+              doSoDate: r.doSoDate,
+            },
+          })),
+        });
+      }
       const warnings: RowIssue[] = [];
       const seenBatchKeys = new Set<string>();
       for (const r of mappedRows) {
@@ -707,11 +805,31 @@ export default function HarvestImportPage() {
                     <span className="mb-1 block text-gray-700">{t(`fields.${f.key}`)}</span>
                     <select
                       value={mapping?.[f.key] ?? ""}
-                      onChange={(e) =>
-                        setMapping((prev) =>
-                          prev ? { ...prev, [f.key]: e.target.value } : prev,
-                        )
-                      }
+                      onChange={(e) => {
+                        const col = e.target.value;
+                        setMapping((prev) => {
+                          if (!prev) return prev;
+                          const next = { ...prev, [f.key]: col };
+                          if (f.key === "actualDate") {
+                            logHarvestImportDates("actualDate column selected", {
+                              workbookDate1904,
+                              excelColumn: col,
+                              samples: rows.slice(0, 8).map((row, idx) => {
+                                const raw = col ? row[col] : undefined;
+                                return {
+                                  row: idx + 2,
+                                  raw,
+                                  rawType: raw == null ? "empty" : typeof raw,
+                                  parsed: tryParseDate(raw, {
+                                    date1904: workbookDate1904,
+                                  }),
+                                };
+                              }),
+                            });
+                          }
+                          return next;
+                        });
+                      }}
                       className="w-full rounded-lg border border-gray-300 px-3 py-2"
                     >
                       <option value="">{t("selectExcelColumn")}</option>

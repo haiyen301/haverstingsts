@@ -88,7 +88,15 @@
     "forgotValidationEmail": "Vui lòng nhập email của bạn.",
     "forgotResetSendFailed": "Không thể gửi email đặt lại mật khẩu.",
     "forgotResetSuccess": "Nếu tài khoản tồn tại với email này, bạn sẽ nhận được hướng dẫn đặt lại mật khẩu.",
-    "forgotRequestFailed": "Yêu cầu thất bại."
+    "forgotRequestFailed": "Yêu cầu thất bại.",
+    "resetPasswordTitle": "Đặt mật khẩu mới",
+    "resetPasswordSubtitle": "Chọn mật khẩu mới cho tài khoản của bạn.",
+    "resetInvalidLink": "Liên kết đặt lại không hợp lệ hoặc thiếu. Hãy yêu cầu liên kết mới từ trang đăng nhập.",
+    "resetFailed": "Không thể đặt lại mật khẩu. Liên kết có thể đã hết hạn.",
+    "resetSuccess": "Mật khẩu đã được cập nhật. Bạn có thể đăng nhập.",
+    "resetRequestFailed": "Yêu cầu thất bại.",
+    "resetSaving": "Đang lưu...",
+    "resetPasswordSubmit": "Cập nhật mật khẩu"
   },
   "Dashboard": {
     "title": "Bảng điều hành toàn cầu",

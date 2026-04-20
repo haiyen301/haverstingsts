@@ -1,16 +1,10 @@
 import { NextResponse } from "next/server";
 
-import {
-  getStsApiUrlCandidates,
-  getStsRenewFrontendBaseUrl,
-  STS_LOGIN_PATHS,
-} from "@/shared/api/stsLogin";
-import {
-  fetchJsonWithBaseUrlFallback,
-} from "@/shared/server/stsUpstreamFetch";
+import { getStsApiUrlCandidates, STS_LOGIN_PATHS } from "@/shared/api/stsLogin";
+import { fetchJsonWithBaseUrlFallback } from "@/shared/server/stsUpstreamFetch";
 
 export async function POST(req: Request) {
-  const upstreamUrls = getStsApiUrlCandidates(STS_LOGIN_PATHS.forgetPassword);
+  const upstreamUrls = getStsApiUrlCandidates(STS_LOGIN_PATHS.resetPassword);
   if (!upstreamUrls.length) {
     return NextResponse.json(
       {
@@ -22,9 +16,9 @@ export async function POST(req: Request) {
     );
   }
 
-  let body: { email?: string } = {};
+  let body: { key?: string; password?: string } = {};
   try {
-    body = (await req.json()) as { email?: string };
+    body = (await req.json()) as { key?: string; password?: string };
   } catch {
     return NextResponse.json(
       { success: false, message: "Invalid JSON body." },
@@ -32,20 +26,18 @@ export async function POST(req: Request) {
     );
   }
 
-  const email = body.email?.trim() ?? "";
-  if (!email) {
+  const key = body.key?.trim() ?? "";
+  const password = body.password ?? "";
+  if (!key || !password) {
     return NextResponse.json(
-      { success: false, message: "Email is required." },
+      { success: false, message: "Key and password are required." },
       { status: 400 },
     );
   }
 
   const form = new URLSearchParams();
-  form.append("email", email);
-  const frontendBase = getStsRenewFrontendBaseUrl();
-  if (frontendBase) {
-    form.append("frontend_base_url", frontendBase);
-  }
+  form.append("key", key);
+  form.append("password", password);
 
   const upstream = await fetchJsonWithBaseUrlFallback(upstreamUrls, {
     method: "POST",

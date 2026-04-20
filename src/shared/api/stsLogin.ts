@@ -6,10 +6,15 @@ export const STS_LOGIN_PATHS = {
   register: "/api/authentication/register",
   /** Khớp `Authentication::forgetPassword` trên STSPortal. */
   forgetPassword: "/api/authentication/forgetPassword",
+  /** Khớp `Authentication::resetPassword` trên STSPortal. */
+  resetPassword: "/api/authentication/resetPassword",
 } as const;
 
 /** Route Next.js proxy quên mật khẩu (folder `forget-password`), khác segment upstream `forgetPassword`. */
 const INTERNAL_FORGET_PASSWORD_PATH = "/api/authentication/forget-password" as const;
+
+/** Route Next.js proxy đặt lại mật khẩu (folder `reset-password`). */
+const INTERNAL_RESET_PASSWORD_PATH = "/api/authentication/reset-password" as const;
 
 const INTERNAL_SESSION_PATH = "/api/authentication/session" as const;
 const INTERNAL_LOGOUT_PATH = "/api/authentication/logout" as const;
@@ -21,12 +26,26 @@ export const INTERNAL_API = {
   authentication: {
     ...STS_LOGIN_PATHS,
     forgetPassword: INTERNAL_FORGET_PASSWORD_PATH,
+    resetPassword: INTERNAL_RESET_PASSWORD_PATH,
     session: INTERNAL_SESSION_PATH,
     logout: INTERNAL_LOGOUT_PATH,
   },
 } as const;
 
 const STS_API_BASE_URLS_ENV_KEY = "NEXT_PUBLIC_STS_API_BASE_URLS";
+
+/**
+ * Public URL of the stsrenew app (no trailing slash). Sent to STSPortal as `frontend_base_url`
+ * so reset-password emails link to `/login/reset-password` on this host instead of the API IP.
+ * Example: `http://192.168.0.50:3000` or `https://renew.example.com`
+ */
+export function getStsRenewFrontendBaseUrl(): string {
+  const explicit = process.env.NEXT_PUBLIC_STS_RENEW_APP_URL?.trim();
+  if (explicit) return explicit.replace(/\/$/, "");
+  const vercel = process.env.VERCEL_URL?.trim();
+  if (vercel) return `https://${vercel}`.replace(/\/$/, "");
+  return "";
+}
 
 function normalizeBaseUrl(value: string): string {
   return value.trim().replace(/\/$/, "");

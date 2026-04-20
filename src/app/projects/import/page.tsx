@@ -153,6 +153,13 @@ function toIsoDate(y: number, m: number, d: number): string {
 function parseFlexibleDateString(raw: string): string {
   const s = raw.trim();
   if (!s) return "";
+  const isoDayOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (isoDayOnly) {
+    const y = Number.parseInt(isoDayOnly[1], 10);
+    const m = Number.parseInt(isoDayOnly[2], 10);
+    const d = Number.parseInt(isoDayOnly[3], 10);
+    return toIsoDate(y, m, d);
+  }
   const firstChunk = s.split(" ")[0]?.trim() ?? s;
   const cleaned = firstChunk.replace(/\./g, "/").replace(/-/g, "/");
   const parts = cleaned.split("/").map((x) => x.trim()).filter(Boolean);
@@ -172,17 +179,31 @@ function parseFlexibleDateString(raw: string): string {
       }
     }
   }
-  const d = new Date(s);
-  if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  const parsed = new Date(s);
+  if (!Number.isNaN(parsed.getTime())) {
+    return toIsoDate(parsed.getFullYear(), parsed.getMonth() + 1, parsed.getDate());
+  }
   return "";
 }
 
-function tryParseDate(v: unknown): string {
+/** Date from the Excel parser: use the instance as-is; read y/m/d with local getters (no UTC conversion). */
+function dateToIsoFromExcelDate(d: Date): string {
+  return toIsoDate(d.getFullYear(), d.getMonth() + 1, d.getDate());
+}
+
+type ExcelDateParseOpts = {
+  /** Workbook uses 1904 date system (Excel Mac); required for correct serial → day when cell is number. */
+  date1904?: boolean;
+};
+
+function tryParseDate(v: unknown, opts?: ExcelDateParseOpts): string {
   if (v instanceof Date && !Number.isNaN(v.getTime())) {
-    return v.toISOString().slice(0, 10);
+    return dateToIsoFromExcelDate(v);
   }
   if (typeof v === "number") {
-    const excelDate = XLSX.SSF.parse_date_code(v);
+    const excelDate = XLSX.SSF.parse_date_code(v, {
+      date1904: opts?.date1904 === true,
+    });
     if (excelDate) {
       const yyyy = String(excelDate.y).padStart(4, "0");
       const mm = String(excelDate.m).padStart(2, "0");
@@ -376,6 +397,8 @@ export default function ProjectImportPage() {
   const [error, setError] = useState("");
   const [importLogs, setImportLogs] = useState<ImportLog[]>([]);
   const [currentFileHash, setCurrentFileHash] = useState("");
+  /** Matches `wb.Workbook.WBProps.date1904` from the uploaded file (SheetJS). */
+  const [workbookDate1904, setWorkbookDate1904] = useState(false);
   const [sameFileWarning, setSameFileWarning] = useState("");
   const [dbExistingProjectNames, setDbExistingProjectNames] = useState<Set<string>>(
     new Set(),
@@ -432,8 +455,15 @@ export default function ProjectImportPage() {
       .filter(Boolean);
   };
 
+  function formatGrassQuantitySum(n: number): string {
+    if (!Number.isFinite(n)) return "0";
+    const rounded = Math.round(n * 1e9) / 1e9;
+    if (Number.isInteger(rounded)) return String(rounded);
+    return String(rounded).replace(/(\.\d*?[1-9])0+$/, "$1").replace(/\.0+$/, "");
+  }
+
   const buildImportedGrassItems = (rowsInGroup: MappedRow[]): ImportedGrassItem[] => {
-    const out: ImportedGrassItem[] = [];
+    const flat: ImportedGrassItem[] = [];
     for (const rr of rowsInGroup) {
       const grassParts = splitCsvLoose(rr.grass);
       const uomPartsRaw = splitCsvLoose(rr.grassType);
@@ -461,7 +491,7 @@ export default function ProjectImportPage() {
         const qty = Number.parseFloat(String(qtyRaw).replaceAll(",", "").trim());
         if (!Number.isFinite(qty) || qty <= 0) continue;
 
-        out.push({
+        flat.push({
           sourceRowNumber: rr.rowNumber,
           product_id: productId,
           quantity: String(qty),
@@ -469,7 +499,35 @@ export default function ProjectImportPage() {
         });
       }
     }
-    return out;
+
+    const merged = new Map<
+      string,
+      { product_id: string; uom: string; totalQty: number; minSourceRow: number }
+    >();
+    for (const item of flat) {
+      const key = `${item.product_id}\t${item.uom}`;
+      const qty = Number.parseFloat(item.quantity);
+      if (!Number.isFinite(qty)) continue;
+      const cur = merged.get(key);
+      if (!cur) {
+        merged.set(key, {
+          product_id: item.product_id,
+          uom: item.uom,
+          totalQty: qty,
+          minSourceRow: item.sourceRowNumber,
+        });
+      } else {
+        cur.totalQty += qty;
+        cur.minSourceRow = Math.min(cur.minSourceRow, item.sourceRowNumber);
+      }
+    }
+
+    return Array.from(merged.values()).map((x) => ({
+      sourceRowNumber: x.minSourceRow,
+      product_id: x.product_id,
+      quantity: formatGrassQuantitySum(x.totalQty),
+      uom: x.uom,
+    }));
   };
 
   const computeFileHash = async (file: File): Promise<string> => {
@@ -699,9 +757,15 @@ export default function ProjectImportPage() {
         architect: toStringSafe(get("architect")),
         country: toStringSafe(get("country")),
         stsPic: toStringSafe(get("stsPic")),
-        estimateStartDate: tryParseDate(get("estimateStartDate")),
-        actualStartDate: tryParseDate(get("actualStartDate")),
-        endDate: tryParseDate(get("endDate")),
+        estimateStartDate: tryParseDate(get("estimateStartDate"), {
+          date1904: workbookDate1904,
+        }),
+        actualStartDate: tryParseDate(get("actualStartDate"), {
+          date1904: workbookDate1904,
+        }),
+        endDate: tryParseDate(get("endDate"), {
+          date1904: workbookDate1904,
+        }),
         projectType: normalizeProjectType(toStringSafe(get("projectType"))),
         holes: normalizeHoles(toStringSafe(get("holes"))),
         keyAreas: normalizeKeyAreas(toStringSafe(get("keyAreas"))),
@@ -710,7 +774,7 @@ export default function ProjectImportPage() {
         grassRequired: toStringSafe(get("grassRequired")),
       };
     });
-  }, [mapping, rows]);
+  }, [mapping, rows, workbookDate1904]);
 
   type GroupKey = string;
   type GroupedProject = {
@@ -815,6 +879,12 @@ export default function ProjectImportPage() {
     }
     const buf = await file.arrayBuffer();
     const wb = XLSX.read(buf, { type: "array", cellDates: true });
+    const wbProps = (wb as { Workbook?: { WBProps?: { date1904?: boolean | string | number } } })
+      .Workbook?.WBProps;
+    const d1904 = wbProps?.date1904;
+    setWorkbookDate1904(
+      d1904 === true || d1904 === 1 || d1904 === "true" || d1904 === "1",
+    );
     const sheet = wb.Sheets[wb.SheetNames[0]];
     if (!sheet) {
       setError(t("invalidSheet"));
@@ -1092,26 +1162,14 @@ export default function ProjectImportPage() {
       const successInGroup = g.rows.filter((r) => successRows.has(r.rowNumber));
       if (!successInGroup.length) continue;
       const base = successInGroup[0];
-      const grassItems = successInGroup.map((r) => ({
-        grassRaw: r.grass,
-        uom: r.grassType,
-        qty: r.grassRequired,
-      }));
-      const grassNames = grassItems
+      const grassItemsMerged = buildImportedGrassItems(successInGroup);
+      const grassNames = grassItemsMerged.map((x) =>
+        productLabelById.get(x.product_id) ?? x.product_id,
+      ).filter(Boolean);
+      const qtyUomInline = grassItemsMerged
         .map((x) => {
-          const idOrName = String(x.grassRaw ?? "").trim();
-          if (!idOrName) return "";
-          if (/^\d+$/.test(idOrName)) return productLabelById.get(idOrName) ?? idOrName;
-          return idOrName;
-        })
-        .filter(Boolean);
-      const qtyUomInline = grassItems
-        .map((x, idx) => {
-          const raw = String(x.grassRaw ?? "").trim();
-          const name = grassNames[idx] ?? (raw || "-");
-          const qty = String(x.qty ?? "").trim() || "-";
-          const uom = String(x.uom ?? "").trim() || "-";
-          return `${name}: ${qty} ${uom}`;
+          const name = productLabelById.get(x.product_id) ?? x.product_id;
+          return `${name}: ${x.quantity} ${x.uom}`;
         })
         .join(" | ");
       out.push({
@@ -1127,7 +1185,7 @@ export default function ProjectImportPage() {
         project_type: base.projectType,
         no_of_holes: base.holes,
         key_areas: base.keyAreas.join(", "),
-        grass_item_count: grassItems.length,
+        grass_item_count: grassItemsMerged.length,
         grass_names: grassNames.join(" | "),
         grass_qty_uom: qtyUomInline,
         grass_summary: qtyUomInline,

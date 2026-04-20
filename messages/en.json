@@ -88,7 +88,15 @@
     "forgotValidationEmail": "Please enter your email.",
     "forgotResetSendFailed": "Could not send reset email.",
     "forgotResetSuccess": "If an account exists for this email, you will receive reset instructions.",
-    "forgotRequestFailed": "Request failed."
+    "forgotRequestFailed": "Request failed.",
+    "resetPasswordTitle": "Set a new password",
+    "resetPasswordSubtitle": "Choose a new password for your account.",
+    "resetInvalidLink": "This reset link is missing or invalid. Request a new link from the sign-in page.",
+    "resetFailed": "Could not reset password. The link may have expired.",
+    "resetSuccess": "Your password was updated. You can sign in now.",
+    "resetRequestFailed": "Request failed.",
+    "resetSaving": "Saving...",
+    "resetPasswordSubmit": "Update password"
   },
   "Dashboard": {
     "title": "Global Operations Dashboard",

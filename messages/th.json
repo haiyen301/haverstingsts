@@ -88,7 +88,15 @@
     "forgotValidationEmail": "กรุณากรอกอีเมลของคุณ",
     "forgotResetSendFailed": "ไม่สามารถส่งอีเมลรีเซ็ตรหัสผ่านได้",
     "forgotResetSuccess": "หากมีบัญชีที่ใช้อีเมลนี้ คุณจะได้รับคำแนะนำในการรีเซ็ตรหัสผ่าน",
-    "forgotRequestFailed": "คำขอไม่สำเร็จ"
+    "forgotRequestFailed": "คำขอไม่สำเร็จ",
+    "resetPasswordTitle": "ตั้งรหัสผ่านใหม่",
+    "resetPasswordSubtitle": "เลือกรหัสผ่านใหม่สำหรับบัญชีของคุณ",
+    "resetInvalidLink": "ลิงก์รีเซ็ตไม่ถูกต้องหรือไม่ครบ โปรดขอลิงก์ใหม่จากหน้าเข้าสู่ระบบ",
+    "resetFailed": "ไม่สามารถรีเซ็ตรหัสผ่านได้ ลิงก์อาจหมดอายุแล้ว",
+    "resetSuccess": "อัปเดตรหัสผ่านแล้ว คุณสามารถเข้าสู่ระบบได้",
+    "resetRequestFailed": "คำขอไม่สำเร็จ",
+    "resetSaving": "กำลังบันทึก...",
+    "resetPasswordSubmit": "อัปเดตรหัสผ่าน"
   },
   "Dashboard": {
     "title": "แดชบอร์ดการดำเนินงานทั่วโลก",
