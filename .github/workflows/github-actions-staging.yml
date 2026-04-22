@@ -105,8 +105,17 @@ jobs:
               # ==========================================================
 
               cd "$REMOTE_APP_PATH"
-              ls -la
+              echo "DEPLOY_BRANCH: $DEPLOY_BRANCH"
+              echo "REMOTE_APP_PATH: $REMOTE_APP_PATH"
 
+              echo "==> Pull code"
+              git pull origin "$DEPLOY_BRANCH"
+
+              echo "==> Build app"
+              npm run build
+
+              echo "==> Restart pm2"
+              pm2 restart stsportal_staging
               # ==========================================================
               # End: script
               # ==========================================================
