@@ -4,10 +4,12 @@
 export const STS_LOGIN_PATHS = {
   login: "/api/authentication/login",
   register: "/api/authentication/register",
-  /** Khớp `Authentication::forgetPassword` trên STSPortal. */
-  forgetPassword: "/api/authentication/forgetPassword",
-  /** Khớp `Authentication::resetPassword` trên STSPortal. */
-  resetPassword: "/api/authentication/resetPassword",
+  /** Khớp `Authentication::forget_password` trên STSPortal. */
+  forgetPassword: "/api/authentication/forget_password",
+  /** Khớp `Authentication::verify_reset_code` trên STSPortal. */
+  verifyResetCode: "/api/authentication/verify_reset_code",
+  /** Khớp `Authentication::reset_password` trên STSPortal. */
+  resetPassword: "/api/authentication/reset_password",
 } as const;
 
 /** Route Next.js proxy quên mật khẩu (folder `forget-password`), khác segment upstream `forgetPassword`. */
@@ -15,6 +17,8 @@ const INTERNAL_FORGET_PASSWORD_PATH = "/api/authentication/forget-password" as c
 
 /** Route Next.js proxy đặt lại mật khẩu (folder `reset-password`). */
 const INTERNAL_RESET_PASSWORD_PATH = "/api/authentication/reset-password" as const;
+/** Route Next.js proxy kiểm tra mã reset. */
+const INTERNAL_VERIFY_RESET_CODE_PATH = "/api/authentication/verify-reset-code" as const;
 
 const INTERNAL_SESSION_PATH = "/api/authentication/session" as const;
 const INTERNAL_LOGOUT_PATH = "/api/authentication/logout" as const;
@@ -26,6 +30,7 @@ export const INTERNAL_API = {
   authentication: {
     ...STS_LOGIN_PATHS,
     forgetPassword: INTERNAL_FORGET_PASSWORD_PATH,
+    verifyResetCode: INTERNAL_VERIFY_RESET_CODE_PATH,
     resetPassword: INTERNAL_RESET_PASSWORD_PATH,
     session: INTERNAL_SESSION_PATH,
     logout: INTERNAL_LOGOUT_PATH,

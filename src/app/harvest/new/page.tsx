@@ -59,7 +59,7 @@ const emptyForm = {
   quantity: "",
   uom: "M2",
   referenceHarvestQuantity: "",
-  /** Flutter `harvestedAreaController` → `harvested_area`. Editable when UOM is Kg; M2 mirrors quantity. */
+  /** `harvested_area` — Kg: nhập thủ công; M2: có thể đồng bộ với quantity ở UI, không gửi vào cột này từ Ref. Harvest Qty. */
   harvestedArea: "",
   zone: "",
   farm: "",
@@ -68,6 +68,7 @@ const emptyForm = {
   actualDate: "",
   deliveryDate: "",
   doSoNumber: "",
+  doSoDate: "",
   truckNote: "",
   licensePlate: "",
 };
@@ -289,6 +290,7 @@ function applyRowToFormState(r: Record<string, unknown>) {
     actualDate: toDateInput(r.actual_harvest_date),
     deliveryDate: toDateInput(r.delivery_harvest_date),
     doSoNumber: String(r.do_so_number ?? ""),
+    doSoDate: toDateInput(r.do_so_date),
     truckNote: String(r.truck_note ?? ""),
     licensePlate: String(r.license_plate ?? ""),
   };
@@ -863,14 +865,12 @@ function HarvestInputPageInner() {
         : undefined;
 
       const mainUom = formData.uom.trim().toLowerCase();
-      const isM2 = mainUom === "m2";
       const referenceQtyStripped = formData.referenceHarvestQuantity
         .replace(/,/g, "")
         .trim();
       const haStripped = formData.harvestedArea.replace(/,/g, "").trim();
-      const harvestedAreaPayload = isM2
-        ? referenceQtyStripped || undefined
-        : haStripped || undefined;
+      const harvestedAreaPayload =
+        mainUom === "m2" ? undefined : haStripped || undefined;
       await submitFlutterHarvest(
         {
           id: editId ?? undefined,
@@ -885,6 +885,7 @@ function HarvestInputPageInner() {
           actualHarvestDate: formData.actualDate,
           deliveryHarvestDate: formData.deliveryDate,
           doSoNumber: formData.doSoNumber,
+          doSoDate: formData.doSoDate.trim() || undefined,
           truckNote: formData.truckNote,
           licensePlate: formData.licensePlate,
           assignedTo: user?.id != null ? String(user.id) : "",
@@ -1317,7 +1318,7 @@ function HarvestInputPageInner() {
                       )}
                     </div>
                   </div>
-                  <div className="grid gap-3 lg:grid-cols-3 pb-0 min-[992px]:pb-9">
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 pb-0 min-[992px]:pb-9">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         {tCommon("farm")}
@@ -1401,13 +1402,28 @@ function HarvestInputPageInner() {
                         disabled={formDisabled}
                       />
                     </div>
+                    <div id="harvest-doso-date">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        {t("doSoDate")}
+                      </label>
+                      <DatePicker
+                        value={formData.doSoDate}
+                        onChange={(value) =>
+                          setFormData({
+                            ...formData,
+                            doSoDate: value,
+                          })
+                        }
+                        disabled={formDisabled}
+                      />
+                    </div>
                   </div>
                 </div>
 
 
 
                 <div className="pb-0 min-[992px]:pb-12">
-                  <div className="grid gap-3 lg:grid-cols-3">
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                     <div id="harvest-estimated-date">
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         {t("estimatedDate")}

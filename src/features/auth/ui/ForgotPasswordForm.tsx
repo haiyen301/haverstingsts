@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ArrowLeft, Mail } from "lucide-react";
 
 import { INTERNAL_API } from "@/shared/api/stsLogin";
@@ -15,6 +16,7 @@ export default function ForgotPasswordForm() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
+  const router = useRouter();
 
   useEffect(() => {
     setMounted(true);
@@ -51,6 +53,9 @@ export default function ForgotPasswordForm() {
         json.message ??
           t("forgotResetSuccess"),
       );
+      window.setTimeout(() => {
+        router.push(`/login/reset-password?email=${encodeURIComponent(email.trim())}`);
+      }, 600);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t("forgotRequestFailed"));
     } finally {

@@ -417,6 +417,7 @@
     "estimatedDate": "วันที่โดยประมาณ",
     "actualDate": "วันที่จริง",
     "deliveryDate": "วันที่ส่งมอบ",
+    "doSoDate": "วันที่ DO/SO",
     "doSoNumber": "เลขที่ DO/SO",
     "truckNote": "หมายเหตุรถ",
     "licensePlate": "ทะเบียนรถ",

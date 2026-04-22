@@ -16,9 +16,9 @@ export async function POST(req: Request) {
     );
   }
 
-  let body: { key?: string; password?: string } = {};
+  let body: { key?: string; password?: string; email?: string } = {};
   try {
-    body = (await req.json()) as { key?: string; password?: string };
+    body = (await req.json()) as { key?: string; password?: string; email?: string };
   } catch {
     return NextResponse.json(
       { success: false, message: "Invalid JSON body." },
@@ -27,16 +27,18 @@ export async function POST(req: Request) {
   }
 
   const key = body.key?.trim() ?? "";
+  const email = body.email?.trim() ?? "";
   const password = body.password ?? "";
-  if (!key || !password) {
+  if (!key || !password || !email) {
     return NextResponse.json(
-      { success: false, message: "Key and password are required." },
+      { success: false, message: "Key, email and password are required." },
       { status: 400 },
     );
   }
 
   const form = new URLSearchParams();
   form.append("key", key);
+  form.append("email", email);
   form.append("password", password);
 
   const upstream = await fetchJsonWithBaseUrlFallback(upstreamUrls, {

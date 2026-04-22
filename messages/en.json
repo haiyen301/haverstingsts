@@ -417,6 +417,7 @@
     "estimatedDate": "Estimated Date",
     "actualDate": "Actual Date",
     "deliveryDate": "Delivery Date",
+    "doSoDate": "DO/SO Date",
     "doSoNumber": "DO/SO Number",
     "truckNote": "Truck Note",
     "licensePlate": "License Plate",
