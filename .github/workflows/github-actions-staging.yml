@@ -80,7 +80,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          # test branch
+          # test 2 branches
           if [ "$DEPLOY_BRANCH" = "releases/main" ]; then
             REMOTE_APP_PATH="/home/stsvps/stsportal"
           elif [ "$DEPLOY_BRANCH" = "releases/staging" ]; then
