@@ -35,7 +35,6 @@ jobs:
       - name: Validate required secrets
         run: |
           set -euo pipefail
-
           [ -n "$SSH_HOST" ] || { echo "Missing SSH_HOST"; exit 1; }
           [ -n "$SSH_PORT" ] || { echo "Missing SSH_PORT"; exit 1; }
           [ -n "$SSH_USER" ] || { echo "Missing SSH_USER"; exit 1; }
@@ -52,10 +51,8 @@ jobs:
         run: |
           set -euo pipefail
           umask 077
-
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-
           printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 644 ~/.ssh/known_hosts
 
@@ -80,11 +77,13 @@ jobs:
         run: |
           set -euo pipefail
 
-          # test 2 branches
+          # branches
           if [ "$DEPLOY_BRANCH" = "releases/main" ]; then
             REMOTE_APP_PATH="/home/stsvps/stsportal"
+            PM2_APP_NAME="stsportal"
           elif [ "$DEPLOY_BRANCH" = "releases/staging" ]; then
             REMOTE_APP_PATH="/home/stsvps/stsportal_staging"
+            PM2_APP_NAME="stsportal_staging"
           else
             echo "Unsupported branch: $DEPLOY_BRANCH"
             exit 1
@@ -97,12 +96,23 @@ jobs:
             -o PreferredAuthentications=keyboard-interactive,password \
             -o PubkeyAuthentication=no \
             "$SSH_USER@$SSH_HOST" \
-            "REMOTE_APP_PATH='$REMOTE_APP_PATH' DEPLOY_BRANCH='$DEPLOY_BRANCH' bash -se" <<'REMOTE_SCRIPT'
+            "REMOTE_APP_PATH='$REMOTE_APP_PATH' DEPLOY_BRANCH='$DEPLOY_BRANCH' PM2_APP_NAME='$PM2_APP_NAME' bash -se" <<'REMOTE_SCRIPT'
               set -euo pipefail
 
               # ==========================================================
               # Start: script 
               # ==========================================================
+              export NVM_DIR="$HOME/.nvm"
+              [ -f "$HOME/.bashrc" ] && . "$HOME/.bashrc"
+              [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+              [ -s "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion"
+              
+              echo "PATH: $PATH"
+              command -v node || true
+              command -v npm || true
+              command -v pm2 || true
+              node -v || true
+              npm -v || true
 
               cd "$REMOTE_APP_PATH"
               echo "DEPLOY_BRANCH: $DEPLOY_BRANCH"
@@ -112,6 +122,7 @@ jobs:
               git pull origin "$DEPLOY_BRANCH"
 
               echo "==> Build app"
+              npm install
               npm run build
 
               echo "==> Restart pm2"
