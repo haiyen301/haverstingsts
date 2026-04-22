@@ -80,7 +80,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Chọn thư mục deploy theo branch
+          # branch
           if [ "$DEPLOY_BRANCH" = "releases/main" ]; then
             REMOTE_APP_PATH="/home/stsvps/stsportal"
           elif [ "$DEPLOY_BRANCH" = "releases/staging" ]; then
