@@ -630,12 +630,13 @@ export default function ProjectInputPage() {
       // this app. Flutter sends `project_id` from its own flow and must not set `client_source`, or
       // duplicate `sts_projects` rows would be created.
       const normalizedHoles = formData.holes.trim() || "none";
+      const editProjectId = editProjectIdForLabel.trim();
       const payload: Record<string, unknown> = {
         id: resolvedRowId,
         table_id: resolvedTableId,
-        client_source: "nextjs",
         data: {
           project_name: projectName,
+          ...(isEdit && editProjectId ? { project_id: editProjectId } : {}),
           alias_title: formData.golfClub,
           company_name: formData.company,
           golf_course_architect: formData.architect,
@@ -655,6 +656,9 @@ export default function ProjectInputPage() {
           })),
         },
       };
+      if (!isEdit) {
+        payload.client_source = "nextjs";
+      }
       const saveResponse = await updateMondayProjectParentItem(payload);
       if (saveResponse?.project && typeof saveResponse.project === "object") {
         upsertProjectInList(saveResponse.project);
