@@ -1,0 +1,118 @@
+name: Deploy via native SSH
+
+on:
+  push:
+    branches:
+      - 'releases/main'
+      - 'releases/staging'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'releases/main' && 'production' || 'staging' }}
+
+
+    defaults:
+      run:
+        shell: bash
+    
+    env:
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      SSH_PORT: ${{ secrets.SSH_PORT }}
+      SSH_USER: ${{ secrets.SSH_USER }}
+      SSH_PASSWORD: ${{ secrets.SSH_PASSWORD }}
+      SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+      DEPLOY_BRANCH: ${{ github.ref_name }}
+
+    steps:
+      - name: Validate required secrets
+        run: |
+          set -euo pipefail
+
+          [ -n "$SSH_HOST" ] || { echo "Missing SSH_HOST"; exit 1; }
+          [ -n "$SSH_PORT" ] || { echo "Missing SSH_PORT"; exit 1; }
+          [ -n "$SSH_USER" ] || { echo "Missing SSH_USER"; exit 1; }
+          [ -n "$SSH_PASSWORD" ] || { echo "Missing SSH_PASSWORD"; exit 1; }
+          [ -n "$SSH_KNOWN_HOSTS" ] || { echo "Missing SSH_KNOWN_HOSTS"; exit 1; }
+
+      - name: Install sshpass
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y sshpass
+
+      - name: Prepare known_hosts
+        run: |
+          set -euo pipefail
+          umask 077
+
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Test SSH with password
+        env:
+          SSHPASS: ${{ secrets.SSH_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          sshpass -e ssh \
+            -p "$SSH_PORT" \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 \
+            -o PreferredAuthentications=keyboard-interactive,password \
+            -o PubkeyAuthentication=no \
+            "$SSH_USER@$SSH_HOST" \
+            "echo 'SSH connection OK'; whoami; hostname"
+
+      - name: Deploy on server
+        env:
+          SSHPASS: ${{ secrets.SSH_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          # Chọn thư mục deploy theo branch
+          if [ "$DEPLOY_BRANCH" = "releases/main" ]; then
+            REMOTE_APP_PATH="/home/stsvps/stsportal"
+          elif [ "$DEPLOY_BRANCH" = "releases/staging" ]; then
+            REMOTE_APP_PATH="/home/stsvps/staging_stsportal"
+          else
+            echo "Unsupported branch: $DEPLOY_BRANCH"
+            exit 1
+          fi
+
+          sshpass -e ssh \
+            -p "$SSH_PORT" \
+            -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=15 \
+            -o PreferredAuthentications=keyboard-interactive,password \
+            -o PubkeyAuthentication=no \
+            "$SSH_USER@$SSH_HOST" \
+            "REMOTE_APP_PATH='$REMOTE_APP_PATH' DEPLOY_BRANCH='$DEPLOY_BRANCH' bash -se" <<'REMOTE_SCRIPT'
+              set -euo pipefail
+
+              # ==========================================================
+              # Start: script 
+              # ==========================================================
+
+              cd "$REMOTE_APP_PATH"
+              ls -la
+
+              # ==========================================================
+              # End: script
+              # ==========================================================
+          REMOTE_SCRIPT
+
+      - name: Cleanup
+        if: always()
+        run: |
+          rm -f ~/.ssh/known_hosts
