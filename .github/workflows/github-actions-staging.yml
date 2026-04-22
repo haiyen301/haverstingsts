@@ -96,41 +96,7 @@ jobs:
             -o PreferredAuthentications=keyboard-interactive,password \
             -o PubkeyAuthentication=no \
             "$SSH_USER@$SSH_HOST" \
-            "REMOTE_APP_PATH='$REMOTE_APP_PATH' DEPLOY_BRANCH='$DEPLOY_BRANCH' PM2_APP_NAME='$PM2_APP_NAME' bash -se" <<'REMOTE_SCRIPT'
-              set -euo pipefail
-
-              # ==========================================================
-              # Start: script 
-              # ==========================================================
-              export NVM_DIR="$HOME/.nvm"
-              [ -f "$HOME/.bashrc" ] && . "$HOME/.bashrc"
-              [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
-              [ -s "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion"
-              
-              echo "PATH: $PATH"
-              command -v node || true
-              command -v npm || true
-              command -v pm2 || true
-              node -v || true
-              npm -v || true
-
-              cd "$REMOTE_APP_PATH"
-              echo "DEPLOY_BRANCH: $DEPLOY_BRANCH"
-              echo "REMOTE_APP_PATH: $REMOTE_APP_PATH"
-
-              echo "==> Pull code"
-              git pull origin "$DEPLOY_BRANCH"
-
-              echo "==> Build app"
-              npm install
-              npm run build
-
-              echo "==> Restart pm2"
-              pm2 restart stsportal_staging
-              # ==========================================================
-              # End: script
-              # ==========================================================
-          REMOTE_SCRIPT
+              "/home/stsvps/scripts/deploy_sts.sh '$REMOTE_APP_PATH' '$DEPLOY_BRANCH' '$PM2_APP_NAME'"
 
       - name: Cleanup
         if: always()
