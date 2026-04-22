@@ -84,7 +84,7 @@ jobs:
           if [ "$DEPLOY_BRANCH" = "releases/main" ]; then
             REMOTE_APP_PATH="/home/stsvps/stsportal"
           elif [ "$DEPLOY_BRANCH" = "releases/staging" ]; then
-            REMOTE_APP_PATH="/home/stsvps/staging_stsportal"
+            REMOTE_APP_PATH="/home/stsvps/stsportal_staging"
           else
             echo "Unsupported branch: $DEPLOY_BRANCH"
             exit 1
