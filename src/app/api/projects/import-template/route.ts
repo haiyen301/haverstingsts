@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { resolveStsBearerFromRequest } from "@/shared/server/stsAuthBearer";
 import { getStsDomainUrl, STS_PUBLIC_PATHS } from "@/shared/config/stsUrls";
 
-const TEMPLATE_FILE_NAME = "Harvesting Projects Data Load.xlsx";
+const TEMPLATE_FILE_NAME = "Projects-Import-Template.xlsx";
 
 export async function GET(req: Request) {
   const auth = await resolveStsBearerFromRequest(req);
