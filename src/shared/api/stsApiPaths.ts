@@ -31,6 +31,8 @@ export const STS_API_PATHS = {
   mondayDeleteParentOrSubItem: "/api/harvesting/react_delete_parent_or_sub_item",
   /** POST multipart: `records` JSON + `*_image` files (see Flutter `flutterAddNewSubRow`). */
   flutterAddHarvestSubRow: "/api/harvesting/flutter_add_new_sub_row",
+  /** POST bulk update `project_harvesting_plan.description` for Limit / Over limit markers. */
+  updateHarvestLimitDescriptions: "/api/harvesting/react_update_harvest_limit_descriptions",
   /** GET `Timeline::index` — query: `from`, `to` (Y-m-d H:i:s), optional `include_unscheduled`, `unscheduled_limit`. */
   timeline: "/api/timeline",
   /** GET `Timeline::detail` — query: `id`. */

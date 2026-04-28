@@ -67,10 +67,13 @@ type HarvestRow = {
   status: "done" | "progressing";
   /** ISO yyyy-mm-dd for date-range filter. */
   filterDate: string;
+  createdAt: string;
   date: string;
   grass: string;
   zone: string;
   quantity: string;
+  quantityValue: number;
+  limitStatus: "limit" | "overLimit" | null;
   remainingQuantityDisplay: string | null;
   refQtyDisplay: string | null;
   /** `harvested_area` formatted when UOM is Kg (reference quantity + Kg). */
@@ -176,6 +179,7 @@ function mapHarvestRecordToHarvestRow(
     : isValidDate(estimated)
       ? estimated.slice(0, 10)
       : "";
+  const createdAt = String(r.created_at ?? r.createdAt ?? "").trim();
 
   return {
     id: String(r.id ?? ""),
@@ -185,11 +189,14 @@ function mapHarvestRecordToHarvestRow(
     uom: uomRaw,
     status,
     filterDate,
+    createdAt,
     date: formatDateDisplay(isValidDate(actual) ? actual : estimated),
     grass,
     zone:
       zoneIdToLabel(r.zone as string | undefined, ctx.farmZones) || "-",
-    quantity: `${parseNumber(r.quantity).toLocaleString()} ${uomRaw}`.trim() || "-",
+    quantity: `${qty.toLocaleString()} ${uomRaw}`.trim() || "-",
+    quantityValue: qty,
+    limitStatus: harvestLimitStatusFromDescription(r.description),
     remainingQuantityDisplay,
     refQtyDisplay,
     harvestedAreaDisplay,
@@ -261,6 +268,44 @@ function normalizeDateFilterInput(v: string): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
   if (!m) return "";
   return `${m[1]}-${m[2]}-${m[3]}`;
+}
+
+function harvestLimitLabel(status: HarvestRow["limitStatus"]): string {
+  if (status === "limit") return "Limit";
+  if (status === "overLimit") return "Over limit";
+  return "";
+}
+
+function HarvestLimitQuestionMark({ status }: { status: HarvestRow["limitStatus"] }) {
+  if (!status) return null;
+  const label = harvestLimitLabel(status);
+  const colorClass =
+    status === "limit" ? "text-amber-700 ring-amber-200" : "text-red-600 ring-red-200";
+  const iconClass =
+    status === "limit"
+      ? "border-amber-400 bg-amber-50 text-amber-700"
+      : "border-gray-200 bg-gray-50 text-gray-400";
+  return (
+    <span className="group relative inline-flex items-center">
+      <span
+        className={`inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border text-[10px] font-semibold ${iconClass}`}
+        aria-label={label}
+        tabIndex={0}
+      >
+        ?
+      </span>
+      <span className={`pointer-events-none absolute left-1/2 top-full z-20 mt-1 hidden -translate-x-1/2 whitespace-nowrap rounded-full bg-white px-2 py-0.5 text-[11px] font-medium shadow-sm ring-1 group-hover:inline-flex group-focus-within:inline-flex ${colorClass}`}>
+        {label}
+      </span>
+    </span>
+  );
+}
+
+function harvestLimitStatusFromDescription(raw: unknown): HarvestRow["limitStatus"] {
+  const value = String(raw ?? "").trim().toLowerCase();
+  if (value === "limit") return "limit";
+  if (value === "over limit" || value === "overlimit") return "overLimit";
+  return null;
 }
 
 export default function ProjectDetailPage() {
@@ -538,6 +583,7 @@ export default function ProjectDetailPage() {
         String((r.title ?? r.name ?? projectId) || "-"),
       golfClub: golfClubFromRow || "-",
       company: companyFromRow || "-",
+      odooCustomerRef: String(rec.odoo_customer_id ?? "").trim() || "-",
       architect: String(rec.golf_course_architect ?? "-"),
       country: countryMap.get(countryId) || String(r.country ?? "-"),
       pic: staffMap.get(picId) || picId || "-",
@@ -612,20 +658,31 @@ export default function ProjectDetailPage() {
     return list;
   }, [grassRows, sortKey, sortDir]);
 
+  const harvestsWithProductNames = useMemo(() => {
+    return harvests.map((h) => {
+      const productName = productMap.get(h.productId);
+      const currentGrass = h.grass.trim();
+      if (!productName || (currentGrass && currentGrass !== "-" && currentGrass !== h.productId)) {
+        return h;
+      }
+      return { ...h, grass: productName };
+    });
+  }, [harvests, productMap]);
+
   const harvestGrassOptions = useMemo(() => {
     return Array.from(
       new Set(
-        harvests
+        harvestsWithProductNames
           .map((h) => h.grass.trim())
           .filter(Boolean),
       ),
     ).sort((a, b) => a.localeCompare(b));
-  }, [harvests]);
+  }, [harvestsWithProductNames]);
 
   const filteredHarvests = useMemo(() => {
     const fromIso = normalizeDateFilterInput(harvestDateFrom);
     const toIso = normalizeDateFilterInput(harvestDateTo);
-    const filtered = harvests.filter((h) => {
+    const filtered = harvestsWithProductNames.filter((h) => {
       if (harvestGrassFilter && h.grass !== harvestGrassFilter) return false;
       if (fromIso && h.filterDate && h.filterDate < fromIso) return false;
       if (toIso && h.filterDate && h.filterDate > toIso) return false;
@@ -644,7 +701,7 @@ export default function ProjectDetailPage() {
       if (!ad && bd) return 1;
       return String(b.id).localeCompare(String(a.id));
     });
-  }, [harvestDateFrom, harvestDateTo, harvestGrassFilter, harvests]);
+  }, [harvestDateFrom, harvestDateTo, harvestGrassFilter, harvestsWithProductNames]);
   const hasActiveHarvestFilters = Boolean(
     harvestGrassFilter.trim() ||
       normalizeDateFilterInput(harvestDateFrom) ||
@@ -734,6 +791,7 @@ export default function ProjectDetailPage() {
                         <p><span className="inline-block w-[130px] text-gray-500">{t("projectName")} </span>{basic.projectName}</p>
                         <p><span className="inline-block w-[130px] text-gray-500">{t("golfClubStadium")} </span>{basic.golfClub}</p>
                         <p><span className="inline-block w-[130px] text-gray-500">{t("companyName")} </span>{basic.company}</p>
+                        <p><span className="inline-block w-[130px] text-gray-500">{tProjectForm("odooCustomerRef")} </span>{basic.odooCustomerRef}</p>
                         <p><span className="inline-block w-[130px] text-gray-500">{t("golfCourseArchitect")} </span>{basic.architect}</p>
                       </div>
                     </div>
@@ -952,9 +1010,16 @@ export default function ProjectDetailPage() {
                               >
                                 <td className="px-4 py-3 text-sm text-gray-700">{filteredHarvests.length - idx}</td>
                                 <td className="px-4 py-3 text-sm text-gray-700">{h.date}</td>
-                                <td className="px-4 py-3 text-sm text-gray-900">{h.grass}</td>
+                                <td className="px-4 py-3 text-sm text-gray-900">
+                                  <span className="inline-flex items-center gap-1">
+                                    <span>{h.grass}</span>
+                                    <HarvestLimitQuestionMark status={h.limitStatus} />
+                                  </span>
+                                </td>
                                 <td className="px-4 py-3 text-sm text-gray-700">{h.zone}</td>
-                                <td className="px-4 py-3 text-sm text-gray-700 text-center">{h.quantity}</td>
+                                <td className="px-4 py-3 text-center text-sm text-gray-700">
+                                  {h.quantity}
+                                </td>
                                 <td className="px-4 py-3 text-sm text-center">
                                   <span
                                     className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium ${statusCircleClass}`}
@@ -1068,7 +1133,7 @@ export default function ProjectDetailPage() {
           onClick={() => setExpandedHarvestId(null)}
         >
           {(() => {
-            const h = harvests.find((item) => item.id === expandedHarvestId);
+            const h = harvestsWithProductNames.find((item) => item.id === expandedHarvestId);
             if (!h) return null;
             return (
               <div
@@ -1122,7 +1187,14 @@ export default function ProjectDetailPage() {
                 </div>
                 <div className="space-y-4 text-sm">
                   <div className="grid grid-cols-1 gap-3 border-b border-gray-200 pb-4 sm:grid-cols-2">
-                    <p><span className="inline-block w-[110px] text-gray-500">{t("grass")}:</span>{` ${h.grass}`}</p>
+                    <p>
+                      <span className="inline-block w-[110px] text-gray-500">{t("grass")}:</span>
+                      {" "}
+                      <span className="inline-flex items-center gap-1">
+                        <span>{h.grass}</span>
+                        <HarvestLimitQuestionMark status={h.limitStatus} />
+                      </span>
+                    </p>
                     <p>
                       <span className="inline-block w-[110px] text-gray-500">{t("quantity")}:</span>
                       {" "}

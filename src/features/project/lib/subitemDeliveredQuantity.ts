@@ -13,8 +13,9 @@ function parseNumber(v: unknown): number {
 /** Parseable non-placeholder date (shared by delivery vs actual harvest). */
 export function isValidHarvestRelatedDate(raw: unknown): boolean {
   const s = String(raw ?? "").trim();
-  if (!s || s === "0000-00-00" || s === "null") return false;
-  const datePart = s.includes(" ") ? s.split(" ")[0] : s;
+  if (!s || s.toLowerCase() === "null") return false;
+  if (s === "0000-00-00" || s.startsWith("0000-00-00")) return false;
+  const datePart = s.includes(" ") ? s.split(" ")[0]! : s;
   const d = new Date(datePart);
   return !Number.isNaN(d.getTime());
 }

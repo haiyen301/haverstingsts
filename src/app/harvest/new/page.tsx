@@ -23,6 +23,7 @@ import {
   type ParsedHarvestDocSlot,
 } from "@/features/harvesting/lib/parseHarvestDocImages";
 import {
+  getInternalStsProxyUrl,
   stsProxyGetHarvestingIndex,
   stsProxyPostJson,
 } from "@/shared/api/stsProxyClient";
@@ -354,10 +355,10 @@ function getHarvestFieldErrors(
   // ) {
   //   errors.referenceHarvestQuantity = messages.enterQuantity;
   // }
-  if (!formData.zone.trim()) errors.zone = messages.selectZone;
-  if (!formData.farm.trim()) errors.farm = messages.selectFarm;
   const uomLower = formData.uom.trim().toLowerCase();
   const hasActual = Boolean(formData.actualDate.trim());
+  if (hasActual && !formData.zone.trim()) errors.zone = messages.selectZone;
+  if (!formData.farm.trim()) errors.farm = messages.selectFarm;
   if (hasActual && uomLower === "kg") {
     const ha = formData.harvestedArea.trim();
     const n = parseNum(ha);
@@ -524,7 +525,6 @@ function HarvestInputPageInner() {
   >({});
   const [submitLoading, setSubmitLoading] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [quantityWarning, setQuantityWarning] = useState<string | null>(null);
   const [editLoadError, setEditLoadError] = useState<string | null>(null);
   const [editLoaded, setEditLoaded] = useState(!editId);
   const [editTableId, setEditTableId] = useState("");
@@ -765,6 +765,29 @@ function HarvestInputPageInner() {
     return Math.max(0, required - deliveredQuantityForSelection);
   }, [deliveredQuantityForSelection, formData.uom, requirementForGrass]);
 
+  const updateHarvestLimitDescriptionsForSelection = useCallback(
+    (projectId: string) => {
+      const normalizedProjectId = projectId.trim();
+      if (!normalizedProjectId) return;
+
+      const url = getInternalStsProxyUrl(STS_API_PATHS.updateHarvestLimitDescriptions);
+      void fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "same-origin",
+        keepalive: true,
+        body: JSON.stringify({
+          project_id: normalizedProjectId,
+        }),
+      }).catch(() => {
+        // Recalculation runs in the background; saving the harvest should not wait on it.
+      });
+    },
+    [],
+  );
+
   const remainingAfterEntered = useMemo(() => {
     if (!requirementForGrass || maxAllowedQuantity === null) return null;
     const entered = parseNum(formData.quantity);
@@ -895,6 +918,7 @@ function HarvestInputPageInner() {
         photos,
         removedPayload,
       );
+      updateHarvestLimitDescriptionsForSelection(formData.project);
       router.push(returnTarget);
     } catch (err) {
       const msg =
@@ -1163,23 +1187,6 @@ function HarvestInputPageInner() {
                         onChange={(e) => {
                           const nextValue = e.target.value;
                           if (nextValue.trim().startsWith("-")) return;
-                          const entered = parseNum(nextValue);
-                          if (
-                            maxAllowedQuantity !== null &&
-                            entered > 0 &&
-                            entered > maxAllowedQuantity
-                          ) {
-                            setQuantityWarning(
-                              t("quantityAdjustedWarning"),
-                            );
-                            setFormData({
-                              ...formData,
-                              quantity: String(Math.round(maxAllowedQuantity)),
-                            });
-                            setFieldErrors((prev) => ({ ...prev, quantity: undefined }));
-                            return;
-                          }
-                          setQuantityWarning(null);
                           setFormData({ ...formData, quantity: nextValue });
                           setFieldErrors((prev) => ({ ...prev, quantity: undefined }));
                         }}
@@ -1204,9 +1211,6 @@ function HarvestInputPageInner() {
                             unit: remainingDisplayUnit,
                           })}
                         </p>
-                      ) : null}
-                      {quantityWarning ? (
-                        <p className="mt-1 text-xs text-red-600">{quantityWarning}</p>
                       ) : null}
                       {fieldErrors.quantity ? (
                         <p className="mt-1 text-xs text-red-600">{fieldErrors.quantity}</p>
@@ -1454,7 +1458,11 @@ function HarvestInputPageInner() {
                         value={formData.actualDate}
                         onChange={(value) => {
                           setFormData({ ...formData, actualDate: value });
-                          setFieldErrors((prev) => ({ ...prev, actualDate: undefined }));
+                          setFieldErrors((prev) => ({
+                            ...prev,
+                            actualDate: undefined,
+                            zone: value.trim() ? prev.zone : undefined,
+                          }));
                         }}
                         onBlur={() => setHarvestDateTouched(true)}
                         disabled={formDisabled}
