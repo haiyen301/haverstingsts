@@ -354,10 +354,10 @@ function getHarvestFieldErrors(
   // ) {
   //   errors.referenceHarvestQuantity = messages.enterQuantity;
   // }
-  if (!formData.zone.trim()) errors.zone = messages.selectZone;
-  if (!formData.farm.trim()) errors.farm = messages.selectFarm;
   const uomLower = formData.uom.trim().toLowerCase();
   const hasActual = Boolean(formData.actualDate.trim());
+  if (hasActual && !formData.zone.trim()) errors.zone = messages.selectZone;
+  if (!formData.farm.trim()) errors.farm = messages.selectFarm;
   if (hasActual && uomLower === "kg") {
     const ha = formData.harvestedArea.trim();
     const n = parseNum(ha);
@@ -1454,7 +1454,11 @@ function HarvestInputPageInner() {
                         value={formData.actualDate}
                         onChange={(value) => {
                           setFormData({ ...formData, actualDate: value });
-                          setFieldErrors((prev) => ({ ...prev, actualDate: undefined }));
+                          setFieldErrors((prev) => ({
+                            ...prev,
+                            actualDate: undefined,
+                            zone: value.trim() ? prev.zone : undefined,
+                          }));
                         }}
                         onBlur={() => setHarvestDateTouched(true)}
                         disabled={formDisabled}

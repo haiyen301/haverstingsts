@@ -125,7 +125,7 @@ export function ProjectListItem({
   const cfg = STATUS_CONFIG[data.status];
   const pColor = getProgressColor(data.progress);
   const pBg = getProgressBg(data.progress);
-  /** From buildProjectData: weighted delivered/required; subitems count when delivery OR actual harvest date is valid. */
+  /** From buildProjectData: average of per-line `min(1, delivered/required)`; delivered only with valid delivery date. */
   const clampedProgress = Math.max(0, Math.min(100, data.progress));
   const canEdit = Boolean(serverRow && onEditProject);
   const fileInputRef = useRef<HTMLInputElement | null>(null);

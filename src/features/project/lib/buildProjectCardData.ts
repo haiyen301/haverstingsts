@@ -228,30 +228,33 @@ function computeMondayStatus(
 }
 
 /**
- * Overall progress: sum(delivered per requirement) / sum(required), same basis as row %.
- * (Legacy Flutter-style “count of fully satisfied lines” made the bar stay at 0% until 100% delivered.)
+ * Overall progress (parity with Flutter `MondayProjectCard._calculateProgress`):
+ * average over each requirement line of `min(1, delivered / required)`.
+ * Each line uses `calculateDeliveredQuantityDeliveryOnly` (valid `delivery_harvest_date` + UOM + project scope).
+ * Not volume-weighted across lines so Kg vs m² lines contribute equally to the bar.
  */
 function calculateProgress(
   subitems: SubItem[],
   requirements: QuantityRequiredProject[],
   harvestProjectId?: string,
 ): number {
-  let totalRequired = 0;
-  let totalDelivered = 0;
+  let sumCompletion = 0;
+  let countedRows = 0;
   for (const r of requirements) {
     const pid = String(r.product_id ?? "").trim();
     const required = effectiveRequiredQuantity(r);
     if (!pid || required <= 0) continue;
-    totalRequired += required;
-    totalDelivered += calculateDeliveredQuantityDeliveryOnly(
+    countedRows += 1;
+    const delivered = calculateDeliveredQuantityDeliveryOnly(
       subitems,
       r.product_id,
       r.uom,
       harvestProjectId,
     );
+    sumCompletion += Math.min(1, Math.max(0, delivered / required));
   }
-  if (totalRequired <= 0) return 0;
-  return Math.round((totalDelivered / totalRequired) * 100);
+  if (countedRows <= 0) return 0;
+  return Math.round((sumCompletion / countedRows) * 100);
 }
 
 /**

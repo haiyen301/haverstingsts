@@ -370,13 +370,21 @@ export function InventoryForecast() {
     () => computeMonthlyAvailabilityFromRaw(filteredApiHarvestRaw),
     [filteredApiHarvestRaw],
   );
+  const forecastApiHarvestRaw = useMemo(() => {
+    if (selectedFarms.length === 0) return filteredApiHarvestRaw;
+    const selectedFarmKeys = new Set(selectedFarms.map((farm) => normalizeFarmKey(farm)));
+    return filteredApiHarvestRaw.filter((raw) => {
+      const farmName = String(raw.farm_name ?? "").trim();
+      return selectedFarmKeys.has(normalizeFarmKey(farmName));
+    });
+  }, [filteredApiHarvestRaw, selectedFarms]);
   const monthlyAvailabilityByProduct = useMemo(
     () =>
-      computeMonthlyAvailabilityByProductFromRaw(filteredApiHarvestRaw, {
+      computeMonthlyAvailabilityByProductFromRaw(forecastApiHarvestRaw, {
         fromYmd: harvestDateRange.from,
         toYmd: harvestDateRange.to,
       }),
-    [filteredApiHarvestRaw, harvestDateRange.from, harvestDateRange.to],
+    [forecastApiHarvestRaw, harvestDateRange.from, harvestDateRange.to],
   );
 
   const monthlyAvailabilityInSelectedRange = useMemo(() => {
