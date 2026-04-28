@@ -437,7 +437,6 @@
     "loadingZones": "Đang tải khu vực...",
     "loadingFarms": "Đang tải nông trại...",
     "remainingQuantityFmt": "(Số lượng còn lại : {grass} {quantity} {unit})",
-    "quantityAdjustedWarning": "Số lượng thu hoạch lớn hơn số lượng còn lại. Giá trị đã được điều chỉnh về mức tối đa cho phép.",
     "datePairHint": "Nếu ngày thu hoạch thực tế để trống, ngày thu hoạch dự kiến là bắt buộc.",
     "noReferenceLists": "Không có danh mục tham chiếu. Vui lòng kiểm tra API hoặc quyền truy cập.",
     "loadingHarvest": "Đang tải phiếu thu hoạch...",

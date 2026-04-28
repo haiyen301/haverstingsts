@@ -436,7 +436,6 @@
     "loadingZones": "Loading zones...",
     "loadingFarms": "Loading farms...",
     "remainingQuantityFmt": "(Remaining Quantity : {grass} {quantity} {unit})",
-    "quantityAdjustedWarning": "The harvested quantity is higher than the remaining quantity. The value was adjusted to the maximum allowed amount.",
     "datePairHint": "If Actual harvest date is empty, Estimated harvest date is required.",
     "noReferenceLists": "No reference lists returned. Check API access or permissions.",
     "loadingHarvest": "Loading harvest...",
