@@ -284,6 +284,7 @@
     "backToProjects": "กลับไปโครงการ",
     "projectName": "ชื่อโครงการ",
     "golfClub": "ชื่อสนามกอล์ฟ / สนามกีฬา",
+    "odooCustomerRef": "รหัสลูกค้า Odoo",
     "architect": "สถาปนิก",
     "stsPic": "STS PIC",
     "estimateStartDate": "วันที่เริ่มโดยประมาณ",
@@ -338,6 +339,7 @@
     "projectNamePlaceholder": "กรอกชื่อโครงการ",
     "companyPlaceholder": "กรอกชื่อบริษัท",
     "golfClubPlaceholder": "ชื่อสนามกอล์ฟ",
+    "odooCustomerRefPlaceholder": "รหัสอ้างอิงลูกค้าใน Odoo",
     "architectPlaceholder": "กรอกชื่อสถาปนิก",
     "startDatePairHint": "หากไม่กรอกวันที่เริ่มจริง ต้องกรอกวันที่เริ่มโดยประมาณ",
     "closeMenuAria": "ปิดเมนู"

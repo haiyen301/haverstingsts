@@ -284,6 +284,7 @@
     "backToProjects": "Quay lại dự án",
     "projectName": "Tên dự án",
     "golfClub": "Tên sân golf / sân vận động",
+    "odooCustomerRef": "Mã KH Odoo",
     "architect": "Kiến trúc sư",
     "stsPic": "STS PIC",
     "estimateStartDate": "Ngày bắt đầu dự kiến",
@@ -338,6 +339,7 @@
     "projectNamePlaceholder": "Nhập tên dự án",
     "companyPlaceholder": "Nhập tên công ty",
     "golfClubPlaceholder": "Tên sân golf",
+    "odooCustomerRefPlaceholder": "Mã tham chiếu khách hàng trong Odoo",
     "architectPlaceholder": "Nhập tên kiến trúc sư",
     "startDatePairHint": "Nếu ngày bắt đầu thực tế để trống, ngày bắt đầu dự kiến là bắt buộc.",
     "closeMenuAria": "Đóng menu"

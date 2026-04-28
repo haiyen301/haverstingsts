@@ -284,6 +284,7 @@
     "backToProjects": "Back to projects",
     "projectName": "Project Name",
     "golfClub": "Name Of Golf Club / Stadium",
+    "odooCustomerRef": "Odoo Customer Ref",
     "architect": "Architect",
     "stsPic": "STS PIC",
     "estimateStartDate": "Estimate Start Date",
@@ -338,6 +339,7 @@
     "projectNamePlaceholder": "Enter project name",
     "companyPlaceholder": "Enter company name",
     "golfClubPlaceholder": "Golf club name",
+    "odooCustomerRefPlaceholder": "Customer reference in Odoo",
     "architectPlaceholder": "Enter architect name",
     "startDatePairHint": "If Actual Start Date is empty, Estimate Start Date is required.",
     "closeMenuAria": "Close menu"
