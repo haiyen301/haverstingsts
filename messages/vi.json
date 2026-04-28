@@ -284,6 +284,7 @@
     "backToProjects": "Quay lại dự án",
     "projectName": "Tên dự án",
     "golfClub": "Tên sân golf / sân vận động",
+    "odooCustomerRef": "Mã KH Odoo",
     "architect": "Kiến trúc sư",
     "stsPic": "STS PIC",
     "estimateStartDate": "Ngày bắt đầu dự kiến",
@@ -338,6 +339,7 @@
     "projectNamePlaceholder": "Nhập tên dự án",
     "companyPlaceholder": "Nhập tên công ty",
     "golfClubPlaceholder": "Tên sân golf",
+    "odooCustomerRefPlaceholder": "Mã tham chiếu khách hàng trong Odoo",
     "architectPlaceholder": "Nhập tên kiến trúc sư",
     "startDatePairHint": "Nếu ngày bắt đầu thực tế để trống, ngày bắt đầu dự kiến là bắt buộc.",
     "closeMenuAria": "Đóng menu"
@@ -435,7 +437,6 @@
     "loadingZones": "Đang tải khu vực...",
     "loadingFarms": "Đang tải nông trại...",
     "remainingQuantityFmt": "(Số lượng còn lại : {grass} {quantity} {unit})",
-    "quantityAdjustedWarning": "Số lượng thu hoạch lớn hơn số lượng còn lại. Giá trị đã được điều chỉnh về mức tối đa cho phép.",
     "datePairHint": "Nếu ngày thu hoạch thực tế để trống, ngày thu hoạch dự kiến là bắt buộc.",
     "noReferenceLists": "Không có danh mục tham chiếu. Vui lòng kiểm tra API hoặc quyền truy cập.",
     "loadingHarvest": "Đang tải phiếu thu hoạch...",

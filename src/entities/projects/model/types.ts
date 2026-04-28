@@ -71,6 +71,8 @@ export interface MondayProjectServerRow {
   alias_title?: string;
   /** Company / customer name from dynamic table row. */
   company_name?: string;
+  /** Odoo customer reference stored in projects + dynamic table row. */
+  odoo_customer_id?: string | number;
   country?: string;
   country_id?: string | number;
   no_of_holes?: string | number;
