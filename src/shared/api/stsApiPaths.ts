@@ -15,6 +15,11 @@ export const STS_API_PATHS = {
   projects: "/api/projects",
   countries: "/api/countries",
   products: "/api/items",
+  projectSetting: "/api/project_setting",
+  zoneConfigurations: "/api/zone_configurations",
+  regrowthRules: "/api/regrowth_rules",
+  /** POST persist regrowth form (`Regrowth_rules::save`). */
+  regrowthRulesSave: "/api/regrowth_rules/save",
   /** GET `Harvesting::index` — query: `page`, `per_page`, `search`, `farm_id`, `status_id`, … */
   harvesting: "/api/harvesting",
   /** GET nested inventory report (`Harvesting::react_get_inventory_report`): `country`, `year`, `product_id`, `farm_id`. */

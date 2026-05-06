@@ -120,7 +120,7 @@ export default function ForgotPasswordForm() {
 
           <Link
             href="/"
-            className="flex items-center justify-center gap-2 text-sm text-[#1F7A4C] font-medium hover:underline"
+            className="inline-flex items-center justify-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent hover:text-accent-foreground hover:no-underline"
           >
             <ArrowLeft className="w-4 h-4" />
             {t("backToSignIn")}

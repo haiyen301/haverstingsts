@@ -51,6 +51,7 @@ const empty = {
   harvestListSearch: "",
   harvestListFarmFilter: "",
   harvestListProjectFilter: "",
+  harvestListGrassFilter: "",
   harvestListStatusFilter: "",
 };
 
@@ -74,11 +75,14 @@ export type HarvestingDataState = {
   harvestListFarmFilter: string;
   /** Harvest list: project select; empty = all. */
   harvestListProjectFilter: string;
+  /** Harvest list: grass/product id; empty = all. */
+  harvestListGrassFilter: string;
   /** Harvest list: status select; empty = all. */
   harvestListStatusFilter: string;
   setHarvestListSearch: (value: string) => void;
   setHarvestListFarmFilter: (value: string) => void;
   setHarvestListProjectFilter: (value: string) => void;
+  setHarvestListGrassFilter: (value: string) => void;
   setHarvestListStatusFilter: (value: string) => void;
   setFarmZones: (farmZones: unknown) => void;
   setFarms: (farms: unknown[]) => void;
@@ -114,6 +118,8 @@ export const useHarvestingDataStore = create<HarvestingDataState>((set, get) => 
     set({ harvestListFarmFilter }),
   setHarvestListProjectFilter: (harvestListProjectFilter) =>
     set({ harvestListProjectFilter }),
+  setHarvestListGrassFilter: (harvestListGrassFilter) =>
+    set({ harvestListGrassFilter }),
   setHarvestListStatusFilter: (harvestListStatusFilter) =>
     set({ harvestListStatusFilter }),
 

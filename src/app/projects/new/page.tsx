@@ -8,7 +8,7 @@ import {
   type FormEvent,
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Check, MoreVertical, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Check, MoreVertical, Plus, Trash2 } from "lucide-react";
 
 import RequireAuth from "@/features/auth/RequireAuth";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
@@ -32,6 +32,7 @@ interface GrassRow {
   type: string;
   required: string;
   delivered: string;
+  farmId: string;
 }
 
 function normalizeProjectNameForCompare(v: unknown): string {
@@ -67,13 +68,27 @@ const GOLF_COURSE_TYPES_REQUIRING_HOLES_NORMALIZED = new Set(
   GOLF_COURSE_TYPES_REQUIRING_HOLES.map((v) => v.toLowerCase()),
 );
 
-const HOLE_OPTIONS = [
-  { value: "none", label: "None" },
-  { value: "9", label: "9" },
-  { value: "18", label: "18" },
-  { value: "27", label: "27" },
-  { value: "36", label: "36" },
+/** Canonical values saved to Monday / API (`key_areas` comma list). Labels are localized in the component. */
+const KEY_AREA_CANONICAL = [
+  "Tees",
+  "Roughs",
+  "Fairways",
+  "Greens",
+  "Bunkers",
 ] as const;
+
+type KeyAreaId = (typeof KEY_AREA_CANONICAL)[number];
+
+function keyAreaMessageKey(area: KeyAreaId): string {
+  const map: Record<KeyAreaId, string> = {
+    Tees: "keyAreaTees",
+    Roughs: "keyAreaRoughs",
+    Fairways: "keyAreaFairways",
+    Greens: "keyAreaGreens",
+    Bunkers: "keyAreaBunkers",
+  };
+  return map[area];
+}
 
 function normalizeHoleValue(raw: unknown): string {
   const value = String(raw ?? "").trim();
@@ -86,6 +101,17 @@ export default function ProjectInputPage() {
   const tBase = useAppTranslations();
   const t = (key: string) => tBase(`ProjectForm.${key}`);
   const tCommon = (key: string) => tBase(`Common.${key}`);
+  const holeOptions = useMemo(
+    () =>
+      [
+        { value: "none" as const, label: tBase("ProjectForm.holesNone") },
+        { value: "9" as const, label: "9" },
+        { value: "18" as const, label: "18" },
+        { value: "27" as const, label: "27" },
+        { value: "36" as const, label: "36" },
+      ] as const,
+    [tBase],
+  );
   const router = useRouter();
   const searchParams = useSearchParams();
   const editRowId = searchParams.get("rowId")?.trim() ?? "";
@@ -146,13 +172,18 @@ export default function ProjectInputPage() {
     estimateStartDate: "",
     actualStartDate: "",
     endDate: "",
+    actualCompletionDate: "",
     projectType: "",
     holes: "",
     keyAreas: [] as string[],
+    contactName: "",
+    contactEmail: "",
+    contactPhone: "",
+    projectPace: "medium" as "slow" | "medium" | "fast" | "",
   });
 
   const [grassRows, setGrassRows] = useState<GrassRow[]>([
-    { id: "1", grass: "", type: "", required: "", delivered: "" },
+    { id: "1", grass: "", type: "Kg", required: "", delivered: "", farmId: "" },
   ]);
 
   /** Include legacy / unknown stored values so edit mode can show the current selection. */
@@ -182,6 +213,7 @@ export default function ProjectInputPage() {
   const countries = useHarvestingDataStore((s) => s.countries);
   const staffs = useHarvestingDataStore((s) => s.staffs);
   const products = useHarvestingDataStore((s) => s.products);
+  const farmsRaw = useHarvestingDataStore((s) => s.farms);
   const fetchAllHarvestingReferenceData = useHarvestingDataStore(
     (s) => s.fetchAllHarvestingReferenceData,
   );
@@ -253,6 +285,20 @@ export default function ProjectInputPage() {
     }))
     .filter((x) => x.id && x.name);
 
+  const farmOptions = useMemo(() => {
+    const countryId = formData.country.trim();
+    const rows = (farmsRaw as unknown[])
+      .filter((f): f is Record<string, unknown> => !!f && typeof f === "object")
+      .map((f) => ({
+        id: String(f.id ?? "").trim(),
+        name: String(f.name ?? f.title ?? "").trim(),
+        country_id: String(f.country_id ?? "").trim(),
+      }))
+      .filter((x) => x.id && x.name);
+    if (!countryId) return rows;
+    return rows.filter((f) => !f.country_id || f.country_id === countryId);
+  }, [farmsRaw, formData.country]);
+
   useEffect(() => {
     if (!isEdit) {
       setLoading(false);
@@ -312,9 +358,10 @@ export default function ProjectInputPage() {
       {
         id: Date.now().toString(),
         grass: "",
-        type: "",
+        type: "Kg",
         required: "",
         delivered: "",
+        farmId: "",
       },
     ]);
   };
@@ -445,6 +492,63 @@ export default function ProjectInputPage() {
     }
   }, []);
 
+  const orderedTopFieldKeys: (keyof TopFieldErrors)[] = [
+    "projectName",
+    "company",
+    "golfClub",
+    "architect",
+    "country",
+    "stsPic",
+    "estimateStartDate",
+    "actualStartDate",
+    "endDate",
+  ];
+
+  const activeIssueCount = useMemo(() => {
+    const topCount = orderedTopFieldKeys.filter((k) => Boolean(fieldErrors[k])).length;
+    const others = [projectTypeError, holesError, keyAreasError, startDateError, grassValidationError]
+      .filter(Boolean).length;
+    return topCount + others;
+  }, [
+    fieldErrors,
+    grassValidationError,
+    holesError,
+    keyAreasError,
+    orderedTopFieldKeys,
+    projectTypeError,
+    startDateError,
+  ]);
+
+  const jumpToFirstIssue = useCallback(() => {
+    const firstTop = orderedTopFieldKeys.find((k) => Boolean(fieldErrors[k]));
+    if (firstTop) {
+      const topFieldScrollMap: Record<keyof TopFieldErrors, string> = {
+        projectName: "project-name",
+        company: "project-company",
+        golfClub: "project-golf-club",
+        architect: "project-architect",
+        country: "project-country",
+        stsPic: "project-sts-pic",
+        estimateStartDate: "project-estimate-start-date",
+        actualStartDate: "project-actual-start-date",
+        endDate: "project-end-date",
+      };
+      scrollToField(topFieldScrollMap[firstTop]);
+      return;
+    }
+    if (holesError) {
+      scrollToField("project-holes");
+      return;
+    }
+    if (keyAreasError) {
+      scrollToField("project-holes");
+      return;
+    }
+    if (grassValidationError) {
+      scrollToField("project-grass-info");
+    }
+  }, [fieldErrors, grassValidationError, holesError, keyAreasError, orderedTopFieldKeys, scrollToField]);
+
   useEffect(() => {
     if (!startDateTouched) return;
     const pairError = getStartDatePairError(
@@ -468,25 +572,34 @@ export default function ProjectInputPage() {
     setEditTableName(String(row.table_name ?? "").trim());
     const rowTableId = String(row.table_id ?? "").trim();
     if (rowTableId) setEditTableId(rowTableId);
+    const rec = row as Record<string, unknown>;
+    const paceRaw = String(rec.project_pace ?? "").trim().toLowerCase();
+    const projectPace =
+      paceRaw === "slow" || paceRaw === "medium" || paceRaw === "fast"
+        ? paceRaw
+        : "medium";
     setFormData({
       projectName: projectNameDisplay,
       golfClub: String(row.alias_title ?? "").trim(),
-      company: String((row as Record<string, unknown>).company_name ?? "").trim(),
-      architect: String(
-        (row as Record<string, unknown>).golf_course_architect ?? "",
-      ).trim(),
+      company: String(rec.company_name ?? "").trim(),
+      architect: String(rec.golf_course_architect ?? "").trim(),
       country: String(row.country_id ?? "").trim(),
       stsPic: String(row.pic ?? "").trim(),
       odooCustomerId: String(row.odoo_customer_id ?? "").trim(),
-      estimateStartDate: String((row as Record<string, unknown>).estimate_start_date ?? "").trim(),
-      actualStartDate: String((row as Record<string, unknown>).start_date ?? "").trim(),
+      estimateStartDate: String(rec.estimate_start_date ?? "").trim(),
+      actualStartDate: String(rec.start_date ?? "").trim(),
       endDate: String(row.deadline ?? "").trim(),
+      actualCompletionDate: String(rec.actual_completion_date ?? "").trim(),
       projectType: String(row.project_type ?? "").trim(),
       holes: normalizeHoleValue(row.no_of_holes),
       keyAreas: String(row.key_areas ?? "")
         .split(",")
         .map((x) => x.trim())
         .filter(Boolean),
+      contactName: String(rec.main_contact_name ?? "").trim(),
+      contactEmail: String(rec.main_contact_email ?? "").trim(),
+      contactPhone: String(rec.main_contact_phone ?? "").trim(),
+      projectPace,
     });
 
     const raw = row.quantity_required_sprig_sod;
@@ -498,13 +611,19 @@ export default function ProjectInputPage() {
     const mapped = list
       .filter((x) => x && typeof x === "object")
       .map((x) => x as Record<string, unknown>)
-      .map((x) => ({
-        id: String(x.id ?? Date.now()),
-        grass: String(x.product_id ?? "").trim(),
-        type: String(x.uom ?? "").trim(),
-        required: String(x.quantity ?? "").trim(),
-        delivered: "",
-      }));
+      .map((x) => {
+        const uomRaw = String(x.uom ?? "").trim().toLowerCase();
+        const typeNorm =
+          uomRaw === "m2" || uomRaw === "sqm" || uomRaw === "m²" ? "M2" : "Kg";
+        return {
+          id: String(x.id ?? Date.now()),
+          grass: String(x.product_id ?? "").trim(),
+          type: uomRaw ? typeNorm : "Kg",
+          required: String(x.quantity ?? "").trim(),
+          delivered: "",
+          farmId: String(x.farm_id ?? "").trim(),
+        };
+      });
     if (mapped.length) setGrassRows(mapped);
   };
 
@@ -520,17 +639,6 @@ export default function ProjectInputPage() {
 
     const topFieldErrors = getTopFieldErrors();
     setFieldErrors(topFieldErrors);
-    const orderedTopFieldKeys: (keyof TopFieldErrors)[] = [
-      "projectName",
-      "company",
-      "golfClub",
-      "architect",
-      "country",
-      "stsPic",
-      "estimateStartDate",
-      "actualStartDate",
-      "endDate",
-    ];
     const firstTopFieldErrorKey =
       orderedTopFieldKeys.find((key) => Boolean(topFieldErrors[key])) ?? null;
     const textFieldError = firstTopFieldError(topFieldErrors);
@@ -624,7 +732,7 @@ export default function ProjectInputPage() {
           return rowName && rowName === normalizedInput;
         });
         if (duplicated) {
-          setError("Project name already exists. Please use another project name.");
+          setError(t("projectDuplicateName"));
           return;
         }
       }
@@ -656,7 +764,13 @@ export default function ProjectInputPage() {
             product_id: r.grass,
             quantity: r.required,
             uom: r.type,
+            ...(r.farmId.trim() ? { farm_id: r.farmId.trim() } : {}),
           })),
+          main_contact_name: formData.contactName.trim(),
+          main_contact_email: formData.contactEmail.trim(),
+          main_contact_phone: formData.contactPhone.trim(),
+          project_pace: formData.projectPace.trim() || "medium",
+          actual_completion_date: formData.actualCompletionDate.trim(),
         },
       };
       if (!isEdit) {
@@ -711,222 +825,390 @@ export default function ProjectInputPage() {
   return (
     <RequireAuth>
       <DashboardLayout>
-        <div className="min-h-screen bg-gray-50 pb-10 lg:pb-14">
-          <div className="w-full px-4 pt-4 lg:px-8 lg:pt-8">
-            <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-              <button
-                onClick={goBack}
-                className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-                type="button"
-                aria-label="Back"
-              >
-                <svg width="20" height="20" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M3 6L2.29289 6.70711L1.58579 6L2.29289 5.29289L3 6ZM6.75 15.25C6.19772 15.25 5.75 14.8023 5.75 14.25C5.75 13.6977 6.19772 13.25 6.75 13.25L6.75 14.25L6.75 15.25ZM6.75 9.75L6.04289 10.4571L2.29289 6.70711L3 6L3.70711 5.29289L7.45711 9.04289L6.75 9.75ZM3 6L2.29289 5.29289L6.04289 1.54289L6.75 2.25L7.45711 2.95711L3.70711 6.70711L3 6ZM3 6L3 5L10.875 5L10.875 6L10.875 7L3 7L3 6ZM10.875 14.25L10.875 15.25L6.75 15.25L6.75 14.25L6.75 13.25L10.875 13.25L10.875 14.25ZM15 10.125L16 10.125C16 12.9555 13.7055 15.25 10.875 15.25L10.875 14.25L10.875 13.25C12.6009 13.25 14 11.8509 14 10.125L15 10.125ZM10.875 6L10.875 5C13.7055 5 16 7.29454 16 10.125L15 10.125L14 10.125C14 8.39911 12.6009 7 10.875 7L10.875 6Z" fill="#374151" />
-                </svg>
-                <span>Back</span>
-              </button>
-              <div className="flex items-center gap-2">
-                {isEdit ? (
+        <div className="min-h-screen pb-10 lg:pb-14">
+          <div className="mx-auto w-full max-w-[900px] space-y-6 px-4 pt-4 lg:px-6 lg:pt-8">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={goBack}
+                  type="button"
+                  aria-label={t("backToProjects")}
+                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-card text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                >
+                  <ArrowLeft className="h-4 w-4" strokeWidth={2.25} />
+                </button>
+                <h1 className="font-heading text-2xl font-bold text-foreground">
+                  {isEdit ? t("editTitle") : t("newTitle")}
+                </h1>
+              </div>
+              {isEdit ? (
+                <button
+                  type="button"
+                  onClick={showDeleteMenu}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-card text-muted-foreground hover:bg-card hover:text-muted-foreground"
+                  aria-label={t("moreActions")}
+                >
+                  <MoreVertical className="h-5 w-5" strokeWidth={2.25} />
+                </button>
+              ) : null}
+            </div>
+
+            <form
+              onSubmit={handleSubmit}
+              noValidate
+              className="space-y-6 [&_input]:h-10 [&_input]:py-0 [&_select]:h-10 [&_select]:py-0"
+            >
+              {activeIssueCount > 0 ? (
+                <div
+                  role="alert"
+                  className="flex flex-col gap-3 rounded-lg border border-destructive/35 bg-destructive/5 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <p className="text-sm font-medium text-destructive">
+                    {activeIssueCount} fields need attention
+                  </p>
                   <button
                     type="button"
-                    onClick={showDeleteMenu}
-                    className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
-                    aria-label={t("moreActions")}
+                    className="shrink-0 rounded-lg border border-destructive/40 bg-background px-3 py-2 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
+                    onClick={jumpToFirstIssue}
                   >
-                    <MoreVertical className="h-5 w-5" strokeWidth={2.25} />
+                    Go to first issue
                   </button>
-                ) : null}
-              </div>
-            </div>
-            <div className="mb-6">
-              <h1 className="text-2xl font-semibold text-gray-900 lg:text-3xl">
-                {isEdit ? t("editTitle") : t("newTitle")}
-              </h1>
-              <p className="mt-1 text-sm text-gray-500">
-                {t("projectName")} • {t("projectType")} • {t("grassRequirements")}
-              </p>
-            </div>
-            <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-lg">
+                </div>
+              ) : null}
 
-              {/* Form */}
-              <form
-                onSubmit={handleSubmit}
-                noValidate
-                  className="space-y-3 p-4 lg:p-5 [&_input]:h-10 [&_input]:py-0 [&_select]:h-10 [&_select]:py-0 [&_textarea]:py-1.5"
-              >
-                {loading ? <p className="text-sm text-gray-600">{t("loadingProject")}</p> : null}
-                {/*
-            With `client_source: nextjs`, `data.project_name` is resolved on the server (Flutter uses
-            `project_id` from its own API instead).
-          */}
-                <div id="project-basic-info" className="grid gap-3 lg:grid-cols-2 pb-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="project-name">
-                      {t("projectName")}
-                    </label>
-                    <input
-                      id="project-name"
-                      name="projectName"
-                      type="text"
-                      value={formData.projectName}
-                      onChange={(e) => {
-                        setFormData({ ...formData, projectName: e.target.value });
-                        setFieldErrors((prev) => ({ ...prev, projectName: undefined }));
-                      }}
-                      placeholder={t("projectNamePlaceholder")}
-                      autoComplete="off"
-                      aria-invalid={Boolean(fieldErrors.projectName)}
-                      className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-[#1F7A4C] focus:border-transparent ${fieldErrors.projectName ? "border-red-500" : "border-gray-300"
-                        }`}
-                    />
-                    {fieldErrors.projectName ? (
-                      <p className="mt-1 text-xs text-red-600">{fieldErrors.projectName}</p>
-                    ) : null}
+              {loading ? (
+                <p className="text-sm text-muted-foreground">{t("loadingProject")}</p>
+              ) : null}
+
+              {/* Basic Information */}
+              <section className="overflow-hidden rounded-xl border border-border bg-card text-card-foreground shadow-sm">
+                <div className="px-4 py-3 lg:px-5">
+                  <h2 className="text-base font-semibold">{t("basicInformation")}</h2>
+                </div>
+                <div className="space-y-4 p-4 lg:p-5">
+                  <div id="project-basic-info" className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium text-foreground" htmlFor="project-name">
+                        {t("projectName")}
+                      </label>
+                      <input
+                        id="project-name"
+                        name="projectName"
+                        type="text"
+                        value={formData.projectName}
+                        onChange={(e) => {
+                          setFormData({ ...formData, projectName: e.target.value });
+                          setFieldErrors((prev) => ({ ...prev, projectName: undefined }));
+                        }}
+                        placeholder={t("projectNamePlaceholder")}
+                        autoComplete="off"
+                        aria-invalid={Boolean(fieldErrors.projectName)}
+                        className={`w-full rounded-md border bg-card px-3 text-sm text-foreground shadow-sm ${fieldErrors.projectName ? "border-destructive" : "border-input"
+                          }`}
+                      />
+                      {fieldErrors.projectName ? (
+                        <p className="text-xs text-destructive">{fieldErrors.projectName}</p>
+                      ) : null}
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium text-foreground" htmlFor="project-sts-pic">
+                        {t("stsPic")}
+                      </label>
+                      <select
+                        id="project-sts-pic"
+                        value={formData.stsPic}
+                        onChange={(e) => {
+                          setFormData({ ...formData, stsPic: e.target.value });
+                          setFieldErrors((prev) => ({ ...prev, stsPic: undefined }));
+                        }}
+                        className={`w-full rounded-md border bg-card px-3 text-sm text-foreground shadow-sm ${fieldErrors.stsPic ? "border-destructive" : "border-input"
+                          }`}
+                      >
+                        <option value="">{t("selectPersonInCharge")}</option>
+                        {staffOptions.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.name}
+                          </option>
+                        ))}
+                      </select>
+                      {fieldErrors.stsPic ? (
+                        <p className="text-xs text-destructive">{fieldErrors.stsPic}</p>
+                      ) : null}
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium text-foreground" htmlFor="project-company">
+                        {tCommon("company")}
+                      </label>
+                      <input
+                        id="project-company"
+                        type="text"
+                        value={formData.company}
+                        onChange={(e) => {
+                          setFormData({ ...formData, company: e.target.value });
+                          setFieldErrors((prev) => ({ ...prev, company: undefined }));
+                        }}
+                        className={`w-full rounded-md border bg-card px-3 text-sm text-foreground shadow-sm ${fieldErrors.company ? "border-destructive" : "border-input"
+                          }`}
+                        placeholder={t("companyPlaceholder")}
+                      />
+                      {fieldErrors.company ? (
+                        <p className="text-xs text-destructive">{fieldErrors.company}</p>
+                      ) : null}
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium text-foreground" htmlFor="project-golf-club">
+                        {t("golfClub")}
+                      </label>
+                      <input
+                        id="project-golf-club"
+                        type="text"
+                        value={formData.golfClub}
+                        onChange={(e) => {
+                          setFormData({ ...formData, golfClub: e.target.value });
+                          setFieldErrors((prev) => ({ ...prev, golfClub: undefined }));
+                        }}
+                        className={`w-full rounded-md border bg-card px-3 text-sm text-foreground shadow-sm ${fieldErrors.golfClub ? "border-destructive" : "border-input"
+                          }`}
+                        placeholder={t("golfClubPlaceholder")}
+                      />
+                      {fieldErrors.golfClub ? (
+                        <p className="text-xs text-destructive">{fieldErrors.golfClub}</p>
+                      ) : null}
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium text-foreground" htmlFor="project-odoo-customer-id">
+                        {t("odooCustomerRef")}
+                      </label>
+                      <input
+                        id="project-odoo-customer-id"
+                        type="text"
+                        value={formData.odooCustomerId}
+                        onChange={(e) => {
+                          setFormData({ ...formData, odooCustomerId: e.target.value });
+                        }}
+                        className="w-full rounded-md border border-input bg-card px-3 text-sm text-foreground shadow-sm"
+                        placeholder={t("odooCustomerRefPlaceholder")}
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium text-foreground" htmlFor="project-architect">
+                        {t("architect")}
+                      </label>
+                      <input
+                        id="project-architect"
+                        type="text"
+                        value={formData.architect}
+                        onChange={(e) => {
+                          setFormData({ ...formData, architect: e.target.value });
+                          setFieldErrors((prev) => ({ ...prev, architect: undefined }));
+                        }}
+                        className={`w-full rounded-md border bg-card px-3 text-sm text-foreground shadow-sm ${fieldErrors.architect ? "border-destructive" : "border-input"
+                          }`}
+                        placeholder={t("architectPlaceholder")}
+                      />
+                      {fieldErrors.architect ? (
+                        <p className="text-xs text-destructive">{fieldErrors.architect}</p>
+                      ) : null}
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium text-foreground" htmlFor="project-country">
+                        {tCommon("country")}
+                      </label>
+                      <select
+                        id="project-country"
+                        value={formData.country}
+                        onChange={(e) => {
+                          const nextCountry = e.target.value;
+                          setFormData({ ...formData, country: nextCountry });
+                          setFieldErrors((prev) => ({ ...prev, country: undefined }));
+                          const rows = (farmsRaw as unknown[])
+                            .filter((f): f is Record<string, unknown> => !!f && typeof f === "object")
+                            .map((f) => ({
+                              id: String(f.id ?? "").trim(),
+                              country_id: String(f.country_id ?? "").trim(),
+                            }))
+                            .filter((x) => x.id);
+                          const allowed = nextCountry.trim()
+                            ? new Set(
+                              rows
+                                .filter((f) => !f.country_id || f.country_id === nextCountry.trim())
+                                .map((f) => f.id),
+                            )
+                            : new Set(rows.map((f) => f.id));
+                          setGrassRows((prev) =>
+                            prev.map((r) => ({
+                              ...r,
+                              farmId: allowed.has(r.farmId) ? r.farmId : "",
+                            })),
+                          );
+                        }}
+                        className={`w-full rounded-md border bg-card px-3 text-sm text-foreground shadow-sm ${fieldErrors.country ? "border-destructive" : "border-input"
+                          }`}
+                      >
+                        <option value="">{t("selectCountry")}</option>
+                        {countryOptions.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                      {fieldErrors.country ? (
+                        <p className="text-xs text-destructive">{fieldErrors.country}</p>
+                      ) : null}
+                    </div>
                   </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      {t("stsPic")}
-                    </label>
-                    <select
-                      id="project-sts-pic"
-                      value={formData.stsPic}
-                      onChange={(e) => {
-                        setFormData({ ...formData, stsPic: e.target.value });
-                        setFieldErrors((prev) => ({ ...prev, stsPic: undefined }));
-                      }}
-                      className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-[#1F7A4C] focus:border-transparent ${fieldErrors.stsPic ? "border-red-500" : "border-gray-300"
-                        }`}
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-foreground">{t("projectType")}</label>
+                    <div
+                      className="grid grid-cols-1 gap-2 rounded-lg border border-border bg-surface-filter-filled p-3 sm:grid-cols-2 lg:grid-cols-3"
+                      style={
+                        projectTypeError ? { borderColor: "hsl(var(--destructive))" } : undefined
+                      }
                     >
-                      <option value="">{t("selectPersonInCharge")}</option>
-                      {staffOptions.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.name}
-                        </option>
+                      {projectTypeRadioValues.map((type) => (
+                        <button
+                          key={type}
+                          type="button"
+                          onClick={() => {
+                            const nextType = formData.projectType === type ? "" : type;
+                            setFormData({ ...formData, projectType: nextType });
+                            setProjectTypeError(null);
+                            setHolesError(null);
+                          }}
+                          className="relative block cursor-pointer text-left"
+                        >
+                          <span
+                            className={`flex min-h-11 items-center justify-center rounded-md border px-3 text-sm transition-colors ${formData.projectType === type
+                                ? "border-primary bg-primary/5 text-primary"
+                                : "border-input bg-card text-foreground shadow-sm"
+                              }`}
+                          >
+                            {labelForProjectTypeOption(type)}
+                          </span>
+                          {formData.projectType === type ? (
+                            <span className="absolute left-1.5 top-1.5 inline-flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                              <Check className="h-3 w-3" />
+                            </span>
+                          ) : null}
+                        </button>
                       ))}
-                    </select>
-                    {fieldErrors.stsPic ? (
-                      <p className="mt-1 text-xs text-red-600">{fieldErrors.stsPic}</p>
-                    ) : null}
-                  </div>
-                </div>
-
-                {/* Company */}
-                <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3 pb-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      {tCommon("company")}
-                    </label>
-                    <input
-                      id="project-company"
-                      type="text"
-                      value={formData.company}
-                      onChange={(e) => {
-                        setFormData({ ...formData, company: e.target.value });
-                        setFieldErrors((prev) => ({ ...prev, company: undefined }));
-                      }}
-                      className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-[#1F7A4C] focus:border-transparent ${fieldErrors.company ? "border-red-500" : "border-gray-300"
-                        }`}
-                      placeholder={t("companyPlaceholder")}
-                    />
-                    {fieldErrors.company ? (
-                      <p className="mt-1 text-xs text-red-600">{fieldErrors.company}</p>
+                    </div>
+                    {projectTypeError ? (
+                      <p className="text-xs text-destructive">{projectTypeError}</p>
                     ) : null}
                   </div>
 
-                  {/* Golf Club */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      {t("golfClub")}
+                  <div className="space-y-2 sm:col-span-2">
+                    <label className="text-sm font-medium text-foreground">
+                      {t("projectPaceLabel")}{" "}
+                      <span className="text-xs font-normal text-muted-foreground">
+                        {t("projectPaceHint")}
+                      </span>
                     </label>
-                    <input
-                      id="project-golf-club"
-                      type="text"
-                      value={formData.golfClub}
-                      onChange={(e) => {
-                        setFormData({ ...formData, golfClub: e.target.value });
-                        setFieldErrors((prev) => ({ ...prev, golfClub: undefined }));
-                      }}
-                      className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-[#1F7A4C] focus:border-transparent ${fieldErrors.golfClub ? "border-red-500" : "border-gray-300"
-                        }`}
-                      placeholder={t("golfClubPlaceholder")}
-                    />
-                    {fieldErrors.golfClub ? (
-                      <p className="mt-1 text-xs text-red-600">{fieldErrors.golfClub}</p>
-                    ) : null}
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      {t("odooCustomerRef")}
-                    </label>
-                    <input
-                      id="project-odoo-customer-id"
-                      type="text"
-                      value={formData.odooCustomerId}
-                      onChange={(e) => {
-                        setFormData({ ...formData, odooCustomerId: e.target.value });
-                      }}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#1F7A4C] focus:border-transparent"
-                      placeholder={t("odooCustomerRefPlaceholder")}
-                    />
-                  </div>
-                </div>
-
-                {/* Architect */}
-                <div className="grid gap-3 lg:grid-cols-3 pb-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      {t("architect")}
-                    </label>
-                    <input
-                      id="project-architect"
-                      type="text"
-                      value={formData.architect}
-                      onChange={(e) => {
-                        setFormData({ ...formData, architect: e.target.value });
-                        setFieldErrors((prev) => ({ ...prev, architect: undefined }));
-                      }}
-                      className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-[#1F7A4C] focus:border-transparent ${fieldErrors.architect ? "border-red-500" : "border-gray-300"
-                        }`}
-                      placeholder={t("architectPlaceholder")}
-                    />
-                    {fieldErrors.architect ? (
-                      <p className="mt-1 text-xs text-red-600">{fieldErrors.architect}</p>
-                    ) : null}
-                  </div>
-
-                  {/* Country */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      {tCommon("country")}
-                    </label>
-                    <select
-                      id="project-country"
-                      value={formData.country}
-                      onChange={(e) => {
-                        setFormData({ ...formData, country: e.target.value });
-                        setFieldErrors((prev) => ({ ...prev, country: undefined }));
-                      }}
-                      className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-[#1F7A4C] focus:border-transparent ${fieldErrors.country ? "border-red-500" : "border-gray-300"
-                        }`}
-                    >
-                      <option value="">{t("selectCountry")}</option>
-                      {countryOptions.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
+                    <div className="grid grid-cols-1 gap-2 rounded-lg border border-border bg-surface-filter-filled p-3 sm:grid-cols-2 lg:grid-cols-3">
+                      {(
+                        [
+                          { value: "slow" as const, label: t("paceSlowOption") },
+                          { value: "medium" as const, label: t("paceMediumOption") },
+                          { value: "fast" as const, label: t("paceFastOption") },
+                        ] as const
+                      ).map((opt) => (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => {
+                            const nextPace =
+                              formData.projectPace === opt.value ? "" : opt.value;
+                            setFormData({ ...formData, projectPace: nextPace });
+                          }}
+                          className="relative block cursor-pointer text-left"
+                        >
+                          <span
+                            className={`flex min-h-11 items-center justify-center rounded-md border px-3 text-center text-sm transition-colors ${formData.projectPace === opt.value
+                                ? "border-primary bg-primary/5 text-primary"
+                                : "border-input bg-card text-foreground shadow-sm"
+                              }`}
+                          >
+                            {opt.label}
+                          </span>
+                          {formData.projectPace === opt.value ? (
+                            <span className="absolute left-1.5 top-1.5 inline-flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                              <Check className="h-3 w-3" />
+                            </span>
+                          ) : null}
+                        </button>
                       ))}
-                    </select>
-                    {fieldErrors.country ? (
-                      <p className="mt-1 text-xs text-red-600">{fieldErrors.country}</p>
-                    ) : null}
+                    </div>
                   </div>
                 </div>
+              </section>
 
-                <div id="project-setup-info" className="grid gap-4 lg:grid-cols-3 pb-4">
-                  <div id="project-estimate-start-date">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+              {/* Main contact */}
+              <section className="overflow-hidden rounded-xl border border-border bg-card text-card-foreground shadow-sm">
+                <div className="border-b border-border px-4 py-3 lg:px-5">
+                  <h2 className="text-base font-semibold">{t("mainProjectContact")}</h2>
+                </div>
+                <div className="grid gap-4 p-4 sm:grid-cols-3 lg:p-5">
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium text-foreground" htmlFor="contact-name">
+                      {t("contactName")}
+                    </label>
+                    <input
+                      id="contact-name"
+                      type="text"
+                      value={formData.contactName}
+                      onChange={(e) =>
+                        setFormData({ ...formData, contactName: e.target.value })
+                      }
+                      className="w-full rounded-md border border-input bg-card px-3 text-sm text-foreground shadow-sm"
+                      placeholder={t("contactNamePlaceholder")}
+                      autoComplete="name"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium text-foreground" htmlFor="contact-email">
+                      {t("contactEmail")}
+                    </label>
+                    <input
+                      id="contact-email"
+                      type="email"
+                      value={formData.contactEmail}
+                      onChange={(e) =>
+                        setFormData({ ...formData, contactEmail: e.target.value })
+                      }
+                      className="w-full rounded-md border border-input bg-card px-3 text-sm text-foreground shadow-sm"
+                      placeholder={t("contactEmailPlaceholder")}
+                      autoComplete="email"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium text-foreground" htmlFor="contact-phone">
+                      {t("contactPhone")}
+                    </label>
+                    <input
+                      id="contact-phone"
+                      type="tel"
+                      value={formData.contactPhone}
+                      onChange={(e) =>
+                        setFormData({ ...formData, contactPhone: e.target.value })
+                      }
+                      className="w-full rounded-md border border-input bg-card px-3 text-sm text-foreground shadow-sm"
+                      placeholder={t("contactPhonePlaceholder")}
+                      autoComplete="tel"
+                    />
+                  </div>
+                </div>
+              </section>
+
+              {/* Timeline */}
+              <section className="overflow-hidden rounded-xl border border-border bg-card text-card-foreground shadow-sm">
+                <div className="border-b border-border px-4 py-3 lg:px-5">
+                  <h2 className="text-base font-semibold">{t("timeline")}</h2>
+                </div>
+                <div id="project-setup-info" className="grid gap-4 p-4 sm:grid-cols-2 lg:p-5">
+                  <div id="project-estimate-start-date" className="space-y-1.5">
+                    <label className="text-sm font-medium text-foreground">
                       {t("estimateStartDate")}
                     </label>
                     <DatePicker
@@ -939,14 +1221,14 @@ export default function ProjectInputPage() {
                       hasError={Boolean(fieldErrors.estimateStartDate || startDateError)}
                     />
                     {fieldErrors.estimateStartDate ? (
-                      <p className="mt-1 text-xs text-red-600">
+                      <p className="text-xs text-destructive">
                         {fieldErrors.estimateStartDate}
                       </p>
                     ) : null}
                   </div>
 
-                  <div id="project-actual-start-date">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <div id="project-actual-start-date" className="space-y-1.5">
+                    <label className="text-sm font-medium text-foreground">
                       {t("actualStartDate")}
                     </label>
                     <DatePicker
@@ -959,17 +1241,17 @@ export default function ProjectInputPage() {
                       hasError={Boolean(fieldErrors.actualStartDate || startDateError)}
                     />
                     {startDateError ? (
-                      <p className="mt-1 text-xs text-red-600">{startDateError}</p>
+                      <p className="text-xs text-destructive">{startDateError}</p>
                     ) : (
-                      <p className="mt-1 text-xs text-gray-500">
+                      <p className="text-xs text-muted-foreground">
                         {t("startDatePairHint")}
                       </p>
                     )}
                   </div>
 
-                  <div id="project-end-date">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      {t("endDate")}
+                  <div id="project-end-date" className="space-y-1.5">
+                    <label className="text-sm font-medium text-foreground">
+                      {t("estimatedCompletionDate")}
                     </label>
                     <DatePicker
                       value={formData.endDate}
@@ -980,179 +1262,147 @@ export default function ProjectInputPage() {
                       hasError={Boolean(fieldErrors.endDate)}
                     />
                     {fieldErrors.endDate ? (
-                      <p className="mt-1 text-xs text-red-600">{fieldErrors.endDate}</p>
+                      <p className="text-xs text-destructive">{fieldErrors.endDate}</p>
+                    ) : null}
+                  </div>
+
+                  <div id="project-actual-completion-date" className="space-y-1.5">
+                    <label className="text-sm font-medium text-foreground">
+                      {t("actualCompletionDate")}
+                    </label>
+                    <DatePicker
+                      value={formData.actualCompletionDate}
+                      onChange={(value) =>
+                        setFormData({ ...formData, actualCompletionDate: value })
+                      }
+                    />
+                  </div>
+                </div>
+              </section>
+
+              <section className="overflow-hidden rounded-xl border border-border bg-card text-card-foreground shadow-sm">
+                <div className="border-b border-border px-4 py-3 lg:px-5">
+                  <h2 className="text-base font-semibold">{t("details")}</h2>
+                </div>
+                <div className="space-y-4 p-4 lg:grid lg:grid-cols-2 lg:gap-6 lg:space-y-0 lg:p-5">
+                  <div id="project-holes" className="space-y-2">
+                    <p className="text-sm text-muted-foreground">{t("noOfHoles")}</p>
+                    <div
+                      className="rounded-lg border border-border bg-surface-filter-filled p-3"
+                      style={{ outline: holesError ? "1px solid hsl(var(--destructive))" : "none" }}
+                    >
+                      <div className="grid grid-cols-3 gap-2 xl:grid-cols-5">
+                      {holeOptions.map((hole) => (
+                        <button
+                          key={hole.value}
+                          type="button"
+                          onClick={() => {
+                            const nextHoles = formData.holes === hole.value ? "" : hole.value;
+                            setFormData({ ...formData, holes: nextHoles });
+                            setHolesError(null);
+                          }}
+                          className="relative block cursor-pointer text-left"
+                        >
+                          <span
+                            className={`flex min-h-10 items-center justify-center rounded-md border px-3 text-sm transition-colors ${formData.holes === hole.value
+                                ? "border-primary bg-primary/5 text-primary"
+                                : "border-input bg-card text-foreground shadow-sm"
+                              }`}
+                          >
+                            {hole.label}
+                          </span>
+                          {formData.holes === hole.value ? (
+                            <span className="absolute left-1.5 top-1.5 inline-flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                              <Check className="h-3 w-3" />
+                            </span>
+                          ) : null}
+                        </button>
+                      ))}
+                      </div>
+                    </div>
+                    {holesError ? <p className="text-xs text-destructive">{holesError}</p> : null}
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-sm text-muted-foreground">{t("keyAreas")}</p>
+                    <div
+                      className="rounded-lg border border-border bg-surface-filter-filled p-3"
+                      style={{ outline: keyAreasError ? "1px solid hsl(var(--destructive))" : "none" }}
+                    >
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      {KEY_AREA_CANONICAL.map((area) => (
+                        <label key={area} className="relative block cursor-pointer">
+                          <input
+                            type="checkbox"
+                            className="sr-only"
+                            checked={formData.keyAreas.includes(area)}
+                            onChange={(e) => {
+                              const next = e.target.checked
+                                ? [...formData.keyAreas, area]
+                                : formData.keyAreas.filter((x) => x !== area);
+                              setFormData({ ...formData, keyAreas: next });
+                              setKeyAreasError(null);
+                            }}
+                          />
+                          <span
+                            className={`flex min-h-10 items-center justify-center rounded-md border px-3 text-sm transition-colors ${formData.keyAreas.includes(area)
+                                ? "border-primary bg-primary/5 text-primary"
+                                : "border-input bg-card text-foreground shadow-sm"
+                              }`}
+                          >
+                            {t(keyAreaMessageKey(area))}
+                          </span>
+                          {formData.keyAreas.includes(area) ? (
+                            <span className="absolute left-1.5 top-1.5 inline-flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                              <Check className="h-3 w-3" />
+                            </span>
+                          ) : null}
+                        </label>
+                      ))}
+                      </div>
+                    </div>
+                    {keyAreasError ? (
+                      <p className="text-xs text-destructive">{keyAreasError}</p>
                     ) : null}
                   </div>
                 </div>
+              </section>
 
-                {/* Project Type */}
-                <div className="pb-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    {t("projectType")}
-                  </label>
-                  <div
-                    className="grid grid-cols-1 gap-2 rounded-lg border bg-white p-3 lg:grid-cols-2 xl:grid-cols-3"
-                    style={{ borderColor: projectTypeError ? "#dc2626" : "#e5e7eb" }}
+              <section
+                id="project-grass-info"
+                className="overflow-hidden rounded-xl border border-border bg-card text-card-foreground shadow-sm"
+              >
+                <div className="flex items-center justify-between border-b border-border px-4 py-3 lg:px-5">
+                  <h2 className="text-base font-semibold">{t("grassRequirements")}</h2>
+                  <button
+                    type="button"
+                    onClick={addGrassRow}
+                    className="inline-flex items-center gap-1 rounded-md border border-input bg-card px-3 py-1.5 text-sm font-medium text-foreground hover:bg-card"
                   >
-                    {projectTypeRadioValues.map((type) => (
-                      <button
-                        key={type}
-                        type="button"
-                        onClick={() => {
-                          const nextType = formData.projectType === type ? "" : type;
-                          setFormData({ ...formData, projectType: nextType });
-                          setProjectTypeError(null);
-                          setHolesError(null);
-                        }}
-                        className="relative block cursor-pointer text-left"
-                      >
-                        <span
-                          className={`flex min-h-11 items-center justify-center rounded-md border px-3 text-sm transition-colors ${formData.projectType === type
-                              ? "border-[var(--color-primary)] bg-white text-[var(--color-primary)]"
-                              : "border-transparent bg-gray-100 text-gray-700"
-                            }`}
-                        >
-                          {labelForProjectTypeOption(type)}
-                        </span>
-                        {formData.projectType === type ? (
-                          <span className="absolute left-1.5 top-1.5 inline-flex h-4 w-4 items-center justify-center rounded-full bg-[var(--color-primary)] text-white">
-                            <Check className="h-3 w-3" />
-                          </span>
-                        ) : null}
-                      </button>
-                    ))}
-                  </div>
-                  {projectTypeError ? (
-                    <p className="mt-1 text-xs text-red-600">{projectTypeError}</p>
-                  ) : null}
+                    <Plus className="h-3.5 w-3.5" />
+                    {tCommon("add")}
+                  </button>
                 </div>
-
-                <div className="pb-4">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    {t("details")}
-                  </label>
-                  <div className="space-y-3 rounded-lg border border-gray-200 bg-white p-3 lg:grid lg:grid-cols-2 lg:gap-4 lg:space-y-0 pb-4">
-                    <div id="project-holes">
-                      <p className="mb-2 text-sm text-gray-600">{t("noOfHoles")}</p>
-                      <div
-                        className="grid grid-cols-3 gap-2 rounded-md xl:grid-cols-5"
-                        style={{ outline: holesError ? "1px solid #dc2626" : "none" }}
-                      >
-                        {HOLE_OPTIONS.map((hole) => (
-                          <button
-                            key={hole.value}
-                            type="button"
-                            onClick={() => {
-                              const nextHoles = formData.holes === hole.value ? "" : hole.value;
-                              setFormData({ ...formData, holes: nextHoles });
-                              setHolesError(null);
-                            }}
-                            className="relative block cursor-pointer text-left"
-                          >
-                            <span
-                              className={`flex min-h-10 items-center justify-center rounded-md border px-3 text-sm transition-colors ${formData.holes === hole.value
-                                  ? "border-[var(--color-primary)] bg-white text-[var(--color-primary)]"
-                                  : "border-transparent bg-gray-100 text-gray-700"
-                                }`}
-                            >
-                              {hole.label}
-                            </span>
-                            {formData.holes === hole.value ? (
-                              <span className="absolute left-1.5 top-1.5 inline-flex h-4 w-4 items-center justify-center rounded-full bg-[var(--color-primary)] text-white">
-                                <Check className="h-3 w-3" />
-                              </span>
-                            ) : null}
-                          </button>
-                        ))}
-                      </div>
-                      {holesError ? <p className="mt-1 text-xs text-red-600">{holesError}</p> : null}
-                    </div>
-                    <div>
-                      <p className="mb-2 text-sm text-gray-600">{t("keyAreas")}</p>
-                      <div
-                        className="grid grid-cols-2 gap-2 rounded-md"
-                        style={{ outline: keyAreasError ? "1px solid #dc2626" : "none" }}
-                      >
-                        {["Tees", "Roughs", "Fairways", "Greens", "Bunkers"].map((area) => (
-                          <label key={area} className="relative block cursor-pointer">
-                            <input
-                              type="checkbox"
-                              className="sr-only"
-                              checked={formData.keyAreas.includes(area)}
-                              onChange={(e) => {
-                                const next = e.target.checked
-                                  ? [...formData.keyAreas, area]
-                                  : formData.keyAreas.filter((x) => x !== area);
-                                setFormData({ ...formData, keyAreas: next });
-                                setKeyAreasError(null);
-                              }}
-                            />
-                            <span
-                              className={`flex min-h-10 items-center justify-center rounded-md border px-3 text-sm transition-colors ${formData.keyAreas.includes(area)
-                                  ? "border-[var(--color-primary)] bg-white text-[var(--color-primary)]"
-                                  : "border-transparent bg-gray-100 text-gray-700"
-                                }`}
-                            >
-                              {area}
-                            </span>
-                            {formData.keyAreas.includes(area) ? (
-                              <span className="absolute left-1.5 top-1.5 inline-flex h-4 w-4 items-center justify-center rounded-full bg-[var(--color-primary)] text-white">
-                                <Check className="h-3 w-3" />
-                              </span>
-                            ) : null}
-                          </label>
-                        ))}
-                      </div>
-                      {keyAreasError ? (
-                        <p className="mt-1 text-xs text-red-600">{keyAreasError}</p>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Grass Requirements Section */}
-                <div id="project-grass-info" className="pt-4 border-t border-gray-200">
-                  <div className="flex items-center justify-between mb-3">
-                    <label className="text-sm font-medium text-gray-700">
-                      {t("grassRequirements")}
-                    </label>
-                    <button
-                      type="button"
-                      onClick={addGrassRow}
-                      className="flex items-center gap-1 px-3 py-1.5 text-sm bg-button-primary text-white rounded-lg hover:bg-[#196A40] transition-colors"
-                    >
-                      <Plus className="w-4 h-4" />
-                      {tCommon("add")}
-                    </button>
-                  </div>
-
+                <div className="space-y-4 p-4 lg:p-5">
                   {grassRows.map((row) => (
                     <div
                       key={row.id}
-                      className="mb-4 p-4 bg-white rounded-lg border border-gray-200"
+                      className="bg-background flex flex-wrap items-end gap-3 rounded-lg border border-border p-3"
                     >
-                      <div className="flex justify-between items-start mb-3">
-                        <span className="text-sm font-medium text-gray-700">
-                          {t("grassType")}
-                        </span>
-                        {grassRows.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={() => removeGrassRow(row.id)}
-                            className="p-1 text-red-600 hover:bg-red-50 rounded"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
-
-                      <div className="grid gap-3 lg:grid-cols-3">
+                      <div className="min-w-[150px] flex-1 space-y-1.5">
+                        <label className="text-sm font-medium text-foreground">{t("grassType")}</label>
                         <select
                           value={row.grass}
-                          onChange={(e) =>
-                            updateGrassRow(row.id, "grass", e.target.value)
-                          }
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[var(--color-primary)] focus:border-[var(--color-primary)] text-sm"
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setGrassRows((prev) =>
+                              prev.map((r) =>
+                                r.id === row.id
+                                  ? { ...r, grass: v, farmId: v.trim() ? r.farmId : "" }
+                                  : r,
+                              ),
+                            );
+                          }}
+                          className="w-full rounded-md border border-input bg-card px-3 text-sm text-foreground shadow-sm"
                         >
                           <option value="">{t("selectGrass")}</option>
                           {productOptions.map((p) => (
@@ -1161,50 +1411,114 @@ export default function ProjectInputPage() {
                             </option>
                           ))}
                         </select>
-
+                      </div>
+                      <div className="min-w-[150px] flex-1 space-y-1.5">
+                        <label className="text-sm font-medium text-foreground">{t("farm")}</label>
                         <select
-                          value={row.type}
+                          value={row.farmId}
                           onChange={(e) =>
-                            updateGrassRow(row.id, "type", e.target.value)
+                            updateGrassRow(row.id, "farmId", e.target.value)
                           }
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[var(--color-primary)] focus:border-[var(--color-primary)] text-sm"
+                          disabled={!row.grass.trim()}
+                          className="w-full rounded-md border border-input bg-card px-3 text-sm text-foreground shadow-sm disabled:opacity-50"
                         >
-                          <option value="">{t("kgOrM2")}</option>
-                          <option value="Kg">Kg</option>
-                          <option value="M2">M2</option>
+                          <option value="">
+                            {row.grass.trim() ? t("farmOptional") : t("selectGrassFirst")}
+                          </option>
+                          {farmOptions.map((f) => (
+                            <option key={f.id} value={f.id}>
+                              {f.name}
+                            </option>
+                          ))}
                         </select>
-
+                      </div>
+                      <div className="w-fit shrink-0 space-y-2">
+                        <span className="block text-sm font-medium text-foreground">
+                          {t("kgOrM2")}
+                        </span>
+                        <div className="inline-grid w-auto shrink-0 grid-cols-[auto_auto] gap-2 bg-surface-filter-filled ">
+                          {(["Kg", "M2"] as const).map((u) => (
+                            <button
+                              key={`${row.id}-${u}`}
+                              type="button"
+                              onClick={() => updateGrassRow(row.id, "type", u)}
+                              className="relative w-max cursor-pointer text-left justify-self-start"
+                            >
+                              <span
+                                className={`flex min-h-10 min-w-10 items-center justify-center whitespace-nowrap rounded-md border px-3 text-sm transition-colors ${row.type === u
+                                    ? "border-primary bg-primary/5 text-primary"
+                                    : "border-input bg-card text-foreground shadow-sm"
+                                  }`}
+                              >
+                                {u}
+                              </span>
+                              {row.type === u ? (
+                                <span className="absolute left-1 top-1 inline-flex h-3 w-3 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                                  <Check className="h-3 w-3" />
+                                </span>
+                              ) : null}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="min-w-[120px] flex-1 space-y-1.5">
+                        <label className="text-sm font-medium text-foreground">
+                          {t("amountRequired")}
+                        </label>
                         <input
                           type="number"
                           value={row.required}
                           onChange={(e) =>
-                            updateGrassRow(
-                              row.id,
-                              "required",
-                              e.target.value,
-                            )
+                            updateGrassRow(row.id, "required", e.target.value)
                           }
-                          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-transparent focus:ring-2 focus:ring-[#1F7A4C]"
-                          placeholder={t("requiredPlaceholder")}
+                          className="w-full rounded-md border border-input bg-card px-3 text-sm text-foreground shadow-sm"
+                          placeholder={t("amountPlaceholder")}
                         />
                       </div>
+                      {grassRows.length > 1 ? (
+                        <button
+                          type="button"
+                          onClick={() => removeGrassRow(row.id)}
+                          className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-destructive hover:bg-destructive/10"
+                          aria-label={tCommon("delete")}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      ) : null}
                     </div>
                   ))}
                   {grassValidationError ? (
-                    <p className="mt-1 text-xs text-red-600">{grassValidationError}</p>
+                    <p className="text-xs text-destructive">{grassValidationError}</p>
                   ) : null}
                 </div>
+              </section>
 
-                {/* Submit Button */}
-                <button
-                  type="submit"
-                  disabled={loading || saving}
-                  className="w-full py-3 bg-button-primary text-white rounded-lg font-medium hover:bg-[#196A40] transition-colors mt-6 disabled:opacity-60"
-                >
-                  {saving ? t("saving") : isEdit ? t("updateProject") : t("createProject")}
-                </button>
-              </form>
-            </div>
+              <div className="sticky bottom-0 z-30 mt-8 flex flex-col gap-3 border-t border-border bg-background/95 py-4 backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                <div className="min-h-5 flex-1 text-xs text-muted-foreground sm:order-1">
+                  {error ? (
+                    <span className="text-destructive" role="alert">
+                      {error}
+                    </span>
+                  ) : null}
+                </div>
+                <div className="flex w-full flex-col gap-2 sm:order-2 sm:w-auto sm:flex-row sm:justify-end">
+                  <button
+                    type="button"
+                    onClick={goBack}
+                    className="inline-flex h-11 min-w-[120px] items-center justify-center rounded-lg border border-input bg-card px-4 text-sm font-medium text-foreground hover:bg-card"
+                  >
+                    {tCommon("cancel")}
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={loading || saving}
+                    className="inline-flex h-11 min-w-[140px] items-center justify-center rounded-lg bg-primary px-5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+                  >
+                    {saving ? t("saving") : isEdit ? t("updateProject") : t("createProject")}
+                  </button>
+                </div>
+              </div>
+            </form>
           </div>
         </div>
 

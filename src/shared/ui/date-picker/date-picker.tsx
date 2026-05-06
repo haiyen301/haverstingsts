@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { format, isValid, parseISO } from "date-fns";
+import { useEffect, useMemo, useState } from "react";
+import { format, isValid, parse, parseISO } from "date-fns";
 import { CalendarIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -22,7 +22,7 @@ export function DatePicker({
   value,
   onChange,
   disabled,
-  placeholder = "Pick a date",
+  placeholder = "dd/M/yyyy",
   className,
   hasError,
   onBlur,
@@ -39,6 +39,51 @@ export function DatePicker({
   const selectedYear = selectedDate?.getFullYear() ?? today.getFullYear();
   const startMonth = new Date(selectedYear - 10, 0);
   const endMonth = new Date(selectedYear + 10, 11);
+  const [inputValue, setInputValue] = useState("");
+
+  useEffect(() => {
+    setInputValue(selectedDate ? format(selectedDate, "dd/M/yyyy") : "");
+  }, [selectedDate]);
+
+  const commitManualDateInput = () => {
+    const raw = inputValue.trim();
+    if (!raw) {
+      onChange("");
+      onBlur?.();
+      return;
+    }
+
+    const normalized = raw.replace(/[-.\s]+/g, "/");
+    const strictPattern = /^([0-2]\d|3[01])\/([1-9]|1[0-2])\/([1-9]\d{3})$/;
+    const match = normalized.match(strictPattern);
+    if (!match) {
+      setInputValue("");
+      onChange("");
+      onBlur?.();
+      return;
+    }
+
+    const day = Number(match[1]);
+    const month = Number(match[2]);
+    const year = Number(match[3]);
+    const parsedDate = parse(`${day}/${month}/${year}`, "d/M/yyyy", new Date());
+    const isStrictlyValid =
+      isValid(parsedDate) &&
+      parsedDate.getDate() === day &&
+      parsedDate.getMonth() + 1 === month &&
+      parsedDate.getFullYear() === year;
+
+    if (!isStrictlyValid) {
+      setInputValue("");
+      onChange("");
+      onBlur?.();
+      return;
+    }
+
+    onChange(format(parsedDate, "yyyy-MM-dd"));
+    setInputValue(format(parsedDate, "dd/M/yyyy"));
+    onBlur?.();
+  };
 
   return (
     <Popover
@@ -48,26 +93,42 @@ export function DatePicker({
         if (!nextOpen) onBlur?.();
       }}
     >
-      <PopoverTrigger asChild>
-        <button
-          type="button"
+      <div
+        className={cn(
+          "flex h-10 w-full items-center rounded-lg border px-3 py-2 text-sm focus-within:ring-2 focus-within:ring-[#1F7A4C]",
+          inputValue ? "bg-surface-filter-filled" : "bg-surface-filter-empty",
+          hasError ? "border-red-500" : "border-gray-300",
+          disabled ? "bg-muted text-muted-foreground" : "",
+          className,
+        )}
+      >
+        <input
+          type="text"
+          value={inputValue}
+          onChange={(e) => setInputValue(e.target.value)}
+          onBlur={commitManualDateInput}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              commitManualDateInput();
+            }
+          }}
+          placeholder={placeholder}
           disabled={disabled}
-          className={cn(
-            "flex h-10 w-full items-center justify-between rounded-lg border bg-white px-3 py-2 text-left text-sm focus:ring-2 focus:ring-[#1F7A4C] focus:outline-none disabled:bg-gray-100 disabled:text-gray-500",
-            hasError ? "border-red-500" : "border-gray-300",
-            className,
-          )}
-        >
-          {selectedDate ? (
-            <span>
-              {format(selectedDate, "MMM dd, yyyy")}
-            </span>
-          ) : (
-            <span className="text-gray-400">{placeholder}</span>
-          )}
-          <CalendarIcon className="h-4 w-4 text-gray-500" />
-        </button>
-      </PopoverTrigger>
+          className="h-full w-full bg-transparent text-left outline-none placeholder:text-gray-400 disabled:cursor-not-allowed"
+          inputMode="numeric"
+        />
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            disabled={disabled}
+            className="ml-2 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-gray-500 hover:bg-muted/70 disabled:opacity-50"
+            aria-label="Open calendar"
+          >
+            <CalendarIcon className="h-4 w-4" />
+          </button>
+        </PopoverTrigger>
+      </div>
       <PopoverContent className="w-auto p-0" align="start">
         <Calendar
           mode="single"

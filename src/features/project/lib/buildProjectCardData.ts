@@ -362,7 +362,8 @@ export function buildProjectDataFromServerRow(
     const uom = String(r.uom ?? "").trim();
 
     return {
-      name: uom ? `${productName} (${uom})` : productName,
+      name: productName,
+      uom: uom || undefined,
       required: requiredQty,
       delivered: deliveredQty,
       remaining,

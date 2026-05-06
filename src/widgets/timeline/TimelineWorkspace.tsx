@@ -1745,7 +1745,7 @@ export function TimelineWorkspace({
                         setPriorityMenuOpen(false);
                         setAssigneeMenuOpen((o) => !o);
                       }}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs text-gray-700 hover:bg-gray-50 max-w-[220px]"
+                      className="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs text-gray-700 hover:bg-gray-50 max-w-[180px]"
                     >
                       <User className="w-3.5 h-3.5 shrink-0 text-gray-500" />
                       <span className="truncate">

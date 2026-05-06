@@ -7,9 +7,10 @@ import {
   useMemo,
   useState,
   type FormEvent,
+  type ReactNode,
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Camera, MoreVertical, Trash2 } from "lucide-react";
+import { AlertCircle, ArrowLeft, Camera, Check, MoreVertical, Trash2 } from "lucide-react";
 
 import RequireAuth from "@/features/auth/RequireAuth";
 import {
@@ -54,9 +55,13 @@ const DOC_PHOTO_SLOTS: HarvestDocPhotoField[] = [
 /** Backend validates `tableId` for both parent/sub delete, even though sub-delete only uses `rowId`. */
 const SUB_DELETE_TABLE_ID_FALLBACK = "subitem";
 
+const SHIPPING_NOTE_SPLIT = "\n\n--- Shipping / dispatch ---\n\n";
+
 const emptyForm = {
+  /** Matches `customer_id` on plan row when available from projects (`odoo_customer_id`). */
+  customerId: "",
   grass: "",
-  harvestType: "",
+  harvestType: "Sprig",
   quantity: "",
   uom: "M2",
   referenceHarvestQuantity: "",
@@ -66,13 +71,25 @@ const emptyForm = {
   farm: "",
   project: "",
   estimatedDate: "",
+  /** Stored inside `description` with structured prefix when API has no dedicated column. */
+  estimatedDateEnd: "",
   actualDate: "",
+  /** Stored inside `description` when API has no dedicated column. */
+  actualHarvestEndDate: "",
   deliveryDate: "",
+  /** Maps to `shipment_required_date` (Port arrival). */
+  portArrivalDate: "",
   doSoNumber: "",
   doSoDate: "",
   truckNote: "",
+  /** Appended to `truck_note` on save (HarvestForm “Shipping / Dispatch Details”). */
+  shippingDispatchDetails: "",
+  /** Maps to `description`. */
+  generalNote: "",
   licensePlate: "",
 };
+
+type HarvestFormState = typeof emptyForm;
 
 function toDateInput(v: unknown): string {
   if (typeof v !== "string" || !v.trim()) return "";
@@ -82,9 +99,97 @@ function toDateInput(v: unknown): string {
 }
 
 function normalizeHarvestTypeForForm(loadType: unknown): string {
-  const t = String(loadType ?? "").trim();
-  if (t === "Sod" || t === "Sprig") return t;
+  const raw = String(loadType ?? "").trim();
+  const t = raw.toUpperCase();
+  if (t === "SOD" || raw === "Sod") return "Sod";
+  if (t === "SPRIG" || raw === "Sprig") return "Sprig";
+  if (
+    t === "SOD_FOR_SPRIG" ||
+    /sod\s*for\s*sprig/i.test(raw) ||
+    /sod.*sprig/i.test(raw)
+  ) {
+    return "Sod for Sprig";
+  }
   return "";
+}
+
+function harvestTypeToApi(loadType: string): string {
+  const s = loadType.trim();
+  if (s === "Sod for Sprig") return "Sod for Sprig";
+  return s;
+}
+
+type ParsedHarvestDescription = {
+  generalNote: string;
+  estimatedDateEnd: string;
+  actualHarvestEndDate: string;
+  useEstimatedDateRange: boolean;
+};
+
+function parseDescriptionFromRow(description: string): ParsedHarvestDescription {
+  const raw = String(description ?? "").trim();
+  if (!raw) {
+    return {
+      generalNote: "",
+      estimatedDateEnd: "",
+      actualHarvestEndDate: "",
+      useEstimatedDateRange: false,
+    };
+  }
+  let estimatedDateEnd = "";
+  let actualHarvestEndDate = "";
+  const body: string[] = [];
+  for (const block of raw.split(/\n\n+/)) {
+    const mEst = block.match(/^Estimated harvest end:\s*(\d{4}-\d{2}-\d{2})\s*$/i);
+    const mAct = block.match(/^Harvest end:\s*(\d{4}-\d{2}-\d{2})\s*$/i);
+    if (mEst) {
+      estimatedDateEnd = mEst[1];
+      continue;
+    }
+    if (mAct) {
+      actualHarvestEndDate = mAct[1];
+      continue;
+    }
+    body.push(block);
+  }
+  return {
+    generalNote: body.join("\n\n").trim(),
+    estimatedDateEnd,
+    actualHarvestEndDate,
+    useEstimatedDateRange: Boolean(estimatedDateEnd),
+  };
+}
+
+function buildDescriptionForSubmit(
+  form: HarvestFormState,
+  useEstimatedRange: boolean,
+): string {
+  const parts: string[] = [];
+  if (useEstimatedRange && form.estimatedDateEnd.trim()) {
+    parts.push(`Estimated harvest end: ${form.estimatedDateEnd.trim()}`);
+  }
+  if (form.actualHarvestEndDate.trim()) {
+    parts.push(`Harvest end: ${form.actualHarvestEndDate.trim()}`);
+  }
+  if (form.generalNote.trim()) {
+    parts.push(form.generalNote.trim());
+  }
+  return parts.join("\n\n");
+}
+
+function splitTruckNoteFromRow(raw: string): {
+  truckNote: string;
+  shippingDispatchDetails: string;
+} {
+  const s = String(raw ?? "");
+  const idx = s.indexOf(SHIPPING_NOTE_SPLIT);
+  if (idx === -1) {
+    return { truckNote: s.trim(), shippingDispatchDetails: "" };
+  }
+  return {
+    truckNote: s.slice(0, idx).trim(),
+    shippingDispatchDetails: s.slice(idx + SHIPPING_NOTE_SPLIT.length).trim(),
+  };
 }
 
 /** Mirrors `QuantityRequiredProject` + harvesting_form remaining line (kg / m² / generic). */
@@ -266,7 +371,7 @@ function parseHarvestDeliveredRow(raw: unknown): HarvestDeliveredRow | null {
   return { id, projectId, productId, uom, quantity };
 }
 
-function applyRowToFormState(r: Record<string, unknown>) {
+function applyRowToFormState(r: Record<string, unknown>): HarvestFormState {
   const uomStr = String(r.uom ?? "M2").trim() || "M2";
   const harvested = r.harvested_area;
   const referenceHarvestQty = r.ref_hrv_qty_sprig;
@@ -275,7 +380,13 @@ function applyRowToFormState(r: Record<string, unknown>) {
     String(referenceHarvestQty ?? ""),
   );
   const isKg = uomStr.toLowerCase() === "kg";
+  const descParsed = parseDescriptionFromRow(String(r.description ?? ""));
+  const { truckNote, shippingDispatchDetails } = splitTruckNoteFromRow(
+    String(r.truck_note ?? ""),
+  );
+  const ht = normalizeHarvestTypeForForm(r.load_type);
   return {
+    customerId: String(r.customer_id ?? "").trim(),
     project: String(r.project_id ?? ""),
     grass: String(r.product_id ?? ""),
     farm: String(r.farm_id ?? ""),
@@ -286,18 +397,21 @@ function applyRowToFormState(r: Record<string, unknown>) {
       ? (referenceHarvestQtyStr || harvestedStr)
       : "",
     harvestedArea: isKg ? harvestedStr : "",
-    harvestType: normalizeHarvestTypeForForm(r.load_type),
+    harvestType: ht || "Sprig",
     estimatedDate: toDateInput(r.estimated_harvest_date),
+    estimatedDateEnd: descParsed.estimatedDateEnd,
     actualDate: toDateInput(r.actual_harvest_date),
+    actualHarvestEndDate: descParsed.actualHarvestEndDate,
     deliveryDate: toDateInput(r.delivery_harvest_date),
+    portArrivalDate: toDateInput(r.shipment_required_date),
     doSoNumber: String(r.do_so_number ?? ""),
     doSoDate: toDateInput(r.do_so_date),
-    truckNote: String(r.truck_note ?? ""),
+    truckNote,
+    shippingDispatchDetails,
+    generalNote: descParsed.generalNote,
     licensePlate: String(r.license_plate ?? ""),
   };
 }
-
-type HarvestFormState = typeof emptyForm;
 
 type HarvestFieldErrors = Partial<
   Record<
@@ -414,6 +528,70 @@ function firstHarvestFieldErrorKey(errors: HarvestFieldErrors): keyof HarvestFie
   return order.find((key) => Boolean(errors[key])) ?? null;
 }
 
+function focusHarvestFieldByErrorKey(
+  key: keyof HarvestFieldErrors | null | undefined,
+): void {
+  if (!key || typeof window === "undefined") return;
+  const fieldIdMap: Partial<Record<keyof HarvestFieldErrors, string>> = {
+    project: "harvest-project",
+    grass: "harvest-grass",
+    quantity: "harvest-quantity",
+    referenceHarvestQuantity: "harvest-reference-quantity",
+    harvestedArea: "harvest-harvested-area",
+    zone: "harvest-zone",
+    farm: "harvest-farm",
+    estimatedDate: "harvest-estimated-date",
+    actualDate: "harvest-actual-date",
+  };
+  const fieldId = fieldIdMap[key];
+  if (!fieldId) return;
+  const element = document.getElementById(fieldId);
+  if (!element) return;
+  element.scrollIntoView({ behavior: "smooth", block: "center" });
+  const focusTarget =
+    element instanceof HTMLInputElement ||
+    element instanceof HTMLSelectElement ||
+    element instanceof HTMLTextAreaElement
+      ? element
+      : (element.querySelector(
+          "button, input, select, textarea, [tabindex]",
+        ) as HTMLElement | null);
+  if (focusTarget && "focus" in focusTarget) {
+    focusTarget.focus();
+  }
+}
+
+function HarvestFormSection({
+  id,
+  title,
+  hint,
+  children,
+}: {
+  id?: string;
+  title: string;
+  hint?: string;
+  children: ReactNode;
+}) {
+  return (
+    <section
+      id={id}
+      className="bg-card rounded-xl border border-border p-4 shadow-sm md:p-5"
+    >
+      <header className="mb-4 border-b border-border/60 pb-3">
+        <h4 className="text-sm font-semibold tracking-tight text-foreground">
+          {title}
+        </h4>
+        {hint ? (
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+            {hint}
+          </p>
+        ) : null}
+      </header>
+      <div className="space-y-6">{children}</div>
+    </section>
+  );
+}
+
 function HarvestInputPageInner() {
   const tBase = useAppTranslations();
   const t = (
@@ -497,6 +675,20 @@ function HarvestInputPageInner() {
     () => parseFarmZoneEntries(farmZones),
     [farmZones],
   );
+  const customerOptions = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const item of projects) {
+      if (!item || typeof item !== "object") continue;
+      const row = item as Record<string, unknown>;
+      const cid = String(row.odoo_customer_id ?? "").trim();
+      if (!cid) continue;
+      const label =
+        String(row.company_name ?? row.alias_title ?? "").trim() || cid;
+      if (!m.has(cid)) m.set(cid, label);
+    }
+    return Array.from(m.entries()).map(([id, label]) => ({ id, label }));
+  }, [projects]);
+
   const productNameById = useMemo(() => {
     const m = new Map<string, string>();
     for (const item of products) {
@@ -537,6 +729,8 @@ function HarvestInputPageInner() {
   );
   const [fieldErrors, setFieldErrors] = useState<HarvestFieldErrors>({});
   const [harvestDateTouched, setHarvestDateTouched] = useState(false);
+  /** Mirrors HarvestForm “Use date range” for estimated window end (persisted via `description`). */
+  const [useEstimatedDateRange, setUseEstimatedDateRange] = useState(false);
   const [deleteMenuOpen, setDeleteMenuOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -544,6 +738,21 @@ function HarvestInputPageInner() {
     const farmLabel = farmOptions.find((f) => f.id === formData.farm)?.label ?? "";
     return filterZoneEntriesByFarmName(zoneEntries, farmLabel);
   }, [farmOptions, formData.farm, zoneEntries]);
+
+  const filteredProjectOptions = useMemo(() => {
+    const cid = formData.customerId.trim();
+    if (!cid) return projectOptions;
+    return projectOptions.filter((o) => {
+      const pr = projects.find((x) => {
+        if (!x || typeof x !== "object") return false;
+        const row = x as Record<string, unknown>;
+        return String(row.id ?? "").trim() === o.id;
+      }) as Record<string, unknown> | undefined;
+      if (!pr) return false;
+      return String(pr.odoo_customer_id ?? "").trim() === cid;
+    });
+  }, [formData.customerId, projectOptions, projects]);
+
   const validationMessages: HarvestValidationMessages = {
     selectProject: t("validationSelectProject"),
     selectGrass: t("validationSelectGrassType"),
@@ -569,6 +778,7 @@ function HarvestInputPageInner() {
   useEffect(() => {
     if (!editId) {
       setFormData({ ...emptyForm, project: initialProjectId });
+      setUseEstimatedDateRange(false);
       setPhotos({});
       setExistingDocSlots({});
       setPendingImagesRemoved({});
@@ -596,6 +806,10 @@ function HarvestInputPageInner() {
         if (cancelled) return;
         const row = raw as Record<string, unknown>;
         setFormData(applyRowToFormState(row));
+        setUseEstimatedDateRange(
+          parseDescriptionFromRow(String(row.description ?? ""))
+            .useEstimatedDateRange,
+        );
         setEditTableId(String(row.table_id ?? "").trim());
         setEditTableName(String(row.table_name ?? "Harvesting").trim() || "Harvesting");
         setExistingDocSlots(parseHarvestDocImagesFromRow(row));
@@ -833,36 +1047,7 @@ function HarvestInputPageInner() {
     const firstErrKey = firstHarvestFieldErrorKey(errors);
     const firstErr = firstHarvestFieldError(errors);
     if (firstErr) {
-      setSubmitError(firstErr);
-      const fieldIdMap: Partial<Record<keyof HarvestFieldErrors, string>> = {
-        project: "harvest-project",
-        grass: "harvest-grass",
-        quantity: "harvest-quantity",
-        referenceHarvestQuantity: "harvest-reference-quantity",
-        harvestedArea: "harvest-harvested-area",
-        zone: "harvest-zone",
-        farm: "harvest-farm",
-        estimatedDate: "harvest-estimated-date",
-        actualDate: "harvest-actual-date",
-      };
-      const fieldId = firstErrKey ? fieldIdMap[firstErrKey] : null;
-      if (fieldId && typeof window !== "undefined") {
-        const element = document.getElementById(fieldId);
-        if (element) {
-          element.scrollIntoView({ behavior: "smooth", block: "center" });
-          const focusTarget =
-            element instanceof HTMLInputElement ||
-              element instanceof HTMLSelectElement ||
-              element instanceof HTMLTextAreaElement
-              ? element
-              : (element.querySelector(
-                "input, select, textarea, button, [tabindex]",
-              ) as HTMLElement | null);
-          if (focusTarget && "focus" in focusTarget) {
-            focusTarget.focus();
-          }
-        }
-      }
+      focusHarvestFieldByErrorKey(firstErrKey);
       return;
     }
 
@@ -894,6 +1079,23 @@ function HarvestInputPageInner() {
       const haStripped = formData.harvestedArea.replace(/,/g, "").trim();
       const harvestedAreaPayload =
         mainUom === "m2" ? undefined : haStripped || undefined;
+      const selectedProjectRow = projects.find((x) => {
+        if (!x || typeof x !== "object") return false;
+        const row = x as Record<string, unknown>;
+        return String(row.id ?? "").trim() === formData.project.trim();
+      }) as Record<string, unknown> | undefined;
+      const customerFromProject = String(
+        selectedProjectRow?.odoo_customer_id ?? "",
+      ).trim();
+      const customerIdSubmit =
+        formData.customerId.trim() || customerFromProject || undefined;
+      const descriptionPayload = buildDescriptionForSubmit(
+        formData,
+        useEstimatedDateRange,
+      ).trim();
+      const truckNotePayload = [formData.truckNote.trim(), formData.shippingDispatchDetails.trim()]
+        .filter(Boolean)
+        .join(SHIPPING_NOTE_SPLIT);
       await submitFlutterHarvest(
         {
           id: editId ?? undefined,
@@ -903,15 +1105,19 @@ function HarvestInputPageInner() {
           zone: formData.zone,
           quantity: formData.quantity,
           uom: formData.uom,
-          harvestType: formData.harvestType,
+          harvestType: harvestTypeToApi(formData.harvestType || "Sprig"),
           estimatedHarvestDate: formData.estimatedDate,
           actualHarvestDate: formData.actualDate,
           deliveryHarvestDate: formData.deliveryDate,
+          shipmentRequiredDate: formData.portArrivalDate.trim() || undefined,
           doSoNumber: formData.doSoNumber,
           doSoDate: formData.doSoDate.trim() || undefined,
-          truckNote: formData.truckNote,
+          truckNote: truckNotePayload,
           licensePlate: formData.licensePlate,
+          customerId: customerIdSubmit,
+          description: descriptionPayload || undefined,
           assignedTo: user?.id != null ? String(user.id) : "",
+          createdBy: !editId && user?.id != null ? String(user.id) : undefined,
           harvestedArea: harvestedAreaPayload,
           refHrvQtySprig: referenceQtyStripped || undefined,
         },
@@ -1013,29 +1219,46 @@ function HarvestInputPageInner() {
   const formDisabled =
     refLoading || submitLoading || deleting || (Boolean(editId) && !editLoaded);
 
+  const zoneRequiredButMissing =
+    Boolean(formData.actualDate.trim()) && !formData.zone.trim();
+
+  const activeFieldIssueCount = useMemo(
+    () =>
+      (Object.keys(fieldErrors) as (keyof HarvestFieldErrors)[]).filter((k) =>
+        Boolean(fieldErrors[k]),
+      ).length,
+    [fieldErrors],
+  );
+
+  /* Nền trống/đầy do rule toàn cục globals.css (--surface-filter-*) — không đặt bg-muted ở đây */
+  const harvestFieldClass =
+    "w-full min-h-10 rounded-md border border-input bg-card px-3 py-2 text-sm text-foreground shadow-sm placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60";
+  const harvestLabelClass =
+    "mb-1.5 block text-xs font-medium text-muted-foreground";
+
   return (
     <RequireAuth>
       <DashboardLayout>
-        <div className="min-h-screen bg-gray-50 pb-10 lg:pb-14">
-          <div className="w-full px-4 pt-4 lg:px-8 lg:pt-8">
-            <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div className="dashboard-harvesting-skin min-h-screen pb-10 lg:pb-14">
+          <div className="mx-auto w-full max-w-[900px] px-4 pt-4 lg:px-6 lg:pt-8">
+            <div className="mb-5 flex flex-wrap items-start gap-3">
               <button
-                onClick={goBack}
-                className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
                 type="button"
-                aria-label="Back"
+                onClick={goBack}
+                aria-label={tCommon("back")}
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-card text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
               >
-                <svg width="20" height="20" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M3 6L2.29289 6.70711L1.58579 6L2.29289 5.29289L3 6ZM6.75 15.25C6.19772 15.25 5.75 14.8023 5.75 14.25C5.75 13.6977 6.19772 13.25 6.75 13.25L6.75 14.25L6.75 15.25ZM6.75 9.75L6.04289 10.4571L2.29289 6.70711L3 6L3.70711 5.29289L7.45711 9.04289L6.75 9.75ZM3 6L2.29289 5.29289L6.04289 1.54289L6.75 2.25L7.45711 2.95711L3.70711 6.70711L3 6ZM3 6L3 5L10.875 5L10.875 6L10.875 7L3 7L3 6ZM10.875 14.25L10.875 15.25L6.75 15.25L6.75 14.25L6.75 13.25L10.875 13.25L10.875 14.25ZM15 10.125L16 10.125C16 12.9555 13.7055 15.25 10.875 15.25L10.875 14.25L10.875 13.25C12.6009 13.25 14 11.8509 14 10.125L15 10.125ZM10.875 6L10.875 5C13.7055 5 16 7.29454 16 10.125L15 10.125L14 10.125C14 8.39911 12.6009 7 10.875 7L10.875 6Z" fill="#374151" />
-                </svg>
-                <span>Back</span>
+                <ArrowLeft className="h-4 w-4" strokeWidth={2.25} />
               </button>
+              <h1 className="font-heading text-2xl font-bold text-foreground">
+                {editId ? t("editTitle") : t("newTitle")}
+              </h1>
               <div className="flex items-center gap-2">
                 {editId ? (
                   <button
                     type="button"
                     onClick={showDeleteMenu}
-                    className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground hover:bg-muted/80"
                     aria-label="More actions"
                   >
                     <MoreVertical className="h-5 w-5" strokeWidth={2.25} />
@@ -1043,24 +1266,24 @@ function HarvestInputPageInner() {
                 ) : null}
               </div>
             </div>
-            <div className="mb-6">
-              <h1 className="text-2xl font-semibold text-gray-900 lg:text-3xl">
-                {editId ? t("editTitle") : t("newTitle")}
-              </h1>
-              <p className="mt-1 text-sm text-gray-500">
-                {t("selectProjectLabel")} • {t("selectGrassLabel")} • {t("documentationPhotos")}
-              </p>
-            </div>
-            <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-lg">
+
+            <div className="overflow-hidden rounded-xl">
+              <div className="">
+              <div className=" flex flex-wrap items-start justify-between gap-3">
+                <div>
+                 
+                </div>
+              </div>
+
               <form
                 onSubmit={handleSubmit}
                 noValidate
-                className="mx-auto max-w-6xl p-4 lg:p-5 [&_input]:h-10 [&_input]:py-0 [&_select]:h-10 [&_select]:py-0 [&_textarea]:py-1.5"
+                className="[&_textarea]:py-2"
                 aria-label={editId ? t("editAriaLabel") : t("newAriaLabel")}
               >
 
                 {editId && !editLoaded ? (
-                  <p className="text-sm text-gray-600">{t("loadingHarvest")}</p>
+                  <p className="text-sm text-muted-foreground">{t("loadingHarvest")}</p>
                 ) : null}
                 {bootstrapDone &&
                   !refLoading &&
@@ -1069,114 +1292,284 @@ function HarvestInputPageInner() {
                   farmOptions.length +
                   zoneEntries.length ===
                   0 ? (
-                  <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
                     {t("noReferenceLists")}
                   </p>
                 ) : null}
 
-                <div id="harvest-logistics-info" className="">
-                  <div id="harvest-basic-info" className="grid gap-3 lg:grid-cols-3 pb-0 min-[992px]:pb-9">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        {t("selectProjectLabel")}
-                      </label>
-                      <select
-                        id="harvest-project"
-                        value={formData.project}
-                        onChange={(e) => {
-                          setFormData({ ...formData, project: e.target.value });
-                          setFieldErrors((prev) => ({ ...prev, project: undefined }));
-                        }}
-                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-[#1F7A4C] focus:border-transparent disabled:bg-gray-100 disabled:text-gray-500 ${fieldErrors.project ? "border-red-500" : "border-gray-300"
-                          }`}
-                        disabled={formDisabled}
-                      >
-                        <option value="">
-                          {refLoading ? t("loadingProjects") : t("selectProject")}
-                        </option>
-                        {projectOptions.map((o) => (
-                          <option key={o.id} value={o.id}>
-                            {o.label}
-                          </option>
-                        ))}
-                      </select>
-                      {fieldErrors.project ? (
-                        <p className="mt-1 text-xs text-red-600">{fieldErrors.project}</p>
-                      ) : null}
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        {t("selectGrassLabel")}
-                      </label>
-                      <select
-                        id="harvest-grass"
-                        value={formData.grass}
-                        onChange={(e) => {
-                          const grass = e.target.value;
-                          const req =
-                            selectedProjectRequirements.find(
-                              (r) => r.productId === grass,
-                            ) ?? null;
-                          const nextUom = req ? defaultUomForRequirement(req) : formData.uom;
-                          setFormData({ ...formData, grass, uom: nextUom });
-                          setFieldErrors((prev) => ({ ...prev, grass: undefined }));
-                        }}
-                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-[#1F7A4C] focus:border-transparent disabled:bg-gray-100 disabled:text-gray-500 ${fieldErrors.grass ? "border-red-500" : "border-gray-300"
-                          }`}
-                        disabled={formDisabled}
-                      >
-                        <option value="">
-                          {refLoading ? t("loadingGrassTypes") : t("selectGrassType")}
-                        </option>
-                        {productOptions.map((o) => (
-                          <option key={o.id} value={o.id}>
-                            {o.label}
-                          </option>
-                        ))}
-                      </select>
-                      {fieldErrors.grass ? (
-                        <p className="mt-1 text-xs text-red-600">{fieldErrors.grass}</p>
-                      ) : null}
-                    </div>
-
-                    <div id="harvest-docs-info">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        {t("unit")}
-                      </label>
-                      <select
-                        value={formData.uom}
-                        onChange={(e) => {
-                          const uom = e.target.value;
-                          setFormData((prev) => ({
-                            ...prev,
-                            quantity: prev.quantity,
-                            uom,
-                            referenceHarvestQuantity:
-                              uom.trim().toLowerCase() === "m2"
-                                ? prev.referenceHarvestQuantity
-                                : "",
-                            harvestedArea:
-                              uom.trim().toLowerCase() === "m2" ? "" : prev.harvestedArea,
-                          }));
-                          setFieldErrors((prev) => ({
-                            ...prev,
-                            harvestedArea: undefined,
-                            referenceHarvestQuantity: undefined,
-                          }));
-                        }}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#1F7A4C] focus:border-transparent disabled:bg-gray-100"
-                        disabled={formDisabled}
-                      >
-                        <option value="M2">M2</option>
-                        <option value="Kg">Kg</option>
-                      </select>
-                    </div>
+                {activeFieldIssueCount > 0 ? (
+                  <div
+                    role="alert"
+                    className="mb-4 flex flex-col gap-3 rounded-lg border border-destructive/35 bg-destructive/5 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <p className="text-sm font-medium text-destructive">
+                      {t("validationIssuesSummary", {
+                        count: activeFieldIssueCount,
+                      })}
+                    </p>
+                    <button
+                      type="button"
+                      className="shrink-0 rounded-lg border border-destructive/40 bg-background px-3 py-2 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10"
+                      onClick={() =>
+                        focusHarvestFieldByErrorKey(
+                          firstHarvestFieldErrorKey(fieldErrors),
+                        )
+                      }
+                    >
+                      {t("jumpToFirstIssue")}
+                    </button>
                   </div>
+                ) : null}
 
-                  <div className="grid gap-3 lg:grid-cols-3 pb-0 min-[992px]:pb-9">
+                <div id="harvest-logistics-info" className="space-y-8">
+                  <HarvestFormSection
+                    title={t("sectionCoreTitle")}
+                    hint={t("sectionCoreHint")}
+                  >
+                    <div
+                      id="harvest-basic-info"
+                      className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3"
+                    >
+                      <div>
+                        <label className={harvestLabelClass} htmlFor="harvest-customer">
+                          {t("customer")}
+                        </label>
+                        <input
+                          id="harvest-customer"
+                          type="text"
+                          value={formData.customerId}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              customerId: e.target.value,
+                            })
+                          }
+                          className={harvestFieldClass}
+                          placeholder={t("selectCustomer")}
+                          disabled={formDisabled}
+                        />
+                      </div>
+
+                      <div>
+                        <label className={harvestLabelClass} htmlFor="harvest-project">
+                          {t("selectProjectLabel")}
+                        </label>
+                        <select
+                          id="harvest-project"
+                          value={formData.project}
+                          onChange={(e) => {
+                            const project = e.target.value;
+                            const pr = projects.find((x) => {
+                              if (!x || typeof x !== "object") return false;
+                              const row = x as Record<string, unknown>;
+                              return String(row.id ?? "").trim() === project;
+                            }) as Record<string, unknown> | undefined;
+                            const cid = String(pr?.odoo_customer_id ?? "").trim();
+                            setFormData({
+                              ...formData,
+                              project,
+                              customerId: formData.customerId || cid,
+                            });
+                            setFieldErrors((prev) => ({ ...prev, project: undefined }));
+                          }}
+                          className={`${harvestFieldClass} ${fieldErrors.project ? "ring-2 ring-destructive" : ""}`}
+                          disabled={formDisabled}
+                        >
+                          <option value="">
+                            {refLoading ? t("loadingProjects") : t("selectProject")}
+                          </option>
+                          {filteredProjectOptions.map((o) => (
+                            <option key={o.id} value={o.id}>
+                              {o.label}
+                            </option>
+                          ))}
+                        </select>
+                        {fieldErrors.project ? (
+                          <p className="mt-1.5 text-xs leading-snug text-destructive">
+                            {fieldErrors.project}
+                          </p>
+                        ) : null}
+                      </div>
+
+                      <div>
+                        <label className={harvestLabelClass} htmlFor="harvest-farm">
+                          {tCommon("farm")}
+                        </label>
+                        <select
+                          id="harvest-farm"
+                          value={formData.farm}
+                          onChange={(e) => {
+                            setFormData({
+                              ...formData,
+                              farm: e.target.value,
+                              zone: "",
+                            });
+                            setFieldErrors((prev) => ({
+                              ...prev,
+                              farm: undefined,
+                              zone: undefined,
+                            }));
+                          }}
+                          className={`${harvestFieldClass} ${fieldErrors.farm ? "ring-2 ring-destructive" : ""}`}
+                          disabled={formDisabled}
+                        >
+                          <option value="">
+                            {refLoading ? t("loadingFarms") : t("selectFarm")}
+                          </option>
+                          {farmOptions.map((o) => (
+                            <option key={o.id} value={o.id}>
+                              {o.label}
+                            </option>
+                          ))}
+                        </select>
+                        {fieldErrors.farm ? (
+                          <p className="mt-1.5 text-xs leading-snug text-destructive">
+                            {fieldErrors.farm}
+                          </p>
+                        ) : null}
+                      </div>
+
+                      <div>
+                        <label className={harvestLabelClass} htmlFor="harvest-grass">
+                          {t("selectGrassLabel")}
+                        </label>
+                        <select
+                          id="harvest-grass"
+                          value={formData.grass}
+                          onChange={(e) => {
+                            const grass = e.target.value;
+                            const req =
+                              selectedProjectRequirements.find(
+                                (r) => r.productId === grass,
+                              ) ?? null;
+                            const nextUom = req ? defaultUomForRequirement(req) : formData.uom;
+                            setFormData({ ...formData, grass, uom: nextUom });
+                            setFieldErrors((prev) => ({ ...prev, grass: undefined }));
+                          }}
+                          className={`${harvestFieldClass} ${fieldErrors.grass ? "ring-2 ring-destructive" : ""}`}
+                          disabled={formDisabled}
+                        >
+                          <option value="">
+                            {refLoading ? t("loadingGrassTypes") : t("selectGrassType")}
+                          </option>
+                          {productOptions.map((o) => (
+                            <option key={o.id} value={o.id}>
+                              {o.label}
+                            </option>
+                          ))}
+                        </select>
+                        {fieldErrors.grass ? (
+                          <p className="mt-1.5 text-xs leading-snug text-destructive">
+                            {fieldErrors.grass}
+                          </p>
+                        ) : null}
+                      </div>
+
+                      <div>
+                        <label className={harvestLabelClass} htmlFor="harvest-zone">
+                          {tCommon("zone")}{" "}
+                          {formData.actualDate.trim() ? (
+                            <span className="text-destructive">*</span>
+                          ) : (
+                            <span className="text-muted-foreground/60">
+                              ({t("zoneOptionalShort")})
+                            </span>
+                          )}
+                        </label>
+                        <select
+                          id="harvest-zone"
+                          value={formData.zone}
+                          onChange={(e) => {
+                            setFormData({ ...formData, zone: e.target.value });
+                            setFieldErrors((prev) => ({ ...prev, zone: undefined }));
+                          }}
+                          className={`${harvestFieldClass} ${fieldErrors.zone || zoneRequiredButMissing ? "ring-2 ring-destructive" : ""}`}
+                          disabled={formDisabled}
+                        >
+                          <option value="">
+                            {refLoading ? t("loadingZones") : t("selectZone")}
+                          </option>
+                          {filteredZoneEntries.map(([key, label]) => (
+                            <option key={key} value={key}>
+                              {label}
+                            </option>
+                          ))}
+                        </select>
+                        {zoneRequiredButMissing ? (
+                          <p className="mt-1.5 flex items-center gap-1 text-xs leading-snug text-destructive">
+                            <AlertCircle className="h-3 w-3 shrink-0" aria-hidden />
+                            {t("zoneRequiredWhenActual")}
+                          </p>
+                        ) : null}
+                        {fieldErrors.zone ? (
+                          <p className="mt-1.5 text-xs leading-snug text-destructive">
+                            {fieldErrors.zone}
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
+                  </HarvestFormSection>
+
+                  <HarvestFormSection
+                    title={t("sectionQuantityTitle")}
+                    hint={t("sectionQuantityHint")}
+                  >
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                      <div className="w-fit shrink-0 space-y-2">
+                        <label className={harvestLabelClass}>{t("unit")}</label>
+                        <div className="inline-grid w-auto shrink-0 grid-cols-[auto_auto] gap-2 bg-surface-filter-filled">
+                          {(["Kg", "M2"] as const).map((u) => (
+                            <button
+                              key={`harvest-uom-${u}`}
+                              type="button"
+                              onClick={() => {
+                                if (formDisabled) return;
+                                setFormData((prev) => ({
+                                  ...prev,
+                                  quantity: prev.quantity,
+                                  uom: u,
+                                  referenceHarvestQuantity:
+                                    u.trim().toLowerCase() === "m2"
+                                      ? prev.referenceHarvestQuantity
+                                      : "",
+                                  harvestedArea:
+                                    u.trim().toLowerCase() === "m2"
+                                      ? ""
+                                      : prev.harvestedArea,
+                                }));
+                                setFieldErrors((prev) => ({
+                                  ...prev,
+                                  harvestedArea: undefined,
+                                  referenceHarvestQuantity: undefined,
+                                }));
+                              }}
+                              className="relative w-max cursor-pointer text-left justify-self-start disabled:cursor-not-allowed"
+                              disabled={formDisabled}
+                              aria-pressed={formData.uom === u}
+                            >
+                              <span
+                                className={`flex min-h-10 min-w-10 items-center justify-center whitespace-nowrap rounded-md border px-3 text-sm transition-colors ${
+                                  formData.uom === u
+                                    ? "border-primary bg-primary/5 text-primary"
+                                    : "border-input bg-card text-foreground shadow-sm"
+                                }`}
+                              >
+                                {u}
+                              </span>
+                              {formData.uom === u ? (
+                                <span className="absolute left-1 top-1 inline-flex h-3 w-3 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                                  <Check className="h-3 w-3" />
+                                </span>
+                              ) : null}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                      <label className={harvestLabelClass} htmlFor="harvest-quantity">
                         {tCommon("quantity")}
                       </label>
                       <input
@@ -1196,13 +1589,12 @@ function HarvestInputPageInner() {
                             quantity: normalizeNonNegativeInput(prev.quantity),
                           }));
                         }}
-                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-[#1F7A4C] focus:border-transparent disabled:bg-gray-100 ${fieldErrors.quantity ? "border-red-500" : "border-gray-300"
-                          }`}
+                        className={`${harvestFieldClass} ${fieldErrors.quantity ? "ring-2 ring-destructive" : ""}`}
                         placeholder={t("quantityPlaceholder")}
                         disabled={formDisabled}
                       />
                       {requirementForGrass && remainingAfterEntered !== null ? (
-                        <p className="mt-1 text-xs text-[#7A7A7A]">
+                        <p className="mt-1 text-xs text-muted-foreground">
                           {t("remainingQuantityFmt", {
                             grass: requirementForGrass.grassName,
                             quantity: new Intl.NumberFormat().format(
@@ -1213,13 +1605,15 @@ function HarvestInputPageInner() {
                         </p>
                       ) : null}
                       {fieldErrors.quantity ? (
-                        <p className="mt-1 text-xs text-red-600">{fieldErrors.quantity}</p>
+                        <p className="mt-1.5 text-xs leading-snug text-destructive">
+                          {fieldErrors.quantity}
+                        </p>
                       ) : null}
                     </div>
 
                     {formData.uom.trim().toLowerCase() === "m2" ? (
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
+                        <label className={harvestLabelClass} htmlFor="harvest-reference-quantity">
                           {t("referenceHarvestQuantity")}
                         </label>
                         <div className="flex items-center gap-2">
@@ -1248,21 +1642,23 @@ function HarvestInputPageInner() {
                                 ),
                               }));
                             }}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#1F7A4C] focus:border-transparent disabled:bg-gray-100"
+                            className={harvestFieldClass}
                             placeholder={t("quantityPlaceholder")}
                             disabled={formDisabled}
                           />
-                          <span className="text-sm text-gray-600">{t("referenceHarvestUnit")}</span>
+                          <span className="shrink-0 text-sm text-muted-foreground">
+                            {t("referenceHarvestUnit")}
+                          </span>
                         </div>
                         {fieldErrors.referenceHarvestQuantity ? (
-                          <p className="mt-1 text-xs text-red-600">
+                          <p className="mt-1.5 text-xs leading-snug text-destructive">
                             {fieldErrors.referenceHarvestQuantity}
                           </p>
                         ) : null}
                       </div>
                     ) : null}
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                      <label className={harvestLabelClass} htmlFor="harvest-harvested-area">
                         {t("harvestedArea")}
                       </label>
                       {formData.uom.trim().toLowerCase() === "m2" ? (
@@ -1271,12 +1667,12 @@ function HarvestInputPageInner() {
                             type="text"
                             readOnly
                             value={formData.quantity}
-                            className="w-full cursor-not-allowed rounded-lg border border-gray-300 bg-gray-100 px-3 py-2 text-gray-800"
+                            className={`${harvestFieldClass} cursor-not-allowed opacity-80`}
                             placeholder={t("harvestedArea")}
                             disabled={formDisabled}
                             aria-readonly="true"
                           />
-                          <p className="mt-1 text-xs text-[#7A7A7A]">
+                          <p className="mt-1 text-xs text-muted-foreground">
                             {t("harvestedAreaHintM2")}
                           </p>
                         </>
@@ -1305,16 +1701,15 @@ function HarvestInputPageInner() {
                                 harvestedArea: normalizeNonNegativeInput(prev.harvestedArea),
                               }));
                             }}
-                            className={`w-full rounded-lg border px-3 py-2 focus:border-transparent focus:ring-2 focus:ring-[#1F7A4C] disabled:bg-gray-100 ${fieldErrors.harvestedArea ? "border-red-500" : "border-gray-300"
-                              }`}
+                            className={`${harvestFieldClass} ${fieldErrors.harvestedArea ? "ring-2 ring-destructive" : ""}`}
                             placeholder={t("harvestedAreaPlaceholderKg")}
                             disabled={formDisabled}
                           />
-                          <p className="mt-1 text-xs text-[#7A7A7A]">
+                          <p className="mt-1 text-xs text-muted-foreground">
                             {t("harvestedAreaHintKg")}
                           </p>
                           {fieldErrors.harvestedArea ? (
-                            <p className="mt-1 text-xs text-red-600">
+                            <p className="mt-1.5 text-xs leading-snug text-destructive">
                               {fieldErrors.harvestedArea}
                             </p>
                           ) : null}
@@ -1322,224 +1717,287 @@ function HarvestInputPageInner() {
                       )}
                     </div>
                   </div>
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 pb-0 min-[992px]:pb-9">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        {tCommon("farm")}
-                      </label>
-                      <select
-                        id="harvest-farm"
-                        value={formData.farm}
-                        onChange={(e) => {
-                          setFormData({
-                            ...formData,
-                            farm: e.target.value,
-                            zone: "",
-                          });
-                          setFieldErrors((prev) => ({
-                            ...prev,
-                            farm: undefined,
-                            zone: undefined,
-                          }));
-                        }}
-                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-[#1F7A4C] focus:border-transparent disabled:bg-gray-100 disabled:text-gray-500 ${fieldErrors.farm ? "border-red-500" : "border-gray-300"
-                          }`}
-                        disabled={formDisabled}
-                      >
-                        <option value="">
-                          {refLoading ? t("loadingFarms") : t("selectFarm")}
-                        </option>
-                        {farmOptions.map((o) => (
-                          <option key={o.id} value={o.id}>
-                            {o.label}
-                          </option>
-                        ))}
-                      </select>
-                      {fieldErrors.farm ? (
-                        <p className="mt-1 text-xs text-red-600">{fieldErrors.farm}</p>
-                      ) : null}
+                  </HarvestFormSection>
+
+                  <HarvestFormSection
+                    title={t("sectionTimelineTitle")}
+                    hint={t("sectionTimelineHint")}
+                  >
+                  <div className="flex flex-col gap-6">
+                    <div
+                      id="harvest-estimated-date"
+                      className="rounded-lg border border-border/60 bg-muted/30 p-4"
+                    >
+                      <div className="mb-2 flex flex-wrap items-center gap-3">
+                        <span className="text-xs font-medium text-muted-foreground">
+                          {t("estimatedDate")}
+                        </span>
+                        <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+                          <input
+                            type="checkbox"
+                            checked={useEstimatedDateRange}
+                            onChange={(e) => {
+                              setUseEstimatedDateRange(e.target.checked);
+                              if (!e.target.checked) {
+                                setFormData((prev) => ({ ...prev, estimatedDateEnd: "" }));
+                              }
+                            }}
+                            className="rounded border-border"
+                            disabled={formDisabled}
+                          />
+                          {t("useDateRange")}
+                        </label>
+                      </div>
+                      <div className="flex flex-col gap-3 sm:flex-row">
+                        <div className="min-w-0 flex-1">
+                          <DatePicker
+                            value={formData.estimatedDate}
+                            onChange={(value) => {
+                              setFormData({
+                                ...formData,
+                                estimatedDate: value,
+                              });
+                              setFieldErrors((prev) => ({
+                                ...prev,
+                                estimatedDate: undefined,
+                              }));
+                            }}
+                            onBlur={() => setHarvestDateTouched(true)}
+                            disabled={formDisabled}
+                            hasError={Boolean(
+                              fieldErrors.estimatedDate || harvestDatePairError,
+                            )}
+                          />
+                          {useEstimatedDateRange ? (
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {t("estimatedRangeStartHint")}
+                            </p>
+                          ) : null}
+                          {fieldErrors.estimatedDate ? (
+                            <p className="mt-1.5 text-xs leading-snug text-destructive">
+                              {fieldErrors.estimatedDate}
+                            </p>
+                          ) : null}
+                        </div>
+                        {useEstimatedDateRange ? (
+                          <div className="min-w-0 flex-1">
+                            <DatePicker
+                              value={formData.estimatedDateEnd}
+                              onChange={(value) =>
+                                setFormData({ ...formData, estimatedDateEnd: value })
+                              }
+                              disabled={formDisabled}
+                            />
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {t("estimatedRangeEndHint")}
+                            </p>
+                          </div>
+                        ) : null}
+                      </div>
                     </div>
 
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        {tCommon("zone")}
-                      </label>
-                      <select
-                        id="harvest-zone"
-                        value={formData.zone}
-                        onChange={(e) => {
-                          setFormData({ ...formData, zone: e.target.value });
-                          setFieldErrors((prev) => ({ ...prev, zone: undefined }));
-                        }}
-                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-[#1F7A4C] focus:border-transparent disabled:bg-gray-100 disabled:text-gray-500 ${fieldErrors.zone ? "border-red-500" : "border-gray-300"
-                          }`}
-                        disabled={formDisabled}
-                      >
-                        <option value="">
-                          {refLoading ? t("loadingZones") : t("selectZone")}
-                        </option>
-                        {filteredZoneEntries.map(([key, label]) => (
-                          <option key={key} value={key}>
-                            {label}
-                          </option>
-                        ))}
-                      </select>
-                      {fieldErrors.zone ? (
-                        <p className="mt-1 text-xs text-red-600">{fieldErrors.zone}</p>
-                      ) : null}
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                      <div id="harvest-actual-date">
+                        <label className={harvestLabelClass}>
+                          {t("actualDateHarvestForm")}
+                        </label>
+                        <DatePicker
+                          value={formData.actualDate}
+                          onChange={(value) => {
+                            setFormData({ ...formData, actualDate: value });
+                            setFieldErrors((prev) => ({
+                              ...prev,
+                              actualDate: undefined,
+                              zone: value.trim() ? prev.zone : undefined,
+                            }));
+                          }}
+                          onBlur={() => setHarvestDateTouched(true)}
+                          disabled={formDisabled}
+                          hasError={Boolean(fieldErrors.actualDate || harvestDatePairError)}
+                        />
+                        {harvestDatePairError ? (
+                          <p className="mt-1.5 text-xs leading-snug text-destructive">
+                            {harvestDatePairError}
+                          </p>
+                        ) : (
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {t("datePairHint")}
+                          </p>
+                        )}
+                      </div>
+                      <div>
+                        <label className={harvestLabelClass}>{t("harvestEndDate")}</label>
+                        <DatePicker
+                          value={formData.actualHarvestEndDate}
+                          onChange={(value) =>
+                            setFormData({ ...formData, actualHarvestEndDate: value })
+                          }
+                          disabled={formDisabled}
+                        />
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {t("harvestEndDateHint")}
+                        </p>
+                      </div>
+                      <div>
+                        <label className={harvestLabelClass}>{t("portArrivalDate")}</label>
+                        <DatePicker
+                          value={formData.portArrivalDate}
+                          onChange={(value) =>
+                            setFormData({ ...formData, portArrivalDate: value })
+                          }
+                          disabled={formDisabled}
+                        />
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {t("portArrivalDateHint")}
+                        </p>
+                      </div>
+                      <div>
+                        <label className={harvestLabelClass}>{t("deliveryDate")}</label>
+                        <DatePicker
+                          value={formData.deliveryDate}
+                          onChange={(value) =>
+                            setFormData({
+                              ...formData,
+                              deliveryDate: value,
+                            })
+                          }
+                          disabled={formDisabled}
+                        />
+                      </div>
                     </div>
+                  </div>
+                  </HarvestFormSection>
+
+                  <HarvestFormSection
+                    title={t("sectionLogisticsTitle")}
+                    hint={t("sectionLogisticsHint")}
+                  >
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <div>
+                        <label className={harvestLabelClass} htmlFor="harvest-doso-num">
+                          {t("doSoNumber")}
+                        </label>
+                        <input
+                          id="harvest-doso-num"
+                          type="text"
+                          value={formData.doSoNumber}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              doSoNumber: e.target.value,
+                            })
+                          }
+                          className={harvestFieldClass}
+                          placeholder={t("doSoPlaceholder")}
+                          disabled={formDisabled}
+                        />
+                      </div>
+                      <div id="harvest-doso-date">
+                        <label className={harvestLabelClass}>{t("doSoDate")}</label>
+                        <DatePicker
+                          value={formData.doSoDate}
+                          onChange={(value) =>
+                            setFormData({
+                              ...formData,
+                              doSoDate: value,
+                            })
+                          }
+                          disabled={formDisabled}
+                        />
+                      </div>
+                    </div>
+
+                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        {t("doSoNumber")}{" "}
+                      <label className={harvestLabelClass} htmlFor="harvest-license">
+                        {t("licensePlate")}
                       </label>
                       <input
+                        id="harvest-license"
                         type="text"
-                        value={formData.doSoNumber}
+                        value={formData.licensePlate}
                         onChange={(e) =>
                           setFormData({
                             ...formData,
-                            doSoNumber: e.target.value,
+                            licensePlate: e.target.value,
                           })
                         }
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#1F7A4C] focus:border-transparent disabled:bg-gray-100"
-                        placeholder={t("doSoPlaceholder")}
-                        disabled={formDisabled}
-                      />
-                    </div>
-                    <div id="harvest-doso-date">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        {t("doSoDate")}
-                      </label>
-                      <DatePicker
-                        value={formData.doSoDate}
-                        onChange={(value) =>
-                          setFormData({
-                            ...formData,
-                            doSoDate: value,
-                          })
-                        }
+                        className={harvestFieldClass}
+                        placeholder={t("licensePlatePlaceholder")}
                         disabled={formDisabled}
                       />
                     </div>
                   </div>
-                </div>
 
-
-
-                <div className="pb-0 min-[992px]:pb-12">
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                    <div id="harvest-estimated-date">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        {t("estimatedDate")}
-                      </label>
-                      <DatePicker
-                        value={formData.estimatedDate}
-                        onChange={(value) => {
-                          setFormData({
-                            ...formData,
-                            estimatedDate: value,
-                          });
-                          setFieldErrors((prev) => ({ ...prev, estimatedDate: undefined }));
-                        }}
-                        onBlur={() => setHarvestDateTouched(true)}
-                        disabled={formDisabled}
-                        hasError={Boolean(fieldErrors.estimatedDate || harvestDatePairError)}
-                      />
-                      {fieldErrors.estimatedDate ? (
-                        <p className="mt-1 text-xs text-red-600">{fieldErrors.estimatedDate}</p>
-                      ) : null}
-                    </div>
-
-                    <div id="harvest-actual-date">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        {t("actualDate")}
-                      </label>
-                      <DatePicker
-                        value={formData.actualDate}
-                        onChange={(value) => {
-                          setFormData({ ...formData, actualDate: value });
-                          setFieldErrors((prev) => ({
-                            ...prev,
-                            actualDate: undefined,
-                            zone: value.trim() ? prev.zone : undefined,
-                          }));
-                        }}
-                        onBlur={() => setHarvestDateTouched(true)}
-                        disabled={formDisabled}
-                        hasError={Boolean(fieldErrors.actualDate || harvestDatePairError)}
-                      />
-                      {harvestDatePairError ? (
-                        <p className="mt-1 text-xs text-red-600">{harvestDatePairError}</p>
-                      ) : (
-                        <p className="mt-1 text-xs text-gray-500">
-                          {t("datePairHint")}
-                        </p>
-                      )}
-                    </div>
-
+                  <div className="grid grid-cols-1 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        {t("deliveryDate")}{" "}
+                      <label className={harvestLabelClass} htmlFor="harvest-general-note">
+                        {t("generalNote")}{" "}
+                        <span className="font-normal text-muted-foreground/70">
+                          ({t("generalNoteHint")})
+                        </span>
                       </label>
-                      <DatePicker
-                        value={formData.deliveryDate}
-                        onChange={(value) =>
+                      <textarea
+                        id="harvest-general-note"
+                        value={formData.generalNote}
+                        onChange={(e) =>
+                          setFormData({ ...formData, generalNote: e.target.value })
+                        }
+                        rows={2}
+                        className={`${harvestFieldClass} resize-none`}
+                        placeholder={t("generalNotePlaceholder")}
+                        disabled={formDisabled}
+                      />
+                    </div>
+                    <div>
+                      <label className={harvestLabelClass} htmlFor="harvest-truck-note">
+                        {t("truckNote")}
+                      </label>
+                      <textarea
+                        id="harvest-truck-note"
+                        value={formData.truckNote}
+                        onChange={(e) =>
                           setFormData({
                             ...formData,
-                            deliveryDate: value,
+                            truckNote: e.target.value,
                           })
                         }
+                        className={`${harvestFieldClass} resize-none`}
+                        rows={2}
+                        placeholder={t("truckNotePlaceholder")}
+                        disabled={formDisabled}
+                      />
+                    </div>
+                    <div>
+                      <label className={harvestLabelClass} htmlFor="harvest-shipping">
+                        {t("shippingDispatchDetails")}
+                      </label>
+                      <textarea
+                        id="harvest-shipping"
+                        value={formData.shippingDispatchDetails}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            shippingDispatchDetails: e.target.value,
+                          })
+                        }
+                        rows={3}
+                        className={`${harvestFieldClass} resize-none`}
+                        placeholder={t("shippingDispatchPlaceholder")}
                         disabled={formDisabled}
                       />
                     </div>
                   </div>
-                </div>
+                  </HarvestFormSection>
 
-
-                <div className="grid gap-3 lg:grid-cols-1">
-                  <div className="pb-0 min-[992px]:pb-9">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      {t("licensePlate")}{" "}
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.licensePlate}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          licensePlate: e.target.value,
-                        })
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#1F7A4C] focus:border-transparent disabled:bg-gray-100"
-                      placeholder={t("licensePlatePlaceholder")}
-                      disabled={formDisabled}
-                    />
-                  </div>
-                  <div className="pb-0 min-[992px]:pb-9">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      {t("truckNote")}{" "}
-                    </label>
-                    <textarea
-                      value={formData.truckNote}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          truckNote: e.target.value,
-                        })
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#1F7A4C] focus:border-transparent disabled:bg-gray-100"
-                      rows={2}
-                      placeholder={t("truckNotePlaceholder")}
-                      disabled={formDisabled}
-                    />
-                  </div>
-
-
-                  <div className="mt-3">
-                    <label className="block text-sm font-medium text-gray-700 mb-3">
-                      {t("documentationPhotos")}{" "}
-                    </label>
-                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+                  <HarvestFormSection
+                    title={t("documentationPhotos")}
+                    hint={t("sectionPhotosHint")}
+                  >
+                    <p className="text-xs leading-relaxed text-muted-foreground">
+                      {t("photosHelpText")}
+                    </p>
+                    <div className="mt-1 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
                       {DOC_PHOTO_SLOTS.map((field) => {
                         const label = getPhotoSlotLabel(field);
                         const blobSrc = filePreviewUrls[field];
@@ -1590,7 +2048,7 @@ function HarvestInputPageInner() {
                             />
                             <label
                               htmlFor={`harvest-photo-${field}`}
-                              className={`relative aspect-[4/3] rounded-lg bg-gray-100 transition-colors hover:bg-gray-50 flex flex-col items-center justify-center gap-1 cursor-pointer overflow-hidden xl:aspect-square ${formDisabled ? "opacity-50 pointer-events-none" : ""}`}
+                              className={`relative flex aspect-[4/3] cursor-pointer flex-col items-center justify-center gap-1 overflow-hidden rounded-lg bg-muted transition-colors hover:bg-muted/80 xl:aspect-square ${formDisabled ? "pointer-events-none opacity-50" : ""}`}
                             >
                               {previewSrc ? (
                                 // eslint-disable-next-line @next/next/no-img-element -- dynamic STS / blob URLs
@@ -1601,15 +2059,15 @@ function HarvestInputPageInner() {
                                 />
                               ) : showDocOnlyPlaceholder ? (
                                 <div className="z-[1] flex flex-col items-center justify-center gap-1 p-1 text-center">
-                                  <span className="text-[10px] font-medium text-gray-700">
+                                  <span className="text-[10px] font-medium text-foreground">
                                     {t("fileLabel")}
                                   </span>
-                                  <span className="text-xs text-gray-600">{label}</span>
+                                  <span className="text-xs text-muted-foreground">{label}</span>
                                 </div>
                               ) : (
                                 <div className="z-[1] flex flex-col items-center justify-center gap-1 p-1 text-center">
-                                  <Camera className="w-6 h-6 text-gray-400 shrink-0" />
-                                  <span className="text-[11px] text-gray-600">{label}</span>
+                                  <Camera className="h-6 w-6 shrink-0 text-muted-foreground" />
+                                  <span className="text-[11px] text-muted-foreground">{label}</span>
                                 </div>
                               )}
                               {photos[field] ? (
@@ -1642,21 +2100,41 @@ function HarvestInputPageInner() {
                         );
                       })}
                     </div>
-                  </div>
+                  </HarvestFormSection>
                 </div>
 
-                <button
-                  type="submit"
-                  disabled={formDisabled}
-                  className="w-full py-3 bg-button-primary text-white rounded-lg font-medium hover:bg-[#196A40] transition-colors mt-6 disabled:opacity-50 disabled:pointer-events-none"
-                >
-                  {submitLoading
-                    ? t("saving")
-                    : editId
-                      ? t("saveChanges")
-                      : t("saveHarvest")}
-                </button>
+                <div className="sticky bottom-0 z-30 mt-10 flex flex-col gap-3 border-t border-border bg-background/95 py-4 backdrop-blur supports-[padding:env(safe-area-inset-bottom)]:pb-[max(1rem,env(safe-area-inset-bottom))] sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                  <div className="min-h-5 flex-1 text-xs text-muted-foreground sm:order-1">
+                    {submitError ? (
+                      <span className="text-destructive" role="alert">
+                        {submitError}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="flex w-full flex-col gap-2 sm:order-2 sm:w-auto sm:flex-row sm:justify-end">
+                    <button
+                      type="button"
+                      onClick={goBack}
+                      disabled={submitLoading || deleting}
+                      className="inline-flex h-11 min-w-[120px] items-center justify-center rounded-lg border border-border bg-card px-4 text-sm font-medium text-foreground transition-colors hover:bg-muted/80 disabled:pointer-events-none disabled:opacity-50"
+                    >
+                      {tCommon("back")}
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={formDisabled}
+                      className="inline-flex h-11 min-w-[140px] flex-1 items-center justify-center rounded-lg bg-primary px-5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50 sm:flex-none"
+                    >
+                      {submitLoading
+                        ? t("saving")
+                        : editId
+                          ? t("saveChanges")
+                          : t("saveHarvest")}
+                    </button>
+                  </div>
+                </div>
               </form>
+              </div>
             </div>
           </div>
         </div>

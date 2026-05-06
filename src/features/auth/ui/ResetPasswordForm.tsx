@@ -207,7 +207,7 @@ export default function ResetPasswordForm() {
               type="button"
               onClick={verifyCode}
               disabled={verifying || loading}
-              className="w-full py-2.5 border border-[#1F7A4C] text-[#1F7A4C] rounded-lg font-medium hover:bg-[#1F7A4C]/5 transition-colors disabled:opacity-60"
+              className="w-full py-2.5 border border-[#1F7A4C] text-foreground rounded-lg font-medium hover:bg-[#1F7A4C]/5 transition-colors disabled:opacity-60"
             >
               {verifying ? "Verifying..." : "Verify code"}
             </button>
@@ -297,7 +297,7 @@ export default function ResetPasswordForm() {
 
         <Link
           href="/"
-          className="mt-6 flex items-center justify-center gap-2 text-sm text-[#1F7A4C] font-medium hover:underline"
+          className="mt-6 inline-flex items-center justify-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent hover:text-accent-foreground hover:no-underline"
         >
           <ArrowLeft className="w-4 h-4" />
           {t("backToSignIn")}

@@ -104,6 +104,8 @@ export function SidebarProfile({ onNavigate, compact = false }: SidebarProfilePr
   const email = user?.email?.trim() ?? "";
   const avatarSrc = resolveAvatarUrl(getUserAvatarPath(user));
 
+
+  // console.log("user", user);
   useEffect(() => {
     void fetchAllHarvestingReferenceData();
   }, [fetchAllHarvestingReferenceData]);
@@ -263,55 +265,88 @@ export function SidebarProfile({ onNavigate, compact = false }: SidebarProfilePr
   const weatherBadge = weatherIconFromCode(weatherByCurrentHour?.weather_code);
 
   return (
-    <div className={`border-gray-200 bg-white shrink-0 ${compact ? "p-3" : "p-4"}`}>
-      <div className="hidden mt-2 grid-cols-3 gap-1 pb-3">
-        {LOCALES.map((item) => (
-          <button
-            key={item}
-            type="button"
-            onClick={() => switchLocale(item)}
-            className={`group flex cursor-pointer items-center justify-center rounded-md px-2 py-1.5 text-xs font-medium transition-colors`}
-            aria-pressed={item === locale}
-            title={t(`languages.${item}`)}
+    <div
+      className={`shrink-0 border-t border-sidebar-border bg-sidebar text-sidebar-foreground ${
+        compact ? "p-3" : "px-4 pb-4 pt-3"
+      }`}
+    >
+      <div className="space-y-2 pb-3">
+        <div>
+          <p
+            id="sidebar-language-label"
+            className="text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/45"
           >
-            <img
-              src={`/flags/${LOCALE_FLAG_MAP[item].code}.svg`}
-              alt={LOCALE_FLAG_MAP[item].alt}
-              width={22}
-              height={16}
-              className={`h-4 w-[22px] rounded-sm object-cover transition duration-200 ${
-                item === locale
-                  ? "brightness-110"
-                  : "grayscale group-hover:grayscale-0 group-hover:brightness-110"
-              }`}
-            />
-          </button>
-        ))}
+            {t("languageLabel")}
+          </p>
+          <p id="sidebar-language-hint" className="sr-only">
+            {t("languageSwitchHint")}
+          </p>
+        </div>
+        <div
+          className="grid grid-cols-3 gap-2"
+          role="radiogroup"
+          aria-labelledby="sidebar-language-label"
+          aria-describedby="sidebar-language-hint"
+        >
+          {LOCALES.map((item) => {
+            const selected = item === locale;
+            return (
+              <button
+                key={item}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                onClick={() => switchLocale(item)}
+                className={`flex min-h-11 flex-col items-center justify-center gap-1 rounded-lg border px-1.5 py-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background ${
+                  selected
+                    ? "border-primary/60 bg-primary/10 text-sidebar-foreground shadow-sm"
+                    : "border-sidebar-border bg-sidebar-accent/20 text-sidebar-foreground/80 hover:border-sidebar-foreground/25 hover:bg-sidebar-accent/40"
+                }`}
+                title={t(`languageNames.${item}`)}
+                aria-label={t(`languageNames.${item}`)}
+              >
+                <img
+                  src={`/flags/${LOCALE_FLAG_MAP[item].code}.svg`}
+                  alt=""
+                  width={22}
+                  height={16}
+                  className={`h-4 w-[22px] shrink-0 rounded-sm object-cover ${
+                    selected ? "" : "opacity-80"
+                  }`}
+                  aria-hidden
+                />
+                <span className="leading-none tracking-tight">{t(`languages.${item}`)}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {!compact && weatherTarget ? (
-        <div className="mb-3 rounded-lg border border-gray-200 bg-gray-50 p-2.5">
+        <div className="hidden mb-3 rounded-lg border border-sidebar-border bg-muted/80 p-2.5 dark:bg-sidebar-accent/40">
           <div className="flex items-center justify-between gap-2">
             <div className="min-w-0">
-              <p className="truncate text-xs font-medium text-gray-800">{weatherTarget.farmName}</p>
-              <p className="text-[11px] text-gray-500">{weatherNowLabel}</p>
+              <p className="truncate text-xs font-medium text-sidebar-foreground">
+                {weatherTarget.farmName}
+              </p>
+              <p className="text-[11px] text-sidebar-foreground/60">{weatherNowLabel}</p>
             </div>
-            <CloudSun className="h-4 w-4 shrink-0 text-gray-400" />
+            <CloudSun className="h-4 w-4 shrink-0 text-sidebar-foreground/50" />
           </div>
-          <div className="mt-2 flex items-center justify-between rounded-md bg-white px-2.5 py-2">
+          <div className="mt-2 flex items-center justify-between rounded-md bg-card px-2.5 py-2 dark:bg-sidebar-accent/50">
             {weatherLoading ? (
-              <p className="text-xs text-gray-500">Loading weather...</p>
+              <p className="text-xs text-sidebar-foreground/60">Loading weather...</p>
             ) : weatherByCurrentHour ? (
               <>
                 <div className="flex items-center gap-2">
                   <span className="text-base">{weatherBadge.icon}</span>
-                  <span className="text-xs text-gray-700">{weatherBadge.label}</span>
+                  <span className="text-xs text-sidebar-foreground/80">{weatherBadge.label}</span>
                 </div>
                 <div className="text-right">
-                  <p className="text-sm font-semibold text-gray-900">
+                  <p className="text-sm font-semibold text-sidebar-foreground">
                     {weatherByCurrentHour.temperature_2m ?? "-"}°
                   </p>
-                  <p className="text-[11px] text-gray-500">
+                  <p className="text-[11px] text-sidebar-foreground/60">
                     {weatherByCurrentHour.source === "hourly" ? "Rain % " : "Rain "}
                     {weatherByCurrentHour.precipitation ?? "-"}
                     {weatherByCurrentHour.source === "hourly" ? "%" : " mm"}
@@ -319,7 +354,7 @@ export function SidebarProfile({ onNavigate, compact = false }: SidebarProfilePr
                 </div>
               </>
             ) : (
-              <p className="text-xs text-gray-500">No weather data</p>
+              <p className="text-xs text-sidebar-foreground/60">No weather data</p>
             )}
           </div>
           {weatherTargets.length > 1 ? (
@@ -331,7 +366,7 @@ export function SidebarProfile({ onNavigate, compact = false }: SidebarProfilePr
                     prev <= 0 ? weatherTargets.length - 1 : prev - 1,
                   )
                 }
-                className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-600 hover:bg-gray-100"
+                className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-sidebar-border bg-card text-sidebar-foreground hover:bg-muted dark:bg-sidebar-accent/50 dark:hover:bg-sidebar-accent"
                 aria-label="Previous farm weather"
               >
                 <ChevronLeft className="h-3.5 w-3.5" />
@@ -343,7 +378,9 @@ export function SidebarProfile({ onNavigate, compact = false }: SidebarProfilePr
                     type="button"
                     onClick={() => setActiveWeatherIndex(idx)}
                     className={`h-1.5 w-1.5 rounded-full transition-all ${
-                      idx === activeWeatherIndex ? "w-3 bg-[#1F7A4C]" : "bg-gray-300"
+                      idx === activeWeatherIndex
+                        ? "w-3 bg-primary"
+                        : "bg-sidebar-foreground/25"
                     }`}
                     aria-label={`Go to farm weather ${idx + 1}`}
                   />
@@ -354,7 +391,7 @@ export function SidebarProfile({ onNavigate, compact = false }: SidebarProfilePr
                 onClick={() =>
                   setActiveWeatherIndex((prev) => (prev + 1) % weatherTargets.length)
                 }
-                className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-600 hover:bg-gray-100"
+                className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-sidebar-border bg-card text-sidebar-foreground hover:bg-muted dark:bg-sidebar-accent/50 dark:hover:bg-sidebar-accent"
                 aria-label="Next farm weather"
               >
                 <ChevronRight className="h-3.5 w-3.5" />
@@ -367,7 +404,7 @@ export function SidebarProfile({ onNavigate, compact = false }: SidebarProfilePr
       <button
         type="button"
         onClick={goProfile}
-        className={`w-full flex items-center rounded-lg p-2 transition-colors hover:bg-gray-100 ${
+        className={`flex w-full items-center rounded-lg p-2 transition-colors hover:bg-muted/80 dark:hover:bg-sidebar-accent/50 ${
           compact ? "justify-center" : "gap-3 text-left -m-2"
         }`}
         title={compact ? displayName : undefined}
@@ -376,12 +413,12 @@ export function SidebarProfile({ onNavigate, compact = false }: SidebarProfilePr
           <img
             src={avatarSrc}
             alt={displayName}
-            className="w-10 h-10 rounded-full object-cover border border-gray-200 shrink-0 bg-gray-100"
+            className="h-10 w-10 shrink-0 rounded-full border border-sidebar-border bg-muted object-cover dark:bg-sidebar-accent/30"
             referrerPolicy="no-referrer"
           />
         ) : (
           <div
-            className="w-10 h-10 rounded-full shrink-0 flex items-center justify-center text-sm font-semibold text-white bg-button-primary border border-[#196A40]"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-primary/80 bg-primary text-sm font-semibold text-primary-foreground"
             aria-hidden
           >
             {getUserInitials(user)}
@@ -389,13 +426,13 @@ export function SidebarProfile({ onNavigate, compact = false }: SidebarProfilePr
         )}
         {!compact ? (
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium text-gray-900 truncate">
+            <p className="truncate text-sm font-medium text-sidebar-foreground">
               {displayName}
             </p>
             {email ? (
-              <p className="text-xs text-gray-500 truncate">{email}</p>
+              <p className="truncate text-xs text-sidebar-foreground/60">{email}</p>
             ) : (
-              <p className="text-xs text-gray-400">{t("viewProfile")}</p>
+              <p className="text-xs text-sidebar-foreground/50">{t("viewProfile")}</p>
             )}
           </div>
         ) : null}
@@ -404,7 +441,7 @@ export function SidebarProfile({ onNavigate, compact = false }: SidebarProfilePr
       <button
         type="button"
         onClick={logout}
-        className={`mt-3 w-full flex items-center justify-center text-sm font-medium text-gray-700 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg transition-colors ${
+        className={`mt-3 flex w-full items-center justify-center rounded-lg border border-sidebar-border bg-muted text-sm font-medium text-sidebar-foreground transition-colors hover:bg-muted/90 dark:bg-sidebar-accent/50 dark:hover:bg-sidebar-accent ${
           compact ? "px-2 py-2" : "gap-2 px-3 py-2"
         }`}
         title={t("logOut")}

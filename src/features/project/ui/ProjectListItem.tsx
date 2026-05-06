@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import { Calendar, MapPin, Pencil, Users } from "lucide-react";
 
 import type { BuildProjectDataOptions } from "@/entities/projects";
 import { uploadMondayProjectImageFromCard } from "@/entities/projects";
@@ -21,15 +22,34 @@ import {
   resolveStaffAvatarImageUrl,
 } from "../lib/staffAvatarUrl";
 import { translateProjectType } from "../lib/projectTypeDisplay";
+import { cn } from "@/lib/utils";
 
-function getProgressColor(progress: number) {
-  void progress;
-  return "#268626";
-}
-
-function getProgressBg(progress: number) {
-  void progress;
-  return "#9D9D9D";
+/** Harvesting Portal `Progress` parity: track `bg-secondary`, fill `bg-primary`. */
+function HarvestProgress({
+  value,
+  className,
+}: {
+  value: number;
+  className?: string;
+}) {
+  const v = Math.max(0, Math.min(100, Math.round(value)));
+  return (
+    <div
+      className={cn(
+        "relative w-full overflow-hidden rounded-full bg-secondary",
+        className,
+      )}
+      role="progressbar"
+      aria-valuenow={v}
+      aria-valuemin={0}
+      aria-valuemax={100}
+    >
+      <div
+        className="h-full rounded-full bg-primary transition-all duration-500"
+        style={{ width: `${v}%` }}
+      />
+    </div>
+  );
 }
 
 const STATUS_CONFIG = {
@@ -123,10 +143,11 @@ export function ProjectListItem({
   const tableId = String(serverRow?.table_id ?? "").trim() || undefined;
 
   const cfg = STATUS_CONFIG[data.status];
-  const pColor = getProgressColor(data.progress);
-  const pBg = getProgressBg(data.progress);
   /** From buildProjectData: average of per-line `min(1, delivered/required)`; delivered only with valid delivery date. */
   const clampedProgress = Math.max(0, Math.min(100, data.progress));
+  const typeTag = String(data.tags[0] ?? "").trim();
+  const extraTags = data.tags.slice(1).filter(Boolean);
+  const estimateLabel = String(data.endDate || data.estimatedStartDate || "").trim();
   const canEdit = Boolean(serverRow && onEditProject);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [pendingImageFile, setPendingImageFile] = useState<File | null>(null);
@@ -200,294 +221,205 @@ export function ProjectListItem({
       rowData: { ...(serverRow as Record<string, unknown>) },
     });
   };
-  const handleCardClick: React.MouseEventHandler<HTMLDivElement> = (e) => {
-    if (!canEdit) return;
-    const target = e.target as HTMLElement | null;
-    if (target?.closest("[data-no-card-click='true']")) return;
-    handleEdit();
-  };
-
   return (
-    <div
-      className="relative overflow-hidden bg-white rounded-2xl shadow-sm hover:shadow-lg transition-all duration-200 flex flex-col"
-      style={{ border: "1px solid #e5e7eb", borderLeft: `4px solid ${cfg.border}` }}
-    >
+    <div className="relative h-full">
+      {canEdit ? (
+        <button
+          type="button"
+          data-no-card-click="true"
+          className="absolute top-3 right-3 z-10 inline-flex h-8 w-8 items-center justify-center rounded-md border border-border bg-card/90 text-muted-foreground backdrop-blur transition-colors hover:border-primary/40 hover:text-primary"
+          aria-label={tProject("projectDetails")}
+          title={tProject("projectDetails")}
+          onClick={(e) => {
+            e.stopPropagation();
+            handleEdit();
+          }}
+        >
+          <Pencil className="h-3.5 w-3.5" />
+        </button>
+      ) : null}
+
       <div
-        className={`px-5 pt-5 pb-4 ${canEdit ? "cursor-pointer hover:bg-gray-50 transition-colors duration-150" : ""}`}
-        role={canEdit ? "button" : undefined}
-        tabIndex={canEdit ? 0 : undefined}
-        onClick={canEdit ? handleCardClick : undefined}
-        onKeyDown={
-          canEdit
-            ? (e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                handleEdit();
-              }
-            }
-            : undefined
-        }
+        className={cn(
+          "relative h-full overflow-hidden rounded-lg border border-border bg-card text-card-foreground shadow-sm transition-shadow",
+          "hover:shadow-md hover:border-primary/30",
+        )}
       >
-        <div className="flex items-start gap-4">
-      
-            <img
-              src={displayedImage}
-              alt={data.name}
-              className="rounded-full object-cover flex-shrink-0"
-              style={{ width: 80, height: 80, border: "2px solid #e5e7eb" }}
-              data-no-card-click="true"
-              onClick={openImagePicker}
-            />
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              data-no-card-click="true"
-              onChange={onImageFileChange}
-            />
-       
-          <div className="w-[calc(100%-80px)] p-3 pt-0">
-            <div className="flex justify-between pb-2">
-              <div className="left-side">
-
-                {data.endDate ? (
-                  <span
-                    className="rounded-full px-3 py-0.5"
-                    style={{
-                      fontSize: "12px",
-                      fontWeight: 500,
-                      background: data.status === "Warning" ? "#FF0000" : "#f0fdf4",
-                      color: data.status === "Warning" ? "#FFFFFF" : "#15803d",
-                      border: "1px solid #bbf7d0",
-                    }}
-                  >
-                    {data.endDate}
-                  </span>
+        <div className="p-3 space-y-4">
+          {/* Top row — only this block opens project detail */}
+          <div
+            className={cn(
+              "group/detail flex items-start gap-3 rounded-md pr-10",
+              canEdit &&
+                "cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card",
+            )}
+            role={canEdit ? "button" : undefined}
+            tabIndex={canEdit ? 0 : undefined}
+            aria-label={canEdit ? `${tProject("projectDetails")}: ${data.name}` : undefined}
+            onClick={canEdit ? handleEdit : undefined}
+            onKeyDown={
+              canEdit
+                ? (e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      handleEdit();
+                    }
+                  }
+                : undefined
+            }
+          >
+            {/* <div className="relative shrink-0" data-no-card-click="true">
+              <img
+                src={displayedImage}
+                alt=""
+                className="h-14 w-14 rounded-md border border-border object-cover"
+                onClick={openImagePicker}
+              />
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                data-no-card-click="true"
+                onChange={onImageFileChange}
+              />
+            </div> */}
+            <div className="min-w-0 flex-1">
+              <div className="gap-2">
+              {typeTag ? (
+                <div className="flex justify-end mb-3">
+                  <span className="shrink-0 rounded-md border border-border px-2 py-0.5 text-xs font-normal text-foreground">
+                      {typeTag}
+                    </span>
+                  </div>
                 ) : null}
-                {countryLabel ? (
-                  <span
-                    className="rounded-full px-3 py-0.5"
-                    style={{
-                      fontSize: "12px",
-                      fontWeight: 500,
-                      background: "#f0fdf4",
-                      color: "#15803d",
-                      border: "1px solid #bbf7d0",
-                    }}
+                <div className="min-w-0">
+                  <h3
+                    className="truncate font-heading font-semibold text-foreground transition-colors group-hover/detail:text-primary"
+                    title={data.name}
                   >
-                    {countryLabel}
-                  </span>
-                ) : null}
-              </div>
-              <div className="right-side">
-                <div
-                  className="flex relative w-[100px] h-[30px] items-center gap-1.5 rounded-full px-2 py-1 flex-shrink-0"
-                  style={{ background: "#f9fafb", border: "1px solid #e5e7eb" }}
-                >
-                  <img
-                    src={resolvedAssigneeAvatar}
-                    alt={data.assignee.name}
-                    className="w-[30px] h-[30px] rounded-full object-cover absolute top-0 right-[0px]"
-                    onError={(e) => {
-                      e.currentTarget.src = DEFAULT_ASSIGNEE_AVATAR;
-                    }}
-                  />
-                  <span style={{ fontSize: "12px", fontWeight: 500, color: "#374151" }}>
-                    {data.assignee.name}
-                  </span>
+                    {data.name}
+                  </h3>
+                  <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+                    <Users className="h-3 w-3 shrink-0" />
+                    <img
+                      src={resolvedAssigneeAvatar}
+                      alt=""
+                      className="h-4 w-4 shrink-0 rounded-full border border-border object-cover"
+                      onError={(e) => {
+                        e.currentTarget.src = DEFAULT_ASSIGNEE_AVATAR;
+                      }}
+                    />
+                    <span className="truncate">{data.assignee.name}</span>
+                  </p>
+                  {data.subtitle ? (
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground" title={data.subtitle}>
+                      {data.subtitle}
+                    </p>
+                  ) : null}
                 </div>
+               
               </div>
             </div>
-            <div className="details">
-              <h2
-                className="text-gray-900 truncate"
-                style={{ fontSize: "17px", fontWeight: 700, lineHeight: 1.2 }}
-                title={data.name}
-              >
-                {data.name}
-              </h2>
-              <p
-                className="text-gray-500 truncate mt-0.5"
-                style={{ fontSize: "13px" }}
-                title={data.subtitle}
-              >
-                {data.subtitle}
-              </p>
-            </div>
           </div>
 
-
-
-        </div>
-      </div>
-
-      <div className="px-5 pb-4">
-        <div className="flex items-center justify-between mb-1.5">
-          <span style={{ fontSize: "12px", color: "#6b7280" }}>{tBase("ProjectDetail.progress")}</span>
-          <span style={{ fontSize: "13px", fontWeight: 700, color: pColor }}>
-            {Math.round(clampedProgress)}%
-          </span>
-        </div>
-        <div className="rounded-[4px] overflow-hidden" style={{ height: 6, background: pBg }}>
-          <div
-            className="h-full rounded-[4px] transition-all duration-500"
-            style={{
-              width: clampedProgress > 0 ? `${clampedProgress}%` : 0,
-              background: pColor,
-            }}
-          />
-        </div>
-      </div>
-
-      <div style={{ height: 1, background: "#f3f4f6", margin: "0 20px" }} />
-
-      <div className="px-5 py-3">
-        <div
-          className="grid pb-1.5 mb-1"
-          style={{
-            gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr",
-            borderBottom: "1px solid #f3f4f6",
-          }}
-        >
-          <div
-            style={{
-              fontSize: "11px",
-              color: "#9ca3af",
-              textTransform: "uppercase",
-              letterSpacing: "0.04em",
-            }}
-          >
-            {tBase("ProjectDetail.grassType")}
-          </div>
-          <div
-            className="text-center"
-            style={{
-              fontSize: "11px",
-              color: "#16a34a",
-              textTransform: "uppercase",
-              letterSpacing: "0.04em",
-            }}
-          >
-            {tBase("ProjectDetail.required")}
-          </div>
-          <div
-            className="text-center"
-            style={{
-              fontSize: "11px",
-              color: "#16a34a",
-              textTransform: "uppercase",
-              letterSpacing: "0.04em",
-            }}
-          >
-            {tBase("ProjectDetail.delivered")}
-          </div>
-          <div
-            className="text-center"
-            style={{
-              fontSize: "11px",
-              color: "#dc2626",
-              textTransform: "uppercase",
-              letterSpacing: "0.04em",
-            }}
-          >
-            {tBase("ProjectDetail.remaining")}
-          </div>
-          <div
-            className="text-center"
-            style={{
-              fontSize: "11px",
-              color: "#dc2626",
-              textTransform: "uppercase",
-              letterSpacing: "0.04em",
-            }}
-          >
-            %
-          </div>
-        </div>
-
-        {data.items.map((item, idx) => (
-          <div
-            key={idx}
-            className="grid py-1.5"
-            style={{
-              gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr",
-              borderBottom: idx < data.items.length - 1 ? "1px solid #f9fafb" : "none",
-            }}
-          >
-            <div className="text-gray-800 truncate pr-2" style={{ fontSize: "13px", fontWeight: 600 }}>
-              {item.name}
-            </div>
-            <div className="text-center text-gray-600" style={{ fontSize: "13px" }}>
-              {item.required.toLocaleString()}
-            </div>
-            <div className="text-center text-gray-600" style={{ fontSize: "13px" }}>
-              {item.delivered.toLocaleString()}
-            </div>
-            <div
-              className="text-center"
-              style={{
-                fontSize: "13px",
-                fontWeight: item.remaining > 0 ? 700 : 400,
-                color: item.remaining > 0 ? "#dc2626" : "#6b7280",
-              }}
-            >
-              {item.remaining.toLocaleString()}
-            </div>
-            <div
-              className="text-center"
-              style={{
-                fontSize: "13px",
-                fontWeight: item.percentage > 0 ? 700 : 400,
-                color: item.percentage > 0 ? "#dc2626" : "#6b7280",
-              }}
-            >
-              {item.percentage}%
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div style={{ height: 1, background: "#f3f4f6", margin: "0 20px" }} />
-
-      <div className="px-5 py-3 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 flex-wrap min-w-0">
-          {data.tags.map((tag, idx) => (
+          {/* Country, estimate, status */}
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted-foreground">
+            {countryLabel ? (
+              <span className="flex items-center gap-1">
+                <MapPin className="h-3 w-3 shrink-0" />
+                {countryLabel}
+              </span>
+            ) : null}
+            {estimateLabel ? (
+              <span className="flex items-center gap-1">
+                <Calendar className="h-3 w-3 shrink-0" />
+                Est. {estimateLabel}
+              </span>
+            ) : null}
             <span
-              key={idx}
-              className="rounded-full truncate"
+              className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium"
               style={{
-                fontSize: "12px",
-                fontWeight: 500,
-                color: "#374151",
-                background: "#f9fafb",
-                border: "1px solid #e5e7eb",
-                padding: "2px 10px",
-                whiteSpace: "nowrap",
+                borderColor: cfg.border,
+                color: cfg.text,
+                backgroundColor: "hsl(var(--card))",
               }}
             >
-              {tag}
+              {/* <img
+                src={cfg.icon}
+                alt=""
+                width={cfg.iconSize}
+                height={cfg.iconSize}
+                className="shrink-0"
+              /> */}
+              {data.status}
             </span>
-          ))}
-        </div>
+          </div>
 
-        <div
-          className="absolute bottom-[-1px] right-[-1px] flex items-center gap-1.5 rounded-tl-[50px] px-4 py-1.5 flex-shrink-0"
-          style={{
-            border: `1.5px solid ${cfg.border}`,
-            background: cfg.bg,
-          }}
-        >
-          <img
-            src={cfg.icon}
-            alt={`${data.status} icon`}
-            style={{ width: cfg.iconSize, height: cfg.iconSize, flexShrink: 0 }}
-          />
-          <span style={{ fontSize: "13px", fontWeight: 600, color: cfg.text }}>
-            {data.status}
-          </span>
+          {/* Grass requirements + per-line progress */}
+          <div className="space-y-2">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              {tBase("ProjectForm.grassRequirements")}
+            </p>
+            {data.items.length === 0 ? (
+              <p className="text-xs text-muted-foreground">{tBase("ProjectDetail.noGrasses")}</p>
+            ) : (
+              data.items.map((item, idx) => {
+                const req = Math.max(0, item.required);
+                const del = Math.max(0, item.delivered);
+                const linePct =
+                  req > 0 ? Math.round((Math.min(del, req) / req) * 100) : 0;
+                const uom = String(item.uom ?? "").trim();
+                const uomSuffix = uom ? `\u00a0${uom}` : "";
+                return (
+                  <div key={idx} className="text-xs">
+                    <div className="mb-1 flex justify-between gap-2">
+                      <span className="min-w-0 truncate font-medium text-foreground">{item.name}</span>
+                      <span className="shrink-0 text-muted-foreground">
+                        {del.toLocaleString()}
+                        {" / "}
+                        {req.toLocaleString()}
+                        {uomSuffix} — {linePct}%
+                      </span>
+                    </div>
+                    <HarvestProgress value={linePct} className="h-1.5" />
+                  </div>
+                );
+              })
+            )}
+          </div>
+
+          {/* Overall progress */}
+          <div className="border-t border-border pt-2">
+            <div className="flex items-center justify-between text-sm">
+              <span className="font-medium text-foreground">{tProject("cardOverallProgress")}</span>
+              <span
+                className={cn(
+                  "font-bold",
+                  clampedProgress === 100 ? "text-primary" : "text-accent",
+                )}
+              >
+                {Math.round(clampedProgress)}%
+              </span>
+            </div>
+            <HarvestProgress value={clampedProgress} className="mt-1.5 h-2" />
+          </div>
+
+          {extraTags.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {extraTags.map((tag, idx) => (
+                <span
+                  key={`${tag}-${idx}`}
+                  className="truncate rounded-md border border-border px-2 py-0.5 text-xs text-foreground"
+                >
+                  {tag}
+                </span>
+              ))}
+            </div>
+          ) : null}
         </div>
       </div>
+
       {showImageModal ? (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"

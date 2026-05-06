@@ -162,13 +162,13 @@ export default function LoginForm() {
                 type="checkbox"
                 checked={remember}
                 onChange={(e) => setRemember(e.target.checked)}
-                className="rounded border-gray-300 text-[#1F7A4C] focus:ring-[#1F7A4C]"
+                className="rounded border-gray-300 text-foreground focus:ring-[#1F7A4C]"
               />
               <span className="text-sm text-gray-700">{t("rememberMe")}</span>
             </label>
             <Link
               href="/forgot-password"
-              className="text-sm text-[#1F7A4C] font-medium hover:underline shrink-0"
+              className="text-sm text-foreground font-medium hover:underline shrink-0"
             >
               {t("forgotPassword")}
             </Link>
@@ -192,7 +192,7 @@ export default function LoginForm() {
             {t("noAccount")}{" "}
             <Link
               href="/register"
-              className="text-[#1F7A4C] font-medium hover:underline"
+              className="text-foreground font-medium hover:underline"
             >
               {t("register")}
             </Link>

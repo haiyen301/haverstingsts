@@ -30,6 +30,9 @@ export function harvestApiRowToForecastRow(
 
   const farm = String(raw.farm_name ?? "");
   const grassType = String(raw.grass_name ?? "");
+  const zone = String(raw.zone ?? "").trim();
+  const project = String(raw.project_name ?? raw.project ?? "").trim();
+  const customer = String(raw.customer_name ?? raw.customer ?? "").trim();
   const harvestType = turfToHarvestType(raw.turf_type);
   const qty = Number(raw.quantity);
   const quantity = Number.isFinite(qty) ? qty : 0;
@@ -50,6 +53,9 @@ export function harvestApiRowToForecastRow(
     id: String(id),
     farm,
     grassType,
+    zone,
+    project,
+    customer,
     harvestType,
     harvestDate: harvestDateYmd,
     readyDate: readyDateYmd,

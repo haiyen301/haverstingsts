@@ -53,6 +53,8 @@ export type FlutterNewHarvestInput = {
   harvestedArea?: string;
   /** Maps to `ref_hrv_qty_sprig` in `project_harvesting_plan`. */
   refHrvQtySprig?: string;
+  /** Maps to `created_by` in `project_harvesting_plan` (set on create). */
+  createdBy?: string;
 };
 
 export type HarvestPhotoFiles = Partial<Record<HarvestDocPhotoField, File>>;
@@ -105,6 +107,7 @@ function buildRecordsJson(
       ? stripCommas(input.refHrvQtySprig)
       : null,
     license_plate: input.licensePlate.trim() || null,
+    created_by: input.createdBy?.trim() || null,
   };
 
   const uploadTypes: Record<string, "single"> = {};

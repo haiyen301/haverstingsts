@@ -86,7 +86,7 @@ export function MultiSelect({
             type="button"
             onClick={() => onChange([])}
             disabled={disabled || values.length === 0}
-            className="rounded px-2 py-1 text-xs font-medium text-[#1F7A4C] hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded px-2 py-1 text-xs font-medium text-foreground hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40"
           >
             Clear
           </button>
@@ -107,7 +107,7 @@ export function MultiSelect({
                 <span className="truncate pr-2">{opt.label}</span>
                 <Check
                   className={cn(
-                    "h-4 w-4 min-h-4 min-w-4 shrink-0 text-[#1F7A4C]",
+                    "h-4 w-4 min-h-4 min-w-4 shrink-0 text-foreground",
                     checked ? "opacity-100" : "opacity-0",
                   )}
                 />

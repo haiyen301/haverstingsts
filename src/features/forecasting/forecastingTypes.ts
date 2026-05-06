@@ -2,6 +2,9 @@ export type ForecastHarvestRow = {
   id: string;
   farm: string;
   grassType: string;
+  zone?: string;
+  project?: string;
+  customer?: string;
   harvestType: "sod" | "sprig";
   harvestDate: string;
   readyDate: string;

@@ -6,6 +6,8 @@ export type ProjectStatus = "Ongoing" | "Future" | "Done" | "Warning";
 
 export interface ProjectItem {
   name: string;
+  /** Unit of measure (e.g. kg, m²); shown after quantities on the card. */
+  uom?: string;
   required: number;
   delivered: number;
   remaining: number;
@@ -44,6 +46,8 @@ export type QuantityRequiredProject = {
   quantity_kg?: string | number | null;
   uom?: string;
   zone_id?: string;
+  /** Optional supplying farm (dynamic table / Next.js form). */
+  farm_id?: string | number;
 };
 
 export type SubItem = {
@@ -92,6 +96,12 @@ export interface MondayProjectServerRow {
   subitems?: unknown;
   start_date?: string;
   estimate_start_date?: string;
+  /** Main project contact + pace (optional dynamic-table fields). */
+  main_contact_name?: string;
+  main_contact_email?: string;
+  main_contact_phone?: string;
+  project_pace?: string;
+  actual_completion_date?: string;
 }
 
 export type MondayDynamicTableResponse = {

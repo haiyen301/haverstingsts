@@ -5,12 +5,18 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   Plus,
-  Building2,
   MapPin,
   Calendar,
   Image as ImageIcon,
   Trash2,
   Filter,
+  Users,
+  Phone,
+  Mail,
+  CheckCircle2,
+  Clock,
+  Pencil,
+  Maximize2,
 } from "lucide-react";
 
 import RequireAuth from "@/features/auth/RequireAuth";
@@ -32,12 +38,10 @@ import { zoneIdToLabel } from "@/shared/lib/harvestReferenceData";
 import { parseJsonMaybe, parseSubitems } from "@/shared/lib/parseJsonMaybe";
 import { calculateDeliveredQuantityDeliveryOnly } from "@/features/project/lib/subitemDeliveredQuantity";
 import { effectiveRequiredQuantityFromRecord } from "@/features/project/lib/effectiveRequirementQuantity";
-import { iconPaths } from "@/lib/assets/images";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
-import { SortableTh } from "@/components/ui/sortable-th";
-import { useTableColumnSort } from "@/shared/hooks/useTableColumnSort";
-import { compareNumbers, compareStrings } from "@/shared/lib/tableSort";
 import { translateProjectType } from "@/features/project/lib/projectTypeDisplay";
+import { cn } from "@/lib/utils";
+import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
 import { DatePicker } from "@/shared/ui/date-picker";
 import { Swiper, SwiperSlide } from "swiper/react";
 import { FreeMode } from "swiper/modules";
@@ -48,14 +52,43 @@ import "@fancyapps/ui/dist/fancybox/fancybox.css";
 
 type GrassRow = {
   id: string;
+  /** Product / grass label only (no UOM). */
   name: string;
+  /** Unit of measure; shown beside quantities, not in `name`. */
+  uom: string;
   required: number;
   delivered: number;
   remaining: number;
   progress: number;
 };
 
-type GrassSortKey = "name" | "required" | "delivered" | "remaining" | "progress";
+/** Parity with Harvesting Portal `ProjectHarvestStatus` / `deriveProjectHarvestStatus`. */
+type HarvestLineStatus =
+  | "planned"
+  | "scheduled"
+  | "harvested"
+  | "delivered"
+  | "completed";
+
+function deriveProjectHarvestStatusFromRecord(
+  r: Record<string, unknown>,
+): HarvestLineStatus {
+  const delivery = String(r.delivery_harvest_date ?? "").trim();
+  const harvest = String(r.actual_harvest_date ?? "").trim();
+  const est = String(r.estimated_harvest_date ?? "").trim();
+  if (isValidDate(delivery)) return "delivered";
+  if (isValidDate(harvest)) return "harvested";
+  if (isValidDate(est)) return "scheduled";
+  return "planned";
+}
+
+const HARVEST_STATUS_ROW_CLASSES: Record<HarvestLineStatus, string> = {
+  planned: "text-muted-foreground",
+  scheduled: "text-accent",
+  harvested: "text-info",
+  delivered: "text-primary",
+  completed: "text-primary",
+};
 
 type HarvestRow = {
   id: string;
@@ -64,7 +97,7 @@ type HarvestRow = {
   tableName: string;
   productId: string;
   uom: string;
-  status: "done" | "progressing";
+  status: HarvestLineStatus;
   /** ISO yyyy-mm-dd for date-range filter. */
   filterDate: string;
   createdAt: string;
@@ -129,7 +162,7 @@ function mapHarvestRecordToHarvestRow(
 ): HarvestRow {
   const actual = String(r.actual_harvest_date ?? "").trim();
   const estimated = String(r.estimated_harvest_date ?? "").trim();
-  const status = isValidDate(actual) ? "done" : "progressing";
+  const status = deriveProjectHarvestStatusFromRecord(r);
   const attachments: Array<{ label: string; url: string }> = HARVEST_ATTACHMENT_SOURCES.map(
     (src) => ({
       label: src.label,
@@ -308,6 +341,34 @@ function harvestLimitStatusFromDescription(raw: unknown): HarvestRow["limitStatu
   return null;
 }
 
+/** Harvesting Portal `Progress` parity — track `bg-secondary`, fill `bg-primary`. */
+function DetailProgress({
+  value,
+  className,
+}: {
+  value: number;
+  className?: string;
+}) {
+  const v = Math.max(0, Math.min(100, Math.round(value)));
+  return (
+    <div
+      className={cn(
+        "relative w-full overflow-hidden rounded-full bg-secondary",
+        className,
+      )}
+      role="progressbar"
+      aria-valuenow={v}
+      aria-valuemin={0}
+      aria-valuemax={100}
+    >
+      <div
+        className="h-full rounded-full bg-primary transition-all duration-500"
+        style={{ width: `${v}%` }}
+      />
+    </div>
+  );
+}
+
 export default function ProjectDetailPage() {
   // Namespace-scoped translators: `useTranslations()` without a namespace + dynamic
   // `ProjectDetail.${key}` can fail to resolve some nested keys in next-intl 4 (fallback shows
@@ -356,6 +417,9 @@ export default function ProjectDetailPage() {
   const [harvestDeleteError, setHarvestDeleteError] = useState<string | null>(null);
   const [harvestFilterOpen, setHarvestFilterOpen] = useState(false);
   const [harvestGrassFilter, setHarvestGrassFilter] = useState("");
+  const [harvestStatusFilter, setHarvestStatusFilter] = useState<"" | HarvestLineStatus>(
+    "",
+  );
   const [harvestDateFrom, setHarvestDateFrom] = useState("");
   const [harvestDateTo, setHarvestDateTo] = useState("");
   const currentProjectId = useMemo(
@@ -597,6 +661,10 @@ export default function ProjectDetailPage() {
       actualStartDate: formatDateDisplay(actualStartRaw),
       endDate: formatDateDisplay(r.deadline),
       keyAreas: keyAreasParsed,
+      mainContactName: String(rec.main_contact_name ?? "").trim(),
+      mainContactEmail: String(rec.main_contact_email ?? "").trim(),
+      mainContactPhone: String(rec.main_contact_phone ?? "").trim(),
+      actualCompletionDisplay: formatDateDisplay(rec.actual_completion_date),
     };
   }, [projectRow, projectTitleMap, countryMap, staffMap, tProjectForm]);
 
@@ -626,7 +694,8 @@ export default function ProjectDetailPage() {
         t("unknownGrass");
       return {
         id: `${productId || "item"}-${idx}`,
-        name: `${productName}${uom ? ` (${uom})` : ""}`,
+        name: productName,
+        uom,
         required,
         delivered,
         remaining,
@@ -635,28 +704,22 @@ export default function ProjectDetailPage() {
     });
   }, [deliveredQuantityRows, projectRow, productMap, t]);
 
-  const { sortKey, sortDir, onSort } = useTableColumnSort<GrassSortKey>("name");
+  const overallPercent = useMemo(() => {
+    const totalReq = grassRows.reduce((s, g) => s + g.required, 0);
+    const totalDel = grassRows.reduce(
+      (s, g) => s + Math.min(g.delivered, g.required),
+      0,
+    );
+    return totalReq > 0 ? Math.round((totalDel / totalReq) * 100) : 0;
+  }, [grassRows]);
 
   const sortedGrassRows = useMemo(() => {
-    const list = [...grassRows];
-    list.sort((a, b) => {
-      switch (sortKey) {
-        case "name":
-          return compareStrings(a.name, b.name, sortDir);
-        case "required":
-          return compareNumbers(a.required, b.required, sortDir);
-        case "delivered":
-          return compareNumbers(a.delivered, b.delivered, sortDir);
-        case "remaining":
-          return compareNumbers(a.remaining, b.remaining, sortDir);
-        case "progress":
-          return compareNumbers(a.progress, b.progress, sortDir);
-        default:
-          return 0;
-      }
+    return [...grassRows].sort((a, b) => {
+      const byName = a.name.localeCompare(b.name);
+      if (byName !== 0) return byName;
+      return a.uom.localeCompare(b.uom);
     });
-    return list;
-  }, [grassRows, sortKey, sortDir]);
+  }, [grassRows]);
 
   const harvestsWithProductNames = useMemo(() => {
     return harvests.map((h) => {
@@ -684,6 +747,7 @@ export default function ProjectDetailPage() {
     const toIso = normalizeDateFilterInput(harvestDateTo);
     const filtered = harvestsWithProductNames.filter((h) => {
       if (harvestGrassFilter && h.grass !== harvestGrassFilter) return false;
+      if (harvestStatusFilter && h.status !== harvestStatusFilter) return false;
       if (fromIso && h.filterDate && h.filterDate < fromIso) return false;
       if (toIso && h.filterDate && h.filterDate > toIso) return false;
       if ((fromIso || toIso) && !h.filterDate) return false;
@@ -701,9 +765,16 @@ export default function ProjectDetailPage() {
       if (!ad && bd) return 1;
       return String(b.id).localeCompare(String(a.id));
     });
-  }, [harvestDateFrom, harvestDateTo, harvestGrassFilter, harvestsWithProductNames]);
+  }, [
+    harvestDateFrom,
+    harvestDateTo,
+    harvestGrassFilter,
+    harvestStatusFilter,
+    harvestsWithProductNames,
+  ]);
   const hasActiveHarvestFilters = Boolean(
     harvestGrassFilter.trim() ||
+      harvestStatusFilter ||
       normalizeDateFilterInput(harvestDateFrom) ||
       normalizeDateFilterInput(harvestDateTo),
   );
@@ -743,28 +814,34 @@ export default function ProjectDetailPage() {
   return (
     <RequireAuth>
       <DashboardLayout>
-        <div className="p-4 lg:p-8 bg-gradient-to-br from-gray-50 to-gray-100 min-h-screen">
-          <div className="mb-6 flex items-center justify-between gap-4">
-            <button
-              type="button"
-              onClick={() => router.push(projectsListBackHref)}
-              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              {t("backToProjects")}
-            </button>
-          </div>
-
-          {error ? <p className="mb-4 text-sm text-red-600">{error}</p> : null}
+        <div className="dashboard-harvesting-skin min-h-full min-w-0 flex-1 p-4 lg:p-8">
+          {error ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
           {loading ? (
-            <p className="text-sm text-gray-600">{t("loading")}</p>
+            <p className="text-sm text-muted-foreground">{t("loading")}</p>
           ) : !projectRow || !basic ? (
-            <p className="text-sm text-gray-600">{t("empty")}</p>
+            <p className="text-sm text-muted-foreground">{t("empty")}</p>
           ) : (
-            <>
-              <section className="mb-8 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-lg">
-                <div className="flex items-center justify-between bg-[var(--primary-color)] px-8 py-4">
-                  <h2 className="uppercase tracking-wider text-white">{t("projectDetails")}</h2>
+            <div className="space-y-6">
+              {/* Header — parity with Harvesting Portal ProjectDetailPage */}
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => router.push(projectsListBackHref)}
+                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                  aria-label={t("backToProjects")}
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                </button>
+                <div className="min-w-0 flex-1">
+                  <h1 className="font-heading text-2xl font-bold text-foreground">
+                    {basic.projectName}
+                  </h1>
+                  <p className="text-sm text-muted-foreground">{basic.company}</p>
+                </div>
+                <div className="ml-auto flex shrink-0 items-center gap-2">
+                  <span className="inline-flex items-center rounded-md border border-border px-2.5 py-0.5 text-xs font-semibold text-foreground">
+                    {basic.projectType}
+                  </span>
                   <button
                     type="button"
                     onClick={() => {
@@ -776,137 +853,203 @@ export default function ProjectDetailPage() {
                         `/projects/new?rowId=${encodeURIComponent(editRowId)}&tableId=${encodeURIComponent(editTableId)}&returnTo=${encodeURIComponent(returnTo)}`,
                       );
                     }}
-                    className="rounded-lg p-2 text-white transition-colors hover:bg-white/10"
+                    className="inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground ring-offset-background transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0"
+                    aria-label={t("editProject")}
                   >
-                    <svg width="20" height="20" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M2.25 14.5H8.55H14.5M0.5 13.268V10.608L10.4159 1.06225C10.7907 0.701519 11.2906 0.5 11.8107 0.5H12.1203C13.1081 0.5 13.8925 1.33059 13.8362 2.31671C13.8128 2.72543 13.6444 3.11239 13.3611 3.40793L4.42 12.736L1.13147 13.7774C1.0841 13.7924 1.03472 13.8 0.985037 13.8C0.717158 13.8 0.5 13.5826 0.5 13.3148C0.5 13.1198 0.5 13.0218 0.5 13.268Z" stroke="#FFFFFF" />
-                    </svg>
-
+                    <Pencil className="h-4 w-4" aria-hidden />
+                    {t("editProject")}
                   </button>
                 </div>
-                <div className="p-6 lg:p-8">
-                  <div className="mb-8 grid grid-cols-1 gap-6 lg:grid-cols-3 rounded-xl border border-gray-200 bg-gradient-to-br from-gray-50 to-white p-6">
-                    <div>
-                      <div className="space-y-3 text-sm">
-                        <p><span className="inline-block w-[130px] text-gray-500">{t("projectName")} </span>{basic.projectName}</p>
-                        <p><span className="inline-block w-[130px] text-gray-500">{t("golfClubStadium")} </span>{basic.golfClub}</p>
-                        <p><span className="inline-block w-[130px] text-gray-500">{t("companyName")} </span>{basic.company}</p>
-                        <p><span className="inline-block w-[130px] text-gray-500">{tProjectForm("odooCustomerRef")} </span>{basic.odooCustomerRef}</p>
-                        <p><span className="inline-block w-[130px] text-gray-500">{t("golfCourseArchitect")} </span>{basic.architect}</p>
-                      </div>
-                    </div>
+              </div>
 
-                    <div>
-                      <div className="space-y-3 text-sm">
-                        <p><span className="inline-block w-[120px] text-gray-500">{t("country")} </span>{basic.country}</p>
-                        <p><span className="inline-block w-[120px] text-gray-500">{t("personInCharge")} </span>{basic.pic}</p>
-                        <p><span className="inline-block w-[120px] text-gray-500">{t("projectType")} </span>{basic.projectType}</p>
-                        <p><span className="inline-block w-[120px] text-gray-500">{t("noOfHoles")} </span>{basic.holes}</p>
-                      </div>
-                    </div>
-
-                    <div>
-                      <div className="space-y-3 text-sm">
-                        <p><span className="inline-block w-[130px] text-gray-500">{t("estimateStartDate")} </span>{basic.estimateStartDate}</p>
-                        <p><span className="inline-block w-[130px] text-gray-500">{t("actualStartDate")} </span>{basic.actualStartDate}</p>
-                        <p><span className="inline-block w-[130px] text-gray-500">{t("endDate")} </span>{basic.endDate}</p>
-                        <div className="flex flex-wrap gap-1 pt-1">
-                          <p><span className="text-gray-500">{t("keyAreas")} </span></p>
-                          {(basic.keyAreas.length ? basic.keyAreas : ["-"]).map((a) => (
-                            <span key={a} className="rounded-full bg-green-50 px-3 py-1 text-xs text-green-700">
-                              {a}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
+              {/* Info cards */}
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <div className="rounded-lg border border-border bg-card text-card-foreground shadow-sm">
+                  <div className="space-y-1.5 p-4">
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      {t("location")}
+                    </p>
+                    <p className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+                      <MapPin className="h-3.5 w-3.5 text-muted-foreground" />
+                      {basic.country}
+                    </p>
                   </div>
-
-                  <div className="rounded-xl border-gray-200">
-                    <h3 className="mb-4 border-b border-gray-200 pb-3 uppercase tracking-wider text-[#5a7d3c]">
-                      {t("grassesDetails")}
-                    </h3>
-                    <div className="overflow-x-auto rounded-xl border border-gray-200">
-                      <table className="w-full min-w-[760px]">
-                        <thead className="bg-white">
-                          <tr className="text-left text-xs uppercase tracking-wide text-gray-700">
-                            <SortableTh
-                              label={t("grassType")}
-                              columnKey="name"
-                              activeKey={sortKey}
-                              direction={sortDir}
-                              onSort={onSort}
-                              className="px-4 py-3 !normal-case"
-                            />
-                            <SortableTh
-                              label={t("required")}
-                              columnKey="required"
-                              activeKey={sortKey}
-                              direction={sortDir}
-                              onSort={onSort}
-                              align="right"
-                              className="px-4 py-3 !normal-case"
-                            />
-                            <SortableTh
-                              label={t("delivered")}
-                              columnKey="delivered"
-                              activeKey={sortKey}
-                              direction={sortDir}
-                              onSort={onSort}
-                              align="right"
-                              className="px-4 py-3 !normal-case"
-                            />
-                            <SortableTh
-                              label={t("remaining")}
-                              columnKey="remaining"
-                              activeKey={sortKey}
-                              direction={sortDir}
-                              onSort={onSort}
-                              align="right"
-                              className="px-4 py-3 !normal-case"
-                            />
-                            <SortableTh
-                              label={t("progress")}
-                              columnKey="progress"
-                              activeKey={sortKey}
-                              direction={sortDir}
-                              onSort={onSort}
-                              align="right"
-                              className="px-4 py-3 !normal-case"
-                            />
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-200 bg-white">
-                          {sortedGrassRows.length === 0 ? (
-                            <tr><td className="px-4 py-4 text-sm text-gray-500" colSpan={5}>{t("noGrasses")}</td></tr>
-                          ) : (
-                            sortedGrassRows.map((g) => (
-                              <tr key={g.id} className="hover:bg-gray-50">
-                                <td className="px-4 py-3 text-sm text-gray-900">{g.name}</td>
-                                <td className="px-4 py-3 text-right text-sm">{g.required.toLocaleString()}</td>
-                                <td className="px-4 py-3 text-right text-sm">{g.delivered.toLocaleString()}</td>
-                                <td className="px-4 py-3 text-right text-sm text-red-600">{g.remaining.toLocaleString()}</td>
-                                <td className="px-4 py-3">
-                                  <div className="flex items-center justify-end gap-2">
-                                    <div className="h-2 w-24 overflow-hidden rounded-full bg-gray-200">
-                                      <div className="h-full rounded-full bg-gradient-to-r from-[#5a7d3c] to-[#6b8f4a]" style={{ width: `${g.progress}%` }} />
-                                    </div>
-                                    <span className="w-10 text-right text-sm text-[#5a7d3c]">{g.progress}%</span>
-                                  </div>
-                                </td>
-                              </tr>
-                            ))
-                          )}
-                        </tbody>
-                      </table>
+                </div>
+                <div className="rounded-lg border border-border bg-card text-card-foreground shadow-sm">
+                  <div className="space-y-1.5 p-4">
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      {t("personInCharge")}
+                    </p>
+                    <p className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+                      <Users className="h-3.5 w-3.5 text-muted-foreground" />
+                      {basic.pic}
+                    </p>
+                  </div>
+                </div>
+                <div className="rounded-lg border border-border bg-card text-card-foreground shadow-sm">
+                  <div className="space-y-1.5 p-4">
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      {t("estCompletion")}
+                    </p>
+                    <p className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+                      <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+                      {basic.endDate}
+                    </p>
+                  </div>
+                </div>
+                <div className="rounded-lg border border-border bg-card text-card-foreground shadow-sm">
+                  <div className="space-y-1.5 p-4">
+                    <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                      {t("overallProgress")}
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <DetailProgress value={overallPercent} className="h-2 flex-1" />
+                      <span
+                        className={`text-sm font-bold ${overallPercent === 100 ? "text-primary" : "text-accent"}`}
+                      >
+                        {overallPercent}%
+                      </span>
                     </div>
                   </div>
                 </div>
-              </section>
+              </div>
 
-              <section className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-lg">
-                <div className="flex items-center justify-between bg-[var(--primary-color)] px-8 py-4">
-                  <h2 className="uppercase tracking-wider text-white">{t("harvestHistory")}</h2>
+              {/* Contact & grass requirements */}
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="rounded-lg border border-border bg-card text-card-foreground shadow-sm">
+                  <div className="space-y-1.5 p-6 pb-3">
+                    <h2 className="text-base font-semibold leading-none tracking-tight">
+                      {t("mainContact")}
+                    </h2>
+                  </div>
+                  <div className="space-y-2 p-6 pt-0 text-sm">
+                    <p className="flex items-center gap-2">
+                      <Users className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <span className="text-foreground">
+                        {basic.mainContactName || "—"}
+                      </span>
+                    </p>
+                    <p className="flex items-center gap-2">
+                      <Mail className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <span className="text-foreground">
+                        {basic.mainContactEmail || "—"}
+                      </span>
+                    </p>
+                    <p className="flex items-center gap-2">
+                      <Phone className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <span className="text-foreground">
+                        {basic.mainContactPhone || "—"}
+                      </span>
+                    </p>
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-border bg-card text-card-foreground shadow-sm">
+                  <div className="space-y-1.5 p-6 pb-3">
+                    <h2 className="text-base font-semibold leading-none tracking-tight">
+                      {t("grassRequirements")}
+                    </h2>
+                  </div>
+                  <div className="space-y-3 p-6 pt-0">
+                    {sortedGrassRows.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">{t("noGrasses")}</p>
+                    ) : (
+                      sortedGrassRows.map((g) => (
+                        <div key={g.id}>
+                          <div className="mb-1 flex justify-between text-sm">
+                            <span className="font-medium text-foreground">{g.name}</span>
+                            <span className="text-muted-foreground">
+                              {g.delivered.toLocaleString()} / {g.required.toLocaleString()}
+                              {g.uom ? ` ${g.uom}` : ""} — {g.progress}%
+                            </span>
+                          </div>
+                          <DetailProgress value={g.progress} className="h-1.5" />
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Golf details (includes architect) */}
+              {basic.holes !== "-" ||
+              basic.keyAreas.length > 0 ||
+              (basic.architect && basic.architect !== "-") ? (
+                <div className="rounded-lg border border-border bg-card text-card-foreground shadow-sm">
+                  <div className="space-y-1.5 p-6 pb-3">
+                    <h2 className="text-base font-semibold leading-none tracking-tight">
+                      {t("golfCourseDetails")}
+                    </h2>
+                  </div>
+                  <div className="flex flex-wrap gap-4 p-6 pt-0 text-sm">
+                    {basic.holes !== "-" ? (
+                      <div>
+                        <span className="text-muted-foreground">{t("holesLabel")} </span>
+                        <span className="font-medium text-foreground">{basic.holes}</span>
+                      </div>
+                    ) : null}
+                    {basic.keyAreas.length > 0 ? (
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-muted-foreground">{t("keyAreasLabel")} </span>
+                        {basic.keyAreas.map((a) => (
+                          <span
+                            key={a}
+                            className="inline-flex items-center rounded-md border border-transparent bg-secondary px-2 py-0.5 text-xs font-medium text-secondary-foreground"
+                          >
+                            {a}
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                    {basic.architect && basic.architect !== "-" ? (
+                      <div className="w-full min-w-[200px]">
+                        <span className="text-muted-foreground">{t("golfCourseArchitect")} </span>
+                        <span className="font-medium text-foreground">{basic.architect}</span>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+
+              {/* Project timeline */}
+              <div className="rounded-lg border border-border bg-card text-card-foreground shadow-sm">
+                <div className="space-y-1.5 p-6 pb-3">
+                  <h2 className="text-base font-semibold leading-none tracking-tight">
+                    {t("projectTimeline")}
+                  </h2>
+                </div>
+                <div className="p-6 pt-0">
+                  <div className="grid grid-cols-2 gap-4 text-sm md:grid-cols-4">
+                    <div>
+                      <p className="mb-0.5 text-xs text-muted-foreground">{t("estStartShort")}</p>
+                      <p className="font-medium text-foreground">{basic.estimateStartDate}</p>
+                    </div>
+                    <div>
+                      <p className="mb-0.5 text-xs text-muted-foreground">{t("actualStartShort")}</p>
+                      <p className="font-medium text-foreground">
+                        {basic.actualStartDate || "—"}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="mb-0.5 text-xs text-muted-foreground">{t("estCompletionShort")}</p>
+                      <p className="font-medium text-foreground">{basic.endDate}</p>
+                    </div>
+                    <div>
+                      <p className="mb-0.5 text-xs text-muted-foreground">{t("actualCompletionShort")}</p>
+                      <p className="font-medium text-foreground">
+                        {basic.actualCompletionDisplay || "—"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Harvests — table + filters (full parity with app data) */}
+              <div className="rounded-lg border border-border bg-card text-card-foreground shadow-sm">
+                <div className="flex flex-row items-center justify-between space-y-0 p-6 pb-3">
+                  <h2 className="text-base font-semibold leading-none tracking-tight">
+                    {t("harvestHistory")} ({harvests.length})
+                  </h2>
                   <button
                     type="button"
                     onClick={() =>
@@ -914,14 +1057,16 @@ export default function ProjectDetailPage() {
                         `/harvest/new?returnTo=${encodeURIComponent(returnTo)}&projectId=${encodeURIComponent(currentProjectId)}`,
                       )
                     }
-                    className="rounded-lg bg-white/20 p-2 text-white hover:bg-white/30"
+                    className="inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground ring-offset-background transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0"
+                    aria-label={t("addHarvest")}
                   >
-                    <Plus className="h-5 w-5" />
+                    <Plus className="h-4 w-4" aria-hidden />
+                    {t("addHarvest")}
                   </button>
                 </div>
-                <div className="p-6 lg:p-8">
+                <div className="space-y-4 p-6 pt-0">
                   {harvestDeleteError ? (
-                    <p className="mb-3 text-sm text-red-600" role="alert">
+                    <p className="mb-3 text-sm text-destructive" role="alert">
                       {harvestDeleteError}
                     </p>
                   ) : null}
@@ -931,10 +1076,14 @@ export default function ProjectDetailPage() {
                         type="button"
                         onClick={() => {
                           setHarvestGrassFilter("");
+                          setHarvestStatusFilter("");
                           setHarvestDateFrom("");
                           setHarvestDateTo("");
                         }}
-                        className="inline-flex items-center rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                        className={cn(
+                          "inline-flex items-center rounded-md border border-border px-3 py-2 text-sm text-foreground hover:bg-muted",
+                          bgSurfaceFilter(true),
+                        )}
                       >
                         {t("clearFilters")}
                       </button>
@@ -944,18 +1093,25 @@ export default function ProjectDetailPage() {
                     <button
                       type="button"
                       onClick={() => setHarvestFilterOpen((v) => !v)}
-                      className="inline-flex items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                      className={cn(
+                        "inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm text-foreground hover:bg-muted",
+                        bgSurfaceFilter(hasActiveHarvestFilters),
+                      )}
                     >
                       <span>{t("filter")}</span>
                       <Filter className="h-4 w-4" />
                     </button>
                   </div>
                   {harvestFilterOpen ? (
-                    <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+                    <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
                       <select
                         value={harvestGrassFilter}
                         onChange={(e) => setHarvestGrassFilter(e.target.value)}
-                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                        className={cn(
+                          "w-full rounded-md border border-input px-3 py-2 text-sm text-foreground",
+                          bgSurfaceFilter(!!harvestGrassFilter.trim()),
+                        )}
+                        aria-label={t("grass")}
                       >
                         <option value="">{t("allGrassTypes")}</option>
                         {harvestGrassOptions.map((g) => (
@@ -963,6 +1119,24 @@ export default function ProjectDetailPage() {
                             {g}
                           </option>
                         ))}
+                      </select>
+                      <select
+                        value={harvestStatusFilter}
+                        onChange={(e) =>
+                          setHarvestStatusFilter(e.target.value as "" | HarvestLineStatus)
+                        }
+                        className={cn(
+                          "w-full rounded-md border border-input px-3 py-2 text-sm text-foreground",
+                          bgSurfaceFilter(Boolean(harvestStatusFilter)),
+                        )}
+                        aria-label={t("filterHarvestStatus")}
+                      >
+                        <option value="">{t("allStatuses")}</option>
+                        <option value="planned">{t("harvestStatus_planned")}</option>
+                        <option value="scheduled">{t("harvestStatus_scheduled")}</option>
+                        <option value="harvested">{t("harvestStatus_harvested")}</option>
+                        <option value="delivered">{t("harvestStatus_delivered")}</option>
+                        <option value="completed">{t("harvestStatus_completed")}</option>
                       </select>
                       <DatePicker
                         value={normalizeDateFilterInput(harvestDateFrom)}
@@ -979,62 +1153,87 @@ export default function ProjectDetailPage() {
                     </div>
                   ) : null}
                   {harvests.length === 0 ? (
-                    <p className="text-sm text-gray-600">{t("noHarvestRecords")}</p>
+                    <p className="py-6 text-center text-sm text-muted-foreground">
+                      {t("noHarvestRecords")}
+                    </p>
                   ) : filteredHarvests.length === 0 ? (
-                    <p className="text-sm text-gray-600">{t("noHarvestRecordsFiltered")}</p>
+                    <p className="py-6 text-center text-sm text-muted-foreground">
+                      {t("noHarvestRecordsFiltered")}
+                    </p>
                   ) : (
-                    <div className="overflow-x-auto rounded-xl border border-gray-200">
-                      <table className="w-full min-w-[860px]">
-                        <thead className="bg-gray-50">
-                          <tr className="text-left text-xs uppercase tracking-wide text-gray-700">
-                            <th className="px-4 py-3">#</th>
-                            <th className="px-4 py-3">{t("date")}</th>
-                            <th className="px-4 py-3">{t("grass")}</th>
-                            <th className="px-4 py-3">{t("zone")}</th>
-                            <th className="px-4 py-3 text-center">{t("quantity")}</th>
-                            <th className="px-4 py-3 text-center">{tCommon("status")}</th>
-                            <th className="px-4 py-3 text-center">Action</th>
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-[900px] text-sm">
+                        <thead>
+                          <tr className="border-b border-border text-left">
+                            <th className="pb-2 pr-4 font-medium text-muted-foreground">
+                              {t("date")}
+                            </th>
+                            <th className="pb-2 pr-4 font-medium text-muted-foreground">
+                              {t("grass")}
+                            </th>
+                            <th className="pb-2 pr-4 font-medium text-muted-foreground">
+                              {t("farm")}
+                            </th>
+                            <th className="pb-2 pr-4 font-medium text-muted-foreground">
+                              {t("zone")}
+                            </th>
+                            <th className="pb-2 pr-4 text-right font-medium text-muted-foreground">
+                              {t("quantity")}
+                            </th>
+                            <th className="pb-2 pr-4 text-right font-medium text-muted-foreground">
+                              {t("areaM2Short")}
+                            </th>
+                            <th className="pb-2 pr-4 font-medium text-muted-foreground">
+                              {tCommon("status")}
+                            </th>
+                            <th className="pb-2 font-medium text-muted-foreground text-right">
+                              {t("rowActions")}
+                            </th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-gray-200 bg-white">
-                          {filteredHarvests.map((h, idx) => {
-                            const statusCircleClass =
-                              h.status === "done"
-                                ? "border-[var(--primary-color)] text-[var(--primary-color)] bg-green-50"
-                                : "border-[#ECD929] text-[#8a7600] bg-yellow-50";
+                        <tbody>
+                          {filteredHarvests.map((h) => {
+                            const areaDisplay =
+                              h.harvestedAreaM2Display ??
+                              h.harvestedAreaDisplay ??
+                              "—";
+                            const StatusIcon =
+                              h.status === "delivered" || h.status === "completed"
+                                ? CheckCircle2
+                                : Clock;
                             return (
                               <tr
                                 key={h.id}
-                                className="cursor-pointer hover:bg-gray-50"
+                                className="cursor-pointer border-b border-border/50 last:border-0 hover:bg-muted/50"
                                 onClick={() => setExpandedHarvestId(h.id)}
                               >
-                                <td className="px-4 py-3 text-sm text-gray-700">{filteredHarvests.length - idx}</td>
-                                <td className="px-4 py-3 text-sm text-gray-700">{h.date}</td>
-                                <td className="px-4 py-3 text-sm text-gray-900">
+                                <td className="py-2.5 pr-4 text-foreground">{h.date}</td>
+                                <td className="py-2.5 pr-4 font-medium text-foreground">
                                   <span className="inline-flex items-center gap-1">
                                     <span>{h.grass}</span>
                                     <HarvestLimitQuestionMark status={h.limitStatus} />
                                   </span>
                                 </td>
-                                <td className="px-4 py-3 text-sm text-gray-700">{h.zone}</td>
-                                <td className="px-4 py-3 text-center text-sm text-gray-700">
+                                <td className="py-2.5 pr-4 text-muted-foreground">
+                                  {h.tableName || "—"}
+                                </td>
+                                <td className="py-2.5 pr-4 text-muted-foreground">{h.zone}</td>
+                                <td className="py-2.5 pr-4 text-right text-foreground">
                                   {h.quantity}
                                 </td>
-                                <td className="px-4 py-3 text-sm text-center">
+                                <td className="py-2.5 pr-4 text-right text-foreground">
+                                  {areaDisplay}
+                                </td>
+                                <td className="py-2.5 pr-4">
                                   <span
-                                    className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium ${statusCircleClass}`}
+                                    className={`inline-flex items-center gap-1 text-xs font-medium capitalize ${HARVEST_STATUS_ROW_CLASSES[h.status] ?? "text-muted-foreground"}`}
                                   >
-                                    <span
-                                      className={`inline-block h-2.5 w-2.5 rounded-full border ${h.status === "done"
-                                        ? "border-[var(--primary-color)] bg-[var(--primary-color)]"
-                                        : "border-[#ECD929] bg-[#ECD929]"
-                                        }`}
-                                    />
-                                    {h.status === "done" ? t("statusDone") : t("statusProgressing")}
+                                    <StatusIcon className="h-3.5 w-3.5" />
+                                    {h.status}
                                   </span>
                                 </td>
-                                <td className="px-4 py-3 text-center">
-                                  <div className="flex items-center justify-center gap-1">
+                                <td className="py-2.5 text-right">
+                                  <div className="flex items-center justify-end gap-1">
                                     <button
                                       type="button"
                                       onClick={(e) => {
@@ -1043,12 +1242,11 @@ export default function ProjectDetailPage() {
                                           `/harvest/new?id=${encodeURIComponent(h.id)}&returnTo=${encodeURIComponent(returnTo)}`,
                                         );
                                       }}
-                                      className="rounded-lg p-2 text-[#5a7d3c] transition-colors hover:bg-green-50"
+                                      className="rounded-md p-2 text-primary hover:bg-muted"
                                       aria-label={tCommon("edit")}
+                                      title={tCommon("edit")}
                                     >
-                                      <svg width="20" height="20" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                        <path d="M2.25 14.5H8.55H14.5M0.5 13.268V10.608L10.4159 1.06225C10.7907 0.701519 11.2906 0.5 11.8107 0.5H12.1203C13.1081 0.5 13.8925 1.33059 13.8362 2.31671C13.8128 2.72543 13.6444 3.11239 13.3611 3.40793L4.42 12.736L1.13147 13.7774C1.0841 13.7924 1.03472 13.8 0.985037 13.8C0.717158 13.8 0.5 13.5826 0.5 13.3148C0.5 13.1198 0.5 13.0218 0.5 13.268Z" stroke="#1f7a4c" />
-                                      </svg>
+                                      <Pencil className="h-4 w-4" />
                                     </button>
                                     <button
                                       type="button"
@@ -1056,13 +1254,11 @@ export default function ProjectDetailPage() {
                                         e.stopPropagation();
                                         setExpandedHarvestId(h.id);
                                       }}
-                                      className="rounded-lg p-2 text-[#5a7d3c] transition-colors hover:bg-green-50"
-                                      aria-label="Expand"
+                                      className="rounded-md p-2 text-primary hover:bg-muted"
+                                      aria-label={t("expandHarvestRow")}
+                                      title={t("expandHarvestRow")}
                                     >
-                                      <svg width="20" height="20" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                        <path d="M2 10H1.5V10.5H2V10ZM4.85355 7.85355C5.04882 7.65829 5.04882 7.34171 4.85355 7.14645C4.65829 6.95118 4.34171 6.95118 4.14645 7.14645L4.5 7.5L4.85355 7.85355ZM2 7H1.5V10H2H2.5V7H2ZM2 10V10.5H5V10V9.5H2V10ZM2 10L2.35355 10.3536L4.85355 7.85355L4.5 7.5L4.14645 7.14645L1.64645 9.64645L2 10Z" fill="#1f7a4c" />
-                                        <path d="M10 2H10.5V1.5H10V2ZM7.14645 4.14645C6.95118 4.34171 6.95118 4.65829 7.14645 4.85355C7.34171 5.04882 7.65829 5.04882 7.85355 4.85355L7.5 4.5L7.14645 4.14645ZM10 5H10.5V2H10H9.5V5H10ZM10 2V1.5H7V2V2.5H10V2ZM10 2L9.64645 1.64645L7.14645 4.14645L7.5 4.5L7.85355 4.85355L10.3536 2.35355L10 2Z" fill="#1f7a4c" />
-                                      </svg>
+                                      <Maximize2 className="h-4 w-4" />
                                     </button>
                                   </div>
                                 </td>
@@ -1074,8 +1270,8 @@ export default function ProjectDetailPage() {
                     </div>
                   )}
                 </div>
-              </section>
-            </>
+              </div>
+            </div>
           )}
         </div>
       </DashboardLayout>
@@ -1135,6 +1331,10 @@ export default function ProjectDetailPage() {
           {(() => {
             const h = harvestsWithProductNames.find((item) => item.id === expandedHarvestId);
             if (!h) return null;
+            const HeaderStatusIcon =
+              h.status === "delivered" || h.status === "completed"
+                ? CheckCircle2
+                : Clock;
             return (
               <div
                 className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl lg:p-6"
@@ -1147,18 +1347,10 @@ export default function ProjectDetailPage() {
                   <div className="flex items-center gap-3">
                     <span className="text-sm font-semibold text-gray-500">#{filteredHarvests.findIndex((x) => x.id === h.id) + 1}</span>
                     <span
-                      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium ${h.status === "done"
-                        ? "border-[var(--primary-color)] bg-green-50 text-[var(--primary-color)]"
-                        : "border-[#ECD929] bg-yellow-50 text-[#8a7600]"
-                        }`}
+                      className={`inline-flex items-center gap-1 text-xs font-medium capitalize ${HARVEST_STATUS_ROW_CLASSES[h.status] ?? "text-muted-foreground"}`}
                     >
-                      <span
-                        className={`inline-block h-2.5 w-2.5 rounded-full border ${h.status === "done"
-                          ? "border-[var(--primary-color)] bg-[var(--primary-color)]"
-                          : "border-[#ECD929] bg-[#ECD929]"
-                          }`}
-                      />
-                      {h.status === "done" ? t("statusDone") : t("statusProgressing")}
+                      <HeaderStatusIcon className="h-3.5 w-3.5" />
+                      {h.status}
                     </span>
                   </div>
                   <div className="flex items-center gap-1">

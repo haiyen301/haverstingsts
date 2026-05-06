@@ -7,6 +7,8 @@ import * as XLSX from "xlsx";
 import RequireAuth from "@/features/auth/RequireAuth";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
+import { cn } from "@/lib/utils";
+import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
 
 type RowValue = Record<string, unknown>;
 
@@ -179,7 +181,7 @@ export default function InventoryImportPage() {
                     {previewRows.map((row) => (
                       <tr key={row.index} className="border-t border-gray-100">
                         <td className="px-3 py-2 text-gray-500 tabular-nums">{row.index}</td>
-                        <td className="px-3 py-2 text-gray-900 max-w-[220px] truncate" title={row.skuSts}>
+                        <td className="px-3 py-2 text-gray-900 max-w-[180px] truncate" title={row.skuSts}>
                           {row.skuSts || "—"}
                         </td>
                         <td className="px-3 py-2 text-gray-900 tabular-nums">{row.onHand || "—"}</td>
@@ -206,7 +208,10 @@ export default function InventoryImportPage() {
               value={country}
               onChange={(e) => setCountry(e.target.value)}
               placeholder={t("countryPlaceholder")}
-              className="w-full max-w-xs rounded-lg border border-gray-300 px-3 py-2"
+              className={cn(
+                "w-full max-w-xs rounded-lg border border-input px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground",
+                bgSurfaceFilter(!!country.trim()),
+              )}
             />
             <button
               type="button"

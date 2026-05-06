@@ -16,6 +16,8 @@ import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
 import { SortableTh } from "@/components/ui/sortable-th";
 import { useTableColumnSort } from "@/shared/hooks/useTableColumnSort";
 import { compareNumbers, compareStrings } from "@/shared/lib/tableSort";
+import { cn } from "@/lib/utils";
+import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
 
 type FieldKey =
   | "customerName"
@@ -830,7 +832,10 @@ export default function HarvestImportPage() {
                           return next;
                         });
                       }}
-                      className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                      className={cn(
+                        "w-full rounded-lg border border-input px-3 py-2 text-sm text-foreground",
+                        bgSurfaceFilter(Boolean((mapping?.[f.key] ?? "").trim())),
+                      )}
                     >
                       <option value="">{t("selectExcelColumn")}</option>
                       {headers.map((h) => (
