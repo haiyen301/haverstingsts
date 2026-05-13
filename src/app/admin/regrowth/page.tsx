@@ -251,6 +251,28 @@ function parseMaxKgPerM2(
   return n;
 }
 
+function parseComparatorFromLegacyLabel(
+  label: string | null | undefined,
+): SprigBandRow["comparator"] | null {
+  const s = String(label ?? "").trim();
+  if (s.startsWith(">=")) return "GTE";
+  if (s.startsWith(">")) return "GT";
+  if (s.startsWith("<=")) return "LTE";
+  if (s.startsWith("<")) return "LT";
+  if (s.startsWith("=")) return "EQ";
+  return null;
+}
+
+function parseThresholdFromLegacyLabel(
+  label: string | null | undefined,
+): number | null {
+  const s = String(label ?? "");
+  const m = s.match(/-?\d+(?:[.,]\d+)?/);
+  if (!m) return null;
+  const n = Number(m[0].replace(",", "."));
+  return Number.isFinite(n) ? n : null;
+}
+
 function rowsToFormState(rows: RegrowthRuleRow[]): RegrowthFormState {
   const sod = rows.find((r) => r.harvest_type === "SOD");
   const sodSprig = rows.find((r) => r.harvest_type === "SOD_FOR_SPRIG");
@@ -261,16 +283,45 @@ function rowsToFormState(rows: RegrowthRuleRow[]): RegrowthFormState {
 
   const sprigBands: SprigBandRow[] =
     sprig.length > 0
-      ? sprig.map((r) => ({
-          id: String(r.id),
-          label: r.label,
-          regrowthDays: Number(r.regrowth_days),
-          maxKgPerM2: parseMaxKgPerM2(r.max_kg_per_m2),
-          comparator: (String(r.band_comparator ?? "LTE").toUpperCase() as SprigBandRow["comparator"]),
-          thresholdKgPerM2: toNumber(
-            r.band_threshold_kg_per_m2 ?? r.max_kg_per_m2,
-          ),
-        }))
+      ? sprig.map((r, idx, list) => {
+          const maxKgPerM2 = parseMaxKgPerM2(r.max_kg_per_m2);
+          const rawComparator = String(r.band_comparator ?? "").toUpperCase();
+          const legacyComparator = parseComparatorFromLegacyLabel(r.label);
+          const isValidRawComparator =
+            rawComparator === "LT" ||
+            rawComparator === "LTE" ||
+            rawComparator === "EQ" ||
+            rawComparator === "GTE" ||
+            rawComparator === "GT";
+          const comparator: SprigBandRow["comparator"] = isValidRawComparator
+            ? (rawComparator as SprigBandRow["comparator"])
+            : (legacyComparator ??
+              (maxKgPerM2 === Number.POSITIVE_INFINITY && idx === list.length - 1
+                ? "GT"
+                : "LTE"));
+
+          const thresholdFromApi = toNullableNumber(r.band_threshold_kg_per_m2);
+          const thresholdFromMax = Number.isFinite(maxKgPerM2) ? maxKgPerM2 : null;
+          const thresholdFromLabel = parseThresholdFromLegacyLabel(r.label);
+          const thresholdFromPrev = idx > 0
+            ? toNumber(list[idx - 1]?.max_kg_per_m2 ?? null)
+            : null;
+          const fallbackThreshold =
+            thresholdFromApi ??
+            thresholdFromMax ??
+            thresholdFromLabel ??
+            thresholdFromPrev ??
+            0;
+
+          return {
+            id: String(r.id),
+            label: r.label,
+            regrowthDays: Number(r.regrowth_days),
+            maxKgPerM2,
+            comparator,
+            thresholdKgPerM2: fallbackThreshold,
+          };
+        })
       : DEFAULT_REGROWTH.sprigBands.map((b) => ({ ...b, id: b.id }));
 
   return {
