@@ -19,6 +19,13 @@ type MultiSelectProps = {
   className?: string;
   rightIcon?: ReactNode;
   disabled?: boolean;
+  /** When set to `1`, behaves like a single-select (picking a new option replaces the previous). */
+  maxSelections?: number;
+  /**
+   * When `true` and more than one value is selected, the trigger shows every selected label
+   * (comma-separated) instead of “N selected”. Default `false`.
+   */
+  showFullSelectedLabels?: boolean;
 };
 
 export function MultiSelect({
@@ -29,15 +36,29 @@ export function MultiSelect({
   className,
   rightIcon,
   disabled = false,
+  maxSelections,
+  showFullSelectedLabels = false,
 }: MultiSelectProps) {
   const [keyword, setKeyword] = useState("");
   const selected = values.length;
+  const max = maxSelections ?? Infinity;
+  const fullMultiLabel = useMemo(() => {
+    if (selected <= 1) return "";
+    const parts: string[] = [];
+    for (const v of values) {
+      const found = options.find((x) => x.value === v)?.label;
+      if (found) parts.push(found);
+    }
+    return parts.length ? parts.join(", ") : `${selected} selected`;
+  }, [options, selected, values]);
   const label =
     selected === 0
       ? placeholder
       : selected === 1
         ? options.find((x) => x.value === values[0])?.label ?? placeholder
-        : `${selected} selected`;
+        : showFullSelectedLabels
+          ? fullMultiLabel
+          : `${selected} selected`;
   const normalizedKeyword = keyword.trim().toLowerCase();
   const filteredOptions = useMemo(() => {
     if (!normalizedKeyword) return options;
@@ -50,23 +71,53 @@ export function MultiSelect({
       onChange(values.filter((x) => x !== value));
       return;
     }
+    if (max === 1) {
+      onChange([value]);
+      return;
+    }
+    if (values.length >= max) {
+      return;
+    }
     onChange([...values, value]);
   };
 
+  const expandTrigger = showFullSelectedLabels && selected > 1;
+
   return (
-    <Popover>
+    <Popover modal={false}>
       <PopoverTrigger asChild>
         <button
           type="button"
           disabled={disabled}
           className={cn(
-            "inline-flex h-10 w-full items-center justify-between rounded-full border border-gray-300 px-3 text-xs text-gray-700 disabled:cursor-not-allowed disabled:opacity-60",
+            "inline-flex w-full items-center justify-between gap-2 rounded-full border border-gray-300 px-3 text-xs text-gray-700 disabled:cursor-not-allowed disabled:opacity-60",
+            expandTrigger
+              ? "min-h-9 items-start py-2 leading-snug"
+              : "h-10 items-center",
             className,
+            // Consumer `className` often sets `h-9` / `h-10`; must win in twMerge so height grows with wrapped labels.
+            expandTrigger && "h-auto min-h-9 overflow-visible",
           )}
         >
-          <span className="truncate">{label}</span>
+          <span
+            className={cn(
+              "min-w-0 flex-1 text-left",
+              expandTrigger
+                ? "whitespace-normal wrap-break-word"
+                : "truncate",
+            )}
+          >
+            {label}
+          </span>
           {rightIcon ? (
-            <span className="inline-flex items-center gap-0.5 text-gray-800">{rightIcon}</span>
+            <span
+              className={cn(
+                "inline-flex shrink-0 items-center gap-0.5 text-gray-800",
+                expandTrigger && "self-start pt-0.5",
+              )}
+            >
+              {rightIcon}
+            </span>
           ) : null}
         </button>
       </PopoverTrigger>
@@ -86,7 +137,7 @@ export function MultiSelect({
             type="button"
             onClick={() => onChange([])}
             disabled={disabled || values.length === 0}
-            className="rounded px-2 py-1 text-xs font-medium text-[#1F7A4C] hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded px-2 py-1 text-xs font-medium text-foreground hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40"
           >
             Clear
           </button>
@@ -107,7 +158,7 @@ export function MultiSelect({
                 <span className="truncate pr-2">{opt.label}</span>
                 <Check
                   className={cn(
-                    "h-4 w-4 min-h-4 min-w-4 shrink-0 text-[#1F7A4C]",
+                    "h-4 w-4 min-h-4 min-w-4 shrink-0 text-foreground",
                     checked ? "opacity-100" : "opacity-0",
                   )}
                 />

@@ -1,41 +1,180 @@
 @import "tailwindcss";
 
+/* Class `dark` trên <html> (ThemeProvider) — mặc định v4 dùng prefers-color-scheme */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Design tokens (HSL channels) — light baseline aligned with Harvesting Portal sidebar palette */
 :root {
-  --background: #ffffff;
-  --foreground: #1d1d1d;
-  /* --color-primary: rgb(0, 104, 55); */
-  --color-primary: rgb(31, 122, 76);
-  --primary-color: var(--color-primary);
-  --color-secondary: rgb(158, 188, 88);
+  --background: 100 10% 97%;
+  --foreground: 150 35% 16%;
+
+  --card: 0 0% 100%;
+  --card-foreground: 150 35% 16%;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 150 35% 16%;
+
+  --primary: 152 59% 30%;
+  --primary-foreground: 0 0% 100%;
+
+  --secondary: 74 43% 54%;
+  --secondary-foreground: 150 35% 16%;
+
+  --muted: 100 6% 94%;
+  --muted-foreground: 0 0% 45%;
+  --btnhover: 0 0% 100%;
+  --accent: 28 35% 56%;
+  --accent-foreground: 0 0% 100%;
+
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 100%;
+
+  --border: 100 8% 88%;
+  --input: 100 8% 88%;
+  --ring: 152 59% 30%;
+
+  --radius: 0.625rem;
+
+  /* Semantic accents (Harvesting Portal harvest stats / status) */
+  --info: 210 80% 52%;
+  --warning: 28 35% 56%;
+  --success: 130 60% 40%;
+
+  /* Light app: sidebar = classic STS (white bar, gray chrome, green active pill) */
+  --sidebar-background: 0 0% 100%;
+  --sidebar-foreground: 220 13% 28%;
+  --sidebar-primary: 0 0% 100%;
+  --sidebar-primary-foreground: 152 59% 30%;
+  --sidebar-accent: 152 59% 30%;
+  /* --sidebar-accent: 82 85% 48%; */
+  --sidebar-accent-foreground: 0 0% 100%;
+  --sidebar-border: 220 13% 91%;
+  --sidebar-ring: 152 59% 30%;
+
+  /*
+   * Lọc / chọn có giá trị:
+   * - `surface-filter-empty`  → nền trắng (kênh màu --card / 0 0% 100%)
+   * - `surface-filter-filled` → nền bề mặt app (kênh --background / tint xanh nhạt)
+   * Dùng class Tailwind `bg-surface-filter-empty` | `bg-surface-filter-filled` hoặc helper `bgSurfaceFilter()`.
+   */
+  --surface-filter-empty: var(--card);
+  --surface-filter-filled: var(--background);
+
+  /* Legacy aliases used across existing pages */
+  --color-primary: hsl(var(--primary));
+  --primary-color: hsl(var(--primary));
+  --color-secondary: hsl(var(--secondary));
+}
+
+.dark {
+  --background: 100 10% 97%;
+  --foreground: 150 35% 16%;
+
+  /* --card: 100 10% 97%; */
+  --card: 0 0% 100%;
+  --card-foreground: 150 35% 16%;
+
+  --popover: 150 22% 12%;
+  --popover-foreground: 100 10% 92%;
+
+  --primary: 82 91% 41%;
+  --primary-foreground: 0 0% 100%;
+
+  --secondary: 100 8% 92%;
+  --secondary-foreground: 100 10% 92%;
+
+  --muted: 100 6% 94%;
+  --muted-foreground: 0 0% 45%;
+
+  --accent: 28 30% 45%;
+  --accent-foreground: 0 0% 100%;
+
+  --destructive: 0 62% 42%;
+  --destructive-foreground: 0 0% 100%;
+
+  --border: 100 8% 88%;
+  --input: 100 8% 88%;
+  --ring: 152 50% 42%;
+
+  --sidebar-background: 150 35% 16%;
+  --sidebar-foreground: 100 10% 92%;
+  --sidebar-primary: 82 85% 48%;
+  --sidebar-primary-foreground: 150 35% 10%;
+  --sidebar-accent: 150 26% 18%;
+  --sidebar-accent-foreground: 100 10% 92%;
+  --sidebar-border: 150 22% 20%;
+  --sidebar-ring: 82 85% 48%;
+
+  --info: 200 75% 58%;
+  --warning: 28 32% 52%;
+  --success: 130 50% 45%;
+
+  --color-primary: hsl(var(--primary));
+  --primary-color: hsl(var(--primary));
+  --color-secondary: hsl(var(--secondary));
+
+  --surface-filter-empty: var(--card);
+  --surface-filter-filled: var(--background);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-  --color-button-primary: var(--color-primary);
-  --color-button-secondary: var(--color-secondary);
-}
+  /*
+   * Opaque `hsl(var(--token))` here — Tailwind v4 resolves `bg-* / nn` itself.
+   * Do NOT use `/ <alpha-value>` (v3/shadcn placeholder); the browser keeps invalid CSS.
+   */
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-btnhover: hsl(var(--btnhover));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --color-info: hsl(var(--info));
+  --color-warning: hsl(var(--warning));
+  --color-success: hsl(var(--success));
 
-/* @media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-} */
+  --color-sidebar: hsl(var(--sidebar-background));
+  --color-sidebar-foreground: hsl(var(--sidebar-foreground));
+  --color-sidebar-primary: hsl(var(--sidebar-primary));
+  --color-sidebar-primary-foreground: hsl(var(--sidebar-primary-foreground));
+  --color-sidebar-accent: hsl(var(--sidebar-accent));
+  --color-sidebar-accent-foreground: hsl(var(--sidebar-accent-foreground));
+  --color-sidebar-border: hsl(var(--sidebar-border));
+  --color-sidebar-ring: hsl(var(--sidebar-ring));
+
+  --font-sans: var(--font-plus-jakarta-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --color-button-primary: hsl(var(--primary));
+  --color-button-secondary: hsl(var(--secondary));
+
+  /* Filter / choice controls (see :root `--surface-filter-*` comment) */
+  --color-surface-filter-empty: hsl(var(--surface-filter-empty));
+  --color-surface-filter-filled: hsl(var(--surface-filter-filled));
+}
 
 body {
-  background-color: #ffffff;
-  color: #1d1d1d;
-  font-family: Arial, Helvetica, sans-serif;
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: var(--font-plus-jakarta-sans), ui-sans-serif, system-ui, sans-serif;
 }
-
 
 input:focus-visible,
 textarea:focus-visible,
 button:focus-visible {
-  outline: .5px solid var(--primary-color);
+  outline: 0.5px solid hsl(var(--ring));
   outline-offset: 0;
   box-shadow: none;
 }
@@ -52,4 +191,100 @@ input[type="number"] {
   -webkit-appearance: textfield;
   -moz-appearance: textfield;
   appearance: textfield;
+}
+
+/* Harvesting Portal–style dashboard surfaces */
+.font-heading {
+  font-family: var(--font-plus-jakarta-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+.glass-card {
+  background-color: hsl(var(--card) / 0.85);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  border: 1px solid hsl(var(--border) / 0.5);
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+}
+
+/**
+ * Dashboard only: match Harvesting Portal light theme (index.css :root).
+ * Redefines semantic tokens on this subtree so html.dark does not recolor charts/cards/tables.
+ */
+.dashboard-harvesting-skin {
+  --background: 100 10% 97%;
+  --foreground: 150 35% 16%;
+  --card: 0 0% 100%;
+  --card-foreground: 150 35% 16%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 150 35% 16%;
+  --primary: 82 91% 41%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 100 8% 92%;
+  --secondary-foreground: 150 35% 16%;
+  --muted: 100 6% 94%;
+  --muted-foreground: 0 0% 45%;
+  --accent: 28 35% 56%;
+  --accent-foreground: 0 0% 100%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 100 8% 88%;
+  --input: 100 8% 88%;
+  --ring: 82 91% 41%;
+  --info: 210 80% 52%;
+  --warning: 28 35% 56%;
+  --success: 130 60% 40%;
+  --color-primary: hsl(var(--primary));
+  --primary-color: hsl(var(--primary));
+  --color-secondary: hsl(var(--secondary));
+
+  --surface-filter-empty: var(--card);
+  --surface-filter-filled: var(--background);
+
+  color-scheme: light;
+  background-color: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+
+.dashboard-harvesting-skin .glass-card {
+  background-color: hsl(var(--card) / 0.8);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+
+/*
+ * Native form controls: empty → white; has value → app background (tinted surface).
+ * Unlayered so this wins over Tailwind bg-card / bg-background on the same element.
+ * - Text-like inputs + textarea: :placeholder-shown + :blank (no placeholder).
+ * - Select: first option with value="" (typical “Please select”).
+ */
+input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="range"]):not([type="file"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="image"]):not([type="color"]),
+textarea {
+  background-color: hsl(var(--surface-filter-empty));
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="range"]):not([type="file"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="image"]):not([type="color"])[placeholder]:not(:placeholder-shown),
+textarea[placeholder]:not(:placeholder-shown) {
+  background-color: hsl(var(--surface-filter-filled));
+}
+
+@supports selector(:blank) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="range"]):not([type="file"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="image"]):not([type="color"]):not(:blank),
+  textarea:not(:blank) {
+    background-color: hsl(var(--surface-filter-filled));
+  }
+}
+
+select {
+  background-color: hsl(var(--surface-filter-filled));
+}
+
+select:has(> option:checked[value=""]) {
+  background-color: hsl(var(--surface-filter-empty));
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="range"]):not([type="file"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="image"]):not([type="color"]):disabled,
+textarea:disabled,
+select:disabled {
+  background-color: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
 }

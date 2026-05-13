@@ -124,6 +124,32 @@ export async function stsProxyGet<T = unknown>(upstreamApiPath: string): Promise
   return json.data as T;
 }
 
+/** GET with query string on the upstream path (e.g. `admin=1`). */
+export async function stsProxyGetWithParams<T = unknown>(
+  upstreamApiPath: string,
+  searchParams?: Record<string, string | number | undefined>,
+): Promise<T> {
+  if (typeof window === "undefined") {
+    throw new Error("stsProxyGetWithParams is client-only");
+  }
+  const url = buildStsProxyGetUrl(upstreamApiPath, searchParams);
+  const res = await fetch(url, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+    },
+    credentials: SAME_ORIGIN,
+  });
+  let json: StsJsonResponse<T>;
+  try {
+    json = (await res.json()) as StsJsonResponse<T>;
+  } catch {
+    throw new Error("Invalid JSON response");
+  }
+  await assertStsSuccessOrThrow(json, res);
+  return json.data as T;
+}
+
 type HarvestingIndexJson = {
   success?: boolean;
   data?: unknown;
@@ -132,11 +158,13 @@ type HarvestingIndexJson = {
   total_kg?: string;
   /** Last page number (PHP `ceil(total / per_page)`). */
   total?: number;
+  /** Row count matching filters (PHP `get_total_by_params`). */
+  total_records?: number;
 };
 
 /**
  * GET harvesting list (`Harvesting::index`): full JSON (rows + totals + pagination meta).
- * `stsProxyGet` only returns `data`; this keeps `total_m2`, `total_kg`, `total` (pages).
+ * `stsProxyGet` only returns `data`; this keeps `total_m2`, `total_kg`, `total` (pages), `total_records`.
  */
 export async function stsProxyGetHarvestingIndex(
   searchParams?: Record<string, string | number | undefined>,
@@ -145,6 +173,8 @@ export async function stsProxyGetHarvestingIndex(
   totalPages: number;
   totalM2: string;
   totalKg: string;
+  /** Row count from API; `null` if upstream omits `total_records` (legacy). */
+  totalRecords: number | null;
   message?: string;
 }> {
   if (typeof window === "undefined") {
@@ -166,11 +196,19 @@ export async function stsProxyGetHarvestingIndex(
   }
   await assertStsSuccessOrThrow(json, res);
   const rows = Array.isArray(json.data) ? json.data : [];
+  const totalPages = Math.max(1, Number(json.total) || 1);
+  const hasTotalRecords =
+    Object.prototype.hasOwnProperty.call(json, "total_records") &&
+    json.total_records != null;
+  const tr = Number(json.total_records);
+  const totalRecords: number | null =
+    hasTotalRecords && Number.isFinite(tr) && tr >= 0 ? Math.floor(tr) : null;
   return {
     rows,
-    totalPages: Math.max(1, Number(json.total) || 1),
+    totalPages,
     totalM2: String(json.total_m2 ?? "0"),
     totalKg: String(json.total_kg ?? "0"),
+    totalRecords,
     message: json.message,
   };
 }

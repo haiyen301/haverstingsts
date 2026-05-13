@@ -1,8 +1,9 @@
 import { NextResponse } from "next/server";
 
-import { AUTH_COOKIE_NAME } from "@/shared/lib/authCookie";
+import { AUTH_ACL_COOKIE_NAME, AUTH_COOKIE_NAME } from "@/shared/lib/authCookie";
 import { getStsApiUrlCandidates, STS_LOGIN_PATHS } from "@/shared/api/stsLogin";
 import { AUTH_COOKIE_OPTIONS } from "@/shared/server/stsAuthBearer";
+import { buildAclSnapshotFromProfile } from "@/shared/auth/permissions";
 import {
   fetchJsonWithBaseUrlFallback,
 } from "@/shared/server/stsUpstreamFetch";
@@ -11,6 +12,8 @@ type LoginRequestBody = {
   email?: string;
   password?: string;
 };
+
+const TOUCH_LAST_ONLINE_PATH = "/api/base/react_touch_last_online";
 
 function stripTokenFromLoginJson(data: unknown): unknown {
   if (!data || typeof data !== "object") return data;
@@ -91,10 +94,30 @@ export async function POST(req: Request) {
     (data as { success?: boolean }).success === true &&
     token
   ) {
+    // Best-effort: update `sts_users.last_online` right after successful login.
+    // Do not fail login flow if this side-effect endpoint is unavailable.
+    try {
+      const touchUrls = getStsApiUrlCandidates(TOUCH_LAST_ONLINE_PATH);
+      if (touchUrls.length) {
+        await fetchJsonWithBaseUrlFallback(touchUrls, {
+          method: "POST",
+          headers: {
+            Accept: "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+        });
+      }
+    } catch {
+      // Swallow intentionally.
+    }
+
     const res = NextResponse.json(stripTokenFromLoginJson(data), {
       status: upstreamRes.status,
     });
     res.cookies.set(AUTH_COOKIE_NAME, token, AUTH_COOKIE_OPTIONS);
+    const profile = (data as { data?: unknown }).data;
+    const acl = buildAclSnapshotFromProfile(profile);
+    res.cookies.set(AUTH_ACL_COOKIE_NAME, JSON.stringify(acl), AUTH_COOKIE_OPTIONS);
     return res;
   }
 

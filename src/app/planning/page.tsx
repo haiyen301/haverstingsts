@@ -9,6 +9,8 @@ import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { fetchMondayProjectRowsFromServer, type MondayProjectServerRow } from "@/entities/projects";
 import { parseQuantityRequiredRows, parseSubitems } from "@/shared/lib/parseJsonMaybe";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
+import { cn } from "@/lib/utils";
+import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
 
 type ScheduleType = "Harvest" | "Delivery";
 
@@ -257,7 +259,10 @@ export default function PlanningPage() {
                 <select
                   value={monthSelectValue}
                   onChange={(e) => changeMonth(e.target.value)}
-                  className="rounded-md border border-gray-300 bg-white px-2 py-1 text-sm text-gray-700 focus:border-[#1F7A4C] focus:outline-none focus:ring-1 focus:ring-[#1F7A4C]"
+                  className={cn(
+                    "rounded-md border border-input px-2 py-1 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+                    bgSurfaceFilter(true),
+                  )}
                   aria-label={t("filterByMonthAria")}
                 >
                   {Array.from({ length: 12 }, (_, i) => (
@@ -269,7 +274,10 @@ export default function PlanningPage() {
                 <select
                   value={yearSelectValue}
                   onChange={(e) => changeYear(e.target.value)}
-                  className="rounded-md border border-gray-300 bg-white px-2 py-1 text-sm text-gray-700 focus:border-[#1F7A4C] focus:outline-none focus:ring-1 focus:ring-[#1F7A4C]"
+                  className={cn(
+                    "rounded-md border border-input px-2 py-1 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+                    bgSurfaceFilter(true),
+                  )}
                   aria-label={t("filterByYearAria")}
                 >
                   {yearOptions.map((y) => (
@@ -342,7 +350,7 @@ export default function PlanningPage() {
                             isSelected && !isToday ? "border-[#1F7A4C]" : ""
                           }`}
                         >
-                          <div className={`mb-1 text-sm font-medium ${isToday ? "text-[#1F7A4C]" : "text-gray-900"}`}>
+                          <div className={`mb-1 text-sm font-medium ${isToday ? "text-foreground" : "text-gray-900"}`}>
                             {date.getDate()}
                           </div>
                           <div className="space-y-1">
@@ -397,9 +405,9 @@ export default function PlanningPage() {
                           <span className="font-medium text-gray-900">{event.project}</span>
                         </div>
                         <div className="space-y-0.5 text-sm text-gray-700">
-                          <div><span className="font-medium text-[#1F7A4C]">{t("grassesLabel")}:</span> {event.grass}</div>
-                          <div><span className="font-medium text-[#1F7A4C]">{tCommon("farm")}:</span> {event.farm}</div>
-                          <div><span className="font-medium text-[#1F7A4C]">{tCommon("quantity")}:</span> {event.qty.toLocaleString()} {event.unit}</div>
+                          <div><span className="font-medium text-foreground">{t("grassesLabel")}:</span> {event.grass}</div>
+                          <div><span className="font-medium text-foreground">{tCommon("farm")}:</span> {event.farm}</div>
+                          <div><span className="font-medium text-foreground">{tCommon("quantity")}:</span> {event.qty.toLocaleString()} {event.unit}</div>
                         </div>
                       </div>
                       <div className="text-sm text-gray-600">

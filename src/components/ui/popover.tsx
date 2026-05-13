@@ -29,7 +29,8 @@ function PopoverContent({
         align={align}
         sideOffset={sideOffset}
         className={cn(
-          "z-50 w-72 origin-(--radix-popover-content-transform-origin) rounded-md border border-gray-200 bg-white p-4 text-gray-950 shadow-md outline-hidden",
+          // Above app modals (e.g. admin people dialog uses z-90) so popovers stay clickable.
+          "z-110 w-72 origin-(--radix-popover-content-transform-origin) rounded-md border border-gray-200 bg-white p-4 text-gray-950 shadow-md outline-hidden",
           className,
         )}
         {...props}

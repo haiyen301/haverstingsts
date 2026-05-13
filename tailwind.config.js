@@ -18,8 +18,9 @@ module.exports = {
         "button-secondary": "var(--color-button-secondary)",
       },
       fontFamily: {
-        sans: "var(--font-geist-sans)",
-        mono: "var(--font-geist-mono)",
+        sans:
+          "var(--font-plus-jakarta-sans), ui-sans-serif, system-ui, sans-serif",
+        mono: "var(--font-geist-mono), ui-monospace, monospace",
       },
     },
   },

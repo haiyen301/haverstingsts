@@ -7,16 +7,22 @@ import * as XLSX from "xlsx";
 
 import RequireAuth from "@/features/auth/RequireAuth";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
+import { AlertRouteCategoryBanner } from "@/features/alerts/AlertRouteCategoryBanner";
+import { dispatchRouteAlert } from "@/features/alerts/dispatchRouteAlert";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
+import { useAuthUserStore } from "@/shared/store/authUserStore";
 import {
   fetchMondayProjectRowsFromServer,
   updateMondayProjectParentItem,
 } from "@/entities/projects";
+import { canAccessModule } from "@/shared/auth/permissions";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
 import { SortableTh } from "@/components/ui/sortable-th";
 import { useTableColumnSort } from "@/shared/hooks/useTableColumnSort";
 import { compareNumbers, compareStrings } from "@/shared/lib/tableSort";
 import { normalizeProjectTypeFromImportCell } from "@/features/project/lib/projectTypeDisplay";
+import { cn } from "@/lib/utils";
+import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
 
 type FieldKey =
   | "projectName"
@@ -386,6 +392,9 @@ export default function ProjectImportPage() {
       ? tBase(`ProjectImport.${key}`, values as Parameters<typeof tBase>[1])
       : tBase(`ProjectImport.${key}`);
   const router = useRouter();
+  const user = useAuthUserStore((s) => s.user);
+  const canImportProjects = canAccessModule(user, "projects", "import");
+  const importDenied = Boolean(user) && !canImportProjects;
   const [fileName, setFileName] = useState("");
   const [headers, setHeaders] = useState<string[]>([]);
   const [rows, setRows] = useState<ExcelRow[]>([]);
@@ -902,6 +911,10 @@ export default function ProjectImportPage() {
   };
 
   const runTest = async () => {
+    if (!canImportProjects) {
+      setError("You do not have permission to import project data.");
+      return;
+    }
     setTesting(true);
     try {
       if (!productCandidates.length || !countryCandidates.length || !staffCandidates.length) {
@@ -984,6 +997,10 @@ export default function ProjectImportPage() {
   };
 
   const handleImport = async () => {
+    if (!canImportProjects) {
+      setError("You do not have permission to import project data.");
+      return;
+    }
     if (!testResult) return;
     setImporting(true);
     setError("");
@@ -1125,17 +1142,34 @@ export default function ProjectImportPage() {
       const successRows = logs.filter((l) => l.status === "success");
       const errorRows = logs.filter((l) => l.status === "error");
       setImportLogs(logs);
+      const projectCount = new Set(
+        successRows
+          .map((x) => normalizeLoose(toStringSafe(x.source[mapping?.projectName ?? ""])))
+          .filter(Boolean),
+      ).size;
       setImportSummary(
         t("summaryDone", {
           success: successRows.length,
           error: errorRows.length,
-          projects: new Set(
-            successRows
-              .map((x) => normalizeLoose(toStringSafe(x.source[mapping?.projectName ?? ""])))
-              .filter(Boolean),
-          ).size,
+          projects: projectCount,
         }),
       );
+      if (successRows.length > 0) {
+        void dispatchRouteAlert({
+          routeKey: "projects_import",
+          title: t("alertImportProjectsTitle", {
+            projects: projectCount,
+            rows: successRows.length,
+          }),
+          message: t("alertImportProjectsMessage", {
+            projects: projectCount,
+            ok: successRows.length,
+            bad: errorRows.length,
+          }),
+          href: "/projects/import",
+          sourceEntityId: currentFileHash.trim() || `projects-import-${Date.now()}`,
+        });
+      }
       if (currentFileHash) {
         localStorage.setItem("stsrenew:projects-import:last-file-hash", currentFileHash);
       }
@@ -1208,6 +1242,23 @@ export default function ProjectImportPage() {
   return (
     <RequireAuth>
       <DashboardLayout>
+        {importDenied ? (
+          <div className="p-4 lg:p-8">
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-5 space-y-3">
+              <h1 className="text-xl font-semibold text-amber-900">{t("title")}</h1>
+              <p className="text-sm text-amber-800">
+                You do not have permission to import project data.
+              </p>
+              <button
+                type="button"
+                onClick={() => router.push("/projects")}
+                className="px-4 py-2 rounded-lg border border-amber-300 text-sm text-amber-900 hover:bg-amber-100"
+              >
+                {t("backToProjects")}
+              </button>
+            </div>
+          </div>
+        ) : (
         <div className="p-4 lg:p-8 space-y-6">
           <div className="flex items-center justify-between">
             <h1 className="text-2xl lg:text-3xl font-semibold text-gray-900">{t("title")}</h1>
@@ -1219,6 +1270,8 @@ export default function ProjectImportPage() {
               {t("backToProjects")}
             </button>
           </div>
+
+          <AlertRouteCategoryBanner routeKey="projects_import" />
 
           <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-3">
             <p className="text-sm text-gray-700">
@@ -1266,7 +1319,10 @@ export default function ProjectImportPage() {
                           prev ? { ...prev, [f.key]: e.target.value } : prev,
                         )
                       }
-                      className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                      className={cn(
+                        "w-full rounded-lg border border-input px-3 py-2 text-sm text-foreground",
+                        bgSurfaceFilter(Boolean((mapping?.[f.key] ?? "").trim())),
+                      )}
                     >
                       <option value="">{t("selectExcelColumn")}</option>
                       {headers.map((h) => (
@@ -1458,6 +1514,7 @@ export default function ProjectImportPage() {
           {error ? <p className="text-sm text-red-600">{error}</p> : null}
           {importSummary ? <p className="text-sm text-green-700">{importSummary}</p> : null}
         </div>
+        )}
       </DashboardLayout>
     </RequireAuth>
   );

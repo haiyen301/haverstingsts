@@ -167,7 +167,7 @@ export default function RegisterForm() {
                   name="account_type"
                   checked={accountType === "organization"}
                   onChange={() => setAccountType("organization")}
-                  className="text-[#1F7A4C]"
+                  className="text-foreground"
                 />
                 <span className="text-sm text-gray-800">{t("organization")}</span>
               </label>
@@ -177,7 +177,7 @@ export default function RegisterForm() {
                   name="account_type"
                   checked={accountType === "person"}
                   onChange={() => setAccountType("person")}
-                  className="text-[#1F7A4C]"
+                  className="text-foreground"
                 />
                 <span className="text-sm text-gray-800">{t("individual")}</span>
               </label>
@@ -265,7 +265,7 @@ export default function RegisterForm() {
             {t("alreadyHaveAccount")}{" "}
             <Link
               href="/"
-              className="text-[#1F7A4C] font-medium hover:underline"
+              className="text-foreground font-medium hover:underline"
             >
               {t("signIn")}
             </Link>

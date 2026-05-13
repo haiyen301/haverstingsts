@@ -1,16 +1,12 @@
-import type { StaticImageData } from "next/image";
-
-import appLogoWhite from "@/assets/images/app-logo-white.png";
-import stsLogo from "@/assets/images/sts-logo.png";
-
 /**
- * Tập trung mọi ảnh tĩnh: import `images` (hoặc từng biến) rồi dùng với `next/image` / `<img />`.
- * Thêm file mới: import ở đây rồi bổ sung key trong `images`.
+ * Centralized static image URLs served from `public/assets/images`.
+ * Keep app logos here so light/dark theme switching remains consistent.
  */
 export const images = {
-  stsLogo,
-  appLogoWhite,
-} as const satisfies Record<string, StaticImageData>;
+  stsLogo: "/assets/images/sts-logo.png",
+  stsLogoDark: "/assets/images/sts-logo-dark.png",
+  appLogoWhite: "/assets/images/app-logo-white.png",
+} as const;
 
 export type AppImageKey = keyof typeof images;
 

@@ -38,6 +38,7 @@ import {
   saveTimelineTask,
 } from "@/features/timeline/api/timelineApi";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
+import { Checkbox } from "@/shared/ui/checkbox";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { TimelineTaskDateTimePanel } from "@/widgets/timeline/TimelineTaskDateTimePanel";
 
@@ -1676,8 +1677,7 @@ export function TimelineWorkspace({
                   <ul className="space-y-2">
                     {draftChecklist.map((line) => (
                       <li key={line.id} className="flex items-center gap-2">
-                        <input
-                          type="checkbox"
+                        <Checkbox
                           checked={line.done}
                           onChange={() => {
                             setDraftChecklist((rows) =>
@@ -1686,7 +1686,9 @@ export function TimelineWorkspace({
                               ),
                             );
                           }}
-                          className="h-4 w-4 shrink-0 rounded border-gray-300 text-violet-600 focus:ring-violet-500"
+                          checkedClassName="peer-checked:border-violet-600 peer-checked:bg-violet-600 peer-checked:text-white"
+                          uncheckedClassName="border-gray-300"
+                          boxClassName="peer-focus-visible:ring-violet-500"
                           aria-label={tt("checklistToggleDone")}
                         />
                         <input
@@ -1745,7 +1747,7 @@ export function TimelineWorkspace({
                         setPriorityMenuOpen(false);
                         setAssigneeMenuOpen((o) => !o);
                       }}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs text-gray-700 hover:bg-gray-50 max-w-[220px]"
+                      className="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs text-gray-700 hover:bg-gray-50 max-w-[180px]"
                     >
                       <User className="w-3.5 h-3.5 shrink-0 text-gray-500" />
                       <span className="truncate">
