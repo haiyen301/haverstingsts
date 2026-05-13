@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useLocale, useTranslations } from "next-intl";
+import { useTranslations } from "next-intl";
 import {
   Search,
   Plus,
@@ -16,6 +16,8 @@ import {
   Clock,
   Calendar,
   CalendarClock,
+  Eye,
+  Copy,
 } from "lucide-react";
 
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
@@ -27,11 +29,12 @@ import { useAuthUserStore } from "@/shared/store/authUserStore";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import {
   mapRowsToSelectOptions,
+  todayYmdLocal,
   zoneIdToLabel,
 } from "@/shared/lib/harvestReferenceData";
 import { harvestTypeDisplayLabel } from "@/shared/lib/harvestType";
 import { formatNumber } from "@/shared/lib/format/number";
-import { MultiSelect } from "@/components/ui/multi-select";
+import { MultiSelect } from "@/shared/ui/multi-select";
 import { SortableTh } from "@/components/ui/sortable-th";
 import { useTableColumnSort } from "@/shared/hooks/useTableColumnSort";
 import {
@@ -41,6 +44,7 @@ import {
 } from "@/shared/lib/tableSort";
 import { cn } from "@/lib/utils";
 import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
+import { stashHarvestDuplicateFromApiRow } from "@/features/harvesting/lib/harvestDuplicateDraft";
 
 const PER_PAGE = 30;
 
@@ -275,10 +279,10 @@ export default function HarvestListPage() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const locale = useLocale();
   const t = useTranslations("Harvest");
   const user = useAuthUserStore((s) => s.user);
   const canCreateHarvest = canAccessModule(user, "harvests", "create");
+  const [duplicateError, setDuplicateError] = useState<string | null>(null);
   const canEditHarvest = canAccessModule(user, "harvests", "edit");
   const canDeleteHarvest = canAccessModule(user, "harvests", "delete");
   const canManageExistingHarvest = canEditHarvest || canDeleteHarvest;
@@ -288,6 +292,9 @@ export default function HarvestListPage() {
   const farms = useHarvestingDataStore((s) => s.farms);
   const projects = useHarvestingDataStore((s) => s.projects);
   const grasses = useHarvestingDataStore((s) => s.grasses);
+  const pickGrassesVisibleOnSalesDateWithPins = useHarvestingDataStore(
+    (s) => s.pickGrassesVisibleOnSalesDateWithPins,
+  );
   const farmZones = useHarvestingDataStore((s) => s.farmZones);
   const refLoading = useHarvestingDataStore((s) => s.loading);
   const fetchAllHarvestingReferenceData = useHarvestingDataStore(
@@ -399,12 +406,34 @@ export default function HarvestListPage() {
     [returnTo],
   );
 
-  const expandHarvestRowLabel = useMemo(() => {
-    if (t.has("expandHarvestRow")) return t("expandHarvestRow");
-    if (locale === "vi") return "Xem chi tiet";
-    if (locale === "th") return "ดูรายละเอียด";
-    return "View details";
-  }, [locale, t]);
+  const duplicateHarvest = useCallback(
+    async (harvestId: string) => {
+      if (!canCreateHarvest) return;
+      setDuplicateError(null);
+      try {
+        const params: Record<string, string | number | undefined> = {
+          id: harvestId,
+          page: 1,
+          per_page: 1,
+          user_id: userId,
+        };
+        if (farmUserMeta) params.farm_user_id = farmUserMeta;
+        const res = await stsProxyGetHarvestingIndex(params);
+        const raw = res.rows[0];
+        if (!raw || typeof raw !== "object") {
+          setDuplicateError(t("duplicateFailed"));
+          return;
+        }
+        stashHarvestDuplicateFromApiRow(raw as Record<string, unknown>);
+        router.push(
+          `/harvest/new?returnTo=${encodeURIComponent(returnTo)}`,
+        );
+      } catch {
+        setDuplicateError(t("duplicateFailed"));
+      }
+    },
+    [canCreateHarvest, farmUserMeta, returnTo, router, t, userId],
+  );
 
   useEffect(() => {
     if (!urlReady) return;
@@ -487,10 +516,6 @@ export default function HarvestListPage() {
     () => mapRowsToSelectOptions(projects as unknown[], "title"),
     [projects],
   );
-  const grassOptions = useMemo(
-    () => mapRowsToSelectOptions(grasses as unknown[], "title"),
-    [grasses],
-  );
 
   const loadList = useCallback(async () => {
     setListLoading(true);
@@ -515,6 +540,7 @@ export default function HarvestListPage() {
         .filter((x): x is HarvestListRow => x !== null);
       setRows(normalized);
       setTotalPages(res.totalPages);
+      setDuplicateError(null);
       setTotalRecords(
         res.totalRecords != null
           ? res.totalRecords
@@ -690,6 +716,15 @@ export default function HarvestListPage() {
   const grassSelectValues = parseCsvFilter(harvestListGrassFilter);
   const statusSelectValues = parseCsvFilter(harvestListStatusFilter);
   const projectSelectValues = parseCsvFilter(harvestListProjectFilter);
+
+  const grassOptions = useMemo(
+    () =>
+      mapRowsToSelectOptions(
+        pickGrassesVisibleOnSalesDateWithPins(todayYmdLocal(), grassSelectValues) as unknown[],
+        "title",
+      ),
+    [grasses, grassSelectValues, pickGrassesVisibleOnSalesDateWithPins],
+  );
 
   const hasActiveFilters =
     harvestListSearch.trim() !== "" ||
@@ -984,6 +1019,11 @@ export default function HarvestListPage() {
                 {listError}
               </p>
             ) : null}
+            {duplicateError ? (
+              <p className="text-sm text-destructive" role="alert">
+                {duplicateError}
+              </p>
+            ) : null}
 
             {totalPages > 1 ? (
               <div className="flex items-center justify-between">
@@ -1115,7 +1155,7 @@ export default function HarvestListPage() {
                           <tr
                             key={harvest.id}
                             onClick={() => router.push(harvestDetailHref(harvest.id))}
-                            className="group relative cursor-pointer border-b border-border/50 transition-colors hover:bg-muted/20 [&_.harvest-row-content]:transition-opacity [&_.harvest-row-content]:duration-200 hover:[&_.harvest-row-content]:opacity-35 [&:has(.harvest-overlay-suppressor:hover)_.harvest-row-content]:opacity-100 [&:has(.harvest-overlay-suppressor:hover)_.harvest-row-overlay]:opacity-0"
+                            className="group relative cursor-pointer border-b border-border/50 transition-colors hover:bg-muted/20 [&_.harvest-row-content]:transition-opacity [&_.harvest-row-content]:duration-200 hover:[&_.harvest-row-content]:opacity-35 [&:has(.harvest-row-link:hover)_.harvest-row-content]:opacity-100 [&:has(.harvest-row-link:hover)_.harvest-row-overlay]:opacity-0"
                           >
                             <td className="py-3 pl-4 pr-2 font-mono text-xs">
                               <div className="harvest-row-content">
@@ -1126,7 +1166,7 @@ export default function HarvestListPage() {
                                       ev.stopPropagation();
                                       router.push(harvestEditHref(harvest.id));
                                     }}
-                                    className="harvest-overlay-suppressor cursor-pointer font-medium text-primary transition-colors hover:underline"
+                                    className="harvest-row-link cursor-pointer font-medium text-primary transition-colors hover:underline"
                                   >
                                     H{harvest.id}
                                   </button>
@@ -1136,10 +1176,31 @@ export default function HarvestListPage() {
                                   </span>
                                 )}
                               </div>
-                              <span className="harvest-row-overlay pointer-events-none absolute left-1/2 top-1/2 z-10 hidden -translate-x-1/2 -translate-y-1/2 items-center justify-center opacity-0 transition-opacity duration-200 group-hover:flex group-hover:opacity-100">
-                                <span className="rounded-full border border-border bg-background/95 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-foreground shadow-sm backdrop-blur-sm">
-                                  {expandHarvestRowLabel}
-                                </span>
+                              <span className="harvest-row-overlay pointer-events-auto absolute left-1/2 top-1/2 z-10 hidden min-w-max -translate-x-1/2 -translate-y-1/2 items-center justify-center gap-1.5 opacity-0 transition-opacity duration-200 group-hover:flex group-hover:opacity-100">
+                                <button
+                                  type="button"
+                                  className="inline-flex items-center gap-1 rounded-full border border-border bg-background/95 px-2.5 py-1 text-[11px] font-semibold text-foreground shadow-sm backdrop-blur-sm hover:bg-muted/80"
+                                  onClick={(ev) => {
+                                    ev.stopPropagation();
+                                    router.push(harvestDetailHref(harvest.id));
+                                  }}
+                                >
+                                  <Eye className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                                  {t("rowActionsViewDetail")}
+                                </button>
+                                {canCreateHarvest ? (
+                                  <button
+                                    type="button"
+                                    className="inline-flex items-center gap-1 rounded-full border border-border bg-background/95 px-2.5 py-1 text-[11px] font-semibold text-foreground shadow-sm backdrop-blur-sm hover:bg-muted/80"
+                                    onClick={(ev) => {
+                                      ev.stopPropagation();
+                                      void duplicateHarvest(harvest.id);
+                                    }}
+                                  >
+                                    <Copy className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                                    {t("rowActionsDuplicate")}
+                                  </button>
+                                ) : null}
                               </span>
                             </td>
                             <td className="hidden xl:table-cell px-4 py-3 text-xs text-muted-foreground">
@@ -1158,7 +1219,7 @@ export default function HarvestListPage() {
                                         `/projects/detail?projectId=${encodeURIComponent(harvest.projectId)}&returnTo=${encodeURIComponent(returnTo)}`,
                                       );
                                     }}
-                                    className="harvest-overlay-suppressor cursor-pointer text-left text-primary hover:underline"
+                                    className="harvest-row-link cursor-pointer text-left text-primary hover:underline"
                                   >
                                     {harvest.project}
                                   </button>
@@ -1325,6 +1386,35 @@ export default function HarvestListPage() {
                             )}
                             <HarvestStatusCell status={harvest.status} t={t} />
                           </div>
+                        </div>
+                        <div
+                          className="mb-3 flex flex-wrap gap-2"
+                          onClick={(ev) => ev.stopPropagation()}
+                        >
+                          <button
+                            type="button"
+                            onClick={(ev) => {
+                              ev.stopPropagation();
+                              router.push(harvestDetailHref(harvest.id));
+                            }}
+                            className="inline-flex items-center gap-1 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted/60"
+                          >
+                            <Eye className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                            {t("rowActionsViewDetail")}
+                          </button>
+                          {canCreateHarvest ? (
+                            <button
+                              type="button"
+                              onClick={(ev) => {
+                                ev.stopPropagation();
+                                void duplicateHarvest(harvest.id);
+                              }}
+                              className="inline-flex items-center gap-1 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted/60"
+                            >
+                              <Copy className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                              {t("rowActionsDuplicate")}
+                            </button>
+                          ) : null}
                         </div>
                         <div className="grid grid-cols-2 gap-2 text-sm">
                           <div>

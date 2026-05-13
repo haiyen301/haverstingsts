@@ -56,7 +56,8 @@
     "adminArchitects": "Architects",
     "adminZoneSetup": "Zone Setup",
     "adminZoneConfiguration": "Zone Configuration",
-    "adminRegrowthRules": "Regrowth Rules"
+    "adminRegrowthRules": "Regrowth Rules",
+    "adminGrassTypes": "Grass types"
   },
   "Nav": {
     "dashboard": "Dashboard",
@@ -157,7 +158,8 @@
       "vi": "VI"
     },
     "viewProfile": "View profile",
-    "logOut": "Log out"
+    "logOut": "Log out",
+    "themeLabel": "Theme"
   },
   "Auth": {
     "loginTitle": "Login",
@@ -394,7 +396,10 @@
     "density": "Density",
     "delivery": "Delivery",
     "doSo": "DO/SO #",
-    "qty": "Qty"
+    "qty": "Qty",
+    "rowActionsViewDetail": "View details",
+    "rowActionsDuplicate": "Duplicate",
+    "duplicateFailed": "Could not load harvest to duplicate."
   },
   "HarvestDetail": {
     "backToList": "Back to Harvests",
@@ -614,7 +619,10 @@
     "paceSlowOption": "Slow — 9 months",
     "paceMediumOption": "Medium — 6 months",
     "paceFastOption": "Fast — 4 months",
+    "paceNoneOption": "None",
     "holesNone": "None",
+    "optionNone": "None",
+    "projectNamePickHint": "Pick an existing project, or type a new name below.",
     "keyAreaTees": "Tees",
     "keyAreaRoughs": "Roughs",
     "keyAreaFairways": "Fairways",
@@ -1069,6 +1077,41 @@
     "errors": {
       "required": "Farm, grass, zone, size, and yield are required."
     }
+  },
+  "AdminGrasses": {
+    "title": "Grass types",
+    "description": "Define turf products in STSPortal (`sts_grasses`): notes and optional `sales_from` / `sales_to` (UI: Sales From / Sales To; last day you still sell; after `sales_to`, treat as discontinued).",
+    "loading": "Loading…",
+    "add": "Add grass type",
+    "edit": "Edit grass type",
+    "save": "Save",
+    "saving": "Saving…",
+    "cancel": "Cancel",
+    "empty": "No grass types found.",
+    "table": {
+      "title": "Name",
+      "country": "Country",
+      "description": "Description",
+      "salesFrom": "Sales From",
+      "salesTo": "Sales To",
+      "actions": "Actions"
+    },
+    "form": {
+      "title": "Name *",
+      "country": "Country",
+      "description": "Description",
+      "commercialWindowHint": "Optional sales window. Sales From = first day this grass counts as available. Sales To = last day it stays available; after that date, treat it as discontinued (no longer sold).",
+      "salesFrom": "Sales From",
+      "salesTo": "Sales To",
+      "datePlaceholder": "dd/M/yyyy"
+    },
+    "errors": {
+      "titleRequired": "Name is required.",
+      "load": "Could not load grass types.",
+      "save": "Could not save.",
+      "delete": "Could not delete."
+    },
+    "deleteConfirm": "Remove this grass type? Linked zone configuration may need updating."
   },
   "InventoryOnhandImport": {
     "title": "Import Inventory from Raw Excel",

@@ -14,6 +14,7 @@ import {
 import { clearAuthSession, useAuthUserStore } from "@/shared/store/authUserStore";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { LOCALES, type AppLocale } from "@/i18n/config";
+import { ThemeToggle } from "@/widgets/layout/ThemeToggle";
 
 type SidebarProfileProps = {
   onNavigate?: () => void;
@@ -322,6 +323,23 @@ export function SidebarProfile({ onNavigate, compact = false }: SidebarProfilePr
             );
           })}
         </div>
+      </div>
+
+      <div
+        className={`flex items-center gap-2 border-t border-sidebar-border pt-3 ${compact ? "justify-center" : "justify-between"}`}
+      >
+        {!compact ? (
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/45">
+            {t("themeLabel")}
+          </p>
+        ) : null}
+        <ThemeToggle
+          className={
+            compact
+              ? "inline-flex h-9 w-9 items-center justify-center rounded-lg border border-sidebar-border bg-sidebar-accent/30 text-sidebar-foreground transition-colors hover:bg-sidebar-accent/50"
+              : "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-sidebar-border bg-sidebar-accent/30 text-sidebar-foreground transition-colors hover:bg-sidebar-accent/50"
+          }
+        />
       </div>
 
       {!compact && weatherTarget ? (

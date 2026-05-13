@@ -42,6 +42,10 @@ export const STS_API_PATHS = {
   regrowthRules: "/api/regrowth_rules",
   /** POST persist regrowth form (`Regrowth_rules::save`). */
   regrowthRulesSave: "/api/regrowth_rules/save",
+  /** GET `Grasses::index` — active grass rows (`sts_grasses` / `grasses`). */
+  grasses: "/api/grasses",
+  grassesSave: "/api/grasses/save",
+  grassesRemove: "/api/grasses/remove",
   /** GET `Harvesting::index` — query: `page`, `per_page`, `search`, `farm_id`, `status_id`, … */
   harvesting: "/api/harvesting",
   /** GET nested inventory report (`Harvesting::react_get_inventory_report`): `country`, `year`, `product_id`, `farm_id`. */

@@ -15,6 +15,7 @@ export const QUICK_ROLE_MODULES = [
   "admin_architects",
   "admin_zones",
   "admin_regrowth",
+  "admin_grasses",
   "dashboard",
 ] as const;
 

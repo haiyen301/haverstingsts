@@ -9,7 +9,7 @@ import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 import RequireAuth from "@/features/auth/RequireAuth";
 import { useSyncedFarmMultiSelect } from "@/shared/hooks/useSyncedFarmMultiSelect";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
-import { MultiSelect } from "@/components/ui/multi-select";
+import { MultiSelect } from "@/shared/ui/multi-select";
 import {
   fetchMondayProjectRowsFromServer,
   type MondayDynamicRowLike,

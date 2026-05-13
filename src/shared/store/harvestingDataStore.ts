@@ -2,6 +2,11 @@ import { create } from "zustand";
 
 import { STS_API_PATHS } from "@/shared/api/stsApiPaths";
 import {
+  filterGrassesBySalesWindow,
+  filterGrassesBySalesWindowsOr,
+  grassRowsForHarvestGrassSelect,
+  grassSelectRowsWithPinnedIds,
+  grassZoneConfigSelectRowsWithPinnedIds,
   normalizeFarmZoneRows,
   type FarmZoneReferenceRow,
 } from "@/shared/lib/harvestReferenceData";
@@ -90,6 +95,19 @@ export type HarvestingDataState = {
   setProducts: (products: unknown[]) => void;
   /** Loads farm zones, staffs, farms, projects, countries, products (parallel). */
   fetchAllHarvestingReferenceData: (force?: boolean) => Promise<void>;
+  /** Grass rows visible for a single calendar day (`YYYY-MM-DD`), using `sales_from` / `sales_to`. */
+  pickGrassesVisibleOnSalesDate: (refYmd: string) => unknown[];
+  /** Grass rows visible if any of `refYmds` falls in range; empty refs → today (local). */
+  pickGrassesVisibleOnAnySalesDate: (refYmds: string[]) => unknown[];
+  /** Harvest form grass dropdown: OR on harvest date refs (else today); keeps `pinnedGrassId` if set. */
+  pickGrassesForHarvestGrassSelect: (
+    harvestRefYmds: string[],
+    pinnedGrassId: string,
+  ) => unknown[];
+  /** Like {@link filterGrassesBySalesWindow} on store grasses, plus pinned ids from the full list. */
+  pickGrassesVisibleOnSalesDateWithPins: (refYmd: string, pinnedGrassIds: string[]) => unknown[];
+  /** Zone-config grass select: empty sales window → show all; else today in range; plus pinned ids. */
+  pickGrassesForZoneConfigSelectWithPins: (refYmd: string, pinnedGrassIds: string[]) => unknown[];
   /** Merge or append one project (e.g. from `react_update_parent_item` response) by `id`. */
   upsertProjectInList: (project: unknown) => void;
   reset: () => void;
@@ -118,6 +136,17 @@ export const useHarvestingDataStore = create<HarvestingDataState>((set, get) => 
     set({ harvestListGrassFilter }),
   setHarvestListStatusFilter: (harvestListStatusFilter) =>
     set({ harvestListStatusFilter }),
+
+  pickGrassesVisibleOnSalesDate: (refYmd) =>
+    filterGrassesBySalesWindow(get().grasses, refYmd),
+  pickGrassesVisibleOnAnySalesDate: (refYmds) =>
+    filterGrassesBySalesWindowsOr(get().grasses, refYmds),
+  pickGrassesForHarvestGrassSelect: (harvestRefYmds, pinnedGrassId) =>
+    grassRowsForHarvestGrassSelect(get().grasses, harvestRefYmds, pinnedGrassId),
+  pickGrassesVisibleOnSalesDateWithPins: (refYmd, pinnedGrassIds) =>
+    grassSelectRowsWithPinnedIds(get().grasses, refYmd, pinnedGrassIds),
+  pickGrassesForZoneConfigSelectWithPins: (refYmd, pinnedGrassIds) =>
+    grassZoneConfigSelectRowsWithPinnedIds(get().grasses, refYmd, pinnedGrassIds),
 
   upsertProjectInList: (project) => {
     const p = project as Record<string, unknown>;
@@ -159,6 +188,7 @@ export const useHarvestingDataStore = create<HarvestingDataState>((set, get) => 
       ["farms", STS_API_PATHS.farms],
       ["projects", STS_API_PATHS.projects],
       ["countries", STS_API_PATHS.countries],
+      ["grasses", STS_API_PATHS.grasses],
       ["products", STS_API_PATHS.products],
     ] as const;
     const settled = await Promise.allSettled(
@@ -181,7 +211,10 @@ export const useHarvestingDataStore = create<HarvestingDataState>((set, get) => 
     const farms = byKey.get("farms");
     const projects = byKey.get("projects");
     const countries = byKey.get("countries");
+    const grassesRaw = byKey.get("grasses");
     const products = byKey.get("products");
+    const grassesArr = grassesRaw !== undefined ? asArray(grassesRaw) : [];
+    const productsArr = asArray(products);
 
     set({
       farmZones: normalizeFarmZoneRows(farmZones),
@@ -189,8 +222,9 @@ export const useHarvestingDataStore = create<HarvestingDataState>((set, get) => 
       farms: asArray(farms),
       projects: asArray(projects),
       countries: asArray(countries),
-      grasses: asArray(products),
-      products: asArray(products),
+      /** `sts_grasses` via `/api/grasses`; fall back to `/api/items` if grasses request failed or returned nothing. */
+      grasses: grassesArr.length > 0 ? grassesArr : productsArr,
+      products: productsArr,
       loading: false,
       error: errors.length ? `Reference partial load: ${errors.join(" | ")}` : null,
       bootstrapDone: true,

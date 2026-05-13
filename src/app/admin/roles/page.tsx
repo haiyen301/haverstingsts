@@ -81,6 +81,7 @@ export default function AdminRolesPage() {
       admin_architects: "Architects",
       admin_zones: "Zones",
       admin_regrowth: "Regrowth",
+      admin_grasses: "Grass types",
       dashboard: "Dashboard",
     }),
     [],

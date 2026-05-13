@@ -78,6 +78,7 @@ export type ZoneConfigurationRow = {
   grass_id: number;
   /** Grass title from JOIN — use for display / matching legacy UI. */
   turfgrass?: string;
+  /** When `sts_zones` exists: `sts_zones.id` as string; legacy rows may still hold zone_name text. */
   zone: string;
   size_m2: string | number;
   inventory_kg_per_m2: string | number;
@@ -91,6 +92,7 @@ export type ZoneConfigurationSavePayload = {
   farm_id: number;
   country?: string | null;
   grass_id: number;
+  /** `sts_zones.id` (string/number accepted); server validates against farm/global scope. */
   zone: string;
   size_m2: number;
   inventory_kg_per_m2: number;
@@ -226,6 +228,25 @@ export type RegrowthRuleRow = {
   regrowth_days: number;
   sort_order: number;
   status: string;
+};
+
+/** Row from `sts_grasses` (STSPortal `grasses` table). */
+export type GrassTypeRow = {
+  id: number;
+  title: string;
+  country?: string | null;
+  sales_from?: string | null;
+  sales_to?: string | null;
+  description?: string | null;
+};
+
+export type GrassTypeSavePayload = {
+  id?: number;
+  title: string;
+  country?: string | null;
+  description?: string | null;
+  sales_from?: string | null;
+  sales_to?: string | null;
 };
 
 /** POST body for `/api/regrowth_rules/save` */
@@ -383,4 +404,17 @@ export async function saveRegrowthRules(
     payload,
   );
   return Array.isArray(data) ? (data as RegrowthRuleRow[]) : [];
+}
+
+export async function fetchGrassTypes(): Promise<GrassTypeRow[]> {
+  const data = await stsProxyGet<unknown[]>(STS_API_PATHS.grasses);
+  return Array.isArray(data) ? (data as GrassTypeRow[]) : [];
+}
+
+export async function saveGrassType(payload: GrassTypeSavePayload): Promise<GrassTypeRow> {
+  return stsProxyPostJson<GrassTypeRow>(STS_API_PATHS.grassesSave, payload);
+}
+
+export async function removeGrassType(id: number): Promise<{ id: number }> {
+  return stsProxyPostJson<{ id: number }>(STS_API_PATHS.grassesRemove, { id });
 }

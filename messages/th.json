@@ -56,7 +56,8 @@
     "adminArchitects": "สถาปนิก",
     "adminZoneSetup": "ตั้งค่าโซน",
     "adminZoneConfiguration": "การตั้งค่าโซน",
-    "adminRegrowthRules": "กฎการฟื้นตัว"
+    "adminRegrowthRules": "กฎการฟื้นตัว",
+    "adminGrassTypes": "ประเภทหญ้า"
   },
   "Nav": {
     "dashboard": "แดชบอร์ด",
@@ -157,7 +158,8 @@
       "vi": "VI"
     },
     "viewProfile": "ดูโปรไฟล์",
-    "logOut": "ออกจากระบบ"
+    "logOut": "ออกจากระบบ",
+    "themeLabel": "ธีม"
   },
   "Auth": {
     "loginTitle": "เข้าสู่ระบบ",
@@ -394,7 +396,10 @@
     "density": "ความหนาแน่น",
     "delivery": "ส่งมอบ",
     "doSo": "DO/SO #",
-    "qty": "จำนวน"
+    "qty": "จำนวน",
+    "rowActionsViewDetail": "ดูรายละเอียด",
+    "rowActionsDuplicate": "ทำซ้ำ",
+    "duplicateFailed": "โหลดข้อมูลเพื่อทำซ้ำไม่สำเร็จ"
   },
   "HarvestDetail": {
     "backToList": "กลับไปหน้ารายการเก็บเกี่ยว",
@@ -614,7 +619,10 @@
     "paceSlowOption": "ช้า — 9 เดือน",
     "paceMediumOption": "ปานกลาง — 6 เดือน",
     "paceFastOption": "เร็ว — 4 เดือน",
+    "paceNoneOption": "ไม่มี",
     "holesNone": "ไม่มี",
+    "optionNone": "ไม่มี",
+    "projectNamePickHint": "เลือกโครงการที่มีอยู่ หรือพิมพ์ชื่อใหม่ด้านล่าง",
     "keyAreaTees": "Tees",
     "keyAreaRoughs": "Roughs",
     "keyAreaFairways": "Fairways",
@@ -1068,6 +1076,41 @@
     "errors": {
       "required": "Farm, grass, zone, size, and yield are required."
     }
+  },
+  "AdminGrasses": {
+    "title": "ประเภทหญ้า",
+    "description": "กำหนดผลิตภัณฑ์หญ้าใน STSPortal (`sts_grasses`): คำอธิบาย และช่วง ตั้งแต่วันที่ / ถึงวันที่ (วันสุดท้ายที่ยังขาย หลังวันถึงถือว่าหยุดขาย)",
+    "loading": "กำลังโหลด…",
+    "add": "เพิ่มประเภทหญ้า",
+    "edit": "แก้ไขประเภทหญ้า",
+    "save": "บันทึก",
+    "saving": "กำลังบันทึก…",
+    "cancel": "ยกเลิก",
+    "empty": "ยังไม่มีประเภทหญ้า",
+    "table": {
+      "title": "ชื่อ",
+      "country": "ประเทศ",
+      "description": "คำอธิบาย",
+      "salesFrom": "ตั้งแต่วันที่",
+      "salesTo": "ถึงวันที่",
+      "actions": "การทำงาน"
+    },
+    "form": {
+      "title": "ชื่อ *",
+      "country": "ประเทศ",
+      "description": "คำอธิบาย",
+      "commercialWindowHint": "ช่วงขายแบบเลือกได้ ตั้งแต่วันที่ = วันแรกที่ยังถือว่าขายได้ ถึงวันที่ = วันสุดท้ายที่ยังขาย หลังวันนั้นให้ถือว่าหยุดขายสินค้านี้",
+      "salesFrom": "ตั้งแต่วันที่",
+      "salesTo": "ถึงวันที่",
+      "datePlaceholder": "dd/M/yyyy"
+    },
+    "errors": {
+      "titleRequired": "กรุณากรอกชื่อ",
+      "load": "โหลดรายการประเภทหญ้าไม่ได้",
+      "save": "บันทึกไม่ได้",
+      "delete": "ลบไม่ได้"
+    },
+    "deleteConfirm": "ลบประเภทหญ้านี้? การตั้งค่าโซนที่เชื่อมอาจต้องปรับ"
   },
   "InventoryOnhandImport": {
     "title": "นำเข้าสินค้าคงคลังจากไฟล์ Raw Excel",

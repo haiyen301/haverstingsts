@@ -33,10 +33,10 @@ import {
 } from "@/features/forecasting/inventoryRegrowthCalculator";
 import { applyInventoryAvailableOverridesToZoneMap } from "@/features/forecasting/inventoryAvailableOverrides";
 import { fetchRegrowthRules, fetchZoneConfigurations } from "@/features/admin/api/adminApi";
-import { mapRowsToSelectOptions, zoneIdToLabel } from "@/shared/lib/harvestReferenceData";
+import { zoneIdToLabel } from "@/shared/lib/harvestReferenceData";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { useInventoryAvailableOverrideStore } from "@/shared/store/inventoryAvailableOverrideStore";
-import { MultiSelect } from "@/components/ui/multi-select";
+import { MultiSelect } from "@/shared/ui/multi-select";
 import { cn } from "@/lib/utils";
 import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
 import {
@@ -273,15 +273,15 @@ export function InventoryForecast() {
       setError(null);
 
       const today = getForecastToday();
-      const from = ymdFromDate(addMonths(today, -12));
-      const to = ymdFromDate(addMonths(today, 18));
+      const from = ymdFromDate(addMonths(today, -24));
+      const to = ymdFromDate(addMonths(today, 30));
 
       const [res, zoneConfigs] = await Promise.all([
         fetchHarvestRowsForForecasting({
           actual_harvest_date_from: from,
           actual_harvest_date_to: to,
-          perPage: 200,
-          maxPages: 50,
+          perPage: 500,
+          maxPages: 400,
         }),
         fetchZoneConfigurations(),
       ]);
@@ -321,23 +321,39 @@ export function InventoryForecast() {
     [farmOptions],
   );
 
-  const grassOptionsFromStore = useMemo(
-    () => mapRowsToSelectOptions(grasses as unknown[], "title"),
-    [grasses],
-  );
-
-  /** Limit grass options to grass types present in the loaded rows (optionally narrowed by selected farms). */
+  /**
+   * Grasses present in loaded forecast rows (after farm filter). Labels prefer reference store
+   * (`/api/grasses` or fallback catalog) `title`/`name` by `product_id`; otherwise `grass_name` from the row.
+   * Sales-window filtering is not applied here — catalog `/api/items` rows lack `sales_*`, which
+   * previously made the grass multi-select empty ("No options found.").
+   */
   const grassFilterOptions = useMemo(() => {
-    const allowedIds = new Set<string>();
+    const idToRowLabel = new Map<string, string>();
     for (const r of rows) {
       if (selectedFarmIds.length > 0 && !selectedFarmIdSet.has(String(r.farmId))) continue;
       const pid = String(r.productId);
-      if (pid && pid !== "0") allowedIds.add(pid);
+      if (!pid || pid === "0") continue;
+      if (!idToRowLabel.has(pid)) {
+        const name = String(r.grassType ?? "").trim();
+        idToRowLabel.set(pid, name || pid);
+      }
     }
-    return grassOptionsFromStore
-      .filter((o) => allowedIds.has(o.id))
-      .map((o) => ({ value: o.id, label: o.label }));
-  }, [rows, selectedFarmIds, selectedFarmIdSet, grassOptionsFromStore]);
+    const titleById = new Map<string, string>();
+    for (const g of grasses) {
+      if (!g || typeof g !== "object") continue;
+      const rec = g as Record<string, unknown>;
+      const id = String(rec.id ?? "").trim();
+      if (!id) continue;
+      const title = String(rec.title ?? rec.name ?? "").trim();
+      if (title) titleById.set(id, title);
+    }
+    return Array.from(idToRowLabel.entries())
+      .map(([value, rowLabel]) => ({
+        value,
+        label: titleById.get(value) ?? rowLabel,
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [rows, selectedFarmIds, selectedFarmIdSet, grasses]);
 
   const filteredRows = useMemo(
     () =>

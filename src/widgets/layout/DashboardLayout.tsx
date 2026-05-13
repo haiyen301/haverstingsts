@@ -27,6 +27,7 @@ import {
   Sprout,
   Timer,
   Tractor,
+  Trees,
   Truck,
   Users,
   X,
@@ -327,7 +328,8 @@ export function DashboardLayout({ children, hideAppNav = false }: DashboardLayou
               p.startsWith("/admin/architects") ||
               p.startsWith("/admin/zones") ||
               p.startsWith("/admin/zone-configurations") ||
-              p.startsWith("/admin/regrowth"),
+              p.startsWith("/admin/regrowth") ||
+              p.startsWith("/admin/grasses"),
             tabs: [
               {
                 value: "projectTypes",
@@ -366,6 +368,14 @@ export function DashboardLayout({ children, hideAppNav = false }: DashboardLayou
                 icon: Timer,
                 path: "/admin/regrowth",
                 module: "admin_regrowth",
+              },
+              {
+                value: "grasses",
+                label: tn("adminGrassTypes"),
+                icon: Trees,
+                path: "/admin/grasses",
+                module: "admin_grasses",
+                isActive: (p) => p === "/admin/grasses" || p.startsWith("/admin/grasses/"),
               },
             ],
             // disabled: true,

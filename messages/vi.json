@@ -56,7 +56,8 @@
     "adminArchitects": "Kiến trúc sư",
     "adminZoneSetup": "Thiết lập zone",
     "adminZoneConfiguration": "Cấu hình khu vực",
-    "adminRegrowthRules": "Quy tắc tái sinh"
+    "adminRegrowthRules": "Quy tắc tái sinh",
+    "adminGrassTypes": "Loại cỏ"
   },
   "Nav": {
     "dashboard": "Bảng điều khiển",
@@ -157,7 +158,8 @@
       "vi": "VI"
     },
     "viewProfile": "Xem hồ sơ",
-    "logOut": "Đăng xuất"
+    "logOut": "Đăng xuất",
+    "themeLabel": "Giao diện"
   },
   "Auth": {
     "loginTitle": "Đăng nhập",
@@ -394,7 +396,10 @@
     "density": "Mật độ",
     "delivery": "Giao hàng",
     "doSo": "DO/SO #",
-    "qty": "SL"
+    "qty": "SL",
+    "rowActionsViewDetail": "Xem chi tiết",
+    "rowActionsDuplicate": "Nhân bản",
+    "duplicateFailed": "Không tải được dữ liệu để nhân bản."
   },
   "HarvestDetail": {
     "backToList": "Quay lại danh sách thu hoạch",
@@ -614,7 +619,10 @@
     "paceSlowOption": "Chậm — 9 tháng",
     "paceMediumOption": "Vừa — 6 tháng",
     "paceFastOption": "Nhanh — 4 tháng",
+    "paceNoneOption": "Không",
     "holesNone": "Không",
+    "optionNone": "Không",
+    "projectNamePickHint": "Chọn dự án có sẵn, hoặc nhập tên mới bên dưới.",
     "keyAreaTees": "Tees",
     "keyAreaRoughs": "Roughs",
     "keyAreaFairways": "Fairways",
@@ -1067,6 +1075,41 @@
     "errors": {
       "required": "Vui lòng chọn farm, loại cỏ, zone và nhập diện tích, năng suất hợp lệ."
     }
+  },
+  "AdminGrasses": {
+    "title": "Loại cỏ",
+    "description": "Định nghĩa sản phẩm cỏ trên STSPortal (`sts_grasses`): mô tả và khoảng Từ ngày / Đến ngày (ngày cuối còn bán; sau ngày Đến thì coi như ngừng bán).",
+    "loading": "Đang tải…",
+    "add": "Thêm loại cỏ",
+    "edit": "Sửa loại cỏ",
+    "save": "Lưu",
+    "saving": "Đang lưu…",
+    "cancel": "Hủy",
+    "empty": "Chưa có loại cỏ.",
+    "table": {
+      "title": "Tên",
+      "country": "Quốc gia",
+      "description": "Mô tả",
+      "salesFrom": "Từ ngày",
+      "salesTo": "Đến ngày",
+      "actions": "Thao tác"
+    },
+    "form": {
+      "title": "Tên *",
+      "country": "Quốc gia",
+      "description": "Mô tả",
+      "commercialWindowHint": "Khoảng bán tùy chọn. Từ ngày = ngày đầu coi như còn bán. Đến ngày = ngày cuối còn bán; sau ngày đó coi như ngừng bán sản phẩm này.",
+      "salesFrom": "Từ ngày",
+      "salesTo": "Đến ngày",
+      "datePlaceholder": "dd/M/yyyy"
+    },
+    "errors": {
+      "titleRequired": "Vui lòng nhập tên.",
+      "load": "Không tải được danh sách loại cỏ.",
+      "save": "Không lưu được.",
+      "delete": "Không xóa được."
+    },
+    "deleteConfirm": "Xóa loại cỏ này? Cấu hình zone đang trỏ tới có thể cần cập nhật."
   },
   "InventoryOnhandImport": {
     "title": "Import tồn kho từ file raw Excel",

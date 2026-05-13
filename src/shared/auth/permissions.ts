@@ -32,6 +32,7 @@ export const APP_PERMISSION_MODULES = [
   "admin_architects",
   "admin_zones",
   "admin_regrowth",
+  "admin_grasses",
 ] as const;
 
 export type AppPermissionModule = (typeof APP_PERMISSION_MODULES)[number];

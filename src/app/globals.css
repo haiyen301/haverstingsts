@@ -40,16 +40,15 @@
   --warning: 28 35% 56%;
   --success: 130 60% 40%;
 
-  /* Light app: sidebar = classic STS (white bar, gray chrome, green active pill) */
-  --sidebar-background: 0 0% 100%;
-  --sidebar-foreground: 220 13% 28%;
-  --sidebar-primary: 0 0% 100%;
-  --sidebar-primary-foreground: 152 59% 30%;
-  --sidebar-accent: 152 59% 30%;
-  /* --sidebar-accent: 82 85% 48%; */
-  --sidebar-accent-foreground: 0 0% 100%;
-  --sidebar-border: 220 13% 91%;
-  --sidebar-ring: 152 59% 30%;
+  /* Light app: STS sidebar — nền xanh nhạt (brand), chữ tối; pill active dùng accent */
+  --sidebar-background: 152 20% 94%;
+  --sidebar-foreground: 150 30% 16%;
+  --sidebar-primary: 82 78% 38%;
+  --sidebar-primary-foreground: 150 32% 12%;
+  --sidebar-accent: 152 28% 86%;
+  --sidebar-accent-foreground: 150 30% 16%;
+  --sidebar-border: 152 16% 82%;
+  --sidebar-ring: 82 78% 38%;
 
   /*
    * Lọc / chọn có giá trị:

@@ -139,6 +139,28 @@ export function farmNameByIdFromRows(
   return "";
 }
 
+/**
+ * When zone selects use `parseFarmZoneEntries(rows, "id")`, map a persisted
+ * `zone_configurations.zone` (historical zone_name or numeric id string) to the
+ * matching `/api/zones` row id for controlled `<select value={…}>`.
+ */
+export function farmZoneSelectIdForStoredZone(
+  storedZone: string | null | undefined,
+  farmZones: FarmZoneReferenceRow[],
+): string | null {
+  const key = storedZone != null ? String(storedZone).trim() : "";
+  if (!key) return null;
+  const exact = farmZones.find(
+    (row) =>
+      normalizeText(String(row.id ?? "")) === normalizeText(key) ||
+      normalizeText(String(row.zone_name ?? "")) === normalizeText(key) ||
+      normalizeText(String(row.label ?? "")) === normalizeText(key),
+  );
+  if (!exact) return null;
+  const id = String(exact.id ?? "").trim();
+  return id || null;
+}
+
 /** Resolve zone display label from `/api/zones` reference rows. */
 export function zoneIdToLabel(
   zoneId: string | undefined | null,
@@ -158,4 +180,193 @@ export function zoneIdToLabel(
   }
 
   return key;
+}
+
+/** Parse `sts_grasses.sales_from` / `sales_to` to `YYYY-MM-DD`, or null if unset/invalid. */
+export function parseGrassSalesYmd(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  const s = String(value).trim();
+  if (!s || s.startsWith("0000-00-00")) return null;
+  const ymd = s.length >= 10 ? s.slice(0, 10) : s;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return null;
+  return ymd;
+}
+
+/** Local calendar date `YYYY-MM-DD` (browser). */
+export function todayYmdLocal(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * Grass appears in selects when it has a defined sales window and `refYmd` falls in range (inclusive).
+ * - Both `sales_from` and `sales_to` empty → not selectable.
+ * - Only `sales_from` → `refYmd >= sales_from`.
+ * - Only `sales_to` → `refYmd <= sales_to`.
+ * - Both set → `sales_from <= refYmd <= sales_to`.
+ */
+export function isGrassRowSelectableOnDate(row: unknown, refYmd: string): boolean {
+  if (!row || typeof row !== "object") return false;
+  const r = row as Record<string, unknown>;
+  const from = parseGrassSalesYmd(r.sales_from);
+  const to = parseGrassSalesYmd(r.sales_to);
+  if (!from && !to) return false;
+  if (from && refYmd < from) return false;
+  if (to && refYmd > to) return false;
+  return true;
+}
+
+export function filterGrassesBySalesWindow(grasses: unknown[], refYmd: string): unknown[] {
+  return grasses.filter((g) => isGrassRowSelectableOnDate(g, refYmd));
+}
+
+/**
+ * `/admin/zone-configurations` grass dropdown (evaluated on `refYmd`, typically today):
+ * - Both `sales_from` and `sales_to` empty → show (no sales window configured).
+ * - Otherwise today must fall in range: if `sales_from` set then `refYmd >= sales_from`;
+ *   if `sales_to` set then `refYmd <= sales_to` (hide when `refYmd > sales_to`).
+ */
+export function isGrassRowVisibleForZoneConfigOnDate(row: unknown, refYmd: string): boolean {
+  if (!row || typeof row !== "object") return false;
+  const r = row as Record<string, unknown>;
+  const from = parseGrassSalesYmd(r.sales_from);
+  const to = parseGrassSalesYmd(r.sales_to);
+  if (!from && !to) return true;
+  if (from && refYmd < from) return false;
+  if (to && refYmd > to) return false;
+  return true;
+}
+
+export function filterGrassesForZoneConfigSelect(grasses: unknown[], refYmd: string): unknown[] {
+  return grasses.filter((g) => isGrassRowVisibleForZoneConfigOnDate(g, refYmd));
+}
+
+/** Like {@link grassSelectRowsWithPinnedIds} but uses {@link filterGrassesForZoneConfigSelect}. */
+export function grassZoneConfigSelectRowsWithPinnedIds(
+  grasses: unknown[],
+  refYmd: string,
+  pinnedGrassIds: string[],
+): unknown[] {
+  const base = filterGrassesForZoneConfigSelect(grasses, refYmd);
+  const seen = new Set(
+    base.map((r) => {
+      if (!r || typeof r !== "object") return "";
+      return String((r as Record<string, unknown>).id ?? "").trim();
+    }),
+  );
+  const out = [...base];
+  for (const rawId of pinnedGrassIds) {
+    const id = rawId.trim();
+    if (!id || seen.has(id)) continue;
+    const row = grasses.find(
+      (g) =>
+        g &&
+        typeof g === "object" &&
+        String((g as Record<string, unknown>).id ?? "").trim() === id,
+    );
+    if (row) {
+      out.push(row);
+      seen.add(id);
+    }
+  }
+  return out;
+}
+
+/**
+ * Visible if any reference date is inside the grass sales window.
+ * Empty / invalid `refYmds` → uses {@link todayYmdLocal} (list filters / default behaviour).
+ */
+export function filterGrassesBySalesWindowsOr(
+  grasses: unknown[],
+  refYmds: string[],
+): unknown[] {
+  const dates = refYmds
+    .map((s) => s.trim())
+    .filter((s) => /^\d{4}-\d{2}-\d{2}$/.test(s));
+  const effective = dates.length > 0 ? dates : [todayYmdLocal()];
+  return grasses.filter((g) => effective.some((ymd) => isGrassRowSelectableOnDate(g, ymd)));
+}
+
+/**
+ * Harvest form grass visibility on one date (`/harvest/new`):
+ * - Both `sales_from` and `sales_to` empty → show by default.
+ * - Otherwise date must be in range (inclusive).
+ */
+export function isGrassRowVisibleForHarvestGrassSelectOnDate(
+  row: unknown,
+  refYmd: string,
+): boolean {
+  if (!row || typeof row !== "object") return false;
+  const r = row as Record<string, unknown>;
+  const from = parseGrassSalesYmd(r.sales_from);
+  const to = parseGrassSalesYmd(r.sales_to);
+  if (!from && !to) return true;
+  if (from && refYmd < from) return false;
+  if (to && refYmd > to) return false;
+  return true;
+}
+
+/** Rows allowed on `refYmd`, plus any `pinnedGrassIds` rows from the full list (e.g. active URL filter or edit form). */
+export function grassSelectRowsWithPinnedIds(
+  grasses: unknown[],
+  refYmd: string,
+  pinnedGrassIds: string[],
+): unknown[] {
+  const base = filterGrassesBySalesWindow(grasses, refYmd);
+  const seen = new Set(
+    base.map((r) => {
+      if (!r || typeof r !== "object") return "";
+      return String((r as Record<string, unknown>).id ?? "").trim();
+    }),
+  );
+  const out = [...base];
+  for (const rawId of pinnedGrassIds) {
+    const id = rawId.trim();
+    if (!id || seen.has(id)) continue;
+    const row = grasses.find(
+      (g) =>
+        g &&
+        typeof g === "object" &&
+        String((g as Record<string, unknown>).id ?? "").trim() === id,
+    );
+    if (row) {
+      out.push(row);
+      seen.add(id);
+    }
+  }
+  return out;
+}
+
+/** Harvest grass `<select>`: OR on any harvest calendar refs (fallback today); always include current `pinnedGrassId` if set. */
+export function grassRowsForHarvestGrassSelect(
+  grasses: unknown[],
+  harvestRefYmds: string[],
+  pinnedGrassId: string,
+): unknown[] {
+  const dates = harvestRefYmds
+    .map((s) => s.trim())
+    .filter((s) => /^\d{4}-\d{2}-\d{2}$/.test(s));
+  const effective = dates.length > 0 ? dates : [todayYmdLocal()];
+  const base = grasses.filter((g) =>
+    effective.some((ymd) => isGrassRowVisibleForHarvestGrassSelectOnDate(g, ymd)),
+  );
+  const p = pinnedGrassId.trim();
+  if (!p) return base;
+  const has = base.some(
+    (g) =>
+      g &&
+      typeof g === "object" &&
+      String((g as Record<string, unknown>).id ?? "").trim() === p,
+  );
+  if (has) return base;
+  const row = grasses.find(
+    (g) =>
+      g &&
+      typeof g === "object" &&
+      String((g as Record<string, unknown>).id ?? "").trim() === p,
+  );
+  return row ? [...base, row] : base;
 }

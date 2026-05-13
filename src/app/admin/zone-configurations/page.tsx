@@ -14,9 +14,11 @@ import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import {
+  farmZoneSelectIdForStoredZone,
   filterFarmZoneRowsByFarmId,
   mapRowsToSelectOptions,
   parseFarmZoneEntries,
+  todayYmdLocal,
   zoneIdToLabel,
 } from "@/shared/lib/harvestReferenceData";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
@@ -76,6 +78,9 @@ export default function AdminZoneConfigurationsPage() {
 
   const farms = useHarvestingDataStore((s) => s.farms);
   const grasses = useHarvestingDataStore((s) => s.grasses);
+  const pickGrassesForZoneConfigSelectWithPins = useHarvestingDataStore(
+    (s) => s.pickGrassesForZoneConfigSelectWithPins,
+  );
   const farmZones = useHarvestingDataStore((s) => s.farmZones);
   const bootstrapDone = useHarvestingDataStore((s) => s.bootstrapDone);
   const fetchAllHarvestingReferenceData = useHarvestingDataStore(
@@ -92,15 +97,21 @@ export default function AdminZoneConfigurationsPage() {
     [farms],
   );
   const grassOptions = useMemo(
-    () => mapRowsToSelectOptions(grasses as unknown[], "title"),
-    [grasses],
+    () =>
+      mapRowsToSelectOptions(
+        pickGrassesForZoneConfigSelectWithPins(todayYmdLocal(), [
+          form.grass_id.trim(),
+        ]) as unknown[],
+        "title",
+      ),
+    [grasses, form.grass_id, pickGrassesForZoneConfigSelectWithPins],
   );
   const filteredFarmZoneRows = useMemo(
     () => filterFarmZoneRowsByFarmId(farmZones, form.farm_id),
     [farmZones, form.farm_id],
   );
   const filteredZoneEntries = useMemo(() => {
-    const entries = parseFarmZoneEntries(filteredFarmZoneRows);
+    const entries = parseFarmZoneEntries(filteredFarmZoneRows, "id");
     const currentZone = form.zone.trim();
     if (!currentZone || entries.some(([value]) => value === currentZone)) {
       return entries;
@@ -142,11 +153,17 @@ export default function AdminZoneConfigurationsPage() {
   };
 
   const openEdit = (row: ZoneConfigurationRow) => {
+    const zoneRows = filterFarmZoneRowsByFarmId(farmZones, row.farm_id);
+    const stored = String(row.zone ?? "").trim();
+    const mappedZone =
+      farmZoneSelectIdForStoredZone(stored, zoneRows) ??
+      farmZoneSelectIdForStoredZone(stored, farmZones) ??
+      stored;
     setForm({
       id: Number(row.id),
       farm_id: String(row.farm_id),
       grass_id: String(row.grass_id),
-      zone: String(row.zone ?? "").trim(),
+      zone: mappedZone,
       size_m2: String(row.size_m2 ?? ""),
       inventory_kg_per_m2: String(row.inventory_kg_per_m2 ?? ""),
       date_planted: String(row.date_planted ?? ""),
@@ -203,7 +220,8 @@ export default function AdminZoneConfigurationsPage() {
   const handleDelete = async (row: ZoneConfigurationRow) => {
     const id = Number(row.id);
     if (!Number.isFinite(id) || id <= 0) return;
-    if (!window.confirm(`Delete ${row.zone}?`)) return;
+    const zoneLabel = zoneIdToLabel(String(row.zone ?? ""), farmZones) || String(row.zone ?? "");
+    if (!window.confirm(`Delete ${zoneLabel}?`)) return;
 
     try {
       setSaving(true);

@@ -45,6 +45,7 @@ import {
 } from "@/shared/lib/harvestType";
 import { resolveHarvestDisplayUrl } from "@/shared/config/stsUrls";
 import { DatePicker } from "@/shared/ui/date-picker";
+import { MultiSelect } from "@/shared/ui/multi-select";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
 import { deleteMondayParentOrSubItem } from "@/entities/projects/api/projectsApi";
 import { effectiveRequiredQuantityForFormUom } from "@/features/project/lib/effectiveRequirementQuantity";
@@ -59,6 +60,7 @@ import {
 } from "@/features/admin/api/adminApi";
 import { CheckBadge } from "@/shared/ui/check-badge";
 import { Checkbox } from "@/shared/ui/checkbox";
+import { peelHarvestDuplicateDraftRow } from "@/features/harvesting/lib/harvestDuplicateDraft";
 
 const DOC_PHOTO_SLOTS: HarvestDocPhotoField[] = [
   "payment_img",
@@ -82,7 +84,7 @@ const emptyForm = {
   quantity: "",
   uom: "M2",
   referenceHarvestQuantity: "",
-  /** `harvested_area` — Kg: nhập thủ công; M2: có thể đồng bộ với quantity ở UI, không gửi vào cột này từ Ref. Harvest Qty. */
+  /** `harvested_area` — nhập riêng với quantity; payload M2 vẫn không gửi cột này (theo API). */
   harvestedArea: "",
   zone: "",
   farm: "",
@@ -463,10 +465,8 @@ function applyRowToFormState(r: Record<string, unknown>): HarvestFormState {
     zone: String(r.zone ?? ""),
     quantity: String(r.quantity ?? ""),
     uom: uomStr,
-    referenceHarvestQuantity: !isKg
-      ? (referenceHarvestQtyStr || harvestedStr)
-      : "",
-    harvestedArea: isKg ? harvestedStr : "",
+    referenceHarvestQuantity: !isKg ? referenceHarvestQtyStr : "",
+    harvestedArea: harvestedStr,
     harvestType,
     estimatedDate: toDateInput(r.estimated_harvest_date),
     estimatedDateEnd,
@@ -742,6 +742,9 @@ function HarvestInputPageInner() {
   const fetchAllHarvestingReferenceData = useHarvestingDataStore(
     (s) => s.fetchAllHarvestingReferenceData,
   );
+  const pickGrassesForHarvestGrassSelect = useHarvestingDataStore(
+    (s) => s.pickGrassesForHarvestGrassSelect,
+  );
 
   useEffect(() => {
     if (accessDenied) return;
@@ -751,10 +754,6 @@ function HarvestInputPageInner() {
   const projectOptions = useMemo(
     () => mapRowsToSelectOptions(projects as unknown[], "title"),
     [projects],
-  );
-  const productOptions = useMemo(
-    () => mapRowsToSelectOptions(products as unknown[], "title"),
-    [products],
   );
   const farmOptions = useMemo(
     () => mapRowsToSelectOptions(farms as unknown[], "name"),
@@ -788,6 +787,29 @@ function HarvestInputPageInner() {
   }, [products]);
 
   const [formData, setFormData] = useState(emptyForm);
+
+  const grassRowsForSelect = useMemo(() => {
+    const ymds = [
+      toDateInput(formData.estimatedDate),
+      toDateInput(formData.estimatedDateEnd),
+      toDateInput(formData.actualDate),
+      toDateInput(formData.actualHarvestEndDate),
+    ].filter((s) => /^\d{4}-\d{2}-\d{2}$/.test(s));
+    return pickGrassesForHarvestGrassSelect(ymds, formData.grass);
+  }, [
+    pickGrassesForHarvestGrassSelect,
+    products,
+    formData.estimatedDate,
+    formData.estimatedDateEnd,
+    formData.actualDate,
+    formData.actualHarvestEndDate,
+    formData.grass,
+  ]);
+  const productOptions = useMemo(
+    () => mapRowsToSelectOptions(grassRowsForSelect as unknown[], "title"),
+    [grassRowsForSelect],
+  );
+
   const filteredFarmZoneRows = useMemo(
     () => filterFarmZoneRowsByFarmId(farmZones, formData.farm),
     [farmZones, formData.farm],
@@ -929,7 +951,7 @@ function HarvestInputPageInner() {
   const filteredProjectOptions = useMemo(() => {
     const cid = formData.customerId.trim();
     if (!cid) return projectOptions;
-    return projectOptions.filter((o) => {
+    const filtered = projectOptions.filter((o) => {
       const pr = projects.find((x) => {
         if (!x || typeof x !== "object") return false;
         const row = x as Record<string, unknown>;
@@ -938,7 +960,23 @@ function HarvestInputPageInner() {
       if (!pr) return false;
       return String(pr.odoo_customer_id ?? "").trim() === cid;
     });
-  }, [formData.customerId, projectOptions, projects]);
+    if (filtered.length === 0) {
+      return projectOptions;
+    }
+    const selectedProjectId = formData.project.trim();
+    if (!selectedProjectId) {
+      return filtered;
+    }
+    const hasSelected = filtered.some((o) => o.id === selectedProjectId);
+    if (hasSelected) {
+      return filtered;
+    }
+    const selectedFromAll = projectOptions.find((o) => o.id === selectedProjectId);
+    if (!selectedFromAll) {
+      return filtered;
+    }
+    return [selectedFromAll, ...filtered];
+  }, [formData.customerId, formData.project, projectOptions, projects]);
 
   const validationMessages: HarvestValidationMessages = {
     selectProject: t("validationSelectProject"),
@@ -966,6 +1004,25 @@ function HarvestInputPageInner() {
   useEffect(() => {
     if (accessDenied) return;
     if (!editId) {
+      const dupRow = peelHarvestDuplicateDraftRow();
+      if (dupRow) {
+        const descParsed = parseDescriptionFromRow(String(dupRow.description ?? ""));
+        setFormData(applyRowToFormState(dupRow));
+        setUseEstimatedDateRange(
+          Boolean(getEstimatedDateEndFromRow(dupRow, descParsed)),
+        );
+        setPhotos({});
+        setExistingDocSlots({});
+        setPendingImagesRemoved({});
+        setPendingFilesRemoved({});
+        setEditTableId("");
+        setEditTableName("Harvesting");
+        setEditLoadError(null);
+        setEditLoaded(true);
+        setFieldErrors({});
+        setHarvestDateTouched(false);
+        return;
+      }
       setFormData({ ...emptyForm, project: initialProjectId });
       setUseEstimatedDateRange(false);
       setPhotos({});
@@ -1652,14 +1709,17 @@ function HarvestInputPageInner() {
                       </div> */}
 
                       <div>
-                        <label className={harvestLabelClass} htmlFor="harvest-project">
+                        <label className={harvestLabelClass}>
                           {t("selectProjectLabel")}
                         </label>
-                        <select
-                          id="harvest-project"
-                          value={formData.project}
-                          onChange={(e) => {
-                            const project = e.target.value;
+                        <MultiSelect
+                          options={filteredProjectOptions.map((o) => ({
+                            value: o.id,
+                            label: o.label,
+                          }))}
+                          values={formData.project ? [formData.project] : []}
+                          onChange={(nextValues) => {
+                            const project = nextValues[0] ?? "";
                             const pr = projects.find((x) => {
                               if (!x || typeof x !== "object") return false;
                               const row = x as Record<string, unknown>;
@@ -1673,18 +1733,11 @@ function HarvestInputPageInner() {
                             });
                             setFieldErrors((prev) => ({ ...prev, project: undefined }));
                           }}
+                          multi={false}
+                          placeholder={refLoading ? t("loadingProjects") : t("selectProject")}
                           className={`${harvestFieldClass} ${fieldErrors.project ? "ring-2 ring-destructive" : ""}`}
                           disabled={formDisabled}
-                        >
-                          <option value="">
-                            {refLoading ? t("loadingProjects") : t("selectProject")}
-                          </option>
-                          {filteredProjectOptions.map((o) => (
-                            <option key={o.id} value={o.id}>
-                              {o.label}
-                            </option>
-                          ))}
-                        </select>
+                        />
                         {fieldErrors.project ? (
                           <p className="mt-1.5 text-xs leading-snug text-destructive">
                             {fieldErrors.project}
@@ -2048,17 +2101,42 @@ function HarvestInputPageInner() {
                       {formData.uom.trim().toLowerCase() === "m2" ? (
                         <>
                           <input
-                            type="text"
-                            readOnly
-                            value={formData.quantity}
-                            className={`${harvestFieldClass} cursor-not-allowed opacity-80`}
+                            id="harvest-harvested-area"
+                            type="number"
+                            min={0}
+                            value={formData.harvestedArea}
+                            onChange={(e) => {
+                              const nextValue = e.target.value;
+                              if (nextValue.trim().startsWith("-")) return;
+                              setFormData({
+                                ...formData,
+                                harvestedArea: nextValue,
+                              });
+                              setFieldErrors((prev) => ({
+                                ...prev,
+                                harvestedArea: undefined,
+                              }));
+                            }}
+                            onBlur={() => {
+                              setFormData((prev) => ({
+                                ...prev,
+                                harvestedArea: normalizeNonNegativeInput(prev.harvestedArea),
+                              }));
+                            }}
+                            className={`${harvestFieldClass} ${
+                              fieldErrors.harvestedArea ? "ring-2 ring-destructive" : ""
+                            }`}
                             placeholder={t("harvestedArea")}
                             disabled={formDisabled}
-                            aria-readonly="true"
                           />
                           <p className="mt-1 text-xs text-muted-foreground">
                             {t("harvestedAreaHintM2")}
                           </p>
+                          {fieldErrors.harvestedArea ? (
+                            <p className="mt-1.5 text-xs leading-snug text-destructive">
+                              {fieldErrors.harvestedArea}
+                            </p>
+                          ) : null}
                         </>
                       ) : (
                         <>

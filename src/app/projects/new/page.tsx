@@ -223,7 +223,7 @@ export default function ProjectInputPage() {
     contactName: "",
     contactEmail: "",
     contactPhone: "",
-    projectPace: "medium" as "slow" | "medium" | "fast" | "",
+    projectPace: "medium" as "slow" | "medium" | "fast" | "none" | "",
   });
 
   const [grassRows, setGrassRows] = useState<GrassRow[]>([
@@ -677,7 +677,9 @@ export default function ProjectInputPage() {
     const projectPace =
       paceRaw === "slow" || paceRaw === "medium" || paceRaw === "fast"
         ? paceRaw
-        : "medium";
+        : paceRaw === "none" || paceRaw === ""
+          ? "none"
+          : "medium";
     setFormData({
       projectName: projectNameDisplay,
       golfClub: String(row.alias_title ?? "").trim(),
@@ -877,7 +879,10 @@ export default function ProjectInputPage() {
           main_contact_name: formData.contactName.trim(),
           main_contact_email: formData.contactEmail.trim(),
           main_contact_phone: formData.contactPhone.trim(),
-          project_pace: formData.projectPace.trim() || "medium",
+          project_pace:
+            formData.projectPace === "none" || !formData.projectPace.trim()
+              ? ""
+              : formData.projectPace.trim(),
           actual_completion_date: formData.actualCompletionDate.trim(),
         },
       };
@@ -1270,6 +1275,7 @@ export default function ProjectInputPage() {
                           { value: "slow" as const, label: t("paceSlowOption") },
                           { value: "medium" as const, label: t("paceMediumOption") },
                           { value: "fast" as const, label: t("paceFastOption") },
+                          { value: "none" as const, label: t("paceNoneOption") },
                         ] as const
                       ).map((opt) => (
                         <button
@@ -1277,7 +1283,9 @@ export default function ProjectInputPage() {
                           type="button"
                           onClick={() => {
                             const nextPace =
-                              formData.projectPace === opt.value ? "" : opt.value;
+                              formData.projectPace === opt.value
+                                ? "none"
+                                : opt.value;
                             setFormData({ ...formData, projectPace: nextPace });
                           }}
                           className="relative block cursor-pointer text-left"

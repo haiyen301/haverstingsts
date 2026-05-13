@@ -16,7 +16,7 @@ import RequireAuth from "@/features/auth/RequireAuth";
 import { fetchRoles } from "@/features/admin/api/rolesApi";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 import { Card, CardContent } from "@/components/ui/card";
-import { MultiSelect } from "@/components/ui/multi-select";
+import { MultiSelect } from "@/shared/ui/multi-select";
 import { cn } from "@/lib/utils";
 import { Checkbox } from "@/shared/ui/checkbox";
 import { STS_API_PATHS } from "@/shared/api/stsApiPaths";

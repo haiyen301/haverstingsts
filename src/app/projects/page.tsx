@@ -10,7 +10,7 @@ import { canAccessModule } from "@/shared/auth/permissions";
 import { useSyncedFarmMultiSelect } from "@/shared/hooks/useSyncedFarmMultiSelect";
 import { useAuthUserStore } from "@/shared/store/authUserStore";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
-import { MultiSelect } from "@/components/ui/multi-select";
+import { MultiSelect } from "@/shared/ui/multi-select";
 import {
   fetchMondayProjectRowsFromServer,
   type MondayDynamicRowLike,
