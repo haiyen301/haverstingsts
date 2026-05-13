@@ -35,9 +35,24 @@ export async function getAllDynamicTableDataFromServer(
   if (params?.page != null) sp.set("page", String(params.page));
   if (params?.perPage != null) sp.set("per_page", String(params.perPage));
 
+  if (typeof window !== "undefined") {
+    const { getSessionUser } = await import("@/shared/store/authUserStore");
+    const uid = getSessionUser()?.id;
+    if (uid != null && Number.isFinite(Number(uid)) && Number(uid) > 0) {
+      sp.set("user_current_login", String(Number(uid)));
+    }
+  }
+
+  const moduleName = String(
+    (params?.filter as Record<string, unknown> | undefined)?.module ?? "",
+  )
+    .trim()
+    .toLowerCase();
+  void moduleName;
+  const basePathForList = STS_API_PATHS.mondayDynamicTableData;
   const upstreamPath = sp.toString()
-    ? `${STS_API_PATHS.mondayDynamicTableData}?${sp.toString()}`
-    : STS_API_PATHS.mondayDynamicTableData;
+    ? `${basePathForList}?${sp.toString()}`
+    : basePathForList;
 
   const data = await stsProxyGet<unknown>(upstreamPath);
 
@@ -112,9 +127,14 @@ export async function fetchMondayProjectRowsFromServer(params?: {
   status?: string;
   /** Filter by `country_id` (same as ProjectListItem country pill / Zustand countries). */
   countryId?: string;
-  /** Server sort: country_id, status bucket, first grass product_id. */
-  sortBy?: "country" | "status" | "grass";
+  /** Server sort: country_id, status bucket, first grass product_id, or numeric project_id. */
+  sortBy?: "country" | "status" | "grass" | "project_id";
   sortDir?: "asc" | "desc";
+  /**
+   * When true, STSPortal applies `page` / `per_page` on the filtered Monday row list
+   * (`Harvesting::_applyMondayHarvestingTableQuery`). Omit on screens that need the full list.
+   */
+  listPaged?: boolean;
 }): Promise<MondayDynamicTableResponse> {
   return getAllDynamicTableDataFromServer({
     page: params?.page,
@@ -126,6 +146,7 @@ export async function fetchMondayProjectRowsFromServer(params?: {
       country_id: params?.countryId,
       sort_by: params?.sortBy,
       sort_dir: params?.sortDir,
+      ...(params?.listPaged ? { monday_slice: 1 } : {}),
     },
   });
 }

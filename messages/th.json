@@ -24,6 +24,8 @@
     "company": "บริษัท"
   },
   "AppHeader": {
+    "alertsBell": "การแจ้งเตือนของฉัน",
+    "alertsBellUnread": "การแจ้งเตือนของฉัน ยังไม่อ่าน {count} รายการ",
     "allFarms": "ทุกฟาร์ม",
     "farmLabel": "ฟาร์ม",
     "clearFarmFilter": "ล้างตัวกรองฟาร์ม",
@@ -47,13 +49,21 @@
     "equipment": "อุปกรณ์",
     "userManagement": "จัดการผู้ใช้",
     "turfOperations": "ปฏิบัติการสนามหญ้า",
-    "fleetMechanicalAdmin": "ยานพาหนะและซ่อมบำรุง"
+    "fleetMechanicalAdmin": "ยานพาหนะและซ่อมบำรุง",
+    "adminPeople": "บุคลากร",
+    "alertSettings": "ตั้งค่าการแจ้งเตือน",
+    "adminProjects": "โครงการ",
+    "adminArchitects": "สถาปนิก",
+    "adminZoneSetup": "ตั้งค่าโซน",
+    "adminZoneConfiguration": "การตั้งค่าโซน",
+    "adminRegrowthRules": "กฎการฟื้นตัว"
   },
   "Nav": {
     "dashboard": "แดชบอร์ด",
     "harvests": "การเก็บเกี่ยว",
     "projects": "โครงการ",
     "overview": "ภาพรวม",
+    "inventory": "สินค้าคงคลัง",
     "planning": "การวางแผน",
     "timeline": "ไทม์ไลน์",
     "forecasting": "การพยากรณ์",
@@ -61,6 +71,71 @@
     "weather": "สภาพอากาศ",
     "more": "เพิ่มเติม",
     "moreSheetTitle": "เมนูเพิ่มเติม"
+  },
+  "AdminAlertSettings": {
+    "title": "ตั้งค่าการแจ้งเตือน",
+    "description": "กำหนดหมวดในฟีด แมปหน้าจอ harvest/project กับหมวด แล้วสร้างการแจ้งเตือนแบบมีรูปและช่องทางส่ง",
+    "hint": "หมวดและการแมปหน้าจอจะบันทึกอัตโนมัติหลังเปลี่ยนค่า ไฟล์อยู่ที่ data/alert-feed-config.json บนเซิร์ฟเวอร์ Next แถวแจ้งเตือนยังบันทึกผ่าน STSPortal /api/alerts/save",
+    "viewFeed": "เปิดการแจ้งเตือนของฉัน",
+    "loading": "กำลังโหลด…",
+    "saving": "กำลังบันทึก…",
+    "saveLayout": "บันทึกหมวดและเส้นทาง",
+    "toastLayoutSaved": "บันทึกการตั้งค่าแจ้งเตือนแล้ว",
+    "saveFailed": "บันทึกไม่สำเร็จ",
+    "sectionCategories": "หมวดในฟีด",
+    "sectionRoutes": "แมปหน้าจอ → หมวด",
+    "sectionPush": "สร้างการแจ้งเตือน",
+    "routesHelp": "เมื่อเพิ่มการ push อัตโนมัติจาก harvest/project ให้ใช้รหัสหมวดตามที่กำหนดต่อหน้าจอ",
+    "sectionRecipients": "ใครได้รับการแจ้งเตือนอัตโนมัติ",
+    "recipientsHelp": "เลือกผู้รับต่อหน้าจออัตโนมัติด้านล่าง ส่วนสร้างการแจ้งเตือนใช้เลือกผู้รับเมื่อทดสอบส่ง",
+    "recipientDefaultHeading": "ค่าเริ่มต้นทุกหน้าจอ",
+    "recipientRouteHeading": "ผู้รับ: {screen}",
+    "recipientMode": "โหมดผู้รับ",
+    "recipientSelf": "เฉพาะผู้ที่กระทำ",
+    "recipientUserIds": "เลือกบุคคล",
+    "recipientRoles": "ผู้ใช้ในบทบาทที่เลือก",
+    "recipientAllUsers": "ผู้ใช้ที่ใช้งานทั้งหมด (เซิร์ฟเวอร์จำกัดจำนวน)",
+    "recipientUserIdsHelp": "เลือกจากรายชื่อในแอป (ชุดข้อมูลเดียวกับฟอร์มโครงการ/เก็บเกี่ยว) เก็บเป็นรหัสผู้ใช้ STS สูงสุด 100",
+    "recipientStaffsLoading": "กำลังโหลดรายชื่อ…",
+    "recipientStaffsEmpty": "ยังไม่มีรายชื่อ ตรวจสอบการล็อกอินหรือลองใหม่ภายหลัง",
+    "recipientUserSearchLabel": "กรองรายชื่อ",
+    "recipientUserSearchPh": "ค้นตามชื่อหรือรหัส…",
+    "recipientUserSearchNoMatch": "ไม่พบรายการที่ตรง",
+    "recipientRolesEmpty": "โหลดบทบาทไม่ได้ ตรวจสอบเซสชันและสิทธิ์ STSPortal",
+    "routes": {
+      "harvest_new": "สร้างการเก็บเกี่ยวใหม่",
+      "harvest_import": "นำเข้าเก็บเกี่ยว (Excel)",
+      "projects_new": "โครงการใหม่",
+      "projects_import": "นำเข้าโครงการ (Excel)"
+    },
+    "iconLabel": "ไอคอน",
+    "removeCategory": "ลบหมวด",
+    "addCategory": "เพิ่มหมวด",
+    "categoryTitlePh": "ชื่อหัวข้อ (แสดงใน My Alerts)",
+    "categoryIdPh": "รหัส (ตัวพิมพ์เล็ก เช่น promotions) — ไม่บังคับถ้ามีชื่อ",
+    "categoryDescPh": "คำอธิบายสั้นๆ",
+    "categoryInvalid": "กรอกชื่อและรหัสหมวดให้ถูกต้อง",
+    "categoryDuplicate": "รหัสหมวดนี้มีแล้ว",
+    "pushHelp": "สร้างแจ้งเตือนในแอป (ฟีด My Alerts) เลือกผู้รับด้านล่าง ธงช่องทางเก็บในอีเวนต์สำหรับ worker ภายหลัง",
+    "pushRecipientHeading": "ผู้รับ",
+    "pushNoPermission": "ไม่มีสิทธิ์สร้างแจ้งเตือน (my_alerts → create)",
+    "pushCategory": "หมวด (กลุ่มในฟีด)",
+    "pushTitle": "หัวข้อ",
+    "pushTitlePh": "หัวข้อหนา",
+    "pushThumb": "URL รูปย่อ (ซ้าย)",
+    "pushBody": "เนื้อหา",
+    "pushBodyPh": "รองรับบรรทัดใหม่และอีโมจิ",
+    "pushGallery": "รูปเพิ่ม (หนึ่ง URL ต่อบรรทัด)",
+    "pushGalleryPh": "https://…\nhttps://…",
+    "pushHref": "พาธเมื่อแตะ (ไม่บังคับ)",
+    "channelMobile": "Push มือถือ",
+    "channelWeb": "เว็บ / ในแอป",
+    "channelEmail": "อีเมล",
+    "pushRequired": "ต้องมีหัวข้อ ข้อความ และหมวด",
+    "pushSending": "กำลังส่ง…",
+    "pushSubmit": "สร้างการแจ้งเตือน",
+    "pushCreated": "สร้างแล้ว",
+    "pushFailed": "สร้างไม่สำเร็จ"
   },
   "Theme": {
     "toggleAria": "สลับโหมดสี",
@@ -553,6 +628,7 @@
     "projectDetails": "รายละเอียดโครงการ",
     "grassesDetails": "รายละเอียดหญ้า",
     "harvestHistory": "ประวัติการเก็บเกี่ยว",
+    "harvestHistoryRecordCount": "{count} รายการ",
     "missingRowId": "ไม่พบรหัสแถวโครงการ",
     "cannotFindDetail": "ไม่พบรายละเอียดโครงการ",
     "loadError": "โหลดรายละเอียดโครงการไม่สำเร็จ",
@@ -713,12 +789,17 @@
     "fileLabel": "ไฟล์",
     "removePhotoAria": "ลบ {label}",
     "saveFailed": "บันทึกรายการเก็บเกี่ยวไม่สำเร็จ",
+    "deleteHarvestTitle": "ลบรายการเก็บเกี่ยว?",
+    "deleteHarvestMessage": "คุณแน่ใจหรือไม่ว่าต้องการลบรายการเก็บเกี่ยวนี้?",
+    "alertNewHarvestTitle": "การเก็บเกี่ยวใหม่: {grass}",
+    "alertNewHarvestMessage": "{project} · {quantity} {uom}",
     "loadError": "โหลดรายการเก็บเกี่ยวไม่สำเร็จ",
     "harvestNotFound": "ไม่พบรายการเก็บเกี่ยว",
     "validationSelectProject": "กรุณาเลือกโครงการ",
     "validationSelectGrassType": "กรุณาเลือกประเภทหญ้า",
     "validationSelectHarvestType": "กรุณาเลือกประเภทการเก็บเกี่ยว",
     "validationEnterQuantity": "กรุณากรอกจำนวน",
+    "validationReferenceHarvestQuantityRequired": "ปริมาณอ้างอิงเป็นค่าบังคับและต้องมากกว่า 0 สำหรับ Sod -> Sprig",
     "validationHarvestedAreaKg": "ต้องกรอกพื้นที่เก็บเกี่ยวและต้องมากกว่า 0 เมื่อมีวันที่เก็บเกี่ยวจริงและหน่วยเป็น Kg",
     "validationSelectZone": "กรุณาเลือกโซน",
     "validationSelectFarm": "กรุณาเลือกฟาร์ม",
@@ -775,6 +856,8 @@
     "logImportedSuccess": "นำเข้าสำเร็จ",
     "logImportFailed": "นำเข้าไม่สำเร็จ",
     "summaryDone": "เสร็จสิ้น สำเร็จ: {success} แถว, ผิดพลาด/ข้าม: {error} แถว (โครงการใหม่: {projects})",
+    "alertImportProjectsTitle": "นำเข้าโครงการ Excel: {projects} โครงการ, {rows} แถว",
+    "alertImportProjectsMessage": "{projects} โครงการจาก {ok} แถวที่สำเร็จ {bad} แถวผิดพลาดหรือข้าม",
     "table": {
       "index": "#",
       "project": "โครงการ",
@@ -839,6 +922,8 @@
     "errDynamicRowNotFound": "ไม่พบแถว sts_dynamic_table_dat สำหรับ project_id นี้ (ไม่มี id_row/table_id)",
     "logImportFailed": "นำเข้าไม่สำเร็จ",
     "summaryDone": "เสร็จสิ้น สำเร็จ: {ok}, ผิดพลาด: {bad}",
+    "alertImportHarvestTitle": "นำเข้าเก็บเกี่ยว Excel: สร้าง {ok} แถว",
+    "alertImportHarvestMessage": "สำเร็จ {ok} แถว ผิดพลาด/ข้าม {bad} แถว เปิดหน้านำเข้าเพื่อดูรายละเอียด",
     "showingTopRows": "กำลังแสดง {shown} แถวแรก / ทั้งหมด {total} แถว",
     "table": {
       "index": "#",
@@ -868,6 +953,122 @@
       "harvestedArea": "พื้นที่เก็บเกี่ยว (บังคับถ้า Kg + Actual Date)"
     }
   },
+  "AdminPeople": {
+    "title": "People",
+    "description": "One unified record per person — staff, customer contacts, architects. Toggle App Login to grant access. Records sync with Odoo via the",
+    "addPerson": "Add Person",
+    "editPerson": "Edit Person",
+    "searchPlaceholder": "Search name or email...",
+    "noLogin": "No login",
+    "empty": "No people found.",
+    "stats": {
+      "totalPeople": "Total People",
+      "staff": "STS Staff",
+      "eligiblePics": "Eligible PICs",
+      "appLogins": "App Logins"
+    },
+    "filters": {
+      "allTypes": "All Types",
+      "allAccess": "All Access",
+      "hasAppLogin": "Has App Login",
+      "directoryOnly": "Directory Only"
+    },
+    "types": {
+      "staff": "STS Staff",
+      "customerContact": "Customer Contact",
+      "architect": "Architect",
+      "other": "Other"
+    },
+    "table": {
+      "person": "Person",
+      "type": "Type",
+      "locationCompany": "Location / Company",
+      "pic": "PIC",
+      "access": "Access",
+      "status": "Status",
+      "actions": "Actions"
+    }
+  },
+  "AdminZoneSetup": {
+    "title": "ตั้งค่าโซน",
+    "description": "สร้างและจัดการรายชื่อโซนสำหรับทุกฟาร์มหรือเฉพาะบางฟาร์ม รายชื่อนี้จะถูกใช้ในฟอร์มเก็บเกี่ยวและหน้าตั้งค่าโซน",
+    "loading": "กำลังโหลดโซน...",
+    "addZone": "เพิ่มโซน",
+    "editZone": "แก้ไขโซน",
+    "save": "บันทึก",
+    "saving": "กำลังบันทึก…",
+    "cancel": "ยกเลิก",
+    "empty": "ยังไม่มีข้อมูลโซน",
+    "legacyFallback": "ข้อมูลเก่า",
+    "deleteConfirm": "ลบโซน",
+    "table": {
+      "scope": "ขอบเขต",
+      "farm": "ฟาร์ม",
+      "zoneName": "ชื่อโซน",
+      "createdBy": "สร้างโดย",
+      "updatedAt": "อัปเดตเมื่อ",
+      "actions": "การทำงาน"
+    },
+    "scope": {
+      "allFarms": "ทุกฟาร์ม",
+      "singleFarm": "เฉพาะฟาร์ม"
+    },
+    "form": {
+      "scopeRequired": "ขอบเขต *",
+      "applyToAllFarms": "ใช้โซนนี้กับทุกฟาร์ม",
+      "farmRequired": "ฟาร์ม *",
+      "allFarmsSelected": "โซนนี้ใช้กับทุกฟาร์ม",
+      "selectFarm": "เลือกฟาร์ม",
+      "zoneNameRequired": "ชื่อโซน *",
+      "zoneNamePlaceholder": "กรอกชื่อโซน"
+    },
+    "errors": {
+      "required": "กรุณากรอกชื่อโซน และเลือกฟาร์มหากโซนนี้ไม่ได้ใช้กับทุกฟาร์ม"
+    }
+  },
+  "AdminZones": {
+    "title": "Zone Configuration",
+    "description": "This table drives all inventory calculations, forecasting, and harvest data across the app.",
+    "loading": "Loading...",
+    "closeAddZone": "Close Add Zone",
+    "addZone": "Add Zone",
+    "addNewZone": "Add New Zone",
+    "editZoneConfiguration": "Edit Zone Configuration",
+    "allFarms": "All farms",
+    "save": "Save",
+    "saving": "Saving…",
+    "cancel": "Cancel",
+    "close": "Close",
+    "empty": "No zones found.",
+    "stats": {
+      "totalZones": "Total Zones",
+      "totalArea": "Total Area",
+      "totalCapacity": "Total Capacity"
+    },
+    "table": {
+      "farm": "Farm",
+      "grassType": "Grass Type",
+      "zone": "Zone",
+      "size": "Size (m2)",
+      "yield": "Yield (kg/m2)",
+      "totalKg": "Total Kg",
+      "actions": "Actions"
+    },
+    "form": {
+      "farmRequired": "Farm *",
+      "grassTypeRequired": "Grass Type *",
+      "zoneRequired": "Zone # *",
+      "selectFarm": "Select farm",
+      "selectGrass": "Select grass",
+      "selectZone": "Select zone",
+      "sizeRequired": "Size (m2) *",
+      "yieldRequired": "Yield (kg/m2) *",
+      "datePlanted": "Date Planted"
+    },
+    "errors": {
+      "required": "Farm, grass, zone, size, and yield are required."
+    }
+  },
   "InventoryOnhandImport": {
     "title": "นำเข้าสินค้าคงคลังจากไฟล์ Raw Excel",
     "subtitle": "แม็ปคอลัมน์ `alias` และ `quantity` จากไฟล์ raw เป็น `Sku STS` และ `On Hand` แล้วเติม Country ID ให้ทุกแถว",
@@ -888,5 +1089,135 @@
     "tableOnHand": "On Hand",
     "tableCountry": "Country",
     "previewAllRows": "แสดงตัวอย่างครบทั้งหมด {total} แถว เลื่อนตารางเพื่อตรวจสอบ"
+  },
+  "AdminRegrowth": {
+    "title": "กฎการฟื้นตัว",
+    "loading": "กำลังโหลดกฎการฟื้นตัว…",
+    "description": "กฎเหล่านี้ใช้สำหรับการคำนวณการฟื้นตัวทั้งหมดใน Inventory และ Forecasting. การเก็บเกี่ยว Sod ใช้ช่วงฟื้นตัวเดียว ส่วน Sprig ใช้ช่วงตามความหนาแน่น.",
+    "saving": "กำลังบันทึก…",
+    "saveChanges": "บันทึกการเปลี่ยนแปลง",
+    "days": "วัน",
+    "footer": "การแก้ไขจะอยู่ในหน้านี้จนกว่าคุณจะกดบันทึกการเปลี่ยนแปลง หลังบันทึก กฎใหม่จะมีผลกับการคาดการณ์สต็อก กราฟคาดการณ์ และความคืบหน้าการฟื้นตัว.",
+    "cards": {
+      "sodRegrowth": "การฟื้นตัวของ Sod",
+      "sodRegrowthHint": "ใช้กับการเก็บเกี่ยว SOD ทั้งหมด",
+      "sodForSprigRegrowth": "การฟื้นตัว Sod สำหรับ Sprig",
+      "sodForSprigHint": "ใช้เมื่อเก็บเกี่ยว SOD เพื่อผลิตวัสดุ sprig",
+      "manualOverrideRecovery": "การฟื้นตัวแบบกำหนดเอง",
+      "manualOverrideHint": "ช่วงเติมคืนตามคาดการณ์หลังปรับสต็อกด้วยตนเอง"
+    },
+    "sprigBands": {
+      "title": "ช่วงความหนาแน่น Sprig",
+      "description": "กฎจะแสดงเป็นช่วงที่อ่านง่าย เช่น: ไม่เกิน 1 kg/m², 1 ถึง 1.5 kg/m², 1.5 ถึง 2.5 kg/m², มากกว่า 3.5 kg/m² โดยระบบยังคงเก็บ comparator ที่แน่นอนภายใน",
+      "dragRowsTitle": "ลากแถวด้วยไอคอนจับลาก",
+      "reorder": "จัดลำดับใหม่",
+      "dragRowAria": "ลากเพื่อจัดลำดับแถว",
+      "dragRowTitle": "ลากเพื่อจัดลำดับ",
+      "suggestion": "คำแนะนำ:",
+      "upperBoundBand": "(ช่วงขอบบน)",
+      "lastBandAboveThreshold": "(ช่วงสุดท้าย: มากกว่าเกณฑ์)",
+      "useSuggestion": "ใช้คำแนะนำ",
+      "removeBand": "ลบช่วง",
+      "preview": "ตัวอย่าง",
+      "thresholdPlaceholder": "เช่น 3.5",
+      "daysPlaceholder": "วัน",
+      "add": "เพิ่ม",
+      "table": {
+        "rule": "กฎ",
+        "comparator": "Comparator",
+        "threshold": "เกณฑ์ kg/m²",
+        "regrowthDays": "การฟื้นตัว (วัน)",
+        "actions": "การทำงาน"
+      }
+    },
+    "auto": {
+      "title": "ตั้งค่าฟื้นตัวอัตโนมัติ",
+      "loading": "กำลังโหลดการตั้งค่าฟื้นตัวอัตโนมัติ...",
+      "empty": "ไม่พบโซนที่บันทึกไว้ โปรดสร้างโซนใน Zone Configuration ก่อน",
+      "zone": "โซน",
+      "recoveryDays": "วันฟื้นตัว",
+      "autoYield": "ผลผลิตอัตโนมัติ",
+      "confidence": "ความเชื่อมั่น",
+      "runDailyAuto": "รันอัตโนมัติรายวัน",
+      "saveConfig": "บันทึกการตั้งค่า",
+      "calculate": "คำนวณ"
+    },
+    "errors": {
+      "loadRules": "ไม่สามารถโหลดกฎการฟื้นตัวได้",
+      "loadAutoConfig": "ไม่สามารถโหลดการตั้งค่าฟื้นตัวอัตโนมัติได้",
+      "selectSavedZoneForSave": "โปรดเลือกโซนที่บันทึกไว้ก่อนบันทึกการตั้งค่าอัตโนมัติ",
+      "saveAutoConfig": "ไม่สามารถบันทึกการตั้งค่าฟื้นตัวอัตโนมัติได้",
+      "selectSavedZoneForCalculate": "โปรดเลือกโซนที่บันทึกไว้ก่อนคำนวณ",
+      "calculateAuto": "ไม่สามารถคำนวณการฟื้นตัวอัตโนมัติได้",
+      "runDailyAuto": "ไม่สามารถรันการคำนวณอัตโนมัติรายวันได้",
+      "saveRules": "ไม่สามารถบันทึกกฎการฟื้นตัวได้",
+      "invalidBandInput": "กรอกค่าเกณฑ์ kg/m² >= 0 และจำนวนวันที่เป็นบวก"
+    },
+    "notices": {
+      "autoConfigSaved": "บันทึกการตั้งค่าฟื้นตัวอัตโนมัติแล้ว",
+      "defaultsRestored": "คืนค่าเริ่มต้นแล้ว — กฎการฟื้นตัวกลับไปตามวิธีดั้งเดิม",
+      "noChanges": "ไม่พบการเปลี่ยนแปลง — ไม่มีอะไรให้บันทึก",
+      "saved": "บันทึกแล้ว — กฎการฟื้นตัวถูกเก็บบนเซิร์ฟเวอร์",
+      "bandAdded": "เพิ่มช่วงแล้ว — {label}: {days} วัน"
+    }
+  },
+  "ForecastInventory": {
+    "title": "การพยากรณ์สินค้าคงคลัง",
+    "subtitle": "ระดับสินค้าคงคลังที่คาดการณ์ในอีก {months} เดือนข้างหน้าจากแผนการเก็บเกี่ยว",
+    "loading": "กำลังโหลดข้อมูลพยากรณ์...",
+    "days": "วัน",
+    "filters": {
+      "allFarms": "ทุกฟาร์ม",
+      "allGrasses": "หญ้าทั้งหมด",
+      "nextMonths": "{months} เดือนถัดไป"
+    },
+    "types": {
+      "sodForSprig": "Sod สำหรับ sprig",
+      "sprig": "Sprig",
+      "sod": "Sod"
+    },
+    "badges": {
+      "sodToSprig": "Sod→Sprig",
+      "sod": "SOD",
+      "sprig": "SPRIG",
+      "max": "MAX"
+    },
+    "charts": {
+      "projectedInventory": "สินค้าคงคลังคาดการณ์ที่พร้อมใช้",
+      "available": "Available",
+      "calculatedReference": "System",
+      "manualOverrideActive": "Manual",
+      "overrideCount": "{count} โซน",
+      "manualOverrideMarker": "จุดสีส้มคือจุดที่อัปเดตสินค้าคงคลังด้วยตนเอง และผลของ override จะค่อยๆ ลดลงภายใน {days} วัน",
+      "manualOverrideTooltipHint": "ใน tooltip ของกราฟแบบซ้อน ป้าย Manual หมายถึงค่า Available ปัจจุบันกำลังใช้ค่า override ส่วน System คือค่าที่ระบบคำนวณไว้เดิมเพื่อใช้อ้างอิง",
+      "maxCapacity": "ความจุสูงสุด",
+      "maxCapacityHidden": "ซ่อนแถบความจุสูงสุด เพราะความจุรวมสูงกว่าสินค้าคงคลังที่พร้อมใช้ในปัจจุบันมาก",
+      "projectedByGrass": "สินค้าคงคลังคาดการณ์ตามชนิดหญ้า",
+      "projectedByFarm": "สินค้าคงคลังคาดการณ์ตามฟาร์ม — {grass}",
+      "stackedHint": "แสดงแบบซ้อนและแยกสีตามชนิดหญ้าเพื่อดูสัดส่วนของแต่ละชนิด",
+      "stackedHintByFarm": "แผนภูมิแบบซ้อนของปริมาณ {grass} ที่มีได้ในแต่ละฟาร์มที่ปลูกชนิดนี้"
+    },
+    "upcoming": {
+      "title": "การเก็บเกี่ยวที่กำลังจะมาถึงซึ่งมีผลต่อการพยากรณ์",
+      "harvest": "รายการเก็บเกี่ยว",
+      "harvests": "รายการเก็บเกี่ยว",
+      "empty": "ไม่มีการเก็บเกี่ยวที่กำลังจะมาถึงในช่วงเวลานี้ตามตัวกรองปัจจุบัน",
+      "scheduled": "กำหนดการแล้ว",
+      "summaryKg": "{quantity} kg"
+    },
+    "events": {
+      "title": "เหตุการณ์ฟื้นตัวที่กำลังจะมาถึง",
+      "description": "สินค้าคงคลังจะถูกเติมคืนในวันที่เหล่านี้ ปริมาณด้านล่างถูกปรับเป็นหน่วย kg (แถวที่เป็น m² ถูกแปลงจากการตั้งค่าโซน)",
+      "empty": "ไม่มีเหตุการณ์ฟื้นตัวที่กำลังจะมาถึง",
+      "overflow": "เกิน"
+    },
+    "reference": {
+      "title": "ข้อมูลอ้างอิงการฟื้นตัว",
+      "editableInAdmin": "แก้ไขได้ใน Admin → Regrowth Rules",
+      "sodHarvest": "การเก็บเกี่ยว Sod",
+      "sodForSprig": "Sod สำหรับ Sprig",
+      "sprig": "Sprig",
+      "overrideRecovery": "การฟื้นตัวแบบ Override"
+    }
   }
 }

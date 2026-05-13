@@ -2,15 +2,50 @@ import { parseISO } from "date-fns";
 
 import { effectiveHarvestDateYmd } from "@/shared/lib/harvestPlanDates";
 import { stsProxyGetHarvestingIndex } from "@/shared/api/stsProxyClient";
+import { normalizeHarvestTypeStorageKey } from "@/shared/lib/harvestType";
 import { computeReadyDateYmdFromPlanRow } from "@/features/forecasting/computeReadyDateFromPlanRow";
+import {
+  convertPlanRowQuantityToKgFromZones,
+  DEFAULT_FALLBACK_MAX_INVENTORY_KG,
+} from "@/features/forecasting/forecastingInventoryConversion";
+import type { ZoneConfigurationRow } from "@/features/admin/api/adminApi";
 
 import type { ForecastHarvestRow } from "./forecastingTypes";
 
-function turfToHarvestType(raw: unknown): "sod" | "sprig" {
-  const t = String(raw ?? "")
-    .toLowerCase()
-    .trim();
-  if (t.includes("sprig")) return "sprig";
+/** UOM as returned by plan / index JSON (`uom`, `unit`, camelCase variants). */
+export function resolvePlanRowUom(raw: Record<string, unknown>): string {
+  const keys = [
+    "uom",
+    "UOM",
+    "unit",
+    "Unit",
+    "quantity_uom",
+    "quantityUom",
+  ] as const;
+  for (const k of keys) {
+    const v = raw[k];
+    const s = String(v ?? "").trim();
+    if (s) return s;
+  }
+  return "";
+}
+
+function detectHarvestType(
+  raw: Record<string, unknown>,
+): "sod" | "sprig" | "sod_for_sprig" {
+  const candidates = [raw.harvest_type, raw.load_type, raw.turf_type, raw.type];
+  const normalized = candidates
+    .map((v) => normalizeHarvestTypeStorageKey(v))
+    .find(Boolean);
+  if (normalized === "sod_to_sprig") return "sod_for_sprig";
+  if (normalized === "sprig") return "sprig";
+  if (normalized === "sod") return "sod";
+
+  const uom = resolvePlanRowUom(raw).toLowerCase();
+  if (uom === "kg" || uom === "kgs" || uom === "kilogram" || uom === "kilograms") {
+    return "sprig";
+  }
+
   return "sod";
 }
 
@@ -29,13 +64,19 @@ export function harvestApiRowToForecastRow(
   if (!harvestDateYmd) return null;
 
   const farm = String(raw.farm_name ?? "");
+  const farmIdRaw = Number(raw.farm_id);
+  const farmId = Number.isFinite(farmIdRaw) ? Math.floor(farmIdRaw) : 0;
   const grassType = String(raw.grass_name ?? "");
+  const productIdRaw = Number(raw.product_id);
+  const productId = Number.isFinite(productIdRaw) ? Math.floor(productIdRaw) : 0;
   const zone = String(raw.zone ?? "").trim();
   const project = String(raw.project_name ?? raw.project ?? "").trim();
   const customer = String(raw.customer_name ?? raw.customer ?? "").trim();
-  const harvestType = turfToHarvestType(raw.turf_type);
+  const harvestType = detectHarvestType(raw);
   const qty = Number(raw.quantity);
   const quantity = Number.isFinite(qty) ? qty : 0;
+  const areaRaw = Number(raw.harvested_area);
+  const harvestedAreaM2 = Number.isFinite(areaRaw) ? Math.max(0, areaRaw) : 0;
 
   const readyDateYmd =
     computeReadyDateYmdFromPlanRow(raw, harvestDateYmd) ?? harvestDateYmd;
@@ -51,6 +92,8 @@ export function harvestApiRowToForecastRow(
 
   return {
     id: String(id),
+    farmId,
+    productId,
     farm,
     grassType,
     zone,
@@ -60,9 +103,14 @@ export function harvestApiRowToForecastRow(
     harvestDate: harvestDateYmd,
     readyDate: readyDateYmd,
     quantity,
+    harvestedAreaM2,
     isReady,
     daysUntilReady,
-    uom: String(raw.uom ?? "KG").trim() || "KG",
+    uom: resolvePlanRowUom(raw),
+    // Giá trị mặc định; sẽ được override ở bước `rowsToMockHarvestRows` nếu có Zone Configuration.
+    inventoryKg: quantity,
+    inventoryIsCapped: false,
+    zoneMaxInventoryKg: DEFAULT_FALLBACK_MAX_INVENTORY_KG,
   };
 }
 
@@ -88,6 +136,7 @@ export async function fetchHarvestRowsForForecasting(params: {
         per_page: perPage,
         actual_harvest_date_from: params.actual_harvest_date_from,
         actual_harvest_date_to: params.actual_harvest_date_to,
+        exclude_empty_zone: 1,
       };
       if (params.country_id) q.country_id = params.country_id;
 
@@ -110,11 +159,26 @@ export async function fetchHarvestRowsForForecasting(params: {
 export function rowsToMockHarvestRows(
   rows: Record<string, unknown>[],
   today = new Date(),
+  zoneConfigs?: ZoneConfigurationRow[],
 ): ForecastHarvestRow[] {
   const list: ForecastHarvestRow[] = [];
   for (const r of rows) {
     const m = harvestApiRowToForecastRow(r, today);
-    if (m) list.push(m);
+    if (!m) continue;
+
+    if (zoneConfigs && zoneConfigs.length > 0) {
+      const { quantityKg, isCapped, maxInventoryKgUsed } = convertPlanRowQuantityToKgFromZones({
+        rawPlanRow: r,
+        zoneConfigs,
+      });
+      m.inventoryKg = Number.isFinite(quantityKg) ? quantityKg : m.quantity;
+      m.inventoryIsCapped = !!isCapped;
+      m.zoneMaxInventoryKg = Number.isFinite(maxInventoryKgUsed)
+        ? maxInventoryKgUsed
+        : m.zoneMaxInventoryKg;
+    }
+
+    list.push(m);
   }
   return list;
 }

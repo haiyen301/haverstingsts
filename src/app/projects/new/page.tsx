@@ -8,10 +8,12 @@ import {
   type FormEvent,
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, Check, MoreVertical, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, MoreVertical, Plus, Trash2 } from "lucide-react";
 
 import RequireAuth from "@/features/auth/RequireAuth";
+import { canAccessModule } from "@/shared/auth/permissions";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
+import { useAuthUserStore } from "@/shared/store/authUserStore";
 import {
   deleteMondayParentOrSubItem,
   fetchMondayProjectRowsFromServer,
@@ -21,10 +23,19 @@ import {
 import { DatePicker } from "@/shared/ui/date-picker";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
 import {
+  fetchProjectFormCatalog,
+  isArchitectCatalogKey,
+  isProjectCatalogKey,
+  type ProjectFormCatalogRow,
+} from "@/features/admin/api/adminApi";
+import {
   PROJECT_TYPE_VALUES,
   projectTypeMessageKey,
 } from "@/features/project/lib/projectTypeDisplay";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
+import { AlertRouteCategoryBanner } from "@/features/alerts/AlertRouteCategoryBanner";
+import { dispatchRouteAlert } from "@/features/alerts/dispatchRouteAlert";
+import { CheckBadge } from "@/shared/ui/check-badge";
 
 interface GrassRow {
   id: string;
@@ -40,6 +51,15 @@ function normalizeProjectNameForCompare(v: unknown): string {
     .toLowerCase()
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function withRefreshQueryParam(target: string, key = "refresh"): string {
+  const [pathAndQuery, hash = ""] = target.split("#", 2);
+  const [pathname, query = ""] = pathAndQuery.split("?", 2);
+  const params = new URLSearchParams(query);
+  params.set(key, String(Date.now()));
+  const nextQuery = params.toString();
+  return `${pathname}${nextQuery ? `?${nextQuery}` : ""}${hash ? `#${hash}` : ""}`;
 }
 
 type TopFieldErrors = Partial<
@@ -97,6 +117,17 @@ function normalizeHoleValue(raw: unknown): string {
   return value;
 }
 
+function isActiveCatalogStatus(status: string | undefined): boolean {
+  const s = String(status ?? "").trim().toLowerCase();
+  return s === "active" || s === "1" || s === "yes";
+}
+
+function firstCatalogLine(raw: string | null | undefined): string {
+  if (raw == null || !String(raw).trim()) return "";
+  const first = String(raw).split(/\r?\n/)[0] ?? "";
+  return first.replace(/<[^>]*>/g, "").trim();
+}
+
 export default function ProjectInputPage() {
   const tBase = useAppTranslations();
   const t = (key: string) => tBase(`ProjectForm.${key}`);
@@ -118,6 +149,16 @@ export default function ProjectInputPage() {
   const editTableIdFromQuery = searchParams.get("tableId")?.trim() ?? "";
   const returnToParam = searchParams.get("returnTo")?.trim() ?? "";
   const isEdit = Boolean(editRowId);
+  const user = useAuthUserStore((s) => s.user);
+  const canCreateProjects = canAccessModule(user, "projects", "create");
+  const canEditProjects = canAccessModule(user, "projects", "edit");
+  const canDeleteProjects = canAccessModule(user, "projects", "delete");
+  const canAccessProjectForm = isEdit
+    ? canEditProjects || canDeleteProjects
+    : canCreateProjects;
+  const accessDenied = Boolean(user) && !canAccessProjectForm;
+  const canSubmitProject = isEdit ? canEditProjects : canCreateProjects;
+  const canDeleteProject = isEdit && canDeleteProjects;
   const returnTarget = useMemo(() => {
     if (!returnToParam) return "/projects";
     let decoded = returnToParam;
@@ -146,6 +187,7 @@ export default function ProjectInputPage() {
 
   const [loading, setLoading] = useState(isEdit);
   const [saving, setSaving] = useState(false);
+  const formControlsDisabled = loading || saving || !canSubmitProject;
   const [error, setError] = useState<string | null>(null);
   const [defaultTableId, setDefaultTableId] = useState("");
   const [editTableId, setEditTableId] = useState(editTableIdFromQuery);
@@ -161,6 +203,8 @@ export default function ProjectInputPage() {
   const [deleteMenuOpen, setDeleteMenuOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [projectTypeCatalogRows, setProjectTypeCatalogRows] = useState<ProjectFormCatalogRow[]>([]);
+  const [architectCatalogRows, setArchitectCatalogRows] = useState<ProjectFormCatalogRow[]>([]);
   const [formData, setFormData] = useState({
     projectName: "",
     golfClub: "",
@@ -186,15 +230,45 @@ export default function ProjectInputPage() {
     { id: "1", grass: "", type: "Kg", required: "", delivered: "", farmId: "" },
   ]);
 
+  const projectTypeCatalogValues = useMemo(
+    () =>
+      projectTypeCatalogRows
+        .filter((r) => isActiveCatalogStatus(r.status))
+        .map((r) => firstCatalogLine(r.value) || String(r.label ?? "").trim())
+        .filter(Boolean),
+    [projectTypeCatalogRows],
+  );
+
+  const architectCatalogValues = useMemo(
+    () =>
+      architectCatalogRows
+        .filter((r) => isActiveCatalogStatus(r.status))
+        .map((r) => firstCatalogLine(r.value) || String(r.label ?? "").trim())
+        .filter(Boolean),
+    [architectCatalogRows],
+  );
+
   /** Include legacy / unknown stored values so edit mode can show the current selection. */
   const projectTypeRadioValues = useMemo(() => {
     const cur = formData.projectType.trim();
-    const canonical = PROJECT_TYPE_VALUES as readonly string[];
-    if (cur && !canonical.includes(cur)) {
-      return [cur, ...PROJECT_TYPE_VALUES];
+    const sourceValues = projectTypeCatalogValues.length
+      ? projectTypeCatalogValues
+      : [...PROJECT_TYPE_VALUES];
+    const uniqueValues = Array.from(new Set(sourceValues));
+    if (cur && !uniqueValues.includes(cur)) {
+      return [cur, ...uniqueValues];
     }
-    return [...PROJECT_TYPE_VALUES];
-  }, [formData.projectType]);
+    return uniqueValues;
+  }, [formData.projectType, projectTypeCatalogValues]);
+
+  const architectOptions = useMemo(() => {
+    const values = Array.from(new Set(architectCatalogValues));
+    const current = formData.architect.trim();
+    if (current && !values.includes(current)) {
+      return [current, ...values];
+    }
+    return values;
+  }, [architectCatalogValues, formData.architect]);
 
   const labelForProjectTypeOption = (type: string) => {
     const mk = projectTypeMessageKey(type);
@@ -229,6 +303,25 @@ export default function ProjectInputPage() {
   useEffect(() => {
     if (!isEdit) setEditProjectIdForLabel("");
   }, [isEdit]);
+
+  useEffect(() => {
+    let mounted = true;
+    void (async () => {
+      try {
+        const rows = await fetchProjectFormCatalog();
+        if (!mounted) return;
+        setProjectTypeCatalogRows(rows.filter((r) => isProjectCatalogKey(r.setting_key)));
+        setArchitectCatalogRows(rows.filter((r) => isArchitectCatalogKey(r.setting_key)));
+      } catch {
+        if (!mounted) return;
+        setProjectTypeCatalogRows([]);
+        setArchitectCatalogRows([]);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     setEditTableId(editTableIdFromQuery);
@@ -272,10 +365,15 @@ export default function ProjectInputPage() {
     .filter((x) => x.id && x.name);
   const staffOptions = (staffs as unknown[])
     .filter((s): s is Record<string, unknown> => !!s && typeof s === "object")
-    .map((s) => ({
-      id: String(s.id ?? "").trim(),
-      name: String(s.first_name ?? s.full_name ?? s.name ?? "").trim(),
-    }))
+    .map((s) => {
+      const firstName = String(s.first_name ?? "").trim();
+      const lastName = String(s.last_name ?? "").trim();
+      const fullNameFromParts = [firstName, lastName].filter(Boolean).join(" ").trim();
+      return {
+        id: String(s.id ?? "").trim(),
+        name: fullNameFromParts || String(s.full_name ?? s.name ?? "").trim(),
+      };
+    })
     .filter((x) => x.id && x.name);
   const productOptions = (products as unknown[])
     .filter((p): p is Record<string, unknown> => !!p && typeof p === "object")
@@ -285,21 +383,22 @@ export default function ProjectInputPage() {
     }))
     .filter((x) => x.id && x.name);
 
+  /** All farms (same as harvest entry) — grass supply is not limited to the project country. */
   const farmOptions = useMemo(() => {
-    const countryId = formData.country.trim();
-    const rows = (farmsRaw as unknown[])
+    return (farmsRaw as unknown[])
       .filter((f): f is Record<string, unknown> => !!f && typeof f === "object")
       .map((f) => ({
         id: String(f.id ?? "").trim(),
         name: String(f.name ?? f.title ?? "").trim(),
-        country_id: String(f.country_id ?? "").trim(),
       }))
       .filter((x) => x.id && x.name);
-    if (!countryId) return rows;
-    return rows.filter((f) => !f.country_id || f.country_id === countryId);
-  }, [farmsRaw, formData.country]);
+  }, [farmsRaw]);
 
   useEffect(() => {
+    if (accessDenied) {
+      setLoading(false);
+      return;
+    }
     if (!isEdit) {
       setLoading(false);
       return;
@@ -331,9 +430,10 @@ export default function ProjectInputPage() {
     return () => {
       mounted = false;
     };
-  }, [editRowId, isEdit]);
+  }, [accessDenied, editRowId, isEdit]);
 
   useEffect(() => {
+    if (accessDenied) return;
     if (isEdit) return;
     let mounted = true;
     void (async () => {
@@ -350,7 +450,7 @@ export default function ProjectInputPage() {
     return () => {
       mounted = false;
     };
-  }, [isEdit]);
+  }, [accessDenied, isEdit]);
 
   const addGrassRow = () => {
     setGrassRows((prev) => [
@@ -629,6 +729,14 @@ export default function ProjectInputPage() {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    if (!canSubmitProject) {
+      setError(
+        isEdit
+          ? "You do not have permission to edit this project."
+          : "You do not have permission to create a project.",
+      );
+      return;
+    }
     setProjectTypeError(null);
     setHolesError(null);
     setKeyAreasError(null);
@@ -780,7 +888,33 @@ export default function ProjectInputPage() {
       if (saveResponse?.project && typeof saveResponse.project === "object") {
         upsertProjectInList(saveResponse.project);
       }
-      router.push(returnTarget);
+      const proj = saveResponse?.project;
+      const projectIdStr =
+        proj && typeof proj === "object" && "project_id" in proj
+          ? String((proj as Record<string, unknown>).project_id ?? "").trim()
+          : "";
+      const alertHref =
+        projectIdStr !== ""
+          ? `/projects/detail?id=${encodeURIComponent(projectIdStr)}`
+          : "/projects";
+      await dispatchRouteAlert({
+        routeKey: "projects_new",
+        title: isEdit ? `Project updated: ${projectName}` : `New project: ${projectName}`,
+        message: [formData.company.trim(), formData.golfClub.trim(), projectName]
+          .filter(Boolean)
+          .join(" · "),
+        href: alertHref,
+        sourceEntityId: projectIdStr || String(resolvedRowId),
+      });
+      try {
+        await fetchAllHarvestingReferenceData(true);
+      } catch {
+        // Navigation still carries a refresh token so the list can re-fetch on return.
+      }
+      const nextReturnTarget = returnTarget.startsWith("/projects")
+        ? withRefreshQueryParam(returnTarget)
+        : returnTarget;
+      router.push(nextReturnTarget);
     } catch (err) {
       setError(err instanceof Error ? err.message : t("saveFailed"));
     } finally {
@@ -798,6 +932,11 @@ export default function ProjectInputPage() {
   };
 
   const onConfirmDeleteProject = async () => {
+    if (!canDeleteProject) {
+      setError("You do not have permission to delete this project.");
+      setConfirmDeleteOpen(false);
+      return;
+    }
     if (!editRowId || !editTableId) {
       setError(t("deleteMissingIds"));
       setConfirmDeleteOpen(false);
@@ -814,7 +953,15 @@ export default function ProjectInputPage() {
         type: "parent",
       });
       setConfirmDeleteOpen(false);
-      router.push(returnTarget);
+      try {
+        await fetchAllHarvestingReferenceData(true);
+      } catch {
+        // Best-effort only; the return route still gets a refresh token.
+      }
+      const nextReturnTarget = returnTarget.startsWith("/projects")
+        ? withRefreshQueryParam(returnTarget)
+        : returnTarget;
+      router.push(nextReturnTarget);
     } catch (e) {
       setError(e instanceof Error ? e.message : t("deleteFailed"));
     } finally {
@@ -825,6 +972,31 @@ export default function ProjectInputPage() {
   return (
     <RequireAuth>
       <DashboardLayout>
+        {accessDenied ? (
+          <div className="min-h-screen pb-10 lg:pb-14">
+            <div className="mx-auto w-full max-w-[900px] space-y-4 px-4 pt-4 lg:px-6 lg:pt-8">
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-5">
+                <h1 className="text-xl font-semibold text-amber-900">
+                  {isEdit ? t("editTitle") : t("newTitle")}
+                </h1>
+                <p className="mt-2 text-sm text-amber-800">
+                  {isEdit
+                    ? "You do not have permission to edit or delete this project."
+                    : "You do not have permission to create a project."}
+                </p>
+                <div className="mt-4">
+                  <button
+                    type="button"
+                    onClick={goBack}
+                    className="inline-flex h-10 items-center justify-center rounded-lg border border-amber-300 px-4 text-sm font-medium text-amber-900 hover:bg-amber-100"
+                  >
+                    {t("backToProjects")}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
         <div className="min-h-screen pb-10 lg:pb-14">
           <div className="mx-auto w-full max-w-[900px] space-y-6 px-4 pt-4 lg:px-6 lg:pt-8">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -841,7 +1013,7 @@ export default function ProjectInputPage() {
                   {isEdit ? t("editTitle") : t("newTitle")}
                 </h1>
               </div>
-              {isEdit ? (
+              {canDeleteProject ? (
                 <button
                   type="button"
                   onClick={showDeleteMenu}
@@ -880,6 +1052,11 @@ export default function ProjectInputPage() {
                 <p className="text-sm text-muted-foreground">{t("loadingProject")}</p>
               ) : null}
 
+              <fieldset
+                disabled={formControlsDisabled}
+                className="contents"
+                aria-readonly={!canSubmitProject}
+              >
               {/* Basic Information */}
               <section className="overflow-hidden rounded-xl border border-border bg-card text-card-foreground shadow-sm">
                 <div className="px-4 py-3 lg:px-5">
@@ -994,9 +1171,8 @@ export default function ProjectInputPage() {
                       <label className="text-sm font-medium text-foreground" htmlFor="project-architect">
                         {t("architect")}
                       </label>
-                      <input
+                      <select
                         id="project-architect"
-                        type="text"
                         value={formData.architect}
                         onChange={(e) => {
                           setFormData({ ...formData, architect: e.target.value });
@@ -1004,8 +1180,14 @@ export default function ProjectInputPage() {
                         }}
                         className={`w-full rounded-md border bg-card px-3 text-sm text-foreground shadow-sm ${fieldErrors.architect ? "border-destructive" : "border-input"
                           }`}
-                        placeholder={t("architectPlaceholder")}
-                      />
+                      >
+                        <option value="">{t("architectPlaceholder")}</option>
+                        {architectOptions.map((architect) => (
+                          <option key={architect} value={architect}>
+                            {architect}
+                          </option>
+                        ))}
+                      </select>
                       {fieldErrors.architect ? (
                         <p className="text-xs text-destructive">{fieldErrors.architect}</p>
                       ) : null}
@@ -1021,26 +1203,6 @@ export default function ProjectInputPage() {
                           const nextCountry = e.target.value;
                           setFormData({ ...formData, country: nextCountry });
                           setFieldErrors((prev) => ({ ...prev, country: undefined }));
-                          const rows = (farmsRaw as unknown[])
-                            .filter((f): f is Record<string, unknown> => !!f && typeof f === "object")
-                            .map((f) => ({
-                              id: String(f.id ?? "").trim(),
-                              country_id: String(f.country_id ?? "").trim(),
-                            }))
-                            .filter((x) => x.id);
-                          const allowed = nextCountry.trim()
-                            ? new Set(
-                              rows
-                                .filter((f) => !f.country_id || f.country_id === nextCountry.trim())
-                                .map((f) => f.id),
-                            )
-                            : new Set(rows.map((f) => f.id));
-                          setGrassRows((prev) =>
-                            prev.map((r) => ({
-                              ...r,
-                              farmId: allowed.has(r.farmId) ? r.farmId : "",
-                            })),
-                          );
                         }}
                         className={`w-full rounded-md border bg-card px-3 text-sm text-foreground shadow-sm ${fieldErrors.country ? "border-destructive" : "border-input"
                           }`}
@@ -1086,11 +1248,7 @@ export default function ProjectInputPage() {
                           >
                             {labelForProjectTypeOption(type)}
                           </span>
-                          {formData.projectType === type ? (
-                            <span className="absolute left-1.5 top-1.5 inline-flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground">
-                              <Check className="h-3 w-3" />
-                            </span>
-                          ) : null}
+                          {formData.projectType === type ? <CheckBadge /> : null}
                         </button>
                       ))}
                     </div>
@@ -1132,11 +1290,7 @@ export default function ProjectInputPage() {
                           >
                             {opt.label}
                           </span>
-                          {formData.projectPace === opt.value ? (
-                            <span className="absolute left-1.5 top-1.5 inline-flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground">
-                              <Check className="h-3 w-3" />
-                            </span>
-                          ) : null}
+                          {formData.projectPace === opt.value ? <CheckBadge /> : null}
                         </button>
                       ))}
                     </div>
@@ -1311,11 +1465,7 @@ export default function ProjectInputPage() {
                           >
                             {hole.label}
                           </span>
-                          {formData.holes === hole.value ? (
-                            <span className="absolute left-1.5 top-1.5 inline-flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground">
-                              <Check className="h-3 w-3" />
-                            </span>
-                          ) : null}
+                          {formData.holes === hole.value ? <CheckBadge /> : null}
                         </button>
                       ))}
                       </div>
@@ -1351,11 +1501,7 @@ export default function ProjectInputPage() {
                           >
                             {t(keyAreaMessageKey(area))}
                           </span>
-                          {formData.keyAreas.includes(area) ? (
-                            <span className="absolute left-1.5 top-1.5 inline-flex h-4 w-4 items-center justify-center rounded-full bg-primary text-primary-foreground">
-                              <Check className="h-3 w-3" />
-                            </span>
-                          ) : null}
+                          {formData.keyAreas.includes(area) ? <CheckBadge /> : null}
                         </label>
                       ))}
                       </div>
@@ -1453,9 +1599,7 @@ export default function ProjectInputPage() {
                                 {u}
                               </span>
                               {row.type === u ? (
-                                <span className="absolute left-1 top-1 inline-flex h-3 w-3 items-center justify-center rounded-full bg-primary text-primary-foreground">
-                                  <Check className="h-3 w-3" />
-                                </span>
+                                <CheckBadge className="left-1 top-1 h-3 w-3" />
                               ) : null}
                             </button>
                           ))}
@@ -1492,6 +1636,7 @@ export default function ProjectInputPage() {
                   ) : null}
                 </div>
               </section>
+              </fieldset>
 
               <div className="sticky bottom-0 z-30 mt-8 flex flex-col gap-3 border-t border-border bg-background/95 py-4 backdrop-blur sm:flex-row sm:items-center sm:justify-between sm:gap-4">
                 <div className="min-h-5 flex-1 text-xs text-muted-foreground sm:order-1">
@@ -1509,18 +1654,21 @@ export default function ProjectInputPage() {
                   >
                     {tCommon("cancel")}
                   </button>
-                  <button
-                    type="submit"
-                    disabled={loading || saving}
-                    className="inline-flex h-11 min-w-[140px] items-center justify-center rounded-lg bg-primary px-5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
-                  >
-                    {saving ? t("saving") : isEdit ? t("updateProject") : t("createProject")}
-                  </button>
+                  {canSubmitProject ? (
+                    <button
+                      type="submit"
+                      disabled={loading || saving}
+                      className="inline-flex h-11 min-w-[140px] items-center justify-center rounded-lg bg-primary px-5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+                    >
+                      {saving ? t("saving") : isEdit ? t("updateProject") : t("createProject")}
+                    </button>
+                  ) : null}
                 </div>
               </div>
             </form>
           </div>
         </div>
+        )}
 
         {deleteMenuOpen ? (
           <>

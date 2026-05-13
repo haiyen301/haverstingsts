@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { usePathname, useRouter } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
@@ -19,6 +20,7 @@ import {
   LayoutGrid,
   Leaf,
   MapPin,
+  MessageCircle,
   PanelLeftClose,
   PanelLeftOpen,
   ShieldCheck,
@@ -26,15 +28,21 @@ import {
   Timer,
   Tractor,
   Truck,
-  Warehouse,
+  Users,
   X,
 } from "lucide-react";
 
 import { images } from "@/lib/assets/images";
+import { fetchMyAlerts } from "@/features/alerts/api/alertsApi";
+import { ALERTS_UPDATED_EVENT } from "@/features/alerts/alertClientEvents";
+import { useSyncedFarmMultiSelect } from "@/shared/hooks/useSyncedFarmMultiSelect";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
-import { mapRowsToSelectOptions } from "@/shared/lib/harvestReferenceData";
-import { useAuthUserStore } from "@/shared/store/authUserStore";
+import { ALERT_FEED_SETTINGS_ALLOWED_USER_IDS } from "@/shared/auth/alertFeedSettingsAccess";
+import {
+  canAccessModule,
+} from "@/shared/auth/permissions";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
+import { useAuthUserStore } from "@/shared/store/authUserStore";
 import { MobileBottomNav } from "@/widgets/layout/MobileBottomNav";
 import { SidebarProfile } from "@/widgets/layout/SidebarProfile";
 import { ThemeToggle } from "@/widgets/layout/ThemeToggle";
@@ -54,6 +62,7 @@ type SidebarNavItemModel = {
   path: string;
   icon: LucideIcon;
   label: string;
+  module?: string;
   tabs?: SidebarNavItemTabModel[];
   badge?: number;
   disabled?: boolean;
@@ -66,26 +75,28 @@ type SidebarNavItemTabModel = {
   label: string;
   icon: LucideIcon;
   path?: string;
+  module?: string;
   disabled?: boolean;
+  /** If set, tab is shown only when `user.id` is in this list (in addition to `module` checks). */
+  restrictToUserIds?: readonly number[];
+  /** When set, used instead of `pathname === path` (e.g. nested routes under `/admin/people/...`). */
+  isActive?: (pathname: string) => boolean;
 };
 
-const INVENTORY_IMPORT_ALLOWED_USER_IDS = new Set<number>([409]);
-
-function parseSessionUserId(raw: unknown): number | null {
-  if (raw == null) return null;
-  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
-  if (typeof raw === "string") {
-    const n = Number.parseInt(raw.trim(), 10);
-    return Number.isFinite(n) ? n : null;
-  }
-  return null;
+function isSidebarSubtabActive(tab: SidebarNavItemTabModel, pathname: string): boolean {
+  if (!tab.path) return false;
+  if (tab.isActive) return tab.isActive(pathname);
+  return pathname === tab.path;
 }
 
-function parseCsvFilter(value: string): string[] {
-  return String(value ?? "")
-    .split(",")
-    .map((x) => x.trim())
-    .filter(Boolean);
+type SidebarSectionModel = {
+  id: SidebarSectionId;
+  title: string;
+  items: SidebarNavItemModel[];
+};
+
+function isNonNull<T>(value: T | null): value is T {
+  return value !== null;
 }
 
 export function DashboardLayout({ children, hideAppNav = false }: DashboardLayoutProps) {
@@ -96,11 +107,8 @@ export function DashboardLayout({ children, hideAppNav = false }: DashboardLayou
   const router = useRouter();
   const pathname = usePathname();
   const user = useAuthUserStore((s) => s.user);
-  const farms = useHarvestingDataStore((s) => s.farms);
-  const harvestListFarmFilter = useHarvestingDataStore((s) => s.harvestListFarmFilter);
-  const setHarvestListFarmFilter = useHarvestingDataStore(
-    (s) => s.setHarvestListFarmFilter,
-  );
+  const { farmOptions, selectedFarmIds: farmIds, selectedFarmLabels: selectedFarmLabelsAll, setSelectedFarmIds } =
+    useSyncedFarmMultiSelect();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [openSections, setOpenSections] = useState<Record<SidebarSectionId, boolean>>({
     operations: true,
@@ -110,10 +118,44 @@ export function DashboardLayout({ children, hideAppNav = false }: DashboardLayou
   });
   const [openItemTabs, setOpenItemTabs] = useState<Record<string, boolean>>({});
   const [mounted, setMounted] = useState(false);
+  const [alertUnreadBadge, setAlertUnreadBadge] = useState(0);
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  const refreshAlertUnreadBadge = useCallback(async () => {
+    if (!user || !canAccessModule(user, "my_alerts", "show")) {
+      setAlertUnreadBadge(0);
+      return;
+    }
+    try {
+      const data = await fetchMyAlerts({ limit: 400, unread: true });
+      const n = data.filter((a) => !a.read).length;
+      setAlertUnreadBadge(n);
+    } catch {
+      setAlertUnreadBadge(0);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (!mounted) return;
+    void refreshAlertUnreadBadge();
+    const id = window.setInterval(() => void refreshAlertUnreadBadge(), 60_000);
+    const onAlertsUpdated = () => {
+      void refreshAlertUnreadBadge();
+    };
+    const onVis = () => {
+      if (document.visibilityState === "visible") void refreshAlertUnreadBadge();
+    };
+    window.addEventListener(ALERTS_UPDATED_EVENT, onAlertsUpdated);
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      window.clearInterval(id);
+      window.removeEventListener(ALERTS_UPDATED_EVENT, onAlertsUpdated);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [mounted, refreshAlertUnreadBadge, pathname]);
 
   useEffect(() => {
     if (!mounted) return;
@@ -122,14 +164,11 @@ export function DashboardLayout({ children, hideAppNav = false }: DashboardLayou
 
   if (!mounted) return null;
 
-  const userId = parseSessionUserId(user?.id);
-  const canAccessInventoryImport =
-    userId != null && INVENTORY_IMPORT_ALLOWED_USER_IDS.has(userId);
-
   function defaultSidebarPathActive(path: string, p: string): boolean {
     if (path === "/projects") return p.startsWith("/projects");
     if (path === "/harvest") return p.startsWith("/harvest");
     if (path === "/forecasting") return p.startsWith("/forecasting");
+    if (path === "/inventory") return p.startsWith("/inventory");
     if (path === "/inventory-import") return p.startsWith("/inventory-import");
     if (path === "/planning") return p.startsWith("/planning");
     if (path === "/overview") return p === "/overview" || p.startsWith("/overview/");
@@ -145,48 +184,72 @@ export function DashboardLayout({ children, hideAppNav = false }: DashboardLayou
   const toggleSection = (id: SidebarSectionId) =>
     setOpenSections((prev) => ({ ...prev, [id]: !prev[id] }));
 
-  const inventoryPath = canAccessInventoryImport ? "/inventory-import" : "/overview";
-
   const sidebarSections = useMemo(
-    (): { id: SidebarSectionId; title: string; items: SidebarNavItemModel[] }[] => [
+    (): SidebarSectionModel[] => [
       {
         id: "operations",
         title: tn("operations"),
         items: [
-          { key: "dash", path: "/dashboard", icon: LayoutGrid, label: t("Nav.dashboard") },
-          // {
-          //   key: "alerts",
-          //   path: "/dashboard",
-          //   icon: Bell,
-          //   label: tn("myAlerts"),
-          //   isActive: () => false,
-          // },
-          { key: "projects", path: "/projects", icon: FolderKanban, label: t("Nav.projects") },
+          {
+            key: "dash",
+            path: "/dashboard",
+            icon: LayoutGrid,
+            label: t("Nav.dashboard"),
+            module: "dashboard",
+          },
+          {
+            key: "alerts",
+            path: "/my-alerts",
+            icon: Bell,
+            label: tn("myAlerts"),
+            module: "my_alerts",
+            badge: alertUnreadBadge,
+            isActive: (p) => p === "/my-alerts" || p.startsWith("/my-alerts/"),
+          },
+          {
+            key: "projects",
+            path: "/projects",
+            icon: FolderKanban,
+            label: t("Nav.projects"),
+            module: "projects",
+          },
           {
             key: "forecasting",
             path: "/forecasting",
             icon: BarChart3,
             label: t("Nav.forecasting"),
+            module: "forecasting",
           },
-          // {
-          //   key: "inventory",
-          //   path: inventoryPath,
-          //   icon: Warehouse,
-          //   label: tn("inventory"),
-          // },
+          {
+            key: "inventory",
+            path: "/inventory",
+            icon: Gauge,
+            label: tn("inventory"),
+            module: "inventory",
+          },
         ],
       },
       {
         id: "harvesting",
         title: tn("harvesting"),
         items: [
-          // {
-          //   key: "harvest-schedule",
-          //   path: "/planning",
-          //   icon: Calendar,
-          //   label: tn("harvestSchedule"),
-          // },
-          { key: "harvests", path: "/harvest", icon: Leaf, label: t("Nav.harvests") },
+          {
+            key: "harvest-schedule",
+            path: "/harvest/schedule",
+            icon: Calendar,
+            label: tn("harvestSchedule"),
+            module: "harvest_schedule",
+            isActive: (p) => p === "/harvest/schedule" || p.startsWith("/harvest/schedule/"),
+          },
+          {
+            key: "harvests",
+            path: "/harvest",
+            icon: Leaf,
+            label: t("Nav.harvests"),
+            module: "harvests",
+            isActive: (p) =>
+              (p === "/harvest" || p.startsWith("/harvest/")) && !p.startsWith("/harvest/schedule"),
+          },
         ],
       },
       // {
@@ -222,41 +285,87 @@ export function DashboardLayout({ children, hideAppNav = false }: DashboardLayou
         items: [
           {
             key: "users",
-            path: "",
+            path: "/admin/people",
             icon: ShieldCheck,
             label: tn("userManagement"),
-            // disabled: true,
+            isActive: (p) => p.startsWith("/admin/people") || p.startsWith("/admin/roles"),
+            tabs: [
+              {
+                value: "people",
+                label: tn("adminPeople"),
+                icon: Users,
+                path: "/admin/people",
+                module: "admin_people",
+                isActive: (p) => p === "/admin/people",
+              },
+              {
+                value: "roles",
+                label: "Role",
+                icon: Users,
+                path: "/admin/roles",
+                module: "admin_roles",
+                isActive: (p) => p === "/admin/roles" || p.startsWith("/admin/roles/"),
+              },
+              {
+                value: "alerts",
+                label: tn("alertSettings"),
+                icon: Bell,
+                path: "/admin/people/alerts",
+                module: "admin_people",
+                restrictToUserIds: [...ALERT_FEED_SETTINGS_ALLOWED_USER_IDS],
+                isActive: (p) => p === "/admin/people/alerts" || p.startsWith("/admin/people/alerts/"),
+              },
+            ],
           },
           {
             key: "turf-ops",
             path: "/admin/projectTypes",
             icon: Leaf,
             label: tn("turfOperations"),
-            isActive: (p) => p.startsWith("/admin"),
+            isActive: (p) =>
+              p.startsWith("/admin/projectTypes") ||
+              p.startsWith("/admin/architects") ||
+              p.startsWith("/admin/zones") ||
+              p.startsWith("/admin/zone-configurations") ||
+              p.startsWith("/admin/regrowth"),
             tabs: [
               {
                 value: "projectTypes",
-                label: "Projects",
+                label: tn("adminProjects"),
                 icon: Briefcase,
                 path: "/admin/projectTypes",
+                module: "admin_project_types",
               },
               {
                 value: "architects",
-                label: "Architects",
+                label: tn("adminArchitects"),
                 icon: Building2,
                 path: "/admin/architects",
+                module: "admin_architects",
               },
               {
                 value: "zones",
-                label: "Zone Configuration",
-                icon: Sprout,
+                label: tn("adminZoneSetup"),
+                icon: MapPin,
                 path: "/admin/zones",
+                module: "admin_zones",
+                isActive: (p) => p === "/admin/zones" || p.startsWith("/admin/zones/"),
+              },
+              {
+                value: "zone-configuration",
+                label: tn("adminZoneConfiguration"),
+                icon: Sprout,
+                path: "/admin/zone-configurations",
+                module: "admin_zones",
+                isActive: (p) =>
+                  p === "/admin/zone-configurations" || p.startsWith("/admin/zone-configurations/"),
               },
               {
                 value: "regrowth",
-                label: "Regrowth Rules",
+                label: tn("adminRegrowthRules"),
                 icon: Timer,
                 path: "/admin/regrowth",
+                module: "admin_regrowth",
               },
             ],
             // disabled: true,
@@ -271,12 +380,41 @@ export function DashboardLayout({ children, hideAppNav = false }: DashboardLayou
         ],
       },
     ],
-    [t, tn, inventoryPath],
+    [alertUnreadBadge, t, tn],
   );
 
+  const filteredSidebarSections = useMemo<SidebarSectionModel[]>(() => {
+    return sidebarSections
+      .map((section) => {
+        const items = section.items
+          .map((item) => {
+            const tabs = (item.tabs ?? []).filter((tab) => {
+              if (tab.restrictToUserIds?.length) {
+                const uid = Number(user?.id);
+                if (!Number.isInteger(uid) || !tab.restrictToUserIds.includes(uid)) {
+                  return false;
+                }
+              }
+              return !tab.module || canAccessModule(user, tab.module, "show");
+            });
+            const hasTabs = (item.tabs?.length ?? 0) > 0;
+            const itemVisibleByOwnModule = item.module
+              ? canAccessModule(user, item.module, "show")
+              : !hasTabs;
+            const itemVisible = itemVisibleByOwnModule || tabs.length > 0;
+            if (!itemVisible) return null;
+            return { ...item, tabs };
+          })
+          .filter(isNonNull);
+
+        return { ...section, items };
+      })
+      .filter((section) => section.items.length > 0);
+  }, [sidebarSections, user]);
+
   const flatSidebarItems = useMemo(
-    () => sidebarSections.flatMap((sec) => sec.items),
-    [sidebarSections],
+    () => filteredSidebarSections.flatMap((sec) => sec.items),
+    [filteredSidebarSections],
   );
 
   const sidebarWidthClass = sidebarCollapsed ? "lg:w-[5.25rem]" : "lg:w-72";
@@ -286,26 +424,11 @@ export function DashboardLayout({ children, hideAppNav = false }: DashboardLayou
       ? "lg:ml-[5.25rem]"
       : "lg:ml-72";
 
-  const farmOptions = useMemo(
-    () => mapRowsToSelectOptions(farms as unknown[], "name"),
-    [farms],
-  );
-  const farmIds = useMemo(
-    () => parseCsvFilter(harvestListFarmFilter),
-    [harvestListFarmFilter],
-  );
   const selectedFarmId = farmIds.length === 1 ? farmIds[0] : null;
   const selectedFarmLabel = selectedFarmId
     ? farmOptions.find((o) => o.id === selectedFarmId)?.label ?? selectedFarmId
     : null;
   const multiFarm = farmIds.length > 1;
-  const selectedFarmLabelsAll = useMemo(
-    () =>
-      farmIds.map(
-        (fid) => farmOptions.find((o) => o.id === fid)?.label ?? fid,
-      ),
-    [farmIds, farmOptions],
-  );
 
   const longDate = useMemo(
     () =>
@@ -429,7 +552,7 @@ export function DashboardLayout({ children, hideAppNav = false }: DashboardLayou
                         router.push(item.path);
                       }}
                       className={cn(
-                        "flex h-11 w-full items-center justify-center rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
+                        "relative flex h-11 w-full items-center justify-center rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring",
                         item.disabled
                           ? "cursor-not-allowed text-sidebar-foreground/35"
                           : active
@@ -438,13 +561,18 @@ export function DashboardLayout({ children, hideAppNav = false }: DashboardLayou
                       )}
                     >
                       <Icon className="h-[22px] w-[22px] shrink-0 stroke-[1.75]" />
+                      {item.badge != null && item.badge > 0 ? (
+                        <span className="absolute right-1.5 top-1.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-yellow-400 px-1 text-[10px] font-bold leading-none text-yellow-950">
+                          {item.badge > 99 ? "99+" : item.badge}
+                        </span>
+                      ) : null}
                     </button>
                   );
                 })}
               </div>
             ) : (
               <div className="flex flex-col gap-4">
-                {sidebarSections.map((section) => {
+                {filteredSidebarSections.map((section) => {
                   const open = openSections[section.id];
                   return (
                     <div key={section.id}>
@@ -503,7 +631,7 @@ export function DashboardLayout({ children, hideAppNav = false }: DashboardLayou
                                     />
                                     <span className="min-w-0 flex-1 truncate text-left">{item.label}</span>
                                     {item.badge != null && item.badge > 0 ? (
-                                      <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-destructive px-1 text-[11px] font-semibold text-destructive-foreground">
+                                      <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-yellow-400 px-1 text-[11px] font-semibold text-yellow-950">
                                         {item.badge > 99 ? "99+" : item.badge}
                                       </span>
                                     ) : null}
@@ -560,7 +688,7 @@ export function DashboardLayout({ children, hideAppNav = false }: DashboardLayou
                                             "group flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-[13px] font-medium transition-colors",
                                             tab.disabled || !tab.path
                                               ? "cursor-not-allowed text-sidebar-foreground/35"
-                                              : pathname === tab.path
+                                              : isSidebarSubtabActive(tab, pathname)
                                                 ? "bg-sidebar-accent/80 text-sidebar-primary"
                                                 : "text-sidebar-foreground/65 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
                                           )}
@@ -591,7 +719,25 @@ export function DashboardLayout({ children, hideAppNav = false }: DashboardLayou
       <div className={`flex min-h-screen flex-1 flex-col ${mainMarginClass}`}>
         {!hideAppNav ? (
           <header className="sticky top-0 z-30 flex min-h-14 flex-wrap items-center gap-2 border-b border-border px-4 py-2 bg-background/80 backdrop-blur-md sm:gap-3 lg:h-14 lg:flex-nowrap lg:px-6 lg:py-0">
-            <div className="flex min-w-0 flex-1 items-center gap-2 lg:flex-none">
+            {/* <div className="flex min-w-0 flex-1 items-center gap-2 lg:flex-none lg:gap-3">
+              {user && canAccessModule(user, "my_alerts", "show") ? (
+                <Link
+                  href="/my-alerts"
+                  className="group relative inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  aria-label={
+                    alertUnreadBadge > 0
+                      ? th("alertsBellUnread", { count: alertUnreadBadge })
+                      : th("alertsBell")
+                  }
+                >
+                  <Bell className="h-5 w-5 shrink-0" aria-hidden />
+                  {alertUnreadBadge > 0 ? (
+                    <span className="absolute -right-0.5 -top-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-yellow-400 px-1 text-[10px] font-bold tabular-nums leading-none text-yellow-950 shadow-sm ring-2 ring-background transition-colors group-hover:bg-yellow-500 group-hover:text-yellow-950">
+                      {alertUnreadBadge > 99 ? "99+" : alertUnreadBadge}
+                    </span>
+                  ) : null}
+                </Link>
+              ) : null}
               <div className="relative h-8 w-32 shrink-0 lg:hidden">
                 <Image
                   src={images.stsLogo}
@@ -610,7 +756,7 @@ export function DashboardLayout({ children, hideAppNav = false }: DashboardLayou
                   sizes="128px"
                 />
               </div>
-            </div>
+            </div> */}
 
             {/* Farm filter + date: fixed “light chrome” like Harvesting AppLayout — không theo theme sáng/tối */}
             <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2 sm:flex-nowrap sm:gap-2">
@@ -649,7 +795,7 @@ export function DashboardLayout({ children, hideAppNav = false }: DashboardLayou
                   </span>
                   <button
                     type="button"
-                    onClick={() => setHarvestListFarmFilter("")}
+                    onClick={() => setSelectedFarmIds([])}
                     className={cn(
                       "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[rgb(31,122,76)] transition-colors hover:bg-[rgb(31,122,76)]/20",
                       multiFarm ? "mt-0.5 self-start" : "",
@@ -666,7 +812,7 @@ export function DashboardLayout({ children, hideAppNav = false }: DashboardLayou
                   value={selectedFarmId ?? "all"}
                   onChange={(e) => {
                     const v = e.target.value;
-                    setHarvestListFarmFilter(v === "all" ? "" : v);
+                    setSelectedFarmIds(v === "all" ? [] : [v]);
                   }}
                   className={cn(
                     "h-8 w-[150px] shrink-0 rounded-md border border-input px-2 py-1 text-xs shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-[rgb(31,122,76)]/35 text-foreground",
@@ -698,10 +844,32 @@ export function DashboardLayout({ children, hideAppNav = false }: DashboardLayou
         >
           {children}
         </main>
+
+        <footer className="border-t border-border bg-background/80 px-4 py-3 text-xs text-muted-foreground backdrop-blur-md lg:px-6">
+          <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1 text-center  sm:text-left">
+            <span className="font-medium text-foreground">Support: Ms. Yen</span>
+            <a
+              href="mailto:yen@sportsturfsolutions.com"
+              className="transition-colors hover:text-[rgb(31,122,76)]"
+            >
+              yen@sportsturfsolutions.com
+            </a>
+            <a
+              href="https://wa.me/84983115600"
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 transition-colors hover:text-[rgb(31,122,76)]"
+              aria-label="WhatsApp support"
+            >
+              <MessageCircle className="h-3.5 w-3.5" aria-hidden />
+              <span>WhatsApp</span>
+            </a>
+          </div>
+        </footer>
       </div>
 
       {!hideAppNav ? (
-        <MobileBottomNav showInventoryImport={canAccessInventoryImport} />
+        <MobileBottomNav showInventoryImport={false} user={user} />
       ) : null}
     </div>
   );

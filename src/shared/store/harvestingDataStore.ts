@@ -1,7 +1,11 @@
 import { create } from "zustand";
 
 import { STS_API_PATHS } from "@/shared/api/stsApiPaths";
-import { stsProxyGet } from "@/shared/api/stsProxyClient";
+import {
+  normalizeFarmZoneRows,
+  type FarmZoneReferenceRow,
+} from "@/shared/lib/harvestReferenceData";
+import { stsProxyGetWithParams } from "@/shared/api/stsProxyClient";
 
 function asArray(v: unknown): unknown[] {
   if (Array.isArray(v)) return v;
@@ -31,16 +35,8 @@ function asArray(v: unknown): unknown[] {
   return [];
 }
 
-/** API returns a zone key → label map (not an array). */
-function normalizeFarmZonesPayload(v: unknown): unknown {
-  if (v === null || v === undefined) return {};
-  if (Array.isArray(v)) return v;
-  if (typeof v === "object") return v;
-  return {};
-}
-
 const empty = {
-  farmZones: {} as unknown,
+  farmZones: [] as FarmZoneReferenceRow[],
   farms: [] as unknown[],
   projects: [] as unknown[],
   staffs: [] as unknown[],
@@ -56,8 +52,8 @@ const empty = {
 };
 
 export type HarvestingDataState = {
-  /** Zone key → label map from `react_get_farm_zones`, or legacy array. */
-  farmZones: unknown;
+  /** Zone reference rows from `/api/zones`. */
+  farmZones: FarmZoneReferenceRow[];
   farms: unknown[];
   projects: unknown[];
   staffs: unknown[];
@@ -84,7 +80,7 @@ export type HarvestingDataState = {
   setHarvestListProjectFilter: (value: string) => void;
   setHarvestListGrassFilter: (value: string) => void;
   setHarvestListStatusFilter: (value: string) => void;
-  setFarmZones: (farmZones: unknown) => void;
+  setFarmZones: (farmZones: FarmZoneReferenceRow[]) => void;
   setFarms: (farms: unknown[]) => void;
   setProjects: (projects: unknown[]) => void;
   setStaffs: (staffs: unknown[]) => void;
@@ -149,6 +145,14 @@ export const useHarvestingDataStore = create<HarvestingDataState>((set, get) => 
   fetchAllHarvestingReferenceData: async (force = false) => {
     if (!force && get().bootstrapDone) return;
     set({ loading: true, error: null });
+    const refParams: Record<string, string | number | undefined> = {};
+    if (typeof window !== "undefined") {
+      const { getSessionUser } = await import("@/shared/store/authUserStore");
+      const uid = getSessionUser()?.id;
+      if (uid != null && Number.isFinite(Number(uid)) && Number(uid) > 0) {
+        refParams.react_client_user_id = Number(uid);
+      }
+    }
     const entries = [
       ["farmZones", STS_API_PATHS.farmZones],
       ["staffs", STS_API_PATHS.staffs],
@@ -157,7 +161,9 @@ export const useHarvestingDataStore = create<HarvestingDataState>((set, get) => 
       ["countries", STS_API_PATHS.countries],
       ["products", STS_API_PATHS.products],
     ] as const;
-    const settled = await Promise.allSettled(entries.map(([, path]) => stsProxyGet(path)));
+    const settled = await Promise.allSettled(
+      entries.map(([, path]) => stsProxyGetWithParams(path, refParams)),
+    );
     const byKey = new Map<string, unknown>();
     const errors: string[] = [];
     entries.forEach(([key], idx) => {
@@ -178,7 +184,7 @@ export const useHarvestingDataStore = create<HarvestingDataState>((set, get) => 
     const products = byKey.get("products");
 
     set({
-      farmZones: normalizeFarmZonesPayload(farmZones),
+      farmZones: normalizeFarmZoneRows(farmZones),
       staffs: asArray(staffs),
       farms: asArray(farms),
       projects: asArray(projects),

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Lock, Mail } from "lucide-react";
 
 import { INTERNAL_API } from "@/shared/api/stsLogin";
+import { Checkbox } from "@/shared/ui/checkbox";
 import {
   clearRememberedCredentials,
   loadRememberedCredentials,
@@ -158,11 +159,12 @@ export default function LoginForm() {
 
           <div className="flex items-center justify-between gap-3">
             <label className="flex items-center gap-2 cursor-pointer select-none">
-              <input
-                type="checkbox"
+              <Checkbox
                 checked={remember}
                 onChange={(e) => setRemember(e.target.checked)}
-                className="rounded border-gray-300 text-foreground focus:ring-[#1F7A4C]"
+                checkedClassName="peer-checked:border-[#1F7A4C] peer-checked:bg-[#1F7A4C] peer-checked:text-white"
+                uncheckedClassName="border-gray-300"
+                boxClassName="peer-focus-visible:ring-[#1F7A4C]"
               />
               <span className="text-sm text-gray-700">{t("rememberMe")}</span>
             </label>

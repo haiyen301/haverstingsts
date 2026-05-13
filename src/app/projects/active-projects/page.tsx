@@ -7,6 +7,7 @@ import { AlignLeft, ArrowDown, ArrowLeft, Briefcase, Loader2 } from "lucide-reac
 
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 import RequireAuth from "@/features/auth/RequireAuth";
+import { useSyncedFarmMultiSelect } from "@/shared/hooks/useSyncedFarmMultiSelect";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { MultiSelect } from "@/components/ui/multi-select";
 import {
@@ -34,13 +35,6 @@ import {
 } from "@/shared/lib/dashboardKpiProjectFilters";
 
 const ACTIVE_PROJECT_STATUSES = ["Ongoing", "Future", "Warning"];
-
-function parseCsvParam(v: string | null): string[] {
-  return String(v ?? "")
-    .split(",")
-    .map((x) => x.trim())
-    .filter(Boolean);
-}
 
 function toRecArray(rows: unknown[]): Record<string, unknown>[] {
   return rows.filter((x): x is Record<string, unknown> => !!x && typeof x === "object");
@@ -149,8 +143,7 @@ function ActiveProjectsPageInner() {
   const [countryFilterIds, setCountryFilterIds] = useState<string[]>([]);
   const [grassFilterIds, setGrassFilterIds] = useState<string[]>([]);
 
-  const harvestListFarmFilter = useHarvestingDataStore((s) => s.harvestListFarmFilter);
-  const setHarvestListFarmFilter = useHarvestingDataStore((s) => s.setHarvestListFarmFilter);
+  const { selectedFarmIds: farmFilterIds, setSelectedFarmIds } = useSyncedFarmMultiSelect();
   const projectsRef = useHarvestingDataStore((s) => s.projects);
   const countriesRef = useHarvestingDataStore((s) => s.countries);
   const farmsRef = useHarvestingDataStore((s) => s.farms);
@@ -251,11 +244,6 @@ function ActiveProjectsPageInner() {
       mounted = false;
     };
   }, []);
-
-  const farmFilterIds = useMemo(
-    () => parseCsvParam(harvestListFarmFilter.trim() || null),
-    [harvestListFarmFilter],
-  );
 
   const selectedFarmIdSet = useMemo(() => new Set(farmFilterIds), [farmFilterIds]);
 
@@ -526,7 +514,7 @@ function ActiveProjectsPageInner() {
               <MultiSelect
                 options={farmOptions.map((f) => ({ value: f.id, label: f.name }))}
                 values={farmFilterIds}
-                onChange={(ids) => setHarvestListFarmFilter(ids.join(","))}
+                onChange={setSelectedFarmIds}
                 placeholder={t("ActiveProjects.allFarms")}
                 className={cn(multiSelectBaseClass, bgSurfaceFilter(farmFilterIds.length > 0))}
                 rightIcon={filterTriggerIcon}

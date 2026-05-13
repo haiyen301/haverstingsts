@@ -21,7 +21,9 @@ import {
 
 import RequireAuth from "@/features/auth/RequireAuth";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
+import { canAccessModule } from "@/shared/auth/permissions";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
+import { useAuthUserStore } from "@/shared/store/authUserStore";
 import {
   fetchMondayProjectRowsFromServer,
   type MondayProjectServerRow,
@@ -34,7 +36,11 @@ import {
   getFirstAttachmentUrlFromSubitems,
 } from "@/shared/lib/harvestAttachmentImages";
 import { formatDateDisplay, isValidDate } from "@/shared/lib/format/date";
-import { zoneIdToLabel } from "@/shared/lib/harvestReferenceData";
+import {
+  farmNameByIdFromRows,
+  type FarmZoneReferenceRow,
+  zoneIdToLabel,
+} from "@/shared/lib/harvestReferenceData";
 import { parseJsonMaybe, parseSubitems } from "@/shared/lib/parseJsonMaybe";
 import { calculateDeliveredQuantityDeliveryOnly } from "@/features/project/lib/subitemDeliveredQuantity";
 import { effectiveRequiredQuantityFromRecord } from "@/features/project/lib/effectiveRequirementQuantity";
@@ -103,6 +109,8 @@ type HarvestRow = {
   createdAt: string;
   date: string;
   grass: string;
+  /** Resolved from `farm_id` via reference `farms` (Zustand). */
+  farm: string;
   zone: string;
   quantity: string;
   quantityValue: number;
@@ -142,7 +150,8 @@ function normalizeUomKey(uomRaw: string): string {
 }
 
 type HarvestMapCtx = {
-  farmZones: unknown;
+  farmZones: FarmZoneReferenceRow[];
+  farms: unknown[];
   remainingByProductUom: Map<string, number>;
   unitByProductUom: Map<string, string>;
   productMap: Map<string, string>;
@@ -200,6 +209,11 @@ function mapHarvestRecordToHarvestRow(
   const grass =
     grassName || ctx.productMap.get(productId) || "-";
 
+  const farmIdRaw = String(r.farm_id ?? "").trim();
+  const farmFromRef = farmNameByIdFromRows(ctx.farms, farmIdRaw);
+  const farm =
+    farmFromRef || (farmIdRaw ? farmIdRaw : "-");
+
   const tableId =
     String(r.table_id ?? "").trim() || String(ctx.defaultTableId ?? "").trim();
   const tableNameRaw = String(r.table_name ?? "").trim();
@@ -225,6 +239,7 @@ function mapHarvestRecordToHarvestRow(
     createdAt,
     date: formatDateDisplay(isValidDate(actual) ? actual : estimated),
     grass,
+    farm,
     zone:
       zoneIdToLabel(r.zone as string | undefined, ctx.farmZones) || "-",
     quantity: `${qty.toLocaleString()} ${uomRaw}`.trim() || "-",
@@ -253,7 +268,12 @@ function safeProjectsListHref(raw: string | null | undefined): string {
   } catch {
     s = s0;
   }
-  if (!s.startsWith("/projects") || s.startsWith("//")) return fallback;
+  if (
+    (!s.startsWith("/projects") && !s.startsWith("/harvest")) ||
+    s.startsWith("//")
+  ) {
+    return fallback;
+  }
   return s;
 }
 
@@ -379,6 +399,14 @@ export default function ProjectDetailPage() {
   const tBase = useAppTranslations();
   const tCommon = (key: string) => tBase(`Common.${key}`);
   const router = useRouter();
+  const user = useAuthUserStore((s) => s.user);
+  const canEditProjects = canAccessModule(user, "projects", "edit");
+  const canDeleteProjects = canAccessModule(user, "projects", "delete");
+  const canManageProject = canEditProjects || canDeleteProjects;
+  const canCreateHarvest = canAccessModule(user, "harvests", "create");
+  const canEditHarvest = canAccessModule(user, "harvests", "edit");
+  const canDeleteHarvest = canAccessModule(user, "harvests", "delete");
+  const canManageExistingHarvest = canEditHarvest || canDeleteHarvest;
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const rowId = searchParams.get("rowId")?.trim() ?? "";
@@ -485,31 +513,36 @@ export default function ProjectDetailPage() {
       try {
         setLoading(true);
         setError(null);
-        if (!rowId) {
-          setError(t("missingRowId"));
+        const normalizedTableId = tableId.trim();
+        const normalizedProjectId = projectIdFromQuery.trim();
+        if (!rowId && !normalizedProjectId) {
+          setError(t("cannotFindDetail"));
           return;
         }
         const res = await fetchMondayProjectRowsFromServer({ page: 1, perPage: 300 });
         if (!mounted) return;
-        const normalizedTableId = tableId.trim();
-        const normalizedProjectId = projectIdFromQuery.trim();
-        const matchesRowAndMaybeTable = (r: MondayProjectServerRow): boolean => {
-          const rowIdMatches =
-            String(r.row_id ?? "").trim() === rowId ||
-            String(r.id ?? "").trim() === rowId;
-          if (!rowIdMatches) return false;
+        const matchesProject = (r: MondayProjectServerRow): boolean => {
+          if (rowId) {
+            const rowIdMatches =
+              String(r.row_id ?? "").trim() === rowId ||
+              String(r.id ?? "").trim() === rowId;
+            if (!rowIdMatches) return false;
+          } else {
+            const candidateProjectId = String(r.project_id ?? r.id ?? "").trim();
+            if (!candidateProjectId || candidateProjectId !== normalizedProjectId) {
+              return false;
+            }
+          }
           if (!normalizedTableId) return true;
           if (String(r.table_id ?? "").trim() !== normalizedTableId) return false;
           if (!normalizedProjectId) return true;
           return String(r.project_id ?? "").trim() === normalizedProjectId;
         };
-        const row = res.rows.find(matchesRowAndMaybeTable) ?? null;
+        const row = res.rows.find(matchesProject) ?? null;
         if (!row) {
           setError(t("cannotFindDetail"));
           return;
         }
-        setProjectRow(row);
-
         const projectId = String(projectIdFromQuery || row.project_id || "").trim();
         if (projectId) {
           const requirementRows = parseRequirements(row.quantity_required_sprig_sod);
@@ -523,6 +556,7 @@ export default function ProjectDetailPage() {
           const planRows = h.rows.filter(
             (x): x is Record<string, unknown> => !!x && typeof x === "object",
           );
+          setProjectRow(row);
           const deliveredRows = buildDeliveredQuantitySourceRows(
             projectSubitems,
             planRows,
@@ -549,12 +583,14 @@ export default function ProjectDetailPage() {
             unitByProductUom.set(mapKey, reqUomRaw || "-");
           }
 
-          const farmZonesForLabels = useHarvestingDataStore.getState().farmZones;
+          const { farmZones: farmZonesForLabels, farms: farmsForLabels } =
+            useHarvestingDataStore.getState();
           const fallbackTableId = String(row.table_id ?? tableId ?? "").trim();
           const fallbackTableName =
             String(row.table_name ?? "Harvesting").trim() || "Harvesting";
           const mapCtxBase: HarvestMapCtx = {
             farmZones: farmZonesForLabels,
+            farms: farmsForLabels,
             remainingByProductUom,
             unitByProductUom,
             productMap,
@@ -582,6 +618,8 @@ export default function ProjectDetailPage() {
             })
             .map((sub) => mapHarvestRecordToHarvestRow(sub, mapCtxSub));
           setHarvests([...fromPlan, ...fromSubitemsOnly]);
+        } else {
+          setProjectRow(row);
         }
       } catch (e) {
         if (!mounted) return;
@@ -596,9 +634,7 @@ export default function ProjectDetailPage() {
     return () => {
       mounted = false;
     };
-    // Intentionally only `rowId`: including unstable deps caused repeated fetch loops; `farmZones`
-    // from the store gets a new reference after bootstrap.
-  }, [rowId]);
+  }, [projectIdFromQuery, rowId, tableId]);
 
   useEffect(() => {
     Fancybox.bind(".harvest-fancybox-trigger", {
@@ -780,9 +816,14 @@ export default function ProjectDetailPage() {
   );
 
   const canDeleteHarvestRow = (h: HarvestRow) =>
-    Boolean(String(h.id ?? "").trim());
+    canDeleteHarvest && Boolean(String(h.id ?? "").trim());
 
   const onConfirmDeleteHarvestFromDetail = async () => {
+    if (!canDeleteHarvest) {
+      setHarvestDeleteError(t("deleteHarvestFailed"));
+      setHarvestDeleteTarget(null);
+      return;
+    }
     const target = harvestDeleteTarget;
     if (!target?.id?.trim() || !target.tableId?.trim()) {
       setHarvestDeleteError(t("deleteHarvestMissingIds"));
@@ -842,23 +883,25 @@ export default function ProjectDetailPage() {
                   <span className="inline-flex items-center rounded-md border border-border px-2.5 py-0.5 text-xs font-semibold text-foreground">
                     {basic.projectType}
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const editRowId =
-                        String(projectRow?.row_id ?? projectRow?.id ?? "").trim() || rowId;
-                      const editTableId =
-                        String(projectRow?.table_id ?? "").trim() || tableId;
-                      router.push(
-                        `/projects/new?rowId=${encodeURIComponent(editRowId)}&tableId=${encodeURIComponent(editTableId)}&returnTo=${encodeURIComponent(returnTo)}`,
-                      );
-                    }}
-                    className="inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground ring-offset-background transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0"
-                    aria-label={t("editProject")}
-                  >
-                    <Pencil className="h-4 w-4" aria-hidden />
-                    {t("editProject")}
-                  </button>
+                  {canManageProject ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const editRowId =
+                          String(projectRow?.row_id ?? projectRow?.id ?? "").trim() || rowId;
+                        const editTableId =
+                          String(projectRow?.table_id ?? "").trim() || tableId;
+                        router.push(
+                          `/projects/new?rowId=${encodeURIComponent(editRowId)}&tableId=${encodeURIComponent(editTableId)}&returnTo=${encodeURIComponent(returnTo)}`,
+                        );
+                      }}
+                      className="inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground ring-offset-background transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0"
+                      aria-label={t("editProject")}
+                    >
+                      <Pencil className="h-4 w-4" aria-hidden />
+                      {t("editProject")}
+                    </button>
+                  ) : null}
                 </div>
               </div>
 
@@ -1046,23 +1089,30 @@ export default function ProjectDetailPage() {
 
               {/* Harvests — table + filters (full parity with app data) */}
               <div className="rounded-lg border border-border bg-card text-card-foreground shadow-sm">
-                <div className="flex flex-row items-center justify-between space-y-0 p-6 pb-3">
-                  <h2 className="text-base font-semibold leading-none tracking-tight">
-                    {t("harvestHistory")} ({harvests.length})
-                  </h2>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      router.push(
-                        `/harvest/new?returnTo=${encodeURIComponent(returnTo)}&projectId=${encodeURIComponent(currentProjectId)}`,
-                      )
-                    }
-                    className="inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground ring-offset-background transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0"
-                    aria-label={t("addHarvest")}
-                  >
-                    <Plus className="h-4 w-4" aria-hidden />
-                    {t("addHarvest")}
-                  </button>
+                <div className="flex flex-row items-start justify-between gap-4 p-6 pb-3">
+                  <div>
+                    <h2 className="text-base font-semibold leading-none tracking-tight">
+                      {t("harvestHistory")}
+                    </h2>
+                    <p className="mt-1.5 text-sm text-muted-foreground">
+                      {t("harvestHistoryRecordCount", { count: harvests.length })}
+                    </p>
+                  </div>
+                  {canCreateHarvest ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        router.push(
+                          `/harvest/new?returnTo=${encodeURIComponent(returnTo)}&projectId=${encodeURIComponent(currentProjectId)}`,
+                        )
+                      }
+                      className="inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground ring-offset-background transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0"
+                      aria-label={t("addHarvest")}
+                    >
+                      <Plus className="h-4 w-4" aria-hidden />
+                      {t("addHarvest")}
+                    </button>
+                  ) : null}
                 </div>
                 <div className="space-y-4 p-6 pt-0">
                   {harvestDeleteError ? (
@@ -1215,7 +1265,7 @@ export default function ProjectDetailPage() {
                                   </span>
                                 </td>
                                 <td className="py-2.5 pr-4 text-muted-foreground">
-                                  {h.tableName || "—"}
+                                  {h.farm && h.farm !== "-" ? h.farm : "—"}
                                 </td>
                                 <td className="py-2.5 pr-4 text-muted-foreground">{h.zone}</td>
                                 <td className="py-2.5 pr-4 text-right text-foreground">
@@ -1234,20 +1284,22 @@ export default function ProjectDetailPage() {
                                 </td>
                                 <td className="py-2.5 text-right">
                                   <div className="flex items-center justify-end gap-1">
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        router.push(
-                                          `/harvest/new?id=${encodeURIComponent(h.id)}&returnTo=${encodeURIComponent(returnTo)}`,
-                                        );
-                                      }}
-                                      className="rounded-md p-2 text-primary hover:bg-muted"
-                                      aria-label={tCommon("edit")}
-                                      title={tCommon("edit")}
-                                    >
-                                      <Pencil className="h-4 w-4" />
-                                    </button>
+                                    {canManageExistingHarvest ? (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          router.push(
+                                            `/harvest/new?id=${encodeURIComponent(h.id)}&returnTo=${encodeURIComponent(returnTo)}`,
+                                          );
+                                        }}
+                                        className="rounded-md p-2 text-primary hover:bg-muted"
+                                        aria-label={tCommon("edit")}
+                                        title={tCommon("edit")}
+                                      >
+                                        <Pencil className="h-4 w-4" />
+                                      </button>
+                                    ) : null}
                                     <button
                                       type="button"
                                       onClick={(e) => {
@@ -1354,20 +1406,22 @@ export default function ProjectDetailPage() {
                     </span>
                   </div>
                   <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        router.push(
-                          `/harvest/new?id=${encodeURIComponent(h.id)}&returnTo=${encodeURIComponent(returnTo)}`,
-                        )
-                      }
-                      className="rounded-lg p-2 text-[#5a7d3c] transition-colors hover:bg-green-50"
-                      aria-label={tCommon("edit")}
-                    >
-                      <svg width="20" height="20" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M2.25 14.5H8.55H14.5M0.5 13.268V10.608L10.4159 1.06225C10.7907 0.701519 11.2906 0.5 11.8107 0.5H12.1203C13.1081 0.5 13.8925 1.33059 13.8362 2.31671C13.8128 2.72543 13.6444 3.11239 13.3611 3.40793L4.42 12.736L1.13147 13.7774C1.0841 13.7924 1.03472 13.8 0.985037 13.8C0.717158 13.8 0.5 13.5826 0.5 13.3148C0.5 13.1198 0.5 13.0218 0.5 13.268Z" stroke="#1f7a4c" />
-                      </svg>
-                    </button>
+                    {canManageExistingHarvest ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          router.push(
+                            `/harvest/new?id=${encodeURIComponent(h.id)}&returnTo=${encodeURIComponent(returnTo)}`,
+                          )
+                        }
+                        className="rounded-lg p-2 text-[#5a7d3c] transition-colors hover:bg-green-50"
+                        aria-label={tCommon("edit")}
+                      >
+                        <svg width="20" height="20" viewBox="0 0 15 15" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <path d="M2.25 14.5H8.55H14.5M0.5 13.268V10.608L10.4159 1.06225C10.7907 0.701519 11.2906 0.5 11.8107 0.5H12.1203C13.1081 0.5 13.8925 1.33059 13.8362 2.31671C13.8128 2.72543 13.6444 3.11239 13.3611 3.40793L4.42 12.736L1.13147 13.7774C1.0841 13.7924 1.03472 13.8 0.985037 13.8C0.717158 13.8 0.5 13.5826 0.5 13.3148C0.5 13.1198 0.5 13.0218 0.5 13.268Z" stroke="#1f7a4c" />
+                        </svg>
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => setExpandedHarvestId(null)}
@@ -1408,6 +1462,10 @@ export default function ProjectDetailPage() {
                         {t("harvestedArea")}{" "}
                       </span>
                       {h.harvestedAreaM2Display ? h.harvestedAreaM2Display + t("harvestedAreaUnitM2") : "-"}
+                    </p>
+                    <p>
+                      <span className="inline-block w-[110px] text-gray-500">{t("farm")}:</span>
+                      {` ${h.farm && h.farm !== "-" ? h.farm : "—"}`}
                     </p>
                     <p><span className="inline-block w-[110px] text-gray-500">{t("zone")}:</span>{` ${h.zone}`}</p>
                     <p><span className="inline-block w-[110px] text-gray-500">{t("displayDate")} </span>{h.date}</p>
@@ -1470,25 +1528,27 @@ export default function ProjectDetailPage() {
                       ))}
                     </Swiper>
                   </div>
-                  <div className="flex justify-end">
-                    <button
-                      type="button"
-                      disabled={!canDeleteHarvestRow(h)}
-                      title={
-                        canDeleteHarvestRow(h)
-                          ? t("deleteHarvestAria")
-                          : t("deleteHarvestUnavailable")
-                      }
-                      aria-label={t("deleteHarvestAria")}
-                      onClick={() => {
-                        setHarvestDeleteError(null);
-                        setHarvestDeleteTarget(h);
-                      }}
-                      className="flex gap-2 rounded-lg border p-2 text-gray-300 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      <Trash2 className="h-5 w-5" /> Delete
-                    </button>
-                  </div>
+                  {canDeleteHarvest ? (
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        disabled={!canDeleteHarvestRow(h)}
+                        title={
+                          canDeleteHarvestRow(h)
+                            ? t("deleteHarvestAria")
+                            : t("deleteHarvestUnavailable")
+                        }
+                        aria-label={t("deleteHarvestAria")}
+                        onClick={() => {
+                          setHarvestDeleteError(null);
+                          setHarvestDeleteTarget(h);
+                        }}
+                        className="flex gap-2 rounded-lg border p-2 text-gray-300 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        <Trash2 className="h-5 w-5" /> Delete
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             );

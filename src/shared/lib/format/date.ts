@@ -19,3 +19,17 @@ export function formatDateDisplay(v: unknown): string {
     year: "numeric",
   });
 }
+
+/** Display date as `dd/m/yyyy`; invalid values return `-`. */
+export function formatDateDisplayDmy(v: unknown): string {
+  const d =
+    v instanceof Date
+      ? v
+      : (() => {
+          const s = String(v ?? "").trim();
+          if (!isValidDate(s)) return null;
+          return new Date(s);
+        })();
+  if (!d || Number.isNaN(d.getTime())) return "-";
+  return `${String(d.getDate()).padStart(2, "0")}/${d.getMonth() + 1}/${d.getFullYear()}`;
+}

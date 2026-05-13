@@ -124,6 +124,32 @@ export async function stsProxyGet<T = unknown>(upstreamApiPath: string): Promise
   return json.data as T;
 }
 
+/** GET with query string on the upstream path (e.g. `admin=1`). */
+export async function stsProxyGetWithParams<T = unknown>(
+  upstreamApiPath: string,
+  searchParams?: Record<string, string | number | undefined>,
+): Promise<T> {
+  if (typeof window === "undefined") {
+    throw new Error("stsProxyGetWithParams is client-only");
+  }
+  const url = buildStsProxyGetUrl(upstreamApiPath, searchParams);
+  const res = await fetch(url, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+    },
+    credentials: SAME_ORIGIN,
+  });
+  let json: StsJsonResponse<T>;
+  try {
+    json = (await res.json()) as StsJsonResponse<T>;
+  } catch {
+    throw new Error("Invalid JSON response");
+  }
+  await assertStsSuccessOrThrow(json, res);
+  return json.data as T;
+}
+
 type HarvestingIndexJson = {
   success?: boolean;
   data?: unknown;

@@ -63,6 +63,12 @@ export type SessionUser = {
   first_name?: string;
   last_name?: string;
   email?: string;
+  country?: string;
+  country_id?: string;
+  user_country_id?: string;
+  /** Comma-separated or JSON list of `sts_farms.id` from `sts_users_meta.farm_user_id`. */
+  farm_user_id?: string;
+  farmUserId?: string;
   avatar?: string;
   profile_image?: string;
   profileImage?: string;

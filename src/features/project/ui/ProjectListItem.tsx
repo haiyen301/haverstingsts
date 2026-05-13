@@ -96,6 +96,7 @@ export function ProjectListItem({
   getProductNameById,
   getUserAvatarById,
   onEditProject,
+  showEditAction,
 }: ProjectListItemProps) {
   const tBase = useAppTranslations();
   const tProject = (key: string) => tBase(`Projects.${key}`);
@@ -148,7 +149,8 @@ export function ProjectListItem({
   const typeTag = String(data.tags[0] ?? "").trim();
   const extraTags = data.tags.slice(1).filter(Boolean);
   const estimateLabel = String(data.endDate || data.estimatedStartDate || "").trim();
-  const canEdit = Boolean(serverRow && onEditProject);
+  const canOpenDetail = Boolean(serverRow && onEditProject);
+  const canShowEditAction = canOpenDetail && (showEditAction ?? true);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [pendingImageFile, setPendingImageFile] = useState<File | null>(null);
   const [pendingImagePreviewUrl, setPendingImagePreviewUrl] = useState<string>("");
@@ -223,7 +225,7 @@ export function ProjectListItem({
   };
   return (
     <div className="relative h-full">
-      {canEdit ? (
+      {canShowEditAction ? (
         <button
           type="button"
           data-no-card-click="true"
@@ -250,15 +252,15 @@ export function ProjectListItem({
           <div
             className={cn(
               "group/detail flex items-start gap-3 rounded-md pr-10",
-              canEdit &&
+              canOpenDetail &&
                 "cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card",
             )}
-            role={canEdit ? "button" : undefined}
-            tabIndex={canEdit ? 0 : undefined}
-            aria-label={canEdit ? `${tProject("projectDetails")}: ${data.name}` : undefined}
-            onClick={canEdit ? handleEdit : undefined}
+            role={canOpenDetail ? "button" : undefined}
+            tabIndex={canOpenDetail ? 0 : undefined}
+            aria-label={canOpenDetail ? `${tProject("projectDetails")}: ${data.name}` : undefined}
+            onClick={canOpenDetail ? handleEdit : undefined}
             onKeyDown={
-              canEdit
+              canOpenDetail
                 ? (e) => {
                     if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault();

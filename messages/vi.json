@@ -24,6 +24,8 @@
     "company": "Công ty"
   },
   "AppHeader": {
+    "alertsBell": "Cảnh báo của tôi",
+    "alertsBellUnread": "Cảnh báo của tôi, {count} chưa đọc",
     "allFarms": "Tất cả trại",
     "farmLabel": "Trại",
     "clearFarmFilter": "Bỏ lọc trại",
@@ -47,13 +49,21 @@
     "equipment": "Thiết bị",
     "userManagement": "Quản lý người dùng",
     "turfOperations": "Vận hành sân cỏ",
-    "fleetMechanicalAdmin": "Đội xe & Cơ điện"
+    "fleetMechanicalAdmin": "Đội xe & Cơ điện",
+    "adminPeople": "Nhân sự",
+    "alertSettings": "Cảnh báo (cấu hình)",
+    "adminProjects": "Dự án",
+    "adminArchitects": "Kiến trúc sư",
+    "adminZoneSetup": "Thiết lập zone",
+    "adminZoneConfiguration": "Cấu hình khu vực",
+    "adminRegrowthRules": "Quy tắc tái sinh"
   },
   "Nav": {
     "dashboard": "Bảng điều khiển",
     "harvests": "Thu hoạch",
     "projects": "Dự án",
     "overview": "Tổng quan",
+    "inventory": "Tồn kho",
     "planning": "Lập kế hoạch",
     "timeline": "Dòng thời gian",
     "forecasting": "Dự báo",
@@ -61,6 +71,71 @@
     "weather": "Thời tiết",
     "more": "Thêm",
     "moreSheetTitle": "Điều hướng thêm"
+  },
+  "AdminAlertSettings": {
+    "title": "Cảnh báo — cấu hình",
+    "description": "Tạo danh mục hiển thị trên My Alerts, gán từng màn hình harvest/project với một danh mục, rồi soạn nội dung kiểu push (ảnh thu nhỏ, nội dung, hàng ảnh, kênh).",
+    "hint": "Danh mục và ánh xạ màn hình tự lưu sau vài giây khi bạn thay đổi. File cấu hình: data/alert-feed-config.json trên máy chủ Next. Bản ghi cảnh báo vẫn lưu qua STSPortal /api/alerts/save.",
+    "viewFeed": "Mở Cảnh báo của tôi",
+    "loading": "Đang tải…",
+    "saving": "Đang lưu…",
+    "saveLayout": "Lưu danh mục & ánh xạ màn hình",
+    "toastLayoutSaved": "Đã lưu cài đặt cảnh báo.",
+    "saveFailed": "Không lưu được cấu hình.",
+    "sectionCategories": "Danh mục trên feed",
+    "sectionRoutes": "Màn hình → danh mục",
+    "sectionPush": "Soạn thông báo",
+    "routesHelp": "Khi bạn thêm push tự động từ luồng harvest/project, hãy dùng mã danh mục đã gán cho từng màn hình.",
+    "sectionRecipients": "Ai nhận cảnh báo tự động",
+    "recipientsHelp": "Chọn người nhận cho từng màn hình tự động bên dưới. Phần Soạn thông báo dùng để chọn người nhận khi gửi thử.",
+    "recipientDefaultHeading": "Mặc định cho mọi màn hình",
+    "recipientRouteHeading": "Người nhận: {screen}",
+    "recipientMode": "Chế độ người nhận",
+    "recipientSelf": "Chỉ người thực hiện thao tác",
+    "recipientUserIds": "Chọn người cụ thể",
+    "recipientRoles": "Người dùng thuộc vai trò đã chọn",
+    "recipientAllUsers": "Mọi người dùng đang hoạt động (server giới hạn số lượng)",
+    "recipientUserIdsHelp": "Chọn từ danh bạ trong app (cùng dữ liệu form dự án/thu hoạch). Lưu dưới dạng id user STS. Tối đa 100.",
+    "recipientStaffsLoading": "Đang tải danh bạ người…",
+    "recipientStaffsEmpty": "Chưa có danh sách người. Kiểm tra phiên đăng nhập hoặc thử lại sau.",
+    "recipientUserSearchLabel": "Lọc người",
+    "recipientUserSearchPh": "Tìm theo tên hoặc id…",
+    "recipientUserSearchNoMatch": "Không có ai khớp bộ lọc.",
+    "recipientRolesEmpty": "Không tải được danh sách vai trò. Kiểm tra phiên STSPortal và quyền.",
+    "routes": {
+      "harvest_new": "Tạo thu hoạch mới",
+      "harvest_import": "Import thu hoạch (Excel)",
+      "projects_new": "Dự án mới",
+      "projects_import": "Import dự án (Excel)"
+    },
+    "iconLabel": "Biểu tượng",
+    "removeCategory": "Xóa danh mục",
+    "addCategory": "Thêm danh mục",
+    "categoryTitlePh": "Tiêu đề mục (hiện trên My Alerts)",
+    "categoryIdPh": "Mã (chữ thường, ví dụ promotions) — có thể để trống nếu đã nhập tiêu đề",
+    "categoryDescPh": "Mô tả ngắn dưới tiêu đề",
+    "categoryInvalid": "Nhập tiêu đề và mã danh mục hợp lệ (chữ, số, gạch ngang).",
+    "categoryDuplicate": "Mã danh mục đã tồn tại.",
+    "pushHelp": "Tạo một cảnh báo trong ứng dụng (feed My Alerts). Chọn người nhận bên dưới. Cờ kênh lưu trên sự kiện để worker mobile/web/email đọc sau.",
+    "pushRecipientHeading": "Người nhận",
+    "pushNoPermission": "Bạn không có quyền tạo cảnh báo (my_alerts → create).",
+    "pushCategory": "Danh mục (nhóm trên feed)",
+    "pushTitle": "Tiêu đề",
+    "pushTitlePh": "Tiêu đề đậm",
+    "pushThumb": "URL ảnh thu nhỏ (bên trái)",
+    "pushBody": "Nội dung",
+    "pushBodyPh": "Hỗ trợ xuống dòng và emoji.",
+    "pushGallery": "Ảnh thêm (một URL mỗi dòng)",
+    "pushGalleryPh": "https://…\nhttps://…",
+    "pushHref": "Đường dẫn khi bấm (tuỳ chọn)",
+    "channelMobile": "Push điện thoại",
+    "channelWeb": "Web / trong app",
+    "channelEmail": "Email",
+    "pushRequired": "Cần tiêu đề, nội dung và danh mục.",
+    "pushSending": "Đang gửi…",
+    "pushSubmit": "Tạo thông báo",
+    "pushCreated": "Đã tạo thông báo.",
+    "pushFailed": "Không tạo được thông báo."
   },
   "Theme": {
     "toggleAria": "Chuyển chế độ sáng/tối",
@@ -553,6 +628,7 @@
     "projectDetails": "Chi tiết dự án",
     "grassesDetails": "Chi tiết loại cỏ",
     "harvestHistory": "Lịch sử thu hoạch",
+    "harvestHistoryRecordCount": "{count} bản ghi",
     "missingRowId": "Thiếu row id của dự án.",
     "cannotFindDetail": "Không tìm thấy chi tiết dự án.",
     "loadError": "Không tải được chi tiết dự án.",
@@ -713,12 +789,17 @@
     "fileLabel": "Tệp",
     "removePhotoAria": "Xóa {label}",
     "saveFailed": "Lưu phiếu thu hoạch thất bại.",
+    "deleteHarvestTitle": "Xóa phiếu thu hoạch?",
+    "deleteHarvestMessage": "Bạn có chắc muốn xóa phiếu thu hoạch này không?",
+    "alertNewHarvestTitle": "Thu hoạch mới: {grass}",
+    "alertNewHarvestMessage": "{project} · {quantity} {uom}",
     "loadError": "Không tải được phiếu thu hoạch.",
     "harvestNotFound": "Không tìm thấy phiếu thu hoạch.",
     "validationSelectProject": "Vui lòng chọn dự án.",
     "validationSelectGrassType": "Vui lòng chọn loại cỏ.",
     "validationSelectHarvestType": "Vui lòng chọn loại thu hoạch.",
     "validationEnterQuantity": "Vui lòng nhập số lượng.",
+    "validationReferenceHarvestQuantityRequired": "Số lượng tham chiếu là bắt buộc và phải lớn hơn 0 cho Sod -> Sprig.",
     "validationHarvestedAreaKg": "Diện tích thu hoạch là bắt buộc và phải lớn hơn 0 khi đã có Ngày thu hoạch thực tế và đơn vị là Kg.",
     "validationSelectZone": "Vui lòng chọn khu vực.",
     "validationSelectFarm": "Vui lòng chọn nông trại.",
@@ -775,6 +856,8 @@
     "logImportedSuccess": "Import thành công",
     "logImportFailed": "Import thất bại",
     "summaryDone": "Hoàn tất. Dòng thành công: {success}, dòng lỗi/bỏ qua: {error}. (Dự án tạo mới: {projects})",
+    "alertImportProjectsTitle": "Import dự án Excel: {projects} dự án, {rows} dòng",
+    "alertImportProjectsMessage": "{projects} dự án từ {ok} dòng thành công. {bad} dòng lỗi hoặc bỏ qua.",
     "table": {
       "index": "#",
       "project": "Dự án",
@@ -839,6 +922,8 @@
     "errDynamicRowNotFound": "Không tìm thấy dòng sts_dynamic_table_dat cho project_id này (thiếu id_row/table_id).",
     "logImportFailed": "Import thất bại",
     "summaryDone": "Hoàn tất. Thành công: {ok}, Lỗi: {bad}.",
+    "alertImportHarvestTitle": "Import thu hoạch Excel: {ok} dòng đã tạo",
+    "alertImportHarvestMessage": "{ok} thành công, {bad} lỗi hoặc bỏ qua. Mở Import để xem chi tiết từng dòng.",
     "showingTopRows": "Đang hiển thị {shown} dòng đầu / {total} dòng.",
     "table": {
       "index": "#",
@@ -868,6 +953,121 @@
       "harvestedArea": "Diện tích thu hoạch (bắt buộc nếu Kg + Actual Date)"
     }
   },
+  "AdminPeople": {
+    "title": "Nhân sự",
+    "description": "Một hồ sơ duy nhất cho mỗi người — nhân sự nội bộ, liên hệ khách hàng, kiến trúc sư. Bật App Login để cấp quyền truy cập. Dữ liệu sẽ đồng bộ Odoo qua trường",
+    "addPerson": "Thêm người",
+    "editPerson": "Sửa người",
+    "searchPlaceholder": "Tìm theo tên hoặc email...",
+    "noLogin": "Không có đăng nhập",
+    "empty": "Không tìm thấy nhân sự.",
+    "stats": {
+      "totalPeople": "Tổng nhân sự",
+      "staff": "Nhân sự STS",
+      "eligiblePics": "PIC khả dụng",
+      "appLogins": "Tài khoản ứng dụng"
+    },
+    "filters": {
+      "allTypes": "Tất cả loại",
+      "allAccess": "Tất cả quyền truy cập",
+      "hasAppLogin": "Có đăng nhập ứng dụng",
+      "directoryOnly": "Chỉ danh bạ"
+    },
+    "types": {
+      "staff": "Nhân sự STS",
+      "customerContact": "Liên hệ khách hàng",
+      "architect": "Kiến trúc sư",
+      "other": "Khác"
+    },
+    "table": {
+      "person": "Người",
+      "type": "Loại",
+      "locationCompany": "Địa điểm / Công ty",
+      "pic": "PIC",
+      "access": "Truy cập",
+      "status": "Trạng thái",
+      "actions": "Thao tác"
+    }
+  },
+  "AdminZoneSetup": {
+    "title": "Thiết lập zone",
+    "description": "Tạo và quản lý danh sách zone cho tất cả nông trại hoặc cho từng nông trại cụ thể. Danh sách này sẽ được dùng ở form thu hoạch và phần cấu hình zone.",
+    "loading": "Đang tải zone...",
+    "addZone": "Thêm zone",
+    "editZone": "Sửa zone",
+    "save": "Lưu",
+    "saving": "Đang lưu…",
+    "cancel": "Hủy",
+    "empty": "Chưa có zone nào.",
+    "deleteConfirm": "Xóa zone",
+    "table": {
+      "scope": "Phạm vi",
+      "farm": "Nông trại",
+      "zoneName": "Tên zone",
+      "createdBy": "Tạo bởi",
+      "updatedAt": "Cập nhật lúc",
+      "actions": "Thao tác"
+    },
+    "scope": {
+      "allFarms": "Tất cả nông trại",
+      "singleFarm": "Riêng từng nông trại"
+    },
+    "form": {
+      "scopeRequired": "Phạm vi *",
+      "applyToAllFarms": "Áp dụng zone này cho tất cả nông trại",
+      "farmRequired": "Nông trại *",
+      "allFarmsSelected": "Zone này áp dụng cho tất cả nông trại",
+      "selectFarm": "Chọn nông trại",
+      "zoneNameRequired": "Tên zone *",
+      "zoneNamePlaceholder": "Nhập tên zone"
+    },
+    "errors": {
+      "required": "Vui lòng nhập tên zone, và chọn nông trại nếu zone này không áp dụng cho tất cả nông trại."
+    }
+  },
+  "AdminZones": {
+    "title": "Cấu hình khu vực",
+    "description": "Bảng này điều khiển toàn bộ tính toán tồn kho, dự báo và dữ liệu thu hoạch trong ứng dụng.",
+    "loading": "Đang tải...",
+    "closeAddZone": "Đóng thêm khu vực",
+    "addZone": "Thêm khu vực",
+    "addNewZone": "Thêm khu vực mới",
+    "editZoneConfiguration": "Sửa cấu hình khu vực",
+    "allFarms": "Tất cả nông trại",
+    "save": "Lưu",
+    "saving": "Đang lưu…",
+    "cancel": "Hủy",
+    "close": "Đóng",
+    "empty": "Không tìm thấy khu vực.",
+    "stats": {
+      "totalZones": "Tổng khu vực",
+      "totalArea": "Tổng diện tích",
+      "totalCapacity": "Tổng sức chứa"
+    },
+    "table": {
+      "farm": "Nông trại",
+      "grassType": "Loại cỏ",
+      "zone": "Khu vực",
+      "size": "Diện tích (m2)",
+      "yield": "Năng suất (kg/m2)",
+      "totalKg": "Tổng Kg",
+      "actions": "Thao tác"
+    },
+    "form": {
+      "farmRequired": "Nông trại *",
+      "grassTypeRequired": "Loại cỏ *",
+      "zoneRequired": "Khu vực # *",
+      "selectFarm": "Chọn nông trại",
+      "selectGrass": "Chọn loại cỏ",
+      "selectZone": "Chọn khu vực",
+      "sizeRequired": "Diện tích (m2) *",
+      "yieldRequired": "Năng suất (kg/m2) *",
+      "datePlanted": "Ngày trồng"
+    },
+    "errors": {
+      "required": "Vui lòng chọn farm, loại cỏ, zone và nhập diện tích, năng suất hợp lệ."
+    }
+  },
   "InventoryOnhandImport": {
     "title": "Import tồn kho từ file raw Excel",
     "subtitle": "Map cột `alias` và `quantity` của file raw sang `Sku STS` và `On Hand`, sau đó thêm Country ID cho toàn bộ dòng raw.",
@@ -888,5 +1088,135 @@
     "tableOnHand": "On Hand",
     "tableCountry": "Country",
     "previewAllRows": "Xem trước: đủ {total} dòng. Cuộn bảng để kiểm tra."
+  },
+  "AdminRegrowth": {
+    "title": "Quy tắc tái sinh",
+    "loading": "Đang tải quy tắc tái sinh…",
+    "description": "Các quy tắc này chi phối mọi phép tính tái sinh trong Inventory và Forecasting. Thu hoạch Sod dùng một chu kỳ hồi phục; thu hoạch Sprig dùng các dải theo mật độ.",
+    "saving": "Đang lưu…",
+    "saveChanges": "Lưu thay đổi",
+    "days": "ngày",
+    "footer": "Các chỉnh sửa chỉ lưu tạm trên trang này cho đến khi bạn chọn Lưu thay đổi. Sau khi lưu, quy tắc mới sẽ áp dụng cho dự báo tồn kho, biểu đồ forecast và tiến độ tái sinh thu hoạch.",
+    "cards": {
+      "sodRegrowth": "Tái sinh Sod",
+      "sodRegrowthHint": "Áp dụng cho tất cả lần thu hoạch SOD.",
+      "sodForSprigRegrowth": "Tái sinh Sod cho Sprig",
+      "sodForSprigHint": "Dùng khi thu hoạch SOD để sản xuất vật liệu sprig.",
+      "manualOverrideRecovery": "Hồi phục ghi đè thủ công",
+      "manualOverrideHint": "Khoảng thời gian hồi phục dự báo sau khi điều chỉnh tồn kho thủ công."
+    },
+    "sprigBands": {
+      "title": "Dải mật độ Sprig",
+      "description": "Quy tắc hiển thị dưới dạng khoảng dễ đọc, ví dụ: Đến 1 kg/m², 1 đến 1.5 kg/m², 1.5 đến 2.5 kg/m², Trên 3.5 kg/m². Hệ thống vẫn lưu comparator chính xác ở bên trong.",
+      "dragRowsTitle": "Kéo hàng bằng biểu tượng tay nắm",
+      "reorder": "Sắp xếp lại",
+      "dragRowAria": "Kéo để đổi thứ tự hàng",
+      "dragRowTitle": "Kéo để đổi thứ tự",
+      "suggestion": "Gợi ý:",
+      "upperBoundBand": "(dải cận trên)",
+      "lastBandAboveThreshold": "(dải cuối: lớn hơn ngưỡng)",
+      "useSuggestion": "Dùng gợi ý",
+      "removeBand": "Xóa dải",
+      "preview": "Xem trước",
+      "thresholdPlaceholder": "ví dụ 3.5",
+      "daysPlaceholder": "ngày",
+      "add": "Thêm",
+      "table": {
+        "rule": "Quy tắc",
+        "comparator": "Comparator",
+        "threshold": "Ngưỡng kg/m²",
+        "regrowthDays": "Tái sinh (ngày)",
+        "actions": "Thao tác"
+      }
+    },
+    "auto": {
+      "title": "Cấu hình tái sinh tự động",
+      "loading": "Đang tải cấu hình tái sinh tự động...",
+      "empty": "Không có zone đã lưu. Hãy tạo zone trong Zone Configuration trước.",
+      "zone": "Zone",
+      "recoveryDays": "Ngày hồi phục",
+      "autoYield": "Năng suất tự động",
+      "confidence": "Độ tin cậy",
+      "runDailyAuto": "Chạy tự động hằng ngày",
+      "saveConfig": "Lưu cấu hình",
+      "calculate": "Tính toán"
+    },
+    "errors": {
+      "loadRules": "Không thể tải quy tắc tái sinh.",
+      "loadAutoConfig": "Không thể tải cấu hình tái sinh tự động.",
+      "selectSavedZoneForSave": "Hãy chọn zone đã lưu trước khi lưu cấu hình tự động.",
+      "saveAutoConfig": "Không thể lưu cấu hình tái sinh tự động.",
+      "selectSavedZoneForCalculate": "Hãy chọn zone đã lưu trước khi tính toán.",
+      "calculateAuto": "Không thể tính toán tái sinh tự động.",
+      "runDailyAuto": "Không thể chạy tính toán tự động hằng ngày.",
+      "saveRules": "Không thể lưu quy tắc tái sinh.",
+      "invalidBandInput": "Vui lòng nhập ngưỡng kg/m² >= 0 và số ngày dương."
+    },
+    "notices": {
+      "autoConfigSaved": "Đã lưu cấu hình tái sinh tự động.",
+      "defaultsRestored": "Đã khôi phục mặc định — quy tắc tái sinh trở về phương pháp gốc.",
+      "noChanges": "Không có thay đổi — không cần lưu.",
+      "saved": "Đã lưu — quy tắc tái sinh đã được lưu trên máy chủ.",
+      "bandAdded": "Đã thêm dải — {label}: {days} ngày."
+    }
+  },
+  "ForecastInventory": {
+    "title": "Dự báo tồn kho",
+    "subtitle": "Mức tồn kho dự kiến trong {months} tháng tới từ kế hoạch thu hoạch.",
+    "loading": "Đang tải dữ liệu dự báo...",
+    "days": "ngày",
+    "filters": {
+      "allFarms": "Tất cả nông trại",
+      "allGrasses": "Tất cả loại cỏ",
+      "nextMonths": "{months} tháng tới"
+    },
+    "types": {
+      "sodForSprig": "Sod cho sprig",
+      "sprig": "Sprig",
+      "sod": "Sod"
+    },
+    "badges": {
+      "sodToSprig": "Sod→Sprig",
+      "sod": "SOD",
+      "sprig": "SPRIG",
+      "max": "MAX"
+    },
+    "charts": {
+      "projectedInventory": "Tồn kho khả dụng dự kiến",
+      "available": "Available",
+      "calculatedReference": "System",
+      "manualOverrideActive": "Manual",
+      "overrideCount": "{count} zone",
+      "manualOverrideMarker": "Chấm màu cam là các mốc update inventory thủ công; ảnh hưởng override sẽ mờ dần trong {days} ngày.",
+      "manualOverrideTooltipHint": "Trong tooltip của biểu đồ chồng, badge Manual nghĩa là giá trị Available hiện tại đang dùng số override, còn System là số tính gốc để tham chiếu.",
+      "maxCapacity": "Công suất tối đa",
+      "maxCapacityHidden": "Dải công suất tối đa đang ẩn vì tổng công suất lớn hơn rất nhiều so với tồn kho khả dụng hiện tại.",
+      "projectedByGrass": "Tồn kho khả dụng dự kiến theo loại cỏ",
+      "projectedByFarm": "Tồn kho khả dụng dự kiến theo trang trại — {grass}",
+      "stackedHint": "Biểu đồ chồng và tô màu theo loại cỏ để thể hiện đóng góp của từng loại.",
+      "stackedHintByFarm": "Biểu đồ chồng tồn {grass} theo từng trang trại đang trồng loại đó."
+    },
+    "upcoming": {
+      "title": "Các đợt thu hoạch sắp tới ảnh hưởng dự báo",
+      "harvest": "đợt thu hoạch",
+      "harvests": "đợt thu hoạch",
+      "empty": "Không có đợt thu hoạch sắp tới trong khung thời gian và bộ lọc hiện tại.",
+      "scheduled": "Đã lên lịch",
+      "summaryKg": "{quantity} kg"
+    },
+    "events": {
+      "title": "Các mốc tái sinh sắp tới",
+      "description": "Tồn kho sẽ được cộng lại vào các ngày này. Số lượng bên dưới được chuẩn hóa về kg (các dòng m² được quy đổi theo cấu hình zone).",
+      "empty": "Không có mốc tái sinh sắp tới.",
+      "overflow": "vượt mức"
+    },
+    "reference": {
+      "title": "Tham chiếu tái sinh",
+      "editableInAdmin": "Có thể chỉnh sửa trong Admin → Regrowth Rules",
+      "sodHarvest": "Thu hoạch Sod",
+      "sodForSprig": "Sod cho Sprig",
+      "sprig": "Sprig",
+      "overrideRecovery": "Hồi phục ghi đè"
+    }
   }
 }

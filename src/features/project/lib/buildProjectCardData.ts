@@ -328,11 +328,7 @@ export function buildProjectDataFromServerRow(
   const fromRow = String(row.title ?? row.name ?? "").trim();
   let name = titleFromLookup?.trim() || fromRow;
   if (!name) {
-    if (projectId && /^\d+$/.test(projectId)) {
-      name = `Project #${projectId}`;
-    } else if (projectId) {
-      name = projectId;
-    } else {
+    if (!projectId) {
       name = "Unknown Project";
     }
   }

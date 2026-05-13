@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useTranslations } from "next-intl";
+import { useLocale, useTranslations } from "next-intl";
 import {
   Search,
   Plus,
@@ -20,13 +20,16 @@ import {
 
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 import RequireAuth from "@/features/auth/RequireAuth";
+import { useSyncedFarmMultiSelect } from "@/shared/hooks/useSyncedFarmMultiSelect";
 import { stsProxyGetHarvestingIndex } from "@/shared/api/stsProxyClient";
+import { canAccessModule } from "@/shared/auth/permissions";
 import { useAuthUserStore } from "@/shared/store/authUserStore";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import {
   mapRowsToSelectOptions,
   zoneIdToLabel,
 } from "@/shared/lib/harvestReferenceData";
+import { harvestTypeDisplayLabel } from "@/shared/lib/harvestType";
 import { formatNumber } from "@/shared/lib/format/number";
 import { MultiSelect } from "@/components/ui/multi-select";
 import { SortableTh } from "@/components/ui/sortable-th";
@@ -68,6 +71,23 @@ const PORTAL_STATUS_RANK: Record<HarvestPortalStatus, number> = {
   harvested: 2,
   delivered: 3,
 };
+
+/** Pass-through for `/api/harvesting` (server still scopes by DB `users_meta`; useful for proxies/logging). */
+function farmUserMetaForHarvestApi(
+  user: { farm_user_id?: unknown; farmUserId?: unknown } | null | undefined,
+): string | undefined {
+  if (!user) return undefined;
+  const a = user.farm_user_id;
+  const b = user.farmUserId;
+  const raw =
+    typeof a === "string"
+      ? a
+      : typeof b === "string"
+        ? b
+        : "";
+  const t = raw.trim();
+  return t || undefined;
+}
 
 function deriveHarvestPortalStatus(
   r: Record<string, unknown>,
@@ -141,6 +161,7 @@ export type HarvestListRow = {
   actualDate: string;
   deliveryDate: string;
   date: string;
+  projectId: string;
   project: string;
   farm: string;
   grass: string;
@@ -235,11 +256,12 @@ function normalizeHarvestRow(raw: unknown): HarvestListRow | null {
       ? String(r.delivery_harvest_date).trim().slice(0, 10)
       : "",
     date: dateStr,
+    projectId: String(r.project_id ?? "").trim(),
     project: String(r.project_name ?? ""),
     farm: String(r.farm_name ?? ""),
     grass: String(r.grass_name ?? ""),
     zone: String(r.zone ?? ""),
-    harvestType: String(r.harvest_type ?? r.load_type ?? ""),
+    harvestType: harvestTypeDisplayLabel(r.harvest_type ?? r.load_type ?? ""),
     harvestedArea,
     kgPerM2,
     doSoNumber: String(r.do_so_number ?? ""),
@@ -253,8 +275,16 @@ export default function HarvestListPage() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const locale = useLocale();
   const t = useTranslations("Harvest");
-  const userId = useAuthUserStore((s) => s.user?.id);
+  const user = useAuthUserStore((s) => s.user);
+  const canCreateHarvest = canAccessModule(user, "harvests", "create");
+  const canEditHarvest = canAccessModule(user, "harvests", "edit");
+  const canDeleteHarvest = canAccessModule(user, "harvests", "delete");
+  const canManageExistingHarvest = canEditHarvest || canDeleteHarvest;
+  const canImportHarvest = canAccessModule(user, "harvests", "import");
+  const userId = user?.id;
+  const farmUserMeta = useMemo(() => farmUserMetaForHarvestApi(user), [user]);
   const farms = useHarvestingDataStore((s) => s.farms);
   const projects = useHarvestingDataStore((s) => s.projects);
   const grasses = useHarvestingDataStore((s) => s.grasses);
@@ -271,9 +301,7 @@ export default function HarvestListPage() {
   const harvestListFarmFilter = useHarvestingDataStore(
     (s) => s.harvestListFarmFilter,
   );
-  const setHarvestListFarmFilter = useHarvestingDataStore(
-    (s) => s.setHarvestListFarmFilter,
-  );
+  const { selectedFarmIds: farmFilterIds, setSelectedFarmIds } = useSyncedFarmMultiSelect();
   const harvestListProjectFilter = useHarvestingDataStore(
     (s) => s.harvestListProjectFilter,
   );
@@ -320,7 +348,7 @@ export default function HarvestListPage() {
     const status = parsed.get("status") ?? "";
     const p = parsePageParam(parsed.get("page"));
     setHarvestListSearch(q);
-    setHarvestListFarmFilter(farm);
+    setSelectedFarmIds(parseCsvFilter(farm));
     setHarvestListGrassFilter(grass);
     setHarvestListProjectFilter(project);
     setHarvestListStatusFilter(status);
@@ -329,7 +357,7 @@ export default function HarvestListPage() {
     setUrlReady(true);
   }, [
     searchParamsKey,
-    setHarvestListFarmFilter,
+    setSelectedFarmIds,
     setHarvestListGrassFilter,
     setHarvestListProjectFilter,
     setHarvestListSearch,
@@ -358,6 +386,25 @@ export default function HarvestListPage() {
     page,
     pathname,
   ]);
+
+  const harvestDetailHref = useCallback(
+    (id: string) =>
+      `/harvest/detail?id=${encodeURIComponent(id)}&returnTo=${encodeURIComponent(returnTo)}`,
+    [returnTo],
+  );
+
+  const harvestEditHref = useCallback(
+    (id: string) =>
+      `/harvest/new?id=${encodeURIComponent(id)}&returnTo=${encodeURIComponent(returnTo)}`,
+    [returnTo],
+  );
+
+  const expandHarvestRowLabel = useMemo(() => {
+    if (t.has("expandHarvestRow")) return t("expandHarvestRow");
+    if (locale === "vi") return "Xem chi tiet";
+    if (locale === "th") return "ดูรายละเอียด";
+    return "View details";
+  }, [locale, t]);
 
   useEffect(() => {
     if (!urlReady) return;
@@ -454,6 +501,7 @@ export default function HarvestListPage() {
         per_page: PER_PAGE,
         user_id: userId,
       };
+      if (farmUserMeta) params.farm_user_id = farmUserMeta;
       if (debouncedSearch) params.search = debouncedSearch;
       if (harvestListFarmFilter) params.farm_id = harvestListFarmFilter;
       if (harvestListGrassFilter.trim())
@@ -493,6 +541,7 @@ export default function HarvestListPage() {
     harvestListProjectFilter,
     harvestListStatusFilter,
     userId,
+    farmUserMeta,
   ]);
 
   const loadStatusCardTotals = useCallback(async () => {
@@ -502,6 +551,7 @@ export default function HarvestListPage() {
         per_page: 1,
         user_id: userId,
       };
+      if (farmUserMeta) commonParams.farm_user_id = farmUserMeta;
       if (debouncedSearch) commonParams.search = debouncedSearch;
       if (harvestListFarmFilter) commonParams.farm_id = harvestListFarmFilter;
       if (harvestListGrassFilter.trim())
@@ -554,6 +604,7 @@ export default function HarvestListPage() {
     harvestListGrassFilter,
     harvestListProjectFilter,
     userId,
+    farmUserMeta,
   ]);
 
   useEffect(() => {
@@ -599,10 +650,9 @@ export default function HarvestListPage() {
     setPage(1);
   };
 
-  const farmFilterIds = parseCsvFilter(harvestListFarmFilter);
   const handleFarmPillChange = (farmId: string | null) => {
     if (!farmId) {
-      setHarvestListFarmFilter("");
+      setSelectedFarmIds([]);
       setHarvestListGrassFilter("");
       setHarvestListProjectFilter("");
       setHarvestListStatusFilter("");
@@ -612,7 +662,7 @@ export default function HarvestListPage() {
     const next = new Set(farmFilterIds);
     if (next.has(farmId)) next.delete(farmId);
     else next.add(farmId);
-    setHarvestListFarmFilter(toCsvFilter(Array.from(next)));
+    setSelectedFarmIds(Array.from(next));
     setHarvestListGrassFilter("");
     setHarvestListProjectFilter("");
     setHarvestListStatusFilter("");
@@ -650,7 +700,7 @@ export default function HarvestListPage() {
 
   const clearAllFilters = () => {
     setHarvestListSearch("");
-    setHarvestListFarmFilter("");
+    setSelectedFarmIds([]);
     setHarvestListGrassFilter("");
     setHarvestListProjectFilter("");
     setHarvestListStatusFilter("");
@@ -681,26 +731,30 @@ export default function HarvestListPage() {
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <button
-                  onClick={() => router.push("/harvest/import")}
-                  className="flex items-center justify-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted/80"
-                  type="button"
-                >
-                  <Upload className="h-4 w-4" />
-                  {t("importExcel")}
-                </button>
-                <button
-                  onClick={() =>
-                    router.push(
-                      `/harvest/new?returnTo=${encodeURIComponent(returnTo)}`,
-                    )
-                  }
-                  className="flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-                  type="button"
-                >
-                  <Plus className="h-4 w-4" />
-                  {t("newHarvest")}
-                </button>
+                {canImportHarvest ? (
+                  <button
+                    onClick={() => router.push("/harvest/import")}
+                    className="flex items-center justify-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted/80"
+                    type="button"
+                  >
+                    <Upload className="h-4 w-4" />
+                    {t("importExcel")}
+                  </button>
+                ) : null}
+                {canCreateHarvest ? (
+                  <button
+                    onClick={() =>
+                      router.push(
+                        `/harvest/new?returnTo=${encodeURIComponent(returnTo)}`,
+                      )
+                    }
+                    className="flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+                    type="button"
+                  >
+                    <Plus className="h-4 w-4" />
+                    {t("newHarvest")}
+                  </button>
+                ) : null}
               </div>
             </div>
             
@@ -1060,103 +1114,149 @@ export default function HarvestListPage() {
                         {sortedRows.map((harvest) => (
                           <tr
                             key={harvest.id}
-                            onClick={() =>
-                              router.push(
-                                `/harvest/detail?id=${encodeURIComponent(harvest.id)}&returnTo=${encodeURIComponent(returnTo)}`,
-                              )
-                            }
-                            className="cursor-pointer border-b border-border/50 transition-colors hover:bg-muted/20"
+                            onClick={() => router.push(harvestDetailHref(harvest.id))}
+                            className="group relative cursor-pointer border-b border-border/50 transition-colors hover:bg-muted/20 [&_.harvest-row-content]:transition-opacity [&_.harvest-row-content]:duration-200 hover:[&_.harvest-row-content]:opacity-35 [&:has(.harvest-overlay-suppressor:hover)_.harvest-row-content]:opacity-100 [&:has(.harvest-overlay-suppressor:hover)_.harvest-row-overlay]:opacity-0"
                           >
-                            <td className="py-3 pl-4 pr-2 font-mono text-xs text-muted-foreground">
-                              H{harvest.id}
+                            <td className="py-3 pl-4 pr-2 font-mono text-xs">
+                              <div className="harvest-row-content">
+                                {canManageExistingHarvest ? (
+                                  <button
+                                    type="button"
+                                    onClick={(ev) => {
+                                      ev.stopPropagation();
+                                      router.push(harvestEditHref(harvest.id));
+                                    }}
+                                    className="harvest-overlay-suppressor cursor-pointer font-medium text-primary transition-colors hover:underline"
+                                  >
+                                    H{harvest.id}
+                                  </button>
+                                ) : (
+                                  <span className="font-medium text-foreground">
+                                    H{harvest.id}
+                                  </span>
+                                )}
+                              </div>
+                              <span className="harvest-row-overlay pointer-events-none absolute left-1/2 top-1/2 z-10 hidden -translate-x-1/2 -translate-y-1/2 items-center justify-center opacity-0 transition-opacity duration-200 group-hover:flex group-hover:opacity-100">
+                                <span className="rounded-full border border-border bg-background/95 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-foreground shadow-sm backdrop-blur-sm">
+                                  {expandHarvestRowLabel}
+                                </span>
+                              </span>
                             </td>
                             <td className="hidden xl:table-cell px-4 py-3 text-xs text-muted-foreground">
-                              {harvest.customer || "—"}
+                              <div className="harvest-row-content">
+                                {harvest.customer || "—"}
+                              </div>
                             </td>
-                            <td className="px-4 py-3 text-xs font-medium text-foreground">
-                              {harvest.project ? (
-                                <button
-                                  type="button"
-                                  onClick={(ev) => {
-                                    ev.stopPropagation();
-                                    router.push(
-                                      `/harvest/new?id=${encodeURIComponent(harvest.id)}&returnTo=${encodeURIComponent(returnTo)}`,
-                                    );
-                                  }}
-                                  className="text-left text-primary hover:underline"
-                                >
-                                  {harvest.project}
-                                </button>
-                              ) : (
-                                "—"
-                              )}
-                            </td>
-                            <td className="px-4 py-3 text-xs text-muted-foreground">
-                              {harvest.estimatedDate
-                                ? new Date(harvest.estimatedDate).toLocaleDateString(
-                                    "en-US",
-                                    {
-                                      month: "short",
-                                      day: "numeric",
-                                      year: "numeric",
-                                    },
-                                  )
-                                : "—"}
+                            <td className="relative px-4 py-3 text-xs font-medium text-foreground">
+                              <div className="harvest-row-content">
+                                {harvest.project && harvest.projectId ? (
+                                  <button
+                                    type="button"
+                                    onClick={(ev) => {
+                                      ev.stopPropagation();
+                                      router.push(
+                                        `/projects/detail?projectId=${encodeURIComponent(harvest.projectId)}&returnTo=${encodeURIComponent(returnTo)}`,
+                                      );
+                                    }}
+                                    className="harvest-overlay-suppressor cursor-pointer text-left text-primary hover:underline"
+                                  >
+                                    {harvest.project}
+                                  </button>
+                                ) : harvest.project ? (
+                                  harvest.project
+                                ) : (
+                                  "—"
+                                )}
+                              </div>
                             </td>
                             <td className="px-4 py-3 text-xs text-muted-foreground">
-                              {harvest.actualDate
-                                ? new Date(harvest.actualDate).toLocaleDateString(
-                                    "en-US",
-                                    {
-                                      month: "short",
-                                      day: "numeric",
-                                      year: "numeric",
-                                    },
-                                  )
-                                : "—"}
+                              <div className="harvest-row-content">
+                                {harvest.estimatedDate
+                                  ? new Date(harvest.estimatedDate).toLocaleDateString(
+                                      "en-US",
+                                      {
+                                        month: "short",
+                                        day: "numeric",
+                                        year: "numeric",
+                                      },
+                                    )
+                                  : "—"}
+                              </div>
                             </td>
                             <td className="px-4 py-3 text-xs text-muted-foreground">
-                              {harvest.farm || "—"}
+                              <div className="harvest-row-content">
+                                {harvest.actualDate
+                                  ? new Date(harvest.actualDate).toLocaleDateString(
+                                      "en-US",
+                                      {
+                                        month: "short",
+                                        day: "numeric",
+                                        year: "numeric",
+                                      },
+                                    )
+                                  : "—"}
+                              </div>
                             </td>
                             <td className="px-4 py-3 text-xs text-muted-foreground">
-                              {harvest.grass || "—"}
+                              <div className="harvest-row-content">
+                                {harvest.farm || "—"}
+                              </div>
                             </td>
                             <td className="px-4 py-3 text-xs text-muted-foreground">
-                              {harvest.zone
-                                ? zoneLabel(harvest.zone) || harvest.zone
-                                : "—"}
+                              <div className="harvest-row-content">
+                                {harvest.grass || "—"}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-xs text-muted-foreground">
+                              <div className="harvest-row-content">
+                                {harvest.zone
+                                  ? zoneLabel(harvest.zone) || harvest.zone
+                                  : "—"}
+                              </div>
                             </td>
                             <td className="hidden xl:table-cell px-4 py-3 text-xs text-muted-foreground">
-                              {harvest.harvestType || "—"}
+                              <div className="harvest-row-content">
+                                {harvest.harvestType || "—"}
+                              </div>
                             </td>
                             <td className="hidden 2xl:table-cell px-4 py-3 text-right text-xs text-muted-foreground">
-                              {harvest.harvestedArea > 0
-                                ? harvest.harvestedArea.toLocaleString()
-                                : "—"}
+                              <div className="harvest-row-content">
+                                {harvest.harvestedArea > 0
+                                  ? harvest.harvestedArea.toLocaleString()
+                                  : "—"}
+                              </div>
                             </td>
                             <td className="whitespace-nowrap px-4 py-3 text-right text-xs font-medium text-foreground">
-                              {harvest.qtyLabel}
+                              <div className="harvest-row-content">{harvest.qtyLabel}</div>
                             </td>
                             <td className="hidden 2xl:table-cell px-4 py-3 text-right text-xs text-muted-foreground">
-                              {harvest.kgPerM2 > 0 ? harvest.kgPerM2.toFixed(1) : "—"}
+                              <div className="harvest-row-content">
+                                {harvest.kgPerM2 > 0 ? harvest.kgPerM2.toFixed(1) : "—"}
+                              </div>
                             </td>
                             <td className="hidden xl:table-cell px-4 py-3 text-xs text-muted-foreground">
-                              {harvest.deliveryDate
-                                ? new Date(harvest.deliveryDate).toLocaleDateString(
-                                    "en-US",
-                                    {
-                                      month: "short",
-                                      day: "numeric",
-                                      year: "numeric",
-                                    },
-                                  )
-                                : "—"}
+                              <div className="harvest-row-content">
+                                {harvest.deliveryDate
+                                  ? new Date(harvest.deliveryDate).toLocaleDateString(
+                                      "en-US",
+                                      {
+                                        month: "short",
+                                        day: "numeric",
+                                        year: "numeric",
+                                      },
+                                    )
+                                  : "—"}
+                              </div>
                             </td>
                             <td className="hidden xl:table-cell px-4 py-3 font-mono text-xs text-muted-foreground">
-                              {harvest.doSoNumber || "—"}
+                              <div className="harvest-row-content">
+                                {harvest.doSoNumber || "—"}
+                              </div>
                             </td>
                             <td className="px-4 py-3">
-                              <HarvestStatusCell status={harvest.status} t={t} />
+                              <div className="harvest-row-content">
+                                <HarvestStatusCell status={harvest.status} t={t} />
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -1169,28 +1269,26 @@ export default function HarvestListPage() {
                       <div
                         key={harvest.id}
                         className="cursor-pointer p-4 transition-colors hover:bg-muted/20"
-                        onClick={() =>
-                          router.push(
-                            `/harvest/detail?id=${encodeURIComponent(harvest.id)}&returnTo=${encodeURIComponent(returnTo)}`,
-                          )
-                        }
+                        onClick={() => router.push(harvestDetailHref(harvest.id))}
                       >
                         <div className="mb-3 flex items-start justify-between gap-2">
                           <div className="min-w-0">
                             <h3 className="mb-1 font-medium text-foreground">
-                              {harvest.project ? (
+                              {harvest.project && harvest.projectId ? (
                                 <button
                                   type="button"
                                   onClick={(ev) => {
                                     ev.stopPropagation();
                                     router.push(
-                                      `/harvest/new?id=${encodeURIComponent(harvest.id)}&returnTo=${encodeURIComponent(returnTo)}`,
+                                      `/projects/detail?projectId=${encodeURIComponent(harvest.projectId)}&returnTo=${encodeURIComponent(returnTo)}`,
                                     );
                                   }}
-                                  className="text-left text-primary hover:underline"
+                                  className="cursor-pointer text-left text-primary hover:underline"
                                 >
                                   {harvest.project}
                                 </button>
+                              ) : harvest.project ? (
+                                harvest.project
                               ) : (
                                 "—"
                               )}
@@ -1208,7 +1306,25 @@ export default function HarvestListPage() {
                                 : "—"}
                             </p>
                           </div>
-                          <HarvestStatusCell status={harvest.status} t={t} />
+                          <div className="flex shrink-0 flex-col items-end gap-2">
+                            {canManageExistingHarvest ? (
+                              <button
+                                type="button"
+                                onClick={(ev) => {
+                                  ev.stopPropagation();
+                                  router.push(harvestEditHref(harvest.id));
+                                }}
+                                className="rounded-full border border-border bg-background px-2.5 py-1 font-mono text-[11px] font-medium text-primary transition-colors hover:bg-muted/60"
+                              >
+                                H{harvest.id}
+                              </button>
+                            ) : (
+                              <span className="rounded-full border border-border bg-background px-2.5 py-1 font-mono text-[11px] font-medium text-foreground">
+                                H{harvest.id}
+                              </span>
+                            )}
+                            <HarvestStatusCell status={harvest.status} t={t} />
+                          </div>
                         </div>
                         <div className="grid grid-cols-2 gap-2 text-sm">
                           <div>

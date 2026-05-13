@@ -116,7 +116,9 @@ export function SidebarProfile({ onNavigate, compact = false }: SidebarProfilePr
   }, []);
 
   const weatherTargets = useMemo((): WeatherTarget[] => {
-    const userCountryRaw = String(user?.country ?? user?.country_id ?? "").trim();
+    const userCountryRaw = String(
+      user?.user_country_id ?? user?.country_id ?? user?.country ?? "",
+    ).trim();
     if (!userCountryRaw) return [];
 
     const countryRows = (countries as unknown[]).filter(
@@ -151,7 +153,7 @@ export function SidebarProfile({ onNavigate, compact = false }: SidebarProfilePr
       targets.push({ farmId, farmName, locationId });
     }
     return targets;
-  }, [countries, farms, user?.country, user?.country_id]);
+  }, [countries, farms, user?.country, user?.country_id, user?.user_country_id]);
 
   useEffect(() => {
     if (!weatherTargets.length) {
@@ -413,12 +415,12 @@ export function SidebarProfile({ onNavigate, compact = false }: SidebarProfilePr
           <img
             src={avatarSrc}
             alt={displayName}
-            className="h-10 w-10 shrink-0 rounded-full border border-sidebar-border bg-muted object-cover dark:bg-sidebar-accent/30"
+            className="h-11 w-11 shrink-0 rounded-full border border-white/15 bg-muted object-cover object-[center_22%] brightness-110 contrast-110 saturate-105 shadow-sm dark:border-sidebar-border dark:bg-sidebar-accent/30"
             referrerPolicy="no-referrer"
           />
         ) : (
           <div
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-primary/80 bg-primary text-sm font-semibold text-primary-foreground"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-primary/80 bg-primary text-sm font-semibold text-primary-foreground"
             aria-hidden
           >
             {getUserInitials(user)}

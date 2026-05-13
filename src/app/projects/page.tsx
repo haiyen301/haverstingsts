@@ -1,11 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AlignLeft, ArrowDown, FolderOpen, Loader2, Plus, Search, Upload } from "lucide-react";
 
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 import RequireAuth from "@/features/auth/RequireAuth";
+import { canAccessModule } from "@/shared/auth/permissions";
+import { useSyncedFarmMultiSelect } from "@/shared/hooks/useSyncedFarmMultiSelect";
+import { useAuthUserStore } from "@/shared/store/authUserStore";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { MultiSelect } from "@/components/ui/multi-select";
 import {
@@ -17,11 +20,9 @@ import {
   ProjectListItem,
   buildMondayEditArgs,
   mergeMondayDisplayData,
-  sortMondayProjectRows,
 } from "@/features/project";
 import { parseJsonMaybe } from "@/shared/lib/parseJsonMaybe";
 import { resolveStaffAvatarImageUrl } from "@/features/project/lib/staffAvatarUrl";
-import { stsProxyGetHarvestingIndex } from "@/shared/api/stsProxyClient";
 import { cn } from "@/lib/utils";
 import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
 
@@ -82,50 +83,6 @@ function rowHasFarmInSubitems(row: MondayProjectServerRow, farmId: string): bool
   });
 }
 
-function parseRowSubitems(raw: unknown): Array<Record<string, unknown>> {
-  const parsed = parseJsonMaybe(raw);
-  if (!Array.isArray(parsed)) return [];
-  return parsed.filter((x): x is Record<string, unknown> => !!x && typeof x === "object");
-}
-
-function mergeProjectSubitemsWithPlanRows(
-  projectRows: Array<Record<string, unknown>>,
-  harvestPlanRows: Array<Record<string, unknown>>,
-): Array<Record<string, unknown>> {
-  if (projectRows.length === 0 || harvestPlanRows.length === 0) return projectRows;
-  const planByProjectId = new Map<string, Array<Record<string, unknown>>>();
-  for (const row of harvestPlanRows) {
-    const pid = String(row.project_id ?? "").trim();
-    if (!pid) continue;
-    const list = planByProjectId.get(pid) ?? [];
-    list.push(row);
-    planByProjectId.set(pid, list);
-  }
-  return projectRows.map((row) => {
-    const projectId = String(row.project_id ?? "").trim();
-    if (!projectId) return row;
-    const planRows = planByProjectId.get(projectId) ?? [];
-    if (planRows.length === 0) return row;
-    const existingSubitems = parseRowSubitems(row.subitems);
-    const planIds = new Set(
-      planRows
-        .map((x) => String(x.id ?? "").trim())
-        .filter(Boolean),
-    );
-    const merged = [
-      ...planRows,
-      ...existingSubitems.filter((x) => {
-        const sid = String(x.id ?? "").trim();
-        return !sid || !planIds.has(sid);
-      }),
-    ];
-    return {
-      ...row,
-      subitems: JSON.stringify(merged),
-    };
-  });
-}
-
 function normalizeProjectStatusLabel(v: unknown): string {
   const s = String(v ?? "").toLowerCase().trim();
   if (!s) return "";
@@ -150,10 +107,39 @@ function makeRowTableKey(row: Record<string, unknown>): string {
   return `${rowId}__${tableId}`;
 }
 
+const PROJECT_LIST_PAGE_SIZE = 40;
+
+function mondayRowDedupeKey(row: MondayProjectServerRow): string {
+  return makeRowTableKey(row as unknown as Record<string, unknown>);
+}
+
+function mergeMondayRowsUnique(
+  prev: MondayProjectServerRow[],
+  more: MondayProjectServerRow[],
+): MondayProjectServerRow[] {
+  const keys = new Set(prev.map((x) => mondayRowDedupeKey(x)));
+  const out = [...prev];
+  for (const x of more) {
+    const k = mondayRowDedupeKey(x);
+    if (!keys.has(k)) {
+      keys.add(k);
+      out.push(x);
+    }
+  }
+  return out;
+}
+
 export default function ProjectListPage() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const refreshParam = (searchParams.get("refresh") ?? "").trim();
+  const user = useAuthUserStore((s) => s.user);
+  const canCreateProjects = canAccessModule(user, "projects", "create");
+  const canEditProjects = canAccessModule(user, "projects", "edit");
+  const canDeleteProjects = canAccessModule(user, "projects", "delete");
+  const canManageExistingProjects = canEditProjects || canDeleteProjects;
+  const canImportProjects = canAccessModule(user, "projects", "import");
   const searchParamsKey = searchParams.toString();
   const [urlReady, setUrlReady] = useState(false);
   const [search, setSearch] = useState(() => searchParams.get("q") ?? "");
@@ -171,7 +157,7 @@ export default function ProjectListPage() {
   );
 
   const harvestListFarmFilter = useHarvestingDataStore((s) => s.harvestListFarmFilter);
-  const setHarvestListFarmFilter = useHarvestingDataStore((s) => s.setHarvestListFarmFilter);
+  const { selectedFarmIds: farmFilterIds, setSelectedFarmIds } = useSyncedFarmMultiSelect();
   const projectsRef = useHarvestingDataStore((s) => s.projects);
   const countriesRef = useHarvestingDataStore((s) => s.countries);
   const farmsRef = useHarvestingDataStore((s) => s.farms);
@@ -188,12 +174,12 @@ export default function ProjectListPage() {
     setCountryFilterIds(parseCsvParam(parsed.get("country")));
     /** Only overwrite global farm filter when URL carries `farm` (parity with Harvest page). Avoid clearing store on `/projects` without farm. */
     if (parsed.has("farm")) {
-      setHarvestListFarmFilter(parsed.get("farm") ?? "");
+      setSelectedFarmIds(parseCsvParam(parsed.get("farm")));
     }
     setGrassFilterIds(parseCsvParam(parsed.get("grass")));
     setStatusFilterValues(parseStatusFilterFromUrl(parsed.get("status")));
     setUrlReady(true);
-  }, [searchParamsKey, setHarvestListFarmFilter]);
+  }, [searchParamsKey, setSelectedFarmIds]);
 
   const returnTo = useMemo(() => {
     const params = new URLSearchParams();
@@ -215,13 +201,30 @@ export default function ProjectListPage() {
     statusFilterValues,
   ]);
   const [loading, setLoading] = useState(true);
-  const [backgroundLoading, setBackgroundLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<MondayProjectServerRow[]>([]);
+  const [manualReloadSeq, setManualReloadSeq] = useState(() => (refreshParam ? 1 : 0));
+  const pageLoadedRef = useRef(0);
+  const loadMoreLockRef = useRef(false);
+  const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
+  const refsBootstrappedRef = useRef(false);
+  const handledRefreshParamRef = useRef(refreshParam);
+  const requestedProjectTitleRefreshIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    void fetchAllHarvestingReferenceData();
-  }, [fetchAllHarvestingReferenceData]);
+    if (!refsBootstrappedRef.current) {
+      refsBootstrappedRef.current = true;
+      handledRefreshParamRef.current = refreshParam;
+      void fetchAllHarvestingReferenceData(refreshParam !== "");
+      return;
+    }
+    if (!refreshParam || handledRefreshParamRef.current === refreshParam) return;
+    handledRefreshParamRef.current = refreshParam;
+    setManualReloadSeq((prev) => prev + 1);
+    void fetchAllHarvestingReferenceData(true);
+  }, [fetchAllHarvestingReferenceData, refreshParam]);
 
   // Debounce search to avoid calling server on every keystroke
   useEffect(() => {
@@ -256,95 +259,101 @@ export default function ProjectListPage() {
     urlReady,
   ]);
 
+  const buildStatusQuery = useCallback(
+    () =>
+      statusFilterValues
+        .map((x) => normalizeProjectStatusLabel(x))
+        .filter(Boolean)
+        .join(","),
+    [statusFilterValues],
+  );
+
   useEffect(() => {
-    let mounted = true;
+    let cancelled = false;
+    pageLoadedRef.current = 0;
+    loadMoreLockRef.current = false;
     void (async () => {
       try {
         setLoading(true);
         setError(null);
-        const statusQuery = statusFilterValues
-          .map((x) => normalizeProjectStatusLabel(x))
-          .filter(Boolean)
-          .join(",");
-        const quickPerPage = 30;
-        const fullPerPage = 100;
-
-        // Fast first paint: request a smaller page size, render immediately.
-        const quickRes = await fetchMondayProjectRowsFromServer({
+        setRows([]);
+        setHasMore(true);
+        const statusQuery = buildStatusQuery();
+        const res = await fetchMondayProjectRowsFromServer({
           module: "project",
           search: debouncedSearch || undefined,
           page: 1,
-          perPage: quickPerPage,
+          perPage: PROJECT_LIST_PAGE_SIZE,
           status: statusQuery || undefined,
+          sortBy: "project_id",
+          sortDir: "desc",
+          listPaged: true,
         });
-        if (!mounted) return;
-        let baseRows = quickRes.rows as unknown as Record<string, unknown>[];
-        setRows(sortMondayProjectRows(baseRows));
-        setLoading(false);
-
-        // Continue loading the full page size in background, then refresh list.
-        void (async () => {
-          if (mounted) setBackgroundLoading(true);
-          try {
-            const fullRes = await fetchMondayProjectRowsFromServer({
-              module: "project",
-              search: debouncedSearch || undefined,
-              page: 1,
-              perPage: fullPerPage,
-              status: statusQuery || undefined,
-            });
-            if (!mounted) return;
-            const fullRows = fullRes.rows as unknown as Record<string, unknown>[];
-            if (fullRows.length > 0) {
-              baseRows = fullRows;
-              setRows(sortMondayProjectRows(baseRows));
-            }
-
-            const allHarvestRows: Array<Record<string, unknown>> = [];
-            let page = 1;
-            let totalPages = 1;
-            const maxPages = 20;
-            do {
-              const harvestRes = await stsProxyGetHarvestingIndex({
-                page,
-                per_page: 200,
-              });
-              allHarvestRows.push(
-                ...harvestRes.rows.filter(
-                  (x): x is Record<string, unknown> => !!x && typeof x === "object",
-                ),
-              );
-              totalPages = Math.max(1, harvestRes.totalPages);
-              page += 1;
-            } while (page <= totalPages && page <= maxPages);
-
-            if (!mounted) return;
-            const enrichedRows = mergeProjectSubitemsWithPlanRows(baseRows, allHarvestRows);
-            setRows(sortMondayProjectRows(enrichedRows));
-          } catch {
-            // Keep already-rendered base rows if enrichment fails.
-          } finally {
-            if (mounted) setBackgroundLoading(false);
-          }
-        })();
+        if (cancelled) return;
+        const list = res.rows as MondayProjectServerRow[];
+        setRows(list);
+        pageLoadedRef.current = 1;
+        setHasMore(list.length >= PROJECT_LIST_PAGE_SIZE);
       } catch (e) {
-        if (!mounted) return;
+        if (cancelled) return;
         setRows([]);
         setError(e instanceof Error ? e.message : "Failed to load projects.");
-        setBackgroundLoading(false);
+        setHasMore(false);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-      if (mounted) setLoading(false);
     })();
     return () => {
-      mounted = false;
+      cancelled = true;
     };
-  }, [debouncedSearch, statusFilterValues]);
+  }, [debouncedSearch, statusFilterValues, buildStatusQuery, manualReloadSeq]);
 
-  /** Same source as header farm picker: `harvestListFarmFilter` (CSV ids). MultiSelect edits the store directly. */
-  const farmFilterIds = useMemo(
-    () => parseCsvParam(harvestListFarmFilter.trim() || null),
-    [harvestListFarmFilter],
-  );
+  useEffect(() => {
+    const el = loadMoreSentinelRef.current;
+    if (!el || loading || !hasMore) return;
+
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((e) => e.isIntersecting)) return;
+        if (loadMoreLockRef.current || loading) return;
+        loadMoreLockRef.current = true;
+        setLoadingMore(true);
+        const nextPage = pageLoadedRef.current + 1;
+        const statusQuery = buildStatusQuery();
+        void fetchMondayProjectRowsFromServer({
+          module: "project",
+          search: debouncedSearch || undefined,
+          page: nextPage,
+          perPage: PROJECT_LIST_PAGE_SIZE,
+          status: statusQuery || undefined,
+          sortBy: "project_id",
+          sortDir: "desc",
+          listPaged: true,
+        })
+          .then((res) => {
+            const list = res.rows as MondayProjectServerRow[];
+            if (list.length === 0) {
+              setHasMore(false);
+              return;
+            }
+            setRows((prev) => mergeMondayRowsUnique(prev, list));
+            pageLoadedRef.current = nextPage;
+            setHasMore(list.length >= PROJECT_LIST_PAGE_SIZE);
+          })
+          .catch(() => {
+            /* keep hasMore; user can scroll again to retry */
+          })
+          .finally(() => {
+            loadMoreLockRef.current = false;
+            setLoadingMore(false);
+          });
+      },
+      { root: null, rootMargin: "160px", threshold: 0 },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+    // Re-bind after each append so a still-visible sentinel triggers the next page.
+  }, [loading, hasMore, debouncedSearch, buildStatusQuery, rows.length]);
 
   /**
    * Flutter monday_screen.dart parity:
@@ -422,6 +431,7 @@ export default function ProjectListPage() {
     return mergedRows.filter(({ data }) => {
       const rec = data as Record<string, unknown>;
       const recProjectId = String(rec.project_id ?? "").trim();
+      const visibleByServerRow = recProjectId !== "";
       const countryOk =
         countryFilterIds.length === 0 ||
         countryFilterIds.includes(String(rec.country_id ?? "").trim()) ||
@@ -434,7 +444,7 @@ export default function ProjectListPage() {
       const grassOk =
         grassFilterIds.length === 0 ||
         grassFilterIds.some((id) => rowHasGrassProduct(data as MondayProjectServerRow, id));
-      return countryOk && farmOk && grassOk;
+      return visibleByServerRow && countryOk && farmOk && grassOk;
     });
   }, [rows, countryFilterIds, farmFilterIds, grassFilterIds]);
 
@@ -447,6 +457,26 @@ export default function ProjectListPage() {
     }
     return map;
   }, [projectsRef]);
+
+  const missingProjectTitleIds = useMemo(() => {
+    const missing: string[] = [];
+    for (const row of rows) {
+      const projectId = String(row.project_id ?? "").trim();
+      if (!projectId) continue;
+      if (projectTitleMap.has(projectId)) continue;
+      missing.push(projectId);
+    }
+    return Array.from(new Set(missing));
+  }, [projectTitleMap, rows]);
+
+  useEffect(() => {
+    const unresolved = missingProjectTitleIds.filter(
+      (id) => !requestedProjectTitleRefreshIdsRef.current.has(id),
+    );
+    if (unresolved.length === 0) return;
+    unresolved.forEach((id) => requestedProjectTitleRefreshIdsRef.current.add(id));
+    void fetchAllHarvestingReferenceData(true);
+  }, [fetchAllHarvestingReferenceData, missingProjectTitleIds]);
 
   const countryNameMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -560,26 +590,30 @@ export default function ProjectListPage() {
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <button
-                onClick={() => router.push("/projects/import")}
-                className="bg-background inline-flex h-10 items-center justify-center gap-2 rounded-md border border-input px-4 text-sm font-medium text-foreground transition-colors"
-                type="button"
-              >
-                <Upload className="h-4 w-4 shrink-0" />
-                Import Excel
-              </button>
-              <button
-                onClick={() =>
-                  router.push(
-                    `/projects/new?returnTo=${encodeURIComponent(returnTo)}`,
-                  )
-                }
-                className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:opacity-90 transition-opacity"
-                type="button"
-              >
-                <Plus className="h-4 w-4 shrink-0" />
-                New Project
-              </button>
+              {canImportProjects ? (
+                <button
+                  onClick={() => router.push("/projects/import")}
+                  className="bg-background inline-flex h-10 items-center justify-center gap-2 rounded-md border border-input px-4 text-sm font-medium text-foreground transition-colors"
+                  type="button"
+                >
+                  <Upload className="h-4 w-4 shrink-0" />
+                  Import Excel
+                </button>
+              ) : null}
+              {canCreateProjects ? (
+                <button
+                  onClick={() =>
+                    router.push(
+                      `/projects/new?returnTo=${encodeURIComponent(returnTo)}`,
+                    )
+                  }
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:opacity-90 transition-opacity"
+                  type="button"
+                >
+                  <Plus className="h-4 w-4 shrink-0" />
+                  New Project
+                </button>
+              ) : null}
             </div>
           </div>
 
@@ -610,7 +644,7 @@ export default function ProjectListPage() {
             <MultiSelect
               options={farmOptions.map((f) => ({ value: f.id, label: f.name }))}
               values={farmFilterIds}
-              onChange={(ids) => setHarvestListFarmFilter(ids.join(","))}
+              onChange={setSelectedFarmIds}
               placeholder="All farms"
               className={cn(multiSelectBaseClass, bgSurfaceFilter(farmFilterIds.length > 0))}
               rightIcon={filterTriggerIcon}
@@ -664,12 +698,17 @@ export default function ProjectListPage() {
                     getUserNameById={(id?: string) => (id ? staffNameMap.get(id) : undefined)}
                     getUserAvatarById={(id?: string) => (id ? staffAvatarMap.get(id) : undefined)}
                     getProductNameById={(id?: string) => (id ? productNameMap.get(id) : undefined)}
+                    showEditAction={canManageExistingProjects}
                     onEditProject={() => {
                       const args = buildMondayEditArgs(
                         data as unknown as Record<string, unknown>,
                         rowData,
                       );
-                      const projectId = String((data as Record<string, unknown>).project_id ?? "").trim();
+                      const projectId = String(
+                        (data as Record<string, unknown>).project_id ??
+                          (data as Record<string, unknown>).id ??
+                          "",
+                      ).trim();
                       router.push(
                         `/projects/detail?rowId=${encodeURIComponent(args.rowId ?? "")}&tableId=${encodeURIComponent(args.tableId ?? "")}&projectId=${encodeURIComponent(projectId)}&returnTo=${encodeURIComponent(returnTo)}`,
                       );
@@ -677,10 +716,17 @@ export default function ProjectListPage() {
                   />
                 ))}
               </div>
-              {backgroundLoading ? (
+              {hasMore ? (
+                <div
+                  ref={loadMoreSentinelRef}
+                  className="h-6 w-full shrink-0"
+                  aria-hidden
+                />
+              ) : null}
+              {loadingMore ? (
                 <div className="flex items-center justify-center gap-2 rounded-md border border-border bg-background px-4 py-2 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                  <span>Updating projects…</span>
+                  <span>Loading more projects…</span>
                 </div>
               ) : null}
             </div>

@@ -18,4 +18,6 @@ export interface ProjectListItemProps {
   getUserAvatarById?: (userId?: string) => string | undefined;
   /** Clone of Flutter onEditProject args in monday_screen.dart */
   onEditProject?: (args: MondayProjectEditArgs) => void;
+  /** Controls visibility of the top-right edit/manage affordance. */
+  showEditAction?: boolean;
 }

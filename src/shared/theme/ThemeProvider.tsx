@@ -49,9 +49,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const stored = readStoredTheme();
-    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    const initial: AppColorScheme =
-      stored ?? (prefersDark ? "dark" : "light");
+    const initial: AppColorScheme = stored ?? "dark";
     setThemeState(initial);
     applyDomTheme(initial);
     setMounted(true);

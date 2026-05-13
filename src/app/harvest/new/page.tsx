@@ -10,9 +10,10 @@ import {
   type ReactNode,
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { AlertCircle, ArrowLeft, Camera, Check, MoreVertical, Trash2 } from "lucide-react";
+import { AlertCircle, ArrowLeft, Camera, MoreVertical, Trash2 } from "lucide-react";
 
 import RequireAuth from "@/features/auth/RequireAuth";
+import { canAccessModule } from "@/shared/auth/permissions";
 import {
   HARVEST_DOC_PHOTO_FIELDS,
   submitFlutterHarvest,
@@ -32,16 +33,32 @@ import { STS_API_PATHS } from "@/shared/api/stsApiPaths";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { useAuthUserStore } from "@/shared/store/authUserStore";
 import {
-  filterZoneEntriesByFarmName,
+  filterFarmZoneRowsByFarmId,
   mapRowsToSelectOptions,
   parseFarmZoneEntries,
+  zoneIdToLabel,
 } from "@/shared/lib/harvestReferenceData";
+import {
+  defaultHarvestTypeForUom,
+  normalizeHarvestTypeStorageKey,
+  type HarvestTypeStorageKey,
+} from "@/shared/lib/harvestType";
 import { resolveHarvestDisplayUrl } from "@/shared/config/stsUrls";
 import { DatePicker } from "@/shared/ui/date-picker";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
 import { deleteMondayParentOrSubItem } from "@/entities/projects/api/projectsApi";
 import { effectiveRequiredQuantityForFormUom } from "@/features/project/lib/effectiveRequirementQuantity";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
+import { AlertRouteCategoryBanner } from "@/features/alerts/AlertRouteCategoryBanner";
+import { dispatchRouteAlert } from "@/features/alerts/dispatchRouteAlert";
+import {
+  fetchZoneAutoConfigurations,
+  fetchZoneConfigurations,
+  type ZoneAutoConfigurationRow,
+  type ZoneConfigurationRow,
+} from "@/features/admin/api/adminApi";
+import { CheckBadge } from "@/shared/ui/check-badge";
+import { Checkbox } from "@/shared/ui/checkbox";
 
 const DOC_PHOTO_SLOTS: HarvestDocPhotoField[] = [
   "payment_img",
@@ -61,7 +78,7 @@ const emptyForm = {
   /** Matches `customer_id` on plan row when available from projects (`odoo_customer_id`). */
   customerId: "",
   grass: "",
-  harvestType: "Sprig",
+  harvestType: "sod",
   quantity: "",
   uom: "M2",
   referenceHarvestQuantity: "",
@@ -71,7 +88,7 @@ const emptyForm = {
   farm: "",
   project: "",
   estimatedDate: "",
-  /** Stored inside `description` with structured prefix when API has no dedicated column. */
+  /** Stored in `estimated_harvest_end_date`; keeps description fallback for older rows. */
   estimatedDateEnd: "",
   actualDate: "",
   /** Stored inside `description` when API has no dedicated column. */
@@ -98,25 +115,53 @@ function toDateInput(v: unknown): string {
   return s.length >= 10 ? s.slice(0, 10) : s;
 }
 
-function normalizeHarvestTypeForForm(loadType: unknown): string {
-  const raw = String(loadType ?? "").trim();
-  const t = raw.toUpperCase();
-  if (t === "SOD" || raw === "Sod") return "Sod";
-  if (t === "SPRIG" || raw === "Sprig") return "Sprig";
-  if (
-    t === "SOD_FOR_SPRIG" ||
-    /sod\s*for\s*sprig/i.test(raw) ||
-    /sod.*sprig/i.test(raw)
-  ) {
-    return "Sod for Sprig";
-  }
-  return "";
+function requiredUomForHarvestType(harvestType: HarvestTypeStorageKey): "Kg" | "M2" {
+  return harvestType === "sprig" ? "Kg" : "M2";
 }
 
-function harvestTypeToApi(loadType: string): string {
-  const s = loadType.trim();
-  if (s === "Sod for Sprig") return "Sod for Sprig";
-  return s;
+function resolvedHarvestTypeForForm(
+  harvestType: string,
+  fallbackUom: string,
+): HarvestTypeStorageKey {
+  return normalizeHarvestTypeStorageKey(harvestType) || defaultHarvestTypeForUom(fallbackUom);
+}
+
+function applyHarvestTypeConstraint(
+  prev: HarvestFormState,
+  harvestType: HarvestTypeStorageKey,
+): HarvestFormState {
+  const nextUom = requiredUomForHarvestType(harvestType);
+  return {
+    ...prev,
+    harvestType,
+    uom: nextUom,
+    referenceHarvestQuantity: nextUom === "Kg" ? "" : prev.referenceHarvestQuantity,
+    harvestedArea: nextUom === "M2" ? "" : prev.harvestedArea,
+  };
+}
+
+function applyUomConstraint(
+  prev: HarvestFormState,
+  uom: "Kg" | "M2",
+): HarvestFormState {
+  const currentHarvestType = resolvedHarvestTypeForForm(prev.harvestType, prev.uom);
+  const nextHarvestType =
+    normUomKey(uom) === "kg"
+      ? "sprig"
+      : currentHarvestType === "sod_to_sprig"
+        ? "sod_to_sprig"
+        : "sod";
+  return applyHarvestTypeConstraint({ ...prev, uom }, nextHarvestType);
+}
+
+function harvestTypeAllowedForUom(
+  harvestType: HarvestTypeStorageKey,
+  uom: string,
+): boolean {
+  const uomKey = normUomKey(uom);
+  if (uomKey === "kg") return harvestType === "sprig";
+  if (uomKey === "m2") return harvestType === "sod" || harvestType === "sod_to_sprig";
+  return true;
 }
 
 type ParsedHarvestDescription = {
@@ -158,6 +203,14 @@ function parseDescriptionFromRow(description: string): ParsedHarvestDescription 
     actualHarvestEndDate,
     useEstimatedDateRange: Boolean(estimatedDateEnd),
   };
+}
+
+function getEstimatedDateEndFromRow(
+  row: Record<string, unknown>,
+  descParsed?: ParsedHarvestDescription,
+): string {
+  const parsed = descParsed ?? parseDescriptionFromRow(String(row.description ?? ""));
+  return toDateInput(row.estimated_harvest_end_date) || parsed.estimatedDateEnd;
 }
 
 function buildDescriptionForSubmit(
@@ -277,6 +330,21 @@ function normalizeNonNegativeInput(raw: string): string {
   return String(n);
 }
 
+function normalizeMatchText(v: unknown): string {
+  return String(v ?? "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ");
+}
+
+function isTruthyFlag(v: unknown): boolean {
+  if (typeof v === "boolean") return v;
+  if (typeof v === "number") return v === 1;
+  const s = String(v ?? "").trim().toLowerCase();
+  return s === "1" || s === "true" || s === "yes" || s === "on";
+}
+
 /**
  * API / store may send `quantity_required_sprig_sod` as:
  * - `Array<{ product_id, quantity, uom, ... }>` (typical)
@@ -372,7 +440,9 @@ function parseHarvestDeliveredRow(raw: unknown): HarvestDeliveredRow | null {
 }
 
 function applyRowToFormState(r: Record<string, unknown>): HarvestFormState {
-  const uomStr = String(r.uom ?? "M2").trim() || "M2";
+  const rawUom = String(r.uom ?? "M2").trim() || "M2";
+  const harvestType = resolvedHarvestTypeForForm(String(r.load_type ?? ""), rawUom);
+  const uomStr = requiredUomForHarvestType(harvestType);
   const harvested = r.harvested_area;
   const referenceHarvestQty = r.ref_hrv_qty_sprig;
   const harvestedStr = normalizeNonNegativeInput(String(harvested ?? ""));
@@ -381,10 +451,10 @@ function applyRowToFormState(r: Record<string, unknown>): HarvestFormState {
   );
   const isKg = uomStr.toLowerCase() === "kg";
   const descParsed = parseDescriptionFromRow(String(r.description ?? ""));
+  const estimatedDateEnd = getEstimatedDateEndFromRow(r, descParsed);
   const { truckNote, shippingDispatchDetails } = splitTruckNoteFromRow(
     String(r.truck_note ?? ""),
   );
-  const ht = normalizeHarvestTypeForForm(r.load_type);
   return {
     customerId: String(r.customer_id ?? "").trim(),
     project: String(r.project_id ?? ""),
@@ -397,9 +467,9 @@ function applyRowToFormState(r: Record<string, unknown>): HarvestFormState {
       ? (referenceHarvestQtyStr || harvestedStr)
       : "",
     harvestedArea: isKg ? harvestedStr : "",
-    harvestType: ht || "Sprig",
+    harvestType,
     estimatedDate: toDateInput(r.estimated_harvest_date),
-    estimatedDateEnd: descParsed.estimatedDateEnd,
+    estimatedDateEnd,
     actualDate: toDateInput(r.actual_harvest_date),
     actualHarvestEndDate: descParsed.actualHarvestEndDate,
     deliveryDate: toDateInput(r.delivery_harvest_date),
@@ -445,6 +515,7 @@ type HarvestValidationMessages = {
   selectGrass: string;
   selectHarvestType: string;
   enterQuantity: string;
+  referenceHarvestQuantityRequired: string;
   harvestedAreaKgRequired: string;
   selectZone: string;
   selectFarm: string;
@@ -458,18 +529,25 @@ function getHarvestFieldErrors(
   const errors: HarvestFieldErrors = {};
   if (!formData.project.trim()) errors.project = messages.selectProject;
   if (!formData.grass.trim()) errors.grass = messages.selectGrass;
-  // Harvest type input is currently hidden in the web form, so do not block submit here.
+  const harvestType = normalizeHarvestTypeStorageKey(formData.harvestType);
+  const uomLower = formData.uom.trim().toLowerCase();
+  if (!harvestType) {
+    errors.harvestType = messages.selectHarvestType;
+  } else if (
+    (harvestType === "sprig" && uomLower !== "kg") ||
+    (harvestType !== "sprig" && uomLower !== "m2")
+  ) {
+    errors.harvestType = messages.selectHarvestType;
+  }
   if (!formData.quantity.trim() || parseNum(formData.quantity) <= 0) {
     errors.quantity = messages.enterQuantity;
   }
-  // if (
-  //   formData.uom.trim().toLowerCase() === "m2" &&
-  //   (!formData.referenceHarvestQuantity.trim() ||
-  //     parseNum(formData.referenceHarvestQuantity) <= 0)
-  // ) {
-  //   errors.referenceHarvestQuantity = messages.enterQuantity;
-  // }
-  const uomLower = formData.uom.trim().toLowerCase();
+  if (harvestType === "sod_to_sprig") {
+    const refQty = formData.referenceHarvestQuantity.trim();
+    if (!refQty || parseNum(refQty) <= 0) {
+      errors.referenceHarvestQuantity = messages.referenceHarvestQuantityRequired;
+    }
+  }
   const hasActual = Boolean(formData.actualDate.trim());
   if (hasActual && !formData.zone.trim()) errors.zone = messages.selectZone;
   if (!formData.farm.trim()) errors.farm = messages.selectFarm;
@@ -535,6 +613,7 @@ function focusHarvestFieldByErrorKey(
   const fieldIdMap: Partial<Record<keyof HarvestFieldErrors, string>> = {
     project: "harvest-project",
     grass: "harvest-grass",
+    harvestType: "harvest-harvest-type",
     quantity: "harvest-quantity",
     referenceHarvestQuantity: "harvest-reference-quantity",
     harvestedArea: "harvest-harvested-area",
@@ -644,6 +723,15 @@ function HarvestInputPageInner() {
   }, [router, returnTarget]);
 
   const user = useAuthUserStore((s) => s.user);
+  const canCreateHarvest = canAccessModule(user, "harvests", "create");
+  const canEditHarvest = canAccessModule(user, "harvests", "edit");
+  const canDeleteHarvest = canAccessModule(user, "harvests", "delete");
+  const canAccessHarvestForm = editId
+    ? canEditHarvest || canDeleteHarvest
+    : canCreateHarvest;
+  const accessDenied = Boolean(user) && !canAccessHarvestForm;
+  const canSubmitHarvest = editId ? canEditHarvest : canCreateHarvest;
+  const canDeleteCurrentHarvest = Boolean(editId) && canDeleteHarvest;
   const farms = useHarvestingDataStore((s) => s.farms);
   const projects = useHarvestingDataStore((s) => s.projects);
   const products = useHarvestingDataStore((s) => s.products);
@@ -656,8 +744,9 @@ function HarvestInputPageInner() {
   );
 
   useEffect(() => {
+    if (accessDenied) return;
     void fetchAllHarvestingReferenceData();
-  }, [fetchAllHarvestingReferenceData]);
+  }, [accessDenied, fetchAllHarvestingReferenceData]);
 
   const projectOptions = useMemo(
     () => mapRowsToSelectOptions(projects as unknown[], "title"),
@@ -670,10 +759,6 @@ function HarvestInputPageInner() {
   const farmOptions = useMemo(
     () => mapRowsToSelectOptions(farms as unknown[], "name"),
     [farms],
-  );
-  const zoneEntries = useMemo(
-    () => parseFarmZoneEntries(farmZones),
-    [farmZones],
   );
   const customerOptions = useMemo(() => {
     const m = new Map<string, string>();
@@ -703,6 +788,15 @@ function HarvestInputPageInner() {
   }, [products]);
 
   const [formData, setFormData] = useState(emptyForm);
+  const filteredFarmZoneRows = useMemo(
+    () => filterFarmZoneRowsByFarmId(farmZones, formData.farm),
+    [farmZones, formData.farm],
+  );
+  const [zoneConfigRows, setZoneConfigRows] = useState<ZoneConfigurationRow[]>([]);
+  const [zoneAutoConfigRows, setZoneAutoConfigRows] = useState<
+    ZoneAutoConfigurationRow[]
+  >([]);
+  const [harvestedAreaManual, setHarvestedAreaManual] = useState(false);
   const [photos, setPhotos] = useState<HarvestPhotoFiles>({});
   /** Loaded from API in edit mode — preview URLs + file names for `images_removed`. */
   const [existingDocSlots, setExistingDocSlots] = useState<
@@ -729,15 +823,108 @@ function HarvestInputPageInner() {
   );
   const [fieldErrors, setFieldErrors] = useState<HarvestFieldErrors>({});
   const [harvestDateTouched, setHarvestDateTouched] = useState(false);
-  /** Mirrors HarvestForm “Use date range” for estimated window end (persisted via `description`). */
+  /** Mirrors HarvestForm “Use date range” for estimated start/end inputs. */
   const [useEstimatedDateRange, setUseEstimatedDateRange] = useState(false);
   const [deleteMenuOpen, setDeleteMenuOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    void (async () => {
+      const [zones, autoRows] = await Promise.all([
+        fetchZoneConfigurations().catch(() => [] as ZoneConfigurationRow[]),
+        fetchZoneAutoConfigurations().catch(() => [] as ZoneAutoConfigurationRow[]),
+      ]);
+      if (!mounted) return;
+      setZoneConfigRows(zones);
+      setZoneAutoConfigRows(autoRows);
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   const filteredZoneEntries = useMemo(() => {
-    const farmLabel = farmOptions.find((f) => f.id === formData.farm)?.label ?? "";
-    return filterZoneEntriesByFarmName(zoneEntries, farmLabel);
-  }, [farmOptions, formData.farm, zoneEntries]);
+    const entries = parseFarmZoneEntries(filteredFarmZoneRows, "id");
+    const currentZone = String(formData.zone ?? "").trim();
+    if (!currentZone || entries.some(([value]) => value === currentZone)) {
+      return entries;
+    }
+    return [[currentZone, zoneIdToLabel(currentZone, farmZones) || currentZone], ...entries];
+  }, [filteredFarmZoneRows, formData.zone, farmZones]);
+
+  const selectedFarmLabel = useMemo(
+    () => farmOptions.find((f) => f.id === formData.farm)?.label ?? "",
+    [farmOptions, formData.farm],
+  );
+  const selectedGrassLabel = useMemo(
+    () => productOptions.find((p) => p.id === formData.grass)?.label ?? "",
+    [formData.grass, productOptions],
+  );
+  const selectedZoneLabel = useMemo(
+    () => filteredZoneEntries.find(([key]) => key === formData.zone)?.[1] ?? "",
+    [filteredZoneEntries, formData.zone],
+  );
+  const matchedZoneConfiguration = useMemo(() => {
+    if (!selectedFarmLabel || !selectedGrassLabel || !formData.zone) return null;
+    const farmNeedle = normalizeMatchText(selectedFarmLabel);
+    const grassNeedle = normalizeMatchText(selectedGrassLabel);
+    const zoneNeedles = new Set([
+      normalizeMatchText(formData.zone),
+      normalizeMatchText(selectedZoneLabel),
+    ]);
+    return (
+      zoneConfigRows.find((row) => {
+        const farm = normalizeMatchText(row.farm_name);
+        const grass = normalizeMatchText(row.turfgrass);
+        const zone = normalizeMatchText(row.zone);
+        return farm === farmNeedle && grass === grassNeedle && zoneNeedles.has(zone);
+      }) ?? null
+    );
+  }, [
+    formData.zone,
+    selectedFarmLabel,
+    selectedGrassLabel,
+    selectedZoneLabel,
+    zoneConfigRows,
+  ]);
+  const matchedZoneAutoConfiguration = useMemo(() => {
+    if (!matchedZoneConfiguration) return null;
+    return (
+      zoneAutoConfigRows.find(
+        (row) =>
+          String(row.zone_configuration_id) === String(matchedZoneConfiguration.id),
+      ) ?? null
+    );
+  }, [matchedZoneConfiguration, zoneAutoConfigRows]);
+  const autoHarvestAreaInfo = useMemo(() => {
+    const isKg = formData.uom.trim().toLowerCase() === "kg";
+    const qtyKg = parseNum(formData.quantity);
+    if (!isKg || qtyKg <= 0 || !matchedZoneConfiguration || !matchedZoneAutoConfiguration) {
+      return null;
+    }
+    if (
+      !isTruthyFlag(matchedZoneAutoConfiguration.auto_enabled) ||
+      !isTruthyFlag(matchedZoneAutoConfiguration.allow_auto_fill_harvest_area)
+    ) {
+      return null;
+    }
+    const inventoryKgPerM2 =
+      parseNum(matchedZoneAutoConfiguration.last_inventory_kg_per_m2) ||
+      parseNum(matchedZoneConfiguration.inventory_kg_per_m2);
+    if (inventoryKgPerM2 <= 0) return null;
+    return {
+      harvestedAreaM2: qtyKg / inventoryKgPerM2,
+      inventoryKgPerM2,
+      confidencePct: parseNum(matchedZoneAutoConfiguration.last_confidence_pct),
+    };
+  }, [
+    formData.quantity,
+    formData.uom,
+    matchedZoneAutoConfiguration,
+    matchedZoneConfiguration,
+  ]);
 
   const filteredProjectOptions = useMemo(() => {
     const cid = formData.customerId.trim();
@@ -758,6 +945,7 @@ function HarvestInputPageInner() {
     selectGrass: t("validationSelectGrassType"),
     selectHarvestType: t("validationSelectHarvestType"),
     enterQuantity: t("validationEnterQuantity"),
+    referenceHarvestQuantityRequired: t("validationReferenceHarvestQuantityRequired"),
     harvestedAreaKgRequired: t("validationHarvestedAreaKg"),
     selectZone: t("validationSelectZone"),
     selectFarm: t("validationSelectFarm"),
@@ -776,6 +964,7 @@ function HarvestInputPageInner() {
   };
 
   useEffect(() => {
+    if (accessDenied) return;
     if (!editId) {
       setFormData({ ...emptyForm, project: initialProjectId });
       setUseEstimatedDateRange(false);
@@ -802,14 +991,16 @@ function HarvestInputPageInner() {
           per_page: 1,
         });
         const raw = res.rows[0];
-        if (!raw || typeof raw !== "object") throw new Error(t("harvestNotFound"));
+        if (!raw || typeof raw !== "object") {
+          const upstreamMessage =
+            typeof res.message === "string" ? res.message.trim() : "";
+          throw new Error(upstreamMessage || t("harvestNotFound"));
+        }
         if (cancelled) return;
         const row = raw as Record<string, unknown>;
+        const descParsed = parseDescriptionFromRow(String(row.description ?? ""));
         setFormData(applyRowToFormState(row));
-        setUseEstimatedDateRange(
-          parseDescriptionFromRow(String(row.description ?? ""))
-            .useEstimatedDateRange,
-        );
+        setUseEstimatedDateRange(Boolean(getEstimatedDateEndFromRow(row, descParsed)));
         setEditTableId(String(row.table_id ?? "").trim());
         setEditTableName(String(row.table_name ?? "Harvesting").trim() || "Harvesting");
         setExistingDocSlots(parseHarvestDocImagesFromRow(row));
@@ -830,9 +1021,12 @@ function HarvestInputPageInner() {
     return () => {
       cancelled = true;
     };
-  }, [editId, initialProjectId]);
+  }, [accessDenied, editId, initialProjectId]);
 
-  const showDeleteMenu = () => setDeleteMenuOpen(true);
+  const showDeleteMenu = () => {
+    if (!canDeleteCurrentHarvest) return;
+    setDeleteMenuOpen(true);
+  };
 
   const closeDeleteMenu = () => setDeleteMenuOpen(false);
 
@@ -842,6 +1036,11 @@ function HarvestInputPageInner() {
   };
 
   const onConfirmDeleteHarvest = async () => {
+    if (!canDeleteCurrentHarvest) {
+      setSubmitError("You do not have permission to delete this harvest.");
+      setConfirmDeleteOpen(false);
+      return;
+    }
     if (!editId) {
       setSubmitError("Missing delete identifiers.");
       setConfirmDeleteOpen(false);
@@ -866,6 +1065,7 @@ function HarvestInputPageInner() {
   };
 
   useEffect(() => {
+    if (accessDenied) return;
     if (!formData.project) {
       setProjectHarvestRows([]);
       return;
@@ -899,9 +1099,10 @@ function HarvestInputPageInner() {
     return () => {
       cancelled = true;
     };
-  }, [formData.project]);
+  }, [accessDenied, formData.project]);
 
   useEffect(() => {
+    if (accessDenied) return;
     if (!formData.project.trim()) {
       setDynamicProjectRows([]);
       return;
@@ -927,7 +1128,7 @@ function HarvestInputPageInner() {
     return () => {
       cancelled = true;
     };
-  }, [formData.project]);
+  }, [accessDenied, formData.project]);
 
   const selectedProjectRequirements = useMemo(() => {
     // Prefer server dynamic-table lookup by project_id, fallback to store project payload.
@@ -1038,8 +1239,34 @@ function HarvestInputPageInner() {
     }
   }, [filteredZoneEntries, formData.zone]);
 
+  useEffect(() => {
+    setHarvestedAreaManual(false);
+  }, [formData.farm, formData.grass, formData.uom, formData.zone]);
+
+  useEffect(() => {
+    if (!autoHarvestAreaInfo || harvestedAreaManual) return;
+    const nextHarvestedArea = autoHarvestAreaInfo.harvestedAreaM2.toFixed(2);
+    setFormData((prev) => {
+      if (prev.uom.trim().toLowerCase() !== "kg") return prev;
+      if (prev.harvestedArea === nextHarvestedArea) return prev;
+      return {
+        ...prev,
+        harvestedArea: nextHarvestedArea,
+      };
+    });
+    setFieldErrors((prev) => ({ ...prev, harvestedArea: undefined }));
+  }, [autoHarvestAreaInfo, harvestedAreaManual]);
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    if (!canSubmitHarvest) {
+      setSubmitError(
+        editId
+          ? "You do not have permission to edit this harvest."
+          : "You do not have permission to create a harvest.",
+      );
+      return;
+    }
     setSubmitError(null);
     setHarvestDateTouched(true);
     const errors = getHarvestFieldErrors(formData, validationMessages);
@@ -1096,7 +1323,7 @@ function HarvestInputPageInner() {
       const truckNotePayload = [formData.truckNote.trim(), formData.shippingDispatchDetails.trim()]
         .filter(Boolean)
         .join(SHIPPING_NOTE_SPLIT);
-      await submitFlutterHarvest(
+      const savedHarvest = (await submitFlutterHarvest(
         {
           id: editId ?? undefined,
           projectId: formData.project,
@@ -1105,8 +1332,13 @@ function HarvestInputPageInner() {
           zone: formData.zone,
           quantity: formData.quantity,
           uom: formData.uom,
-          harvestType: harvestTypeToApi(formData.harvestType || "Sprig"),
+          harvestType:
+            normalizeHarvestTypeStorageKey(formData.harvestType) ||
+            defaultHarvestTypeForUom(formData.uom),
           estimatedHarvestDate: formData.estimatedDate,
+          estimatedHarvestEndDate: useEstimatedDateRange
+            ? formData.estimatedDateEnd
+            : undefined,
           actualHarvestDate: formData.actualDate,
           deliveryHarvestDate: formData.deliveryDate,
           shipmentRequiredDate: formData.portArrivalDate.trim() || undefined,
@@ -1123,8 +1355,36 @@ function HarvestInputPageInner() {
         },
         photos,
         removedPayload,
-      );
+      )) as Record<string, unknown>;
       updateHarvestLimitDescriptionsForSelection(formData.project);
+      if (!editId) {
+        const newHarvestId = String(savedHarvest?.id ?? "").trim();
+        const projectLabel =
+          String(
+            selectedProjectRow?.title ??
+              selectedProjectRow?.project_name ??
+              "",
+          ).trim() || formData.project.trim();
+        const grassId = formData.grass.trim();
+        const grassLabel = productNameById.get(grassId) || grassId;
+        const qtyDisplay = formData.quantity.trim();
+        const uomDisplay = formData.uom.trim();
+        const alertHref =
+          newHarvestId.length > 0
+            ? `/harvest/detail?id=${encodeURIComponent(newHarvestId)}&returnTo=${encodeURIComponent(returnTarget)}`
+            : returnTarget;
+        void dispatchRouteAlert({
+          routeKey: "harvest_new",
+          title: t("alertNewHarvestTitle", { grass: grassLabel }),
+          message: t("alertNewHarvestMessage", {
+            project: projectLabel,
+            quantity: qtyDisplay,
+            uom: uomDisplay,
+          }),
+          href: alertHref,
+          sourceEntityId: newHarvestId || formData.project.trim(),
+        });
+      }
       router.push(returnTarget);
     } catch (err) {
       const msg =
@@ -1217,7 +1477,11 @@ function HarvestInputPageInner() {
   };
 
   const formDisabled =
-    refLoading || submitLoading || deleting || (Boolean(editId) && !editLoaded);
+    refLoading ||
+    submitLoading ||
+    deleting ||
+    !canSubmitHarvest ||
+    (Boolean(editId) && !editLoaded);
 
   const zoneRequiredButMissing =
     Boolean(formData.actualDate.trim()) && !formData.zone.trim();
@@ -1235,45 +1499,74 @@ function HarvestInputPageInner() {
     "w-full min-h-10 rounded-md border border-input bg-card px-3 py-2 text-sm text-foreground shadow-sm placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60";
   const harvestLabelClass =
     "mb-1.5 block text-xs font-medium text-muted-foreground";
+  const zoneHelpTooltip =
+    "Zone is used for forecasting and inventory calculations. You should enter it, but it is optional by default.";
 
   return (
     <RequireAuth>
       <DashboardLayout>
-        <div className="dashboard-harvesting-skin min-h-screen pb-10 lg:pb-14">
-          <div className="mx-auto w-full max-w-[900px] px-4 pt-4 lg:px-6 lg:pt-8">
-            <div className="mb-5 flex flex-wrap items-start gap-3">
-              <button
-                type="button"
-                onClick={goBack}
-                aria-label={tCommon("back")}
-                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-card text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-              >
-                <ArrowLeft className="h-4 w-4" strokeWidth={2.25} />
-              </button>
-              <h1 className="font-heading text-2xl font-bold text-foreground">
-                {editId ? t("editTitle") : t("newTitle")}
-              </h1>
-              <div className="flex items-center gap-2">
-                {editId ? (
+        {accessDenied ? (
+          <div className="dashboard-harvesting-skin min-h-screen pb-10 lg:pb-14">
+            <div className="mx-auto w-full max-w-[900px] px-4 pt-4 lg:px-6 lg:pt-8">
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-5">
+                <h1 className="font-heading text-xl font-bold text-amber-900">
+                  {editId ? t("editTitle") : t("newTitle")}
+                </h1>
+                <p className="mt-2 text-sm text-amber-800">
+                  {editId
+                    ? "You do not have permission to edit or delete this harvest."
+                    : "You do not have permission to create a harvest."}
+                </p>
+                <div className="mt-4">
                   <button
                     type="button"
-                    onClick={showDeleteMenu}
-                    className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground hover:bg-muted/80"
-                    aria-label="More actions"
+                    onClick={goBack}
+                    className="inline-flex h-10 items-center justify-center rounded-lg border border-amber-300 px-4 text-sm font-medium text-amber-900 hover:bg-amber-100"
                   >
-                    <MoreVertical className="h-5 w-5" strokeWidth={2.25} />
+                    {tCommon("back")}
                   </button>
-                ) : null}
-              </div>
-            </div>
-
-            <div className="overflow-hidden rounded-xl">
-              <div className="">
-              <div className=" flex flex-wrap items-start justify-between gap-3">
-                <div>
-                 
                 </div>
               </div>
+            </div>
+          </div>
+        ) : (
+          <div className="dashboard-harvesting-skin min-h-screen pb-10 lg:pb-14">
+            <div className="mx-auto w-full max-w-[900px] px-4 pt-4 lg:px-6 lg:pt-8">
+              <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={goBack}
+                    aria-label={tCommon("back")}
+                    className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-card text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                  >
+                    <ArrowLeft className="h-4 w-4" strokeWidth={2.25} />
+                  </button>
+                  <h1 className="font-heading text-2xl font-bold text-foreground">
+                    {editId ? t("editTitle") : t("newTitle")}
+                  </h1>
+                </div>
+                <div className="flex items-center gap-2">
+                  {canDeleteCurrentHarvest ? (
+                    <button
+                      type="button"
+                      onClick={showDeleteMenu}
+                      className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground hover:bg-muted/80"
+                      aria-label="More actions"
+                    >
+                      <MoreVertical className="h-5 w-5" strokeWidth={2.25} />
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="overflow-hidden rounded-xl">
+                <div className="">
+                <div className=" flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                   
+                  </div>
+                </div>
 
               <form
                 onSubmit={handleSubmit}
@@ -1285,12 +1578,20 @@ function HarvestInputPageInner() {
                 {editId && !editLoaded ? (
                   <p className="text-sm text-muted-foreground">{t("loadingHarvest")}</p>
                 ) : null}
+                {editId && editLoaded && editLoadError ? (
+                  <p
+                    role="alert"
+                    className="mb-4 rounded-lg border border-destructive/35 bg-destructive/5 px-3 py-2 text-sm text-destructive"
+                  >
+                    {editLoadError}
+                  </p>
+                ) : null}
                 {bootstrapDone &&
                   !refLoading &&
                   projectOptions.length +
                   productOptions.length +
                   farmOptions.length +
-                  zoneEntries.length ===
+                  farmZones.length ===
                   0 ? (
                   <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
                     {t("noReferenceLists")}
@@ -1330,7 +1631,7 @@ function HarvestInputPageInner() {
                       id="harvest-basic-info"
                       className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3"
                     >
-                      <div>
+                      {/* <div>
                         <label className={harvestLabelClass} htmlFor="harvest-customer">
                           {t("customer")}
                         </label>
@@ -1348,7 +1649,7 @@ function HarvestInputPageInner() {
                           placeholder={t("selectCustomer")}
                           disabled={formDisabled}
                         />
-                      </div>
+                      </div> */}
 
                       <div>
                         <label className={harvestLabelClass} htmlFor="harvest-project">
@@ -1443,7 +1744,9 @@ function HarvestInputPageInner() {
                                 (r) => r.productId === grass,
                               ) ?? null;
                             const nextUom = req ? defaultUomForRequirement(req) : formData.uom;
-                            setFormData({ ...formData, grass, uom: nextUom });
+                            setFormData((prev) =>
+                              applyUomConstraint({ ...prev, grass }, nextUom as "Kg" | "M2"),
+                            );
                             setFieldErrors((prev) => ({ ...prev, grass: undefined }));
                           }}
                           className={`${harvestFieldClass} ${fieldErrors.grass ? "ring-2 ring-destructive" : ""}`}
@@ -1466,8 +1769,15 @@ function HarvestInputPageInner() {
                       </div>
 
                       <div>
-                        <label className={harvestLabelClass} htmlFor="harvest-zone">
-                          {tCommon("zone")}{" "}
+                        <div className="relative mb-1.5 flex flex-wrap items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                          <label htmlFor="harvest-zone">{tCommon("zone")}</label>
+                          <span
+                            className="peer inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-input text-[10px] font-semibold text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground focus:border-foreground/30 focus:text-foreground"
+                            tabIndex={0}
+                            aria-label={zoneHelpTooltip}
+                          >
+                            ?
+                          </span>
                           {formData.actualDate.trim() ? (
                             <span className="text-destructive">*</span>
                           ) : (
@@ -1475,7 +1785,13 @@ function HarvestInputPageInner() {
                               ({t("zoneOptionalShort")})
                             </span>
                           )}
-                        </label>
+                          <span
+                            role="tooltip"
+                            className="pointer-events-none absolute left-0 top-full z-20 mt-2 hidden w-full max-w-[300px] rounded-md border border-border bg-card px-3 py-2 text-left text-[11px] font-normal leading-relaxed text-card-foreground shadow-lg peer-hover:block peer-focus:block"
+                          >
+                            {zoneHelpTooltip}
+                          </span>
+                        </div>
                         <select
                           id="harvest-zone"
                           value={formData.zone}
@@ -1515,6 +1831,78 @@ function HarvestInputPageInner() {
                     hint={t("sectionQuantityHint")}
                   >
                     <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                      <div
+                        id="harvest-harvest-type"
+                        className="w-fit shrink-0 space-y-2"
+                      >
+                        <label className={harvestLabelClass}>{t("harvestType")}</label>
+                        <div
+                          className={`inline-grid w-auto shrink-0 grid-cols-[auto_auto_auto] gap-2 bg-surface-filter-filled ${
+                            fieldErrors.harvestType ? "rounded-md ring-2 ring-destructive" : ""
+                          }`}
+                        >
+                          {(
+                            [
+                              ["sprig", "Sprig"],
+                              ["sod", "Sod"],
+                              ["sod_to_sprig", "Sod -> Sprig"],
+                            ] as const
+                          ).map(([value, label]) => (
+                            <button
+                              key={`harvest-type-${value}`}
+                              type="button"
+                              onClick={() => {
+                                if (formDisabled) return;
+                                setFormData((prev) =>
+                                  applyHarvestTypeConstraint(
+                                    prev,
+                                    value as HarvestTypeStorageKey,
+                                  ),
+                                );
+                                setFieldErrors((prev) => ({
+                                  ...prev,
+                                  harvestType: undefined,
+                                  referenceHarvestQuantity: undefined,
+                                  harvestedArea: undefined,
+                                }));
+                              }}
+                              className="relative w-max cursor-pointer text-left justify-self-start disabled:cursor-not-allowed"
+                              disabled={
+                                formDisabled ||
+                                !harvestTypeAllowedForUom(
+                                  value as HarvestTypeStorageKey,
+                                  formData.uom,
+                                )
+                              }
+                              aria-pressed={formData.harvestType === value}
+                            >
+                              <span
+                                className={`flex min-h-10 min-w-10 items-center justify-center whitespace-nowrap rounded-md border px-3 text-sm transition-colors ${
+                                  formData.harvestType === value
+                                    ? "border-primary bg-primary/5 text-primary"
+                                    : harvestTypeAllowedForUom(
+                                          value as HarvestTypeStorageKey,
+                                          formData.uom,
+                                        )
+                                      ? "border-input bg-card text-foreground shadow-sm"
+                                      : "border-input bg-muted text-muted-foreground/60 shadow-sm"
+                                }`}
+                              >
+                                {label}
+                              </span>
+                              {formData.harvestType === value ? (
+                                <CheckBadge className="left-1 top-1 h-3 w-3" />
+                              ) : null}
+                            </button>
+                          ))}
+                        </div>
+                        {fieldErrors.harvestType ? (
+                          <p className="mt-1.5 text-xs leading-snug text-destructive">
+                            {fieldErrors.harvestType}
+                          </p>
+                        ) : null}
+                      </div>
+
                       <div className="w-fit shrink-0 space-y-2">
                         <label className={harvestLabelClass}>{t("unit")}</label>
                         <div className="inline-grid w-auto shrink-0 grid-cols-[auto_auto] gap-2 bg-surface-filter-filled">
@@ -1524,21 +1912,11 @@ function HarvestInputPageInner() {
                               type="button"
                               onClick={() => {
                                 if (formDisabled) return;
-                                setFormData((prev) => ({
-                                  ...prev,
-                                  quantity: prev.quantity,
-                                  uom: u,
-                                  referenceHarvestQuantity:
-                                    u.trim().toLowerCase() === "m2"
-                                      ? prev.referenceHarvestQuantity
-                                      : "",
-                                  harvestedArea:
-                                    u.trim().toLowerCase() === "m2"
-                                      ? ""
-                                      : prev.harvestedArea,
-                                }));
+                                setHarvestedAreaManual(false);
+                                setFormData((prev) => applyUomConstraint(prev, u));
                                 setFieldErrors((prev) => ({
                                   ...prev,
+                                  harvestType: undefined,
                                   harvestedArea: undefined,
                                   referenceHarvestQuantity: undefined,
                                 }));
@@ -1557,9 +1935,7 @@ function HarvestInputPageInner() {
                                 {u}
                               </span>
                               {formData.uom === u ? (
-                                <span className="absolute left-1 top-1 inline-flex h-3 w-3 items-center justify-center rounded-full bg-primary text-primary-foreground">
-                                  <Check className="h-3 w-3" />
-                                </span>
+                                <CheckBadge className="left-1 top-1 h-3 w-3" />
                               ) : null}
                             </button>
                           ))}
@@ -1614,7 +1990,11 @@ function HarvestInputPageInner() {
                     {formData.uom.trim().toLowerCase() === "m2" ? (
                       <div>
                         <label className={harvestLabelClass} htmlFor="harvest-reference-quantity">
-                          {t("referenceHarvestQuantity")}
+                          {t("referenceHarvestQuantity")}{" "}
+                          {normalizeHarvestTypeStorageKey(formData.harvestType) ===
+                          "sod_to_sprig" ? (
+                            <span className="text-destructive">*</span>
+                          ) : null}
                         </label>
                         <div className="flex items-center gap-2">
                           <input
@@ -1642,7 +2022,11 @@ function HarvestInputPageInner() {
                                 ),
                               }));
                             }}
-                            className={harvestFieldClass}
+                            className={`${harvestFieldClass} ${
+                              fieldErrors.referenceHarvestQuantity
+                                ? "ring-2 ring-destructive"
+                                : ""
+                            }`}
                             placeholder={t("quantityPlaceholder")}
                             disabled={formDisabled}
                           />
@@ -1686,6 +2070,7 @@ function HarvestInputPageInner() {
                             onChange={(e) => {
                               const nextValue = e.target.value;
                               if (nextValue.trim().startsWith("-")) return;
+                              setHarvestedAreaManual(true);
                               setFormData({
                                 ...formData,
                                 harvestedArea: nextValue,
@@ -1706,7 +2091,13 @@ function HarvestInputPageInner() {
                             disabled={formDisabled}
                           />
                           <p className="mt-1 text-xs text-muted-foreground">
-                            {t("harvestedAreaHintKg")}
+                            {autoHarvestAreaInfo && !harvestedAreaManual
+                              ? `Auto: quantity / ${autoHarvestAreaInfo.inventoryKgPerM2.toFixed(3)} kg/m²${
+                                  autoHarvestAreaInfo.confidencePct
+                                    ? `, confidence ${autoHarvestAreaInfo.confidencePct.toFixed(0)}%`
+                                    : ""
+                                }`
+                              : t("harvestedAreaHintKg")}
                           </p>
                           {fieldErrors.harvestedArea ? (
                             <p className="mt-1.5 text-xs leading-snug text-destructive">
@@ -1733,8 +2124,7 @@ function HarvestInputPageInner() {
                           {t("estimatedDate")}
                         </span>
                         <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
-                          <input
-                            type="checkbox"
+                          <Checkbox
                             checked={useEstimatedDateRange}
                             onChange={(e) => {
                               setUseEstimatedDateRange(e.target.checked);
@@ -1742,7 +2132,6 @@ function HarvestInputPageInner() {
                                 setFormData((prev) => ({ ...prev, estimatedDateEnd: "" }));
                               }
                             }}
-                            className="rounded border-border"
                             disabled={formDisabled}
                           />
                           {t("useDateRange")}
@@ -1994,9 +2383,9 @@ function HarvestInputPageInner() {
                     title={t("documentationPhotos")}
                     hint={t("sectionPhotosHint")}
                   >
-                    <p className="text-xs leading-relaxed text-muted-foreground">
+                    {/* <p className="text-xs leading-relaxed text-muted-foreground">
                       {t("photosHelpText")}
-                    </p>
+                    </p> */}
                     <div className="mt-1 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
                       {DOC_PHOTO_SLOTS.map((field) => {
                         const label = getPhotoSlotLabel(field);
@@ -2120,27 +2509,30 @@ function HarvestInputPageInner() {
                     >
                       {tCommon("back")}
                     </button>
-                    <button
-                      type="submit"
-                      disabled={formDisabled}
-                      className="inline-flex h-11 min-w-[140px] flex-1 items-center justify-center rounded-lg bg-primary px-5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50 sm:flex-none"
-                    >
-                      {submitLoading
-                        ? t("saving")
-                        : editId
-                          ? t("saveChanges")
-                          : t("saveHarvest")}
-                    </button>
+                    {canSubmitHarvest ? (
+                      <button
+                        type="submit"
+                        disabled={formDisabled}
+                        className="inline-flex h-11 min-w-[140px] flex-1 items-center justify-center rounded-lg bg-primary px-5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50 sm:flex-none"
+                      >
+                        {submitLoading
+                          ? t("saving")
+                          : editId
+                            ? t("saveChanges")
+                            : t("saveHarvest")}
+                      </button>
+                    ) : null}
                   </div>
                 </div>
               </form>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
       </DashboardLayout>
 
-      {deleteMenuOpen ? (
+      {canDeleteCurrentHarvest && deleteMenuOpen ? (
         <>
           <button
             type="button"
@@ -2174,7 +2566,7 @@ function HarvestInputPageInner() {
         </>
       ) : null}
 
-      {confirmDeleteOpen ? (
+      {canDeleteCurrentHarvest && confirmDeleteOpen ? (
         <div
           className="fixed inset-0 z-70 flex items-center justify-center bg-black/40 p-4"
           role="presentation"
@@ -2190,10 +2582,10 @@ function HarvestInputPageInner() {
             onClick={(e) => e.stopPropagation()}
           >
             <h2 id="delete-harvest-title" className="text-lg font-semibold text-gray-900">
-              Delete harvest?
+              {t("deleteHarvestTitle")}
             </h2>
             <p className="mt-2 text-sm text-gray-600">
-              Are you sure you want to delete this harvest record?
+              {t("deleteHarvestMessage")}
             </p>
             <div className="mt-6 flex justify-end gap-2">
               <button

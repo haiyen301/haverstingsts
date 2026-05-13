@@ -3,6 +3,7 @@ import { Geist_Mono, Plus_Jakarta_Sans } from "next/font/google";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages } from "next-intl/server";
 import { ThemeProvider } from "@/shared/theme/ThemeProvider";
+import { AppToasts } from "@/shared/ui/AppToasts";
 import "./globals.css";
 
 const plusJakartaSans = Plus_Jakarta_Sans({
@@ -41,7 +42,7 @@ export default async function RootLayout({
   const locale = await getLocale();
   const messages = await getMessages();
 
-  const themeBootScript = `(function(){try{var k='stsrenew-theme';var t=localStorage.getItem(k);var d=t==='dark'||(t!=='light'&&window.matchMedia('(prefers-color-scheme:dark)').matches);if(d)document.documentElement.classList.add('dark');}catch(e){}})();`;
+  const themeBootScript = `(function(){try{var k='stsrenew-theme';var t=localStorage.getItem(k);var d=t!=='light';if(d)document.documentElement.classList.add('dark');}catch(e){}})();`;
 
   return (
     <html
@@ -55,7 +56,10 @@ export default async function RootLayout({
       >
         <script dangerouslySetInnerHTML={{ __html: themeBootScript }} />
         <NextIntlClientProvider locale={locale} messages={messages}>
-          <ThemeProvider>{children}</ThemeProvider>
+          <ThemeProvider>
+            {children}
+            <AppToasts />
+          </ThemeProvider>
         </NextIntlClientProvider>
       </body>
     </html>

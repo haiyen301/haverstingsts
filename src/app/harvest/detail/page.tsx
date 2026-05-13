@@ -21,9 +21,12 @@ import {
 
 import RequireAuth from "@/features/auth/RequireAuth";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
+import { canAccessModule } from "@/shared/auth/permissions";
 import { stsProxyGetHarvestingIndex } from "@/shared/api/stsProxyClient";
+import { useAuthUserStore } from "@/shared/store/authUserStore";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { zoneIdToLabel } from "@/shared/lib/harvestReferenceData";
+import { harvestTypeDisplayLabel } from "@/shared/lib/harvestType";
 import { HARVEST_DOC_PHOTO_FIELDS } from "@/features/harvesting/api/flutterHarvestSubmit";
 import { parseHarvestDocImagesFromRow } from "@/features/harvesting/lib/parseHarvestDocImages";
 import { effectiveHarvestDateYmd, isValidHarvestDateString } from "@/shared/lib/harvestPlanDates";
@@ -75,6 +78,8 @@ export default function HarvestDetailPage() {
   const tForm = useTranslations("HarvestForm");
   const router = useRouter();
   const searchParams = useSearchParams();
+  const user = useAuthUserStore((s) => s.user);
+  const canManageHarvest = canAccessModule(user, "harvests", "edit") || canAccessModule(user, "harvests", "delete");
   const id = (searchParams.get("id") ?? "").trim();
   const returnTo = (searchParams.get("returnTo") ?? "/harvest").trim() || "/harvest";
 
@@ -200,7 +205,8 @@ export default function HarvestDetailPage() {
   const qtySafe = Number.isFinite(qty) ? qty : 0;
   const area = Number(row?.harvested_area);
   const areaSafe = Number.isFinite(area) ? area : 0;
-  const harvestTypeLabel = String(row?.harvest_type ?? row?.load_type ?? "—").trim() || "—";
+  const harvestTypeLabel =
+    harvestTypeDisplayLabel(row?.harvest_type ?? row?.load_type ?? "") || "—";
   const harvestTypeClass =
     harvestTypeLabel.toLowerCase().includes("sod") && harvestTypeLabel.toLowerCase().includes("sprig")
       ? "bg-info/10 text-info"
@@ -238,7 +244,7 @@ export default function HarvestDetailPage() {
                 <ArrowLeft className="h-4 w-4" />
                 {t("backToList")}
               </button>
-              {id ? (
+              {id && canManageHarvest ? (
                 <button
                   type="button"
                   onClick={() =>

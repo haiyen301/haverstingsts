@@ -95,7 +95,7 @@ export function DatePicker({
     >
       <div
         className={cn(
-          "flex h-10 w-full items-center rounded-lg border px-3 py-2 text-sm focus-within:ring-2 focus-within:ring-[#1F7A4C]",
+          "grid h-10 w-full grid-cols-[1fr_auto] items-center overflow-hidden rounded-lg border border-border text-sm focus-within:ring-2 focus-within:ring-[#1F7A4C]",
           inputValue ? "bg-surface-filter-filled" : "bg-surface-filter-empty",
           hasError ? "border-red-500" : "border-gray-300",
           disabled ? "bg-muted text-muted-foreground" : "",
@@ -115,14 +115,14 @@ export function DatePicker({
           }}
           placeholder={placeholder}
           disabled={disabled}
-          className="h-full w-full bg-transparent text-left outline-none placeholder:text-gray-400 disabled:cursor-not-allowed"
+          className="h-full w-full bg-transparent px-3 text-left outline-none placeholder:text-gray-400 disabled:cursor-not-allowed"
           inputMode="numeric"
         />
         <PopoverTrigger asChild>
           <button
             type="button"
             disabled={disabled}
-            className="ml-2 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-gray-500 hover:bg-muted/70 disabled:opacity-50"
+            className="inline-flex h-full w-10 shrink-0 items-center justify-center border-l border-inherit text-gray-500 hover:bg-muted/70 disabled:opacity-50"
             aria-label="Open calendar"
           >
             <CalendarIcon className="h-4 w-4" />

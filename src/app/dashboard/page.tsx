@@ -33,6 +33,7 @@ import {
 import RequireAuth from "@/features/auth/RequireAuth";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
+import { useSyncedFarmMultiSelect } from "@/shared/hooks/useSyncedFarmMultiSelect";
 import { fetchMondayProjectRowsFromServer, type MondayProjectServerRow } from "@/entities/projects";
 import { sortMondayProjectRows } from "@/features/project";
 import { stsProxyGetHarvestingIndex } from "@/shared/api/stsProxyClient";
@@ -388,14 +389,6 @@ function normalizeCustomerNameKey(raw: string): string {
     .toUpperCase();
 }
 
-/** Same semantics as DashboardLayout / harvest list — comma-separated farm ids, empty = all. */
-function parseCsvFilter(value: string): string[] {
-  return String(value ?? "")
-    .split(",")
-    .map((x) => x.trim())
-    .filter(Boolean);
-}
-
 function formatKpiDeliveredAbbrev(n: number, unit: "kg" | "m²"): string {
   const v = Number.isFinite(n) && n >= 0 ? n : 0;
   if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M ${unit}`;
@@ -527,12 +520,7 @@ export default function DashboardPage() {
   const t = useAppTranslations();
   const locale = useLocale();
   const [selectedCountry, setSelectedCountry] = useState<string | null>(null);
-  const harvestListFarmFilter = useHarvestingDataStore((s) => s.harvestListFarmFilter);
-  const setHarvestListFarmFilter = useHarvestingDataStore((s) => s.setHarvestListFarmFilter);
-  const selectedFarmIds = useMemo(
-    () => parseCsvFilter(harvestListFarmFilter),
-    [harvestListFarmFilter],
-  );
+  const { selectedFarmIds, setSelectedFarmIds } = useSyncedFarmMultiSelect();
   const selectedFarmIdSet = useMemo(() => new Set(selectedFarmIds), [selectedFarmIds]);
   const hasFarmSelection = selectedFarmIds.length > 0;
   /** "All Countries" + no farm chips: omit projects with no `farm_id` on any subitem. */
@@ -1818,7 +1806,7 @@ export default function DashboardPage() {
               <button
                 onClick={() => {
                   setSelectedCountry(null);
-                  setHarvestListFarmFilter("");
+                  setSelectedFarmIds([]);
                 }}
                 type="button"
                 className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${selectedCountry === null && selectedFarmIds.length === 0
@@ -1838,7 +1826,7 @@ export default function DashboardPage() {
                       const next = new Set(selectedFarmIds);
                       if (next.has(f.farmId)) next.delete(f.farmId);
                       else next.add(f.farmId);
-                      setHarvestListFarmFilter(Array.from(next).join(","));
+                      setSelectedFarmIds(Array.from(next));
                     }}
                     type="button"
                     aria-pressed={farmSelected}

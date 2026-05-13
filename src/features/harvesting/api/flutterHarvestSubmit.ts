@@ -1,6 +1,7 @@
 /**
- * Mirrors Flutter `HarvestingRepo.flutterAddNewSubRow` + `CreateHarvestingController.getUserData` /
- * multipart field names from `mapFileImage` (`{field}_image`).
+ * Calls the same STSPortal endpoint and multipart shape as the **Flutter mobile app**
+ * (`HarvestingRepo.flutterAddNewSubRow`, `mapFileImage` → `{field}_image`). The name marks
+ * API compatibility, not the runtime: **Next.js uses this too** (`submitFlutterHarvest`).
  */
 
 import { STS_API_PATHS } from "@/shared/api/stsApiPaths";
@@ -30,6 +31,7 @@ export type FlutterNewHarvestInput = {
   uom: string;
   harvestType: string;
   estimatedHarvestDate: string;
+  estimatedHarvestEndDate?: string;
   actualHarvestDate: string;
   deliveryHarvestDate: string;
   doSoNumber: string;
@@ -79,6 +81,7 @@ function buildRecordsJson(
     name: input.name ?? "",
     description: (input.description ?? "").trim() || null,
     estimated_harvest_date: input.estimatedHarvestDate.trim() || null,
+    estimated_harvest_end_date: input.estimatedHarvestEndDate?.trim() || null,
     product_id: input.productId,
     farm_id: input.farmId,
     zone: input.zone,

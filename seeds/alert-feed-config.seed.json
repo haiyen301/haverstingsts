@@ -1,0 +1,73 @@
+{
+  "version": 1,
+  "categories": [
+    {
+      "id": "daily-harvest",
+      "title": "Daily harvest summaries",
+      "description": "Recap of each day's harvests with photos and key details.",
+      "icon": "calendar-days"
+    },
+    {
+      "id": "inventory",
+      "title": "Inventory warnings",
+      "description": "Zones running low stock or reaching maximum capacity.",
+      "icon": "warehouse"
+    },
+    {
+      "id": "new-project",
+      "title": "New projects",
+      "description": "Notifications when a new project is added to the system.",
+      "icon": "folder-plus"
+    }
+  ],
+  "defaultRecipient": {
+    "mode": "user_ids",
+    "userIds": []
+  },
+  "routeBindings": [
+    {
+      "id": "rb-harvest-new",
+      "routeKey": "harvest_new",
+      "categoryId": "daily-harvest",
+      "push_mobile": true,
+      "push_web": true,
+      "push_email": false,
+      "recipient": {
+        "mode": "all_users"
+      }
+    },
+    {
+      "id": "rb-harvest-import",
+      "routeKey": "harvest_import",
+      "categoryId": "daily-harvest",
+      "push_mobile": true,
+      "push_web": true,
+      "push_email": false,
+      "recipient": {
+        "mode": "all_users"
+      }
+    },
+    {
+      "id": "rb-projects-new",
+      "routeKey": "projects_new",
+      "categoryId": "new-project",
+      "push_mobile": true,
+      "push_web": true,
+      "push_email": false,
+      "recipient": {
+        "mode": "all_users"
+      }
+    },
+    {
+      "id": "rb-projects-import",
+      "routeKey": "projects_import",
+      "categoryId": "new-project",
+      "push_mobile": true,
+      "push_web": true,
+      "push_email": false,
+      "recipient": {
+        "mode": "all_users"
+      }
+    }
+  ]
+}
