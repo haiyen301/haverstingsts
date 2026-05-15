@@ -2,10 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Calendar, Clock, MapPin, Users } from "lucide-react";
+import { useLocale, useTranslations } from "next-intl";
 
 import RequireAuth from "@/features/auth/RequireAuth";
 import { stsProxyGetHarvestingIndex } from "@/shared/api/stsProxyClient";
 import { harvestTypeDisplayLabel } from "@/shared/lib/harvestType";
+import { pickGrassCatalogRows } from "@/shared/lib/harvestReferenceData";
+import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 
 type RangePreset = "today" | "this-week" | "next-week" | "next-month";
@@ -18,6 +21,7 @@ type ScheduleEntry = {
   project: string;
   farm: string;
   zone: string;
+  grassProductId: string;
   grassType: string;
   harvestType: string;
   crew: string;
@@ -30,25 +34,13 @@ type ScheduleEntry = {
 
 const PER_PAGE = 200;
 
-const rangeLabels: Record<RangePreset, string> = {
-  today: "Today",
-  "this-week": "This week",
-  "next-week": "Next week",
-  "next-month": "Next month",
-};
+const RANGE_PRESETS: RangePreset[] = ["today", "this-week", "next-week", "next-month"];
 
 const statusStyles: Record<ScheduleStatus, string> = {
   planned: "bg-slate-100 text-slate-700",
   scheduled: "bg-blue-100 text-blue-700",
   harvested: "bg-amber-100 text-amber-700",
   delivered: "bg-green-100 text-green-700",
-};
-
-const statusLabels: Record<ScheduleStatus, string> = {
-  planned: "Planned",
-  scheduled: "Scheduled",
-  harvested: "Harvested",
-  delivered: "Delivered",
 };
 
 function isValidHarvestDateString(v: unknown): v is string {
@@ -58,9 +50,9 @@ function isValidHarvestDateString(v: unknown): v is string {
   return true;
 }
 
-function formatDateDisplay(value: string): string {
+function formatDateDisplay(value: string, locale: string): string {
   const date = new Date(`${value}T00:00:00`);
-  return date.toLocaleDateString("en-US", {
+  return date.toLocaleDateString(locale, {
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -142,17 +134,15 @@ function pickScheduleTime(raw: Record<string, unknown>): string {
     const match = text.match(/(\d{2}):(\d{2})/);
     if (match) return `${match[1]}:${match[2]}`;
   }
-  return "All day";
+  return "";
 }
 
 function normalizeHarvestType(raw: Record<string, unknown>): string {
-  return harvestTypeDisplayLabel(raw.harvest_type ?? raw.load_type ?? "") || "Harvest";
+  return harvestTypeDisplayLabel(raw.harvest_type ?? raw.load_type ?? "").trim();
 }
 
 function normalizeCrew(raw: Record<string, unknown>): string {
-  const value = String(raw.assigned_to ?? "").trim();
-  if (!value) return "Unassigned";
-  return value;
+  return String(raw.assigned_to ?? "").trim();
 }
 
 function isKgUom(uomRaw: string): boolean {
@@ -175,9 +165,10 @@ function normalizeScheduleEntry(raw: unknown): ScheduleEntry | null {
   return {
     id: String(id),
     date: pickScheduleDate(r),
-    project: String(r.project_name ?? "").trim() || `Harvest #${id}`,
+    project: String(r.project_name ?? "").trim(),
     farm: String(r.farm_name ?? "").trim(),
     zone: String(r.zone ?? "").trim(),
+    grassProductId: String(r.product_id ?? "").trim(),
     grassType: String(r.grass_name ?? "").trim(),
     harvestType: normalizeHarvestType(r),
     crew: normalizeCrew(r),
@@ -189,13 +180,41 @@ function normalizeScheduleEntry(raw: unknown): ScheduleEntry | null {
   };
 }
 
+function harvestStatusKey(status: ScheduleStatus): "harvestStatus_planned" | "harvestStatus_scheduled" | "harvestStatus_harvested" | "harvestStatus_delivered" {
+  switch (status) {
+    case "planned":
+      return "harvestStatus_planned";
+    case "scheduled":
+      return "harvestStatus_scheduled";
+    case "harvested":
+      return "harvestStatus_harvested";
+    case "delivered":
+      return "harvestStatus_delivered";
+    default:
+      return "harvestStatus_planned";
+  }
+}
+
 export default function HarvestSchedulePage() {
+  const locale = useLocale();
+  const t = useTranslations("HarvestSchedule");
+  const tHarvest = useTranslations("Harvest");
   const [range, setRange] = useState<RangePreset>("this-week");
   const [farmFilter, setFarmFilter] = useState("all");
   const [grassFilter, setGrassFilter] = useState("all");
   const [scheduleRows, setScheduleRows] = useState<ScheduleEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const grasses = useHarvestingDataStore((s) => s.grasses);
+  const fetchAllHarvestingReferenceData = useHarvestingDataStore(
+    (s) => s.fetchAllHarvestingReferenceData,
+  );
+
+  const loadErrorMessage = t("loadError");
+
+  useEffect(() => {
+    void fetchAllHarvestingReferenceData();
+  }, [fetchAllHarvestingReferenceData]);
 
   const { start, end } = useMemo(() => getRange(range), [range]);
 
@@ -234,7 +253,7 @@ export default function HarvestSchedulePage() {
         );
       } catch (loadError) {
         if (!alive) return;
-        setError(loadError instanceof Error ? loadError.message : "Failed to load harvest schedule.");
+        setError(loadError instanceof Error ? loadError.message : loadErrorMessage);
         setScheduleRows([]);
       } finally {
         if (alive) setLoading(false);
@@ -244,27 +263,57 @@ export default function HarvestSchedulePage() {
     return () => {
       alive = false;
     };
-  }, [start, end]);
+  }, [start, end, loadErrorMessage]);
 
   const farms = useMemo(
     () => Array.from(new Set(scheduleRows.map((x) => x.farm).filter(Boolean))).sort(),
     [scheduleRows],
   );
-  const grasses = useMemo(
-    () => Array.from(new Set(scheduleRows.map((x) => x.grassType).filter(Boolean))).sort(),
-    [scheduleRows],
-  );
+  const grassLabelByProductId = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const g of grasses) {
+      if (!g || typeof g !== "object") continue;
+      const rec = g as Record<string, unknown>;
+      const id = String(rec.id ?? "").trim();
+      if (!id) continue;
+      const label = String(rec.title ?? rec.name ?? "").trim();
+      if (label) m.set(id, label);
+    }
+    return m;
+  }, [grasses]);
+
+  const grassFilterOptions = useMemo(() => {
+    const picked = pickGrassCatalogRows({
+      catalog: grasses as unknown[],
+      mode: "all",
+      refYmds: [],
+      pinnedGrassIds: grassFilter !== "all" ? [grassFilter] : [],
+    });
+    return picked
+      .map((g) => {
+        if (!g || typeof g !== "object") return null;
+        const rec = g as Record<string, unknown>;
+        const id = String(rec.id ?? "").trim();
+        const label = String(rec.title ?? rec.name ?? "").trim() || id;
+        return id ? { id, label } : null;
+      })
+      .filter((x): x is { id: string; label: string } => x !== null)
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [grasses, grassFilter]);
 
   const filtered = useMemo(
     () =>
       scheduleRows
         .filter((entry) => {
           if (farmFilter !== "all" && entry.farm !== farmFilter) return false;
-          if (grassFilter !== "all" && entry.grassType !== grassFilter) return false;
-          return true;
+          if (grassFilter === "all") return true;
+          if (entry.grassProductId && entry.grassProductId === grassFilter) return true;
+          const want = grassLabelByProductId.get(grassFilter);
+          if (want && entry.grassType.trim() && entry.grassType.trim() === want.trim()) return true;
+          return false;
         })
         .sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime)),
-    [scheduleRows, farmFilter, grassFilter],
+    [scheduleRows, farmFilter, grassFilter, grassLabelByProductId],
   );
 
   const totalArea = filtered.reduce((sum, entry) => sum + entry.estimatedAreaM2, 0);
@@ -273,21 +322,34 @@ export default function HarvestSchedulePage() {
     0,
   );
 
+  const rangeLabel = (preset: RangePreset) => {
+    switch (preset) {
+      case "today":
+        return t("rangeToday");
+      case "this-week":
+        return t("rangeThisWeek");
+      case "next-week":
+        return t("rangeNextWeek");
+      case "next-month":
+        return t("rangeNextMonth");
+      default:
+        return preset;
+    }
+  };
+
   return (
     <RequireAuth>
       <DashboardLayout>
         <div className="min-h-full p-4 lg:p-8">
           <div className="mx-auto max-w-7xl space-y-6">
             <div className="flex flex-col gap-2">
-              <h1 className="text-2xl font-bold text-foreground">Harvest Schedule</h1>
-              <p className="text-sm text-muted-foreground">
-                Live harvesting data grouped by schedule range.
-              </p>
+              <h1 className="text-2xl font-bold text-foreground">{t("title")}</h1>
+              <p className="text-sm text-muted-foreground">{t("subtitle")}</p>
             </div>
 
             <div className="rounded-xl border border-border bg-card p-3">
               <div className="flex flex-wrap gap-2">
-                {(Object.keys(rangeLabels) as RangePreset[]).map((p) => (
+                {RANGE_PRESETS.map((p) => (
                   <button
                     key={p}
                     type="button"
@@ -298,7 +360,7 @@ export default function HarvestSchedulePage() {
                         : "bg-muted text-muted-foreground hover:bg-muted/80"
                     }`}
                   >
-                    {rangeLabels[p]}
+                    {rangeLabel(p)}
                   </button>
                 ))}
               </div>
@@ -310,7 +372,7 @@ export default function HarvestSchedulePage() {
                 onChange={(e) => setFarmFilter(e.target.value)}
                 className="h-10 rounded-md border border-input bg-background px-3 text-sm text-foreground"
               >
-                <option value="all">All farms</option>
+                <option value="all">{tHarvest("allFarms")}</option>
                 {farms.map((farm) => (
                   <option key={farm} value={farm}>
                     {farm}
@@ -322,10 +384,10 @@ export default function HarvestSchedulePage() {
                 onChange={(e) => setGrassFilter(e.target.value)}
                 className="h-10 rounded-md border border-input bg-background px-3 text-sm text-foreground"
               >
-                <option value="all">All grasses</option>
-                {grasses.map((grass) => (
-                  <option key={grass} value={grass}>
-                    {grass}
+                <option value="all">{t("allGrasses")}</option>
+                {grassFilterOptions.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.label}
                   </option>
                 ))}
               </select>
@@ -333,29 +395,29 @@ export default function HarvestSchedulePage() {
 
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
               <div className="rounded-xl border border-border bg-card p-4">
-                <p className="text-xs text-muted-foreground">Total Entries</p>
+                <p className="text-xs text-muted-foreground">{t("totalEntries")}</p>
                 <p className="text-2xl font-bold text-foreground">{filtered.length}</p>
               </div>
               <div className="rounded-xl border border-border bg-card p-4">
-                <p className="text-xs text-muted-foreground">Delivered</p>
+                <p className="text-xs text-muted-foreground">{t("kpiDeliveredCount")}</p>
                 <p className="text-2xl font-bold text-primary">
                   {filtered.filter((x) => x.status === "delivered").length}
                 </p>
               </div>
               <div className="rounded-xl border border-border bg-card p-4">
-                <p className="text-xs text-muted-foreground">Total KG</p>
-                <p className="text-2xl font-bold text-foreground">{totalKg.toLocaleString()}</p>
+                <p className="text-xs text-muted-foreground">{t("totalKg")}</p>
+                <p className="text-2xl font-bold text-foreground">{totalKg.toLocaleString(locale)}</p>
               </div>
               <div className="rounded-xl border border-border bg-card p-4">
-                <p className="text-xs text-muted-foreground">Total Area (m²)</p>
-                <p className="text-2xl font-bold text-foreground">{totalArea.toLocaleString()}</p>
+                <p className="text-xs text-muted-foreground">{t("totalAreaM2")}</p>
+                <p className="text-2xl font-bold text-foreground">{totalArea.toLocaleString(locale)}</p>
               </div>
             </div>
 
             <div className="space-y-3">
               {loading ? (
                 <div className="rounded-xl border border-border bg-card p-8 text-center text-sm text-muted-foreground">
-                  Loading harvest schedule...
+                  {t("loading")}
                 </div>
               ) : error ? (
                 <div className="rounded-xl border border-red-200 bg-red-50 p-8 text-center text-sm text-red-700">
@@ -363,7 +425,7 @@ export default function HarvestSchedulePage() {
                 </div>
               ) : filtered.length === 0 ? (
                 <div className="rounded-xl border border-border bg-card p-8 text-center text-sm text-muted-foreground">
-                  No harvest entries scheduled for this period.
+                  {t("empty")}
                 </div>
               ) : (
                 filtered.map((entry) => (
@@ -374,41 +436,44 @@ export default function HarvestSchedulePage() {
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <div className="space-y-1.5">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-semibold text-foreground">{entry.project}</span>
+                          <span className="font-semibold text-foreground">
+                            {entry.project || t("harvestNumber", { id: entry.id })}
+                          </span>
                           <span
                             className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusStyles[entry.status]}`}
                           >
-                            {statusLabels[entry.status]}
+                            {tHarvest(harvestStatusKey(entry.status))}
                           </span>
                         </div>
                         <div className="text-sm text-foreground">
-                          {entry.grassType || "Unknown grass"} • {entry.quantity.toLocaleString()}{" "}
-                          {entry.quantityUom} {entry.harvestType}
+                          {entry.grassType || t("unknownGrass")} • {entry.quantity.toLocaleString(locale)}{" "}
+                          {entry.quantityUom}{" "}
+                          {entry.harvestType || t("defaultHarvestType")}
                         </div>
                         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                           <span className="inline-flex items-center gap-1">
                             <Calendar className="h-3.5 w-3.5" />
-                            {formatDateDisplay(entry.date)}
+                            {entry.date ? formatDateDisplay(entry.date, locale) : ""}
                           </span>
                           <span className="inline-flex items-center gap-1">
                             <MapPin className="h-3.5 w-3.5" />
-                            {entry.farm} - Zone {entry.zone}
+                            {t("farmZone", { farm: entry.farm, zone: entry.zone })}
                           </span>
                           <span className="inline-flex items-center gap-1">
                             <Clock className="h-3.5 w-3.5" />
-                            {entry.startTime}
+                            {entry.startTime || t("allDay")}
                           </span>
                           <span className="inline-flex items-center gap-1">
                             <Users className="h-3.5 w-3.5" />
-                            {entry.crew}
+                            {entry.crew || t("unassigned")}
                           </span>
                         </div>
                       </div>
                       <div className="text-right">
                         <p className="text-lg font-bold text-foreground">
-                          {entry.estimatedAreaM2.toLocaleString()} m²
+                          {entry.estimatedAreaM2.toLocaleString(locale)} m²
                         </p>
-                        <p className="text-xs text-muted-foreground">harvest area</p>
+                        <p className="text-xs text-muted-foreground">{t("harvestArea")}</p>
                       </div>
                     </div>
                   </div>

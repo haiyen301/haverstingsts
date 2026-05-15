@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { AlignLeft, ArrowDown, FolderOpen, Loader2, Plus, Search, Upload } from "lucide-react";
 
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
@@ -25,6 +26,10 @@ import { parseJsonMaybe } from "@/shared/lib/parseJsonMaybe";
 import { resolveStaffAvatarImageUrl } from "@/features/project/lib/staffAvatarUrl";
 import { cn } from "@/lib/utils";
 import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
+import {
+  mapRowsToSelectOptions,
+  pickGrassCatalogRows,
+} from "@/shared/lib/harvestReferenceData";
 
 function parseCsvParam(v: string | null): string[] {
   return String(v ?? "")
@@ -130,6 +135,7 @@ function mergeMondayRowsUnique(
 }
 
 export default function ProjectListPage() {
+  const t = useTranslations("Projects");
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -163,6 +169,7 @@ export default function ProjectListPage() {
   const farmsRef = useHarvestingDataStore((s) => s.farms);
   const staffsRef = useHarvestingDataStore((s) => s.staffs);
   const productsRef = useHarvestingDataStore((s) => s.products);
+  const grassesRef = useHarvestingDataStore((s) => s.grasses);
   const fetchAllHarvestingReferenceData = useHarvestingDataStore(
     (s) => s.fetchAllHarvestingReferenceData,
   );
@@ -297,7 +304,7 @@ export default function ProjectListPage() {
       } catch (e) {
         if (cancelled) return;
         setRows([]);
-        setError(e instanceof Error ? e.message : "Failed to load projects.");
+        setError(e instanceof Error ? e.message : t("loadError"));
         setHasMore(false);
       } finally {
         if (!cancelled) setLoading(false);
@@ -532,15 +539,17 @@ export default function ProjectListPage() {
   }, [countriesRef]);
 
   const grassOptions = useMemo(() => {
-    const list = toRecArray(productsRef)
-      .map((r) => ({
-        id: String(r.id ?? "").trim(),
-        name: String(r.name ?? r.title ?? "").trim(),
-      }))
-      .filter((x) => x.id && x.name);
-    list.sort((a, b) => a.name.localeCompare(b.name));
-    return list;
-  }, [productsRef]);
+    const rows = pickGrassCatalogRows({
+      catalog: grassesRef as unknown[],
+      mode: "all",
+      refYmds: [],
+      pinnedGrassIds: grassFilterIds,
+    });
+    return mapRowsToSelectOptions(rows as unknown[], "title").map((o) => ({
+      id: o.id,
+      name: o.label,
+    }));
+  }, [grassesRef, grassFilterIds]);
 
   const farmOptions = useMemo(() => {
     const list = toRecArray(farmsRef)
@@ -553,10 +562,11 @@ export default function ProjectListPage() {
     return list;
   }, [farmsRef]);
 
-  const projectCountLabel =
-    projects.length >= 100
-      ? `${formatNumber(projects.length)}+ projects found`
-      : `${formatNumber(projects.length)} project${projects.length !== 1 ? "s" : ""} found`;
+  const projectCountLabel = useMemo(() => {
+    const n = projects.length;
+    if (n >= 100) return t("projectsFoundPlus", { count: formatNumber(n) });
+    return t("projectsFound", { count: n });
+  }, [projects.length, t]);
 
   const filterTriggerIcon = (
     <>
@@ -576,13 +586,13 @@ export default function ProjectListPage() {
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div>
               <h1 className="text-2xl font-heading font-bold text-foreground">
-                Projects
+                {t("title")}
               </h1>
               <p className="flex items-center gap-2 text-sm text-muted-foreground">
                 {loading ? (
                   <>
                     <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" />
-                    <span>Loading projects…</span>
+                    <span>{t("loading")}</span>
                   </>
                 ) : (
                   projectCountLabel
@@ -597,7 +607,7 @@ export default function ProjectListPage() {
                   type="button"
                 >
                   <Upload className="h-4 w-4 shrink-0" />
-                  Import Excel
+                  {t("importExcel")}
                 </button>
               ) : null}
               {canCreateProjects ? (
@@ -611,7 +621,7 @@ export default function ProjectListPage() {
                   type="button"
                 >
                   <Plus className="h-4 w-4 shrink-0" />
-                  New Project
+                  {t("newProject")}
                 </button>
               ) : null}
             </div>
@@ -623,7 +633,7 @@ export default function ProjectListPage() {
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <input
                 type="search"
-                placeholder="Search projects…"
+                placeholder={t("searchPlaceholder")}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className={cn(
@@ -637,7 +647,7 @@ export default function ProjectListPage() {
               options={countryOptions.map((c) => ({ value: c.id, label: c.name }))}
               values={countryFilterIds}
               onChange={setCountryFilterIds}
-              placeholder="All countries"
+              placeholder={t("allCountries")}
               className={cn(multiSelectBaseClass, bgSurfaceFilter(countryFilterIds.length > 0))}
               rightIcon={filterTriggerIcon}
             />
@@ -645,7 +655,7 @@ export default function ProjectListPage() {
               options={farmOptions.map((f) => ({ value: f.id, label: f.name }))}
               values={farmFilterIds}
               onChange={setSelectedFarmIds}
-              placeholder="All farms"
+              placeholder={t("allFarms")}
               className={cn(multiSelectBaseClass, bgSurfaceFilter(farmFilterIds.length > 0))}
               rightIcon={filterTriggerIcon}
             />
@@ -653,20 +663,20 @@ export default function ProjectListPage() {
               options={grassOptions.map((g) => ({ value: g.id, label: g.name }))}
               values={grassFilterIds}
               onChange={setGrassFilterIds}
-              placeholder="All grasses"
+              placeholder={t("allGrass")}
               className={cn(multiSelectBaseClass, bgSurfaceFilter(grassFilterIds.length > 0))}
               rightIcon={filterTriggerIcon}
             />
             <MultiSelect
               options={[
-                { value: "Ongoing", label: "Ongoing" },
-                { value: "Future", label: "Future" },
-                { value: "Done", label: "Done" },
-                { value: "Warning", label: "Warning" },
+                { value: "Ongoing", label: t("statusOngoing") },
+                { value: "Future", label: t("statusFuture") },
+                { value: "Done", label: t("statusDone") },
+                { value: "Warning", label: t("statusWarning") },
               ]}
               values={statusFilterValues}
               onChange={setStatusFilterValues}
-              placeholder="All statuses"
+              placeholder={t("allStatuses")}
               className={cn(multiSelectBaseClass, bgSurfaceFilter(statusFilterValues.length > 0))}
               rightIcon={filterTriggerIcon}
             />
@@ -680,10 +690,8 @@ export default function ProjectListPage() {
             <div className="rounded-lg border border-border bg-background text-card-foreground shadow-sm">
               <div className="flex flex-col items-center justify-center py-16 text-muted-foreground px-4">
                 <FolderOpen className="mb-3 h-12 w-12 opacity-40" />
-                <p className="font-medium text-foreground">No projects found</p>
-                <p className="mt-1 text-center text-sm">
-                  Try adjusting your filters or add a new project.
-                </p>
+                <p className="font-medium text-foreground">{t("empty")}</p>
+                <p className="mt-1 text-center text-sm">{t("emptyHint")}</p>
               </div>
             </div>
           ) : (
@@ -726,7 +734,7 @@ export default function ProjectListPage() {
               {loadingMore ? (
                 <div className="flex items-center justify-center gap-2 rounded-md border border-border bg-background px-4 py-2 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                  <span>Loading more projects…</span>
+                  <span>{t("loadingMore")}</span>
                 </div>
               ) : null}
             </div>

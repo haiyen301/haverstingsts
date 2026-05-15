@@ -792,7 +792,7 @@ export default function AdminRegrowthPage() {
     } finally {
       setAutoSaving(false);
     }
-  }, [loadAutoRows, selectedAutoRow]);
+  }, [loadAutoRows, selectedAutoRow, t]);
 
   const calculateSelectedAutoConfig = useCallback(async () => {
     if (!selectedAutoRow) return;
@@ -808,7 +808,11 @@ export default function AdminRegrowthPage() {
       await loadAutoRows(selectedAutoRow.id);
       setNotice({
         variant: "ok",
-        text: `Calculated ${selectedAutoRow.farmName} ${selectedAutoRow.turfgrass} Zone ${selectedAutoRow.zone}.`,
+        text: t("notices.calculateAutoDone", {
+          farm: selectedAutoRow.farmName,
+          grass: selectedAutoRow.turfgrass,
+          zone: selectedAutoRow.zone,
+        }),
       });
     } catch (e) {
       setNotice({
@@ -818,7 +822,7 @@ export default function AdminRegrowthPage() {
     } finally {
       setAutoSaving(false);
     }
-  }, [loadAutoRows, selectedAutoRow]);
+  }, [loadAutoRows, selectedAutoRow, t]);
 
   const runDailyAutoConfig = useCallback(async () => {
     setAutoSaving(true);
@@ -1750,7 +1754,7 @@ export default function AdminRegrowthPage() {
 	                    <div className="space-y-2">
 	                      <FieldLabel
 	                      label={t("auto.zone")}
-	                        help="Auto regrowth is saved per zone because recovery and yield depend on farm, grass type, zone capacity and local management conditions."
+	                        help={t("auto.zoneSelectHelp")}
 	                      />
 	                      <select
 	                        className={inputClass}
@@ -1759,7 +1763,11 @@ export default function AdminRegrowthPage() {
 	                      >
 	                        {autoRows.map((row) => (
 	                          <option key={row.id} value={row.id}>
-	                            {row.farmName} · {row.turfgrass} · Zone {row.zone}
+	                            {t("auto.zoneOptionLine", {
+	                              farm: row.farmName,
+	                              grass: row.turfgrass,
+	                              zone: row.zone,
+	                            })}
 	                          </option>
 	                        ))}
 	                      </select>

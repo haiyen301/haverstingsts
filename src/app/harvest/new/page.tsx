@@ -74,6 +74,15 @@ const DOC_PHOTO_SLOTS: HarvestDocPhotoField[] = [
 /** Backend validates `tableId` for both parent/sub delete, even though sub-delete only uses `rowId`. */
 const SUB_DELETE_TABLE_ID_FALLBACK = "subitem";
 
+function withRefreshQueryParam(target: string, key = "refresh"): string {
+  const [pathAndQuery, hash = ""] = target.split("#", 2);
+  const [pathname, query = ""] = pathAndQuery.split("?", 2);
+  const params = new URLSearchParams(query);
+  params.set(key, String(Date.now()));
+  const nextQuery = params.toString();
+  return `${pathname}${nextQuery ? `?${nextQuery}` : ""}${hash ? `#${hash}` : ""}`;
+}
+
 const SHIPPING_NOTE_SPLIT = "\n\n--- Shipping / dispatch ---\n\n";
 
 const emptyForm = {
@@ -1113,7 +1122,8 @@ function HarvestInputPageInner() {
         type: "sub",
       });
       setConfirmDeleteOpen(false);
-      router.push(returnTarget);
+      // After delete, never send the user back to detail — the row no longer exists.
+      router.push(withRefreshQueryParam("/harvest"));
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : "Delete harvest failed.");
     } finally {
@@ -1556,8 +1566,6 @@ function HarvestInputPageInner() {
     "w-full min-h-10 rounded-md border border-input bg-card px-3 py-2 text-sm text-foreground shadow-sm placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60";
   const harvestLabelClass =
     "mb-1.5 block text-xs font-medium text-muted-foreground";
-  const zoneHelpTooltip =
-    "Zone is used for forecasting and inventory calculations. You should enter it, but it is optional by default.";
 
   return (
     <RequireAuth>
@@ -1827,7 +1835,7 @@ function HarvestInputPageInner() {
                           <span
                             className="peer inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-input text-[10px] font-semibold text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground focus:border-foreground/30 focus:text-foreground"
                             tabIndex={0}
-                            aria-label={zoneHelpTooltip}
+                            aria-label={t("zoneFieldHelpTooltip")}
                           >
                             ?
                           </span>
@@ -1842,7 +1850,7 @@ function HarvestInputPageInner() {
                             role="tooltip"
                             className="pointer-events-none absolute left-0 top-full z-20 mt-2 hidden w-full max-w-[300px] rounded-md border border-border bg-card px-3 py-2 text-left text-[11px] font-normal leading-relaxed text-card-foreground shadow-lg peer-hover:block peer-focus:block"
                           >
-                            {zoneHelpTooltip}
+                            {t("zoneFieldHelpTooltip")}
                           </span>
                         </div>
                         <select

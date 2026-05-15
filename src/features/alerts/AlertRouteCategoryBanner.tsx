@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { useTranslations } from "next-intl";
 
 import { fetchAlertFeedConfig, resolveCategoryTypeForRoute } from "@/features/alerts/alertFeedConfigApi";
 import type { AlertRouteKey } from "@/features/alerts/alertFeedConfigTypes";
@@ -9,6 +10,7 @@ import type { AlertRouteKey } from "@/features/alerts/alertFeedConfigTypes";
 type LoadState = "idle" | "loading" | "done";
 
 export function AlertRouteCategoryBanner({ routeKey }: { routeKey: AlertRouteKey }) {
+  const t = useTranslations("AlertRouteBanner");
   const [state, setState] = useState<LoadState>("loading");
   const [categoryTitle, setCategoryTitle] = useState<string | null>(null);
 
@@ -47,17 +49,17 @@ export function AlertRouteCategoryBanner({ routeKey }: { routeKey: AlertRouteKey
     <div className="mb-4 rounded-lg border border-dashed border-border bg-muted/25 px-3 py-2 text-xs text-muted-foreground">
       {hasMapping ? (
         <>
-          <span className="font-medium text-foreground">Alert feed category:</span> {categoryTitle}
+          <span className="font-medium text-foreground">{t("mappedLabel")}</span> {categoryTitle}
           <span className="mx-1 text-muted-foreground">·</span>
           <Link href="/admin/people/alerts" className="text-primary underline">
-            Alert settings
+            {t("alertSettingsLink")}
           </Link>
         </>
       ) : (
         <>
-          No alert category mapped for this screen. Set it under{" "}
+          {t("noMapPrefix")}{" "}
           <Link href="/admin/people/alerts" className="font-medium text-primary underline">
-            User Management → Alert settings
+            {t("noMapLink")}
           </Link>
           .
         </>

@@ -464,7 +464,7 @@ export function DashboardLayout({ children, hideAppNav = false }: DashboardLayou
           <div
             className={cn(
               "shrink-0 border-b border-sidebar-border",
-              sidebarCollapsed ? "px-2 py-4" : "px-4 py-5",
+              sidebarCollapsed ? "px-2 py-4" : "pl-4 pr-0 py-5",
             )}
           >
             {!sidebarCollapsed ? (
@@ -840,7 +840,7 @@ export function DashboardLayout({ children, hideAppNav = false }: DashboardLayou
               <div className="hidden text-xs font-medium text-gray-500 sm:block">
                 {longDate}
               </div>
-              <ThemeToggle />
+              {/* <ThemeToggle /> */}
             </div>
           </header>
         ) : null}

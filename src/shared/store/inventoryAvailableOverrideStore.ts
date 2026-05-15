@@ -7,6 +7,12 @@ import {
   type InventoryBalanceRow,
 } from "@/features/admin/api/adminApi";
 
+/** Stable map key for one `sts_inventory_balance` row (zone + balance_date). */
+export function inventoryBalanceOverrideStorageKey(zoneKey: string, balanceDateYmd: string): string {
+  const ymd = String(balanceDateYmd ?? "").trim().slice(0, 10);
+  return `${zoneKey}|${ymd}`;
+}
+
 export type InventoryAvailableOverrideEntry = {
   id: number;
   zoneKey: string;
@@ -29,6 +35,7 @@ export type InventoryAvailableOverrideEntry = {
 };
 
 type InventoryAvailableOverrideState = {
+  /** Keys: `inventoryBalanceOverrideStorageKey(zoneKey, balance_date)`. */
   overridesByZone: Record<string, InventoryAvailableOverrideEntry>;
   loading: boolean;
   loaded: boolean;
@@ -43,7 +50,23 @@ function zoneKeyFromParts(farmId: number, zone: string, grassId: number): string
   return `${farmId}|${String(zone ?? "").trim().toLowerCase()}|${grassId}`;
 }
 
+/** Normalize API `balance_date` (date, datetime, ISO) to `yyyy-mm-dd` for keys and UI. */
+export function normalizeInventoryBalanceDateYmd(raw: string | null | undefined): string {
+  const s = String(raw ?? "").trim();
+  if (!s) return "";
+  const head = s.slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(head)) return head;
+  const t = Date.parse(s);
+  if (Number.isNaN(t)) return head;
+  const d = new Date(t);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 function mapRowToEntry(row: InventoryBalanceRow): InventoryAvailableOverrideEntry {
+  const dateYmd = normalizeInventoryBalanceDateYmd(row.balance_date);
   return {
     id: Number(row.id) || 0,
     zoneKey: zoneKeyFromParts(Number(row.farm_id) || 0, String(row.zone ?? ""), Number(row.grass_id) || 0),
@@ -61,7 +84,7 @@ function mapRowToEntry(row: InventoryBalanceRow): InventoryAvailableOverrideEntr
       row.calculated_kg == null || row.calculated_kg === ""
         ? 0
         : Number(row.calculated_kg) || 0,
-    date: String(row.balance_date ?? "").trim(),
+    date: dateYmd,
     updatedAt: String(row.updated_at ?? row.created_at ?? "").trim(),
   };
 }
@@ -70,8 +93,8 @@ function mapRowsToState(rows: InventoryBalanceRow[]): Record<string, InventoryAv
   const next: Record<string, InventoryAvailableOverrideEntry> = {};
   for (const row of rows) {
     const entry = mapRowToEntry(row);
-    if (!entry.zoneKey) continue;
-    next[entry.zoneKey] = entry;
+    if (!entry.zoneKey || !entry.date) continue;
+    next[inventoryBalanceOverrideStorageKey(entry.zoneKey, entry.date)] = entry;
   }
   return next;
 }
@@ -117,15 +140,20 @@ export const useInventoryAvailableOverrideStore = create<InventoryAvailableOverr
           }),
         ),
       );
-      set((state) => ({
-        overridesByZone: {
-          ...state.overridesByZone,
-          ...mapRowsToState(savedRows),
-        },
-        loading: false,
-        loaded: true,
-        error: null,
-      }));
+      set((state) => {
+        const merged = { ...state.overridesByZone };
+        for (const row of savedRows) {
+          const entry = mapRowToEntry(row);
+          if (!entry.zoneKey || !entry.date) continue;
+          merged[inventoryBalanceOverrideStorageKey(entry.zoneKey, entry.date)] = entry;
+        }
+        return {
+          overridesByZone: merged,
+          loading: false,
+          loaded: true,
+          error: null,
+        };
+      });
     } catch (error) {
       set({
         loading: false,
@@ -141,7 +169,7 @@ export const useInventoryAvailableOverrideStore = create<InventoryAvailableOverr
       await removeInventoryBalance(entry.id);
       set((state) => {
         const next = { ...state.overridesByZone };
-        delete next[entry.zoneKey];
+        delete next[inventoryBalanceOverrideStorageKey(entry.zoneKey, entry.date)];
         return {
           overridesByZone: next,
           loading: false,

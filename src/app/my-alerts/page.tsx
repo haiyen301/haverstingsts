@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useLocale, useTranslations } from "next-intl";
 import {
   Bell,
   CalendarDays,
@@ -27,6 +28,11 @@ import {
 import { fetchAlertFeedConfig } from "@/features/alerts/alertFeedConfigApi";
 import type { AlertFeedCategory } from "@/features/alerts/alertFeedConfigTypes";
 import { DEFAULT_ALERT_FEED_CONFIG } from "@/features/alerts/alertFeedConfigDefaults";
+import {
+  localizeAlertMessageForDisplay,
+  localizeAlertTitleForDisplay,
+  localizedFeedCategoryCopy,
+} from "@/features/alerts/localizeStoredAlertText";
 import { cn } from "@/lib/utils";
 import { formatDateDisplayDmy } from "@/shared/lib/format/date";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
@@ -66,28 +72,14 @@ function alertTimestamp(input: string): number {
   return parseAlertDate(input)?.getTime() ?? 0;
 }
 
-function formatFeedTime(iso: string): string {
+function formatFeedTime(iso: string, locale: string): string {
   const d = parseAlertDate(iso);
   if (!d) return "";
-  const timePart = new Intl.DateTimeFormat(undefined, {
+  const timePart = new Intl.DateTimeFormat(locale, {
     hour: "2-digit",
     minute: "2-digit",
   }).format(d);
   return `${timePart} ${formatDateDisplayDmy(d)}`;
-}
-
-function relativeShort(iso: string): string {
-  const ts = alertTimestamp(iso);
-  if (!ts) return "";
-  const diffMs = Date.now() - ts;
-  const mins = Math.max(0, Math.round(diffMs / 60000));
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m`;
-  const hours = Math.round(mins / 60);
-  if (hours < 24) return `${hours}h`;
-  const days = Math.round(hours / 24);
-  if (days < 7) return `${days}d`;
-  return formatFeedTime(iso);
 }
 
 function galleryFor(alert: AlertFeedItem): string[] {
@@ -109,11 +101,42 @@ function thumbFor(alert: AlertFeedItem): string {
 
 export default function MyAlertsPage() {
   const router = useRouter();
+  const t = useTranslations("MyAlerts");
+  const tHarvest = useTranslations("HarvestForm");
+  const tProject = useTranslations("ProjectForm");
+  const locale = useLocale();
   const [categories, setCategories] = useState<AlertFeedCategory[]>(DEFAULT_ALERT_FEED_CONFIG.categories);
   const [alerts, setAlerts] = useState<AlertFeedItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedAlert, setSelectedAlert] = useState<AlertFeedItem | null>(null);
+
+  const relativeLabel = useCallback(
+    (iso: string): string => {
+      const ts = alertTimestamp(iso);
+      if (!ts) return "";
+      const diffMs = Date.now() - ts;
+      const mins = Math.max(0, Math.round(diffMs / 60000));
+      if (mins < 1) return t("relativeJustNow");
+      if (mins < 60) return t("relativeMinutes", { count: mins });
+      const hours = Math.round(mins / 60);
+      if (hours < 24) return t("relativeHours", { count: hours });
+      const days = Math.round(hours / 24);
+      if (days < 7) return t("relativeDays", { count: days });
+      return formatFeedTime(iso, locale);
+    },
+    [locale, t],
+  );
+
+  const alertTitleDisplay = useCallback(
+    (title: string) => localizeAlertTitleForDisplay(title, tHarvest, tProject),
+    [tHarvest, tProject],
+  );
+
+  const alertMessageDisplay = useCallback(
+    (message: string) => localizeAlertMessageForDisplay(message, tProject),
+    [tProject],
+  );
 
   useEffect(() => {
     void (async () => {
@@ -128,22 +151,22 @@ export default function MyAlertsPage() {
     })();
   }, []);
 
-  const loadAlerts = async (): Promise<void> => {
+  const loadAlerts = useCallback(async (): Promise<void> => {
     try {
       setLoading(true);
       setError(null);
       const data = await fetchMyAlerts({ limit: 200 });
       setAlerts(data);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load alerts.");
+      setError(e instanceof Error ? e.message : t("loadError"));
     } finally {
       setLoading(false);
     }
-  };
+  }, [t]);
 
   useEffect(() => {
     void loadAlerts();
-  }, []);
+  }, [loadAlerts]);
 
   useEffect(() => {
     setSelectedAlert((prev) => {
@@ -222,12 +245,10 @@ export default function MyAlertsPage() {
             <div>
               <h1 className="flex items-center gap-2 text-2xl font-bold text-foreground">
                 <Bell className="h-6 w-6 text-primary" />
-                My Alerts
+                {t("title")}
               </h1>
               <p className="mt-1 text-sm text-muted-foreground">
-                {unreadCount > 0
-                  ? `You have ${unreadCount} unread ${unreadCount === 1 ? "alert" : "alerts"}.`
-                  : "You're all caught up."}
+                {unreadCount > 0 ? t("unreadSummary", { count: unreadCount }) : t("allCaughtUp")}
               </p>
             </div>
             {unreadCount > 0 ? (
@@ -237,18 +258,18 @@ export default function MyAlertsPage() {
                 className="inline-flex items-center justify-center gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground"
               >
                 <Check className="h-4 w-4" />
-                Mark all as read
+                {t("markAllRead")}
               </button>
             ) : null}
           </div>
-          {loading ? <p className="text-sm text-muted-foreground">Loading alerts...</p> : null}
+          {loading ? <p className="text-sm text-muted-foreground">{t("loading")}</p> : null}
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
           <div className="space-y-6">
             {!loading && !error && groupedWithAlerts.length === 0 && orphanAlerts.length === 0 ? (
               <Card>
                 <CardContent className="p-6 text-center text-sm text-muted-foreground">
-                  No alerts to show yet.
+                  {t("empty")}
                 </CardContent>
               </Card>
             ) : null}
@@ -256,6 +277,12 @@ export default function MyAlertsPage() {
             {groupedWithAlerts.map((section) => {
               const Icon = section.Icon;
               const unread = unreadByType[section.id] ?? 0;
+              const { title: sectionTitle, description: sectionDesc } = localizedFeedCategoryCopy(
+                section.id,
+                section.title,
+                section.description,
+                t,
+              );
               return (
                 <section key={section.id} className="space-y-3">
                   <div className="flex items-center justify-between gap-3">
@@ -265,12 +292,12 @@ export default function MyAlertsPage() {
                       </div>
                       <div>
                         <h2 className="flex items-center gap-2 font-semibold text-foreground">
-                          {section.title}
+                          {sectionTitle}
                           {unread > 0 ? (
-                            <Badge className="h-5 px-1.5 text-[10px]">{unread} new</Badge>
+                            <Badge className="h-5 px-1.5 text-[10px]">{t("newBadge", { count: unread })}</Badge>
                           ) : null}
                         </h2>
-                        <p className="text-xs text-muted-foreground">{section.description}</p>
+                        <p className="text-xs text-muted-foreground">{sectionDesc}</p>
                       </div>
                     </div>
                     {unread > 0 ? (
@@ -279,7 +306,7 @@ export default function MyAlertsPage() {
                         onClick={() => markTypeRead(section.id)}
                         className="rounded-md px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
                       >
-                        Mark read
+                        {t("markRead")}
                       </button>
                     ) : null}
                   </div>
@@ -318,17 +345,17 @@ export default function MyAlertsPage() {
                               <div className="min-w-0 flex-1">
                                 <div className="flex flex-wrap items-start gap-2">
                                   {!alert.read ? (
-                                    <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-primary" aria-label="unread" />
+                                    <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-primary" aria-label={t("unreadAria")} />
                                   ) : null}
                                   <p className="min-w-0 flex-1 text-sm font-semibold uppercase leading-snug tracking-tight text-foreground">
-                                    {alert.title}
+                                    {alertTitleDisplay(alert.title)}
                                   </p>
                                   <span className="shrink-0 text-[11px] text-muted-foreground">
-                                    {relativeShort(alert.createdAt)}
+                                    {relativeLabel(alert.createdAt)}
                                   </span>
                                 </div>
                                 <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground">
-                                  {alert.message}
+                                  {alertMessageDisplay(alert.message)}
                                 </p>
                                 {gallery.length > 0 ? (
                                   <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
@@ -343,13 +370,13 @@ export default function MyAlertsPage() {
                                   </div>
                                 ) : null}
                                 <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground">
-                                  <span>{formatFeedTime(alert.createdAt)}</span>
+                                  <span>{formatFeedTime(alert.createdAt, locale)}</span>
                                   {alert.pushMobile ? (
                                     <Badge
                                       variant="secondary"
                                       className="text-[10px] text-[hsl(150_35%_16%)]!"
                                     >
-                                      Mobile
+                                      {t("channelMobile")}
                                     </Badge>
                                   ) : null}
                                   {alert.pushWeb ? (
@@ -357,7 +384,7 @@ export default function MyAlertsPage() {
                                       variant="secondary"
                                       className="text-[10px] text-[hsl(150_35%_16%)]!"
                                     >
-                                      Web
+                                      {t("channelWeb")}
                                     </Badge>
                                   ) : null}
                                   {alert.pushEmail ? (
@@ -365,7 +392,7 @@ export default function MyAlertsPage() {
                                       variant="secondary"
                                       className="text-[10px] text-[hsl(150_35%_16%)]!"
                                     >
-                                      Email
+                                      {t("channelEmail")}
                                     </Badge>
                                   ) : null}
                                 </div>
@@ -390,8 +417,8 @@ export default function MyAlertsPage() {
                     <Bell className="h-4 w-4 text-foreground" />
                   </div>
                   <div>
-                    <h2 className="font-semibold text-foreground">Other</h2>
-                    <p className="text-xs text-muted-foreground">Alerts whose category is not in your feed layout.</p>
+                    <h2 className="font-semibold text-foreground">{t("otherTitle")}</h2>
+                    <p className="text-xs text-muted-foreground">{t("otherDescription")}</p>
                   </div>
                 </div>
                 <div className="space-y-2">
@@ -402,7 +429,7 @@ export default function MyAlertsPage() {
                       onClick={() => void openAlert(alert)}
                     >
                       <CardContent className="p-4">
-                        <p className="text-sm font-medium">{alert.title}</p>
+                        <p className="text-sm font-medium">{alertTitleDisplay(alert.title)}</p>
                         <p className="text-xs text-muted-foreground">{alert.type}</p>
                       </CardContent>
                     </Card>
@@ -416,13 +443,13 @@ export default function MyAlertsPage() {
             <Card>
               <CardContent className="space-y-3 p-4">
                 <div className="flex items-center justify-between gap-3">
-                  <h3 className="text-base font-semibold">Alert Detail</h3>
+                  <h3 className="text-base font-semibold">{t("alertDetail")}</h3>
                   <button
                     type="button"
                     className="text-sm text-muted-foreground underline"
                     onClick={() => setSelectedAlert(null)}
                   >
-                    Close
+                    {t("close")}
                   </button>
                 </div>
                 <div className="flex gap-3">
@@ -434,11 +461,11 @@ export default function MyAlertsPage() {
                     />
                   ) : null}
                   <div>
-                    <p className="text-sm font-semibold uppercase tracking-tight">{selectedAlert.title}</p>
-                    <p className="text-xs text-muted-foreground">{formatFeedTime(selectedAlert.createdAt)}</p>
+                    <p className="text-sm font-semibold uppercase tracking-tight">{alertTitleDisplay(selectedAlert.title)}</p>
+                    <p className="text-xs text-muted-foreground">{formatFeedTime(selectedAlert.createdAt, locale)}</p>
                   </div>
                 </div>
-                <p className="whitespace-pre-wrap text-sm text-muted-foreground">{selectedAlert.message}</p>
+                <p className="whitespace-pre-wrap text-sm text-muted-foreground">{alertMessageDisplay(selectedAlert.message)}</p>
                 {galleryFor(selectedAlert).length > 0 ? (
                   <div className="flex flex-wrap gap-2">
                     {galleryFor(selectedAlert).map((url) => (

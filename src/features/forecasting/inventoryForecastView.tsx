@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { AlignLeft, ArrowDown } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AlignLeft, ArrowDown, HelpCircle } from "lucide-react";
 import { useTranslations } from "next-intl";
+import type { TranslationValues } from "use-intl";
+import { usePathname } from "next/navigation";
 import {
   AreaChart,
   Area,
@@ -15,6 +17,8 @@ import {
   ReferenceDot,
 } from "recharts";
 
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+
 import {
   fetchHarvestRowsForForecasting,
   rowsToMockHarvestRows,
@@ -26,14 +30,31 @@ import {
   type RegrowthReferenceConfig,
 } from "@/features/forecasting/forecastingRegrowth";
 import {
+  buildZoneConfigurationCapacityMap,
   computeCappedAvailableByZoneAtDate,
   computeZoneCapacityMap,
+  forecastLogicalPlanRowId,
   forecastZoneKeyFromRow,
   getRegrowthDateFromHarvest,
+  mergeZoneCapacityMaps,
+  sumConfiguredZoneCapKgForFarmProduct,
 } from "@/features/forecasting/inventoryRegrowthCalculator";
 import { applyInventoryAvailableOverridesToZoneMap } from "@/features/forecasting/inventoryAvailableOverrides";
-import { fetchRegrowthRules, fetchZoneConfigurations } from "@/features/admin/api/adminApi";
-import { zoneIdToLabel } from "@/shared/lib/harvestReferenceData";
+import {
+  applyLatestZoneMaxKgToForecastRows,
+  FORECAST_NOZONE_ZONE,
+  kgPerM2ByNormalizedZoneForFarmProduct,
+} from "@/features/forecasting/forecastingInventoryConversion";
+import {
+  computeRegrowthAllocationForFarmProductDate,
+  type ZoneRegrowthBreakdown,
+} from "@/features/forecasting/regrowthAllocation";
+import {
+  fetchRegrowthRules,
+  fetchZoneConfigurations,
+  type ZoneConfigurationRow,
+} from "@/features/admin/api/adminApi";
+import { pickGrassCatalogRows, zoneIdToLabelResolved } from "@/shared/lib/harvestReferenceData";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { useInventoryAvailableOverrideStore } from "@/shared/store/inventoryAvailableOverrideStore";
 import { MultiSelect } from "@/shared/ui/multi-select";
@@ -69,6 +90,40 @@ function seriesOverrideCountKey(key: string): string {
 
 const DEBUG_UPCOMING_FILTER = false;
 const DEBUG_REGROWTH_EVENTS = false;
+
+function mergeHarvestTypeLabels(a: string, b: string): string {
+  const parts = [...a.split(" · "), ...b.split(" · ")]
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return [...new Set(parts)].join(" · ");
+}
+
+/** Farm label when the row has no farm name (parallel to no-zone for missing zone). */
+function forecastDisplayFarmName(farm: string, emptyLabel: string): string {
+  const s = String(farm ?? "").trim();
+  return s || emptyLabel;
+}
+
+function regrowthZoneLineVisible(z: ZoneRegrowthBreakdown): boolean {
+  return z.creditedTotalKg + z.zoneOverflowKg + z.nozoneFillKg + z.grossZonedKg > 0;
+}
+
+function regrowthZoneTooltipVisible(z: ZoneRegrowthBreakdown): boolean {
+  return z.capKg > 0 || regrowthZoneLineVisible(z);
+}
+
+function zoneDisplayForRegrowthTooltip(
+  rawLabel: string,
+  zoneLabelFn: (id: string) => string,
+  t: (key: string, values?: TranslationValues) => string,
+): string {
+  const s = String(rawLabel ?? "").trim();
+  const low = s.toLowerCase().replace(/_/g, "-").replace(/\s+/g, " ");
+  if (!s || low === FORECAST_NOZONE_ZONE || low === "no-zone" || low === "no zone") {
+    return t("events.noZoneName");
+  }
+  return zoneLabelFn(s);
+}
 
 const GRASS_SERIES_PALETTE = [
   "hsl(152, 55%, 36%)",
@@ -165,6 +220,420 @@ function ymdFromDate(date: Date): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+/** Normalize harvest / breakdown zone label for tooltip source map keys. */
+function zoneNormKeyForHarvestZoneTooltip(raw: string): string {
+  const s = String(raw ?? "").trim().toLowerCase().replace(/_/g, "-").replace(/\s+/g, " ");
+  if (!s || s === "no-zone" || s === "no zone") return FORECAST_NOZONE_ZONE;
+  return s;
+}
+
+function aggregateHarvestByZoneForRegrowthYmd(
+  rows: ForecastHarvestRow[],
+  regrowthCfg: RegrowthReferenceConfig,
+  farmId: number,
+  productId: number,
+  regrowthYmd: string,
+): Record<string, { m2: number; nativeKg: number }> {
+  const out: Record<string, { m2: number; nativeKg: number }> = {};
+  for (const h of rows) {
+    if (h.farmId !== farmId || h.productId !== productId) continue;
+    const reg = getRegrowthDateFromHarvest(h, regrowthCfg);
+    if (!reg || ymdFromDate(reg) !== regrowthYmd) continue;
+    const k = zoneNormKeyForHarvestZoneTooltip(String(h.zone ?? ""));
+    const u = forecastQtyUnit(h.uom);
+    const cur = out[k] ?? { m2: 0, nativeKg: 0 };
+    if (u.kind === "m2") {
+      cur.m2 += Number.isFinite(h.quantity) ? h.quantity : 0;
+      cur.nativeKg += Number.isFinite(h.inventoryKg) ? h.inventoryKg : 0;
+    } else {
+      cur.nativeKg += Number.isFinite(h.inventoryKg)
+        ? h.inventoryKg
+        : Number.isFinite(h.quantity)
+          ? h.quantity
+          : 0;
+    }
+    out[k] = cur;
+  }
+  return out;
+}
+
+function regrowthNoZoneInlineText(
+  zoneSource: Record<string, { m2: number; nativeKg: number }>,
+  nozoneInputKg: number,
+  t: (key: string, values?: TranslationValues) => string,
+): string | null {
+  const nz = zoneSource[FORECAST_NOZONE_ZONE] ?? { m2: 0, nativeKg: 0 };
+  const label = t("events.noZoneName");
+  if (nz.m2 > 0) {
+    const kgStr =
+      nz.nativeKg > 0
+        ? nz.nativeKg.toLocaleString()
+        : nozoneInputKg > 0
+          ? nozoneInputKg.toLocaleString()
+          : "0";
+    return t("events.regrowthInlineNozoneM2Kg", {
+      label,
+      m2: nz.m2.toLocaleString(),
+      kg: kgStr,
+    });
+  }
+  const kgVal = nz.nativeKg > 0 ? nz.nativeKg : nozoneInputKg;
+  if (kgVal <= 0) return null;
+  return t("events.regrowthInlineNozoneKg", { label, kg: kgVal.toLocaleString() });
+}
+
+type RegrowthEventTooltipModel = {
+  zoneBreakdowns: ZoneRegrowthBreakdown[];
+  nozoneInputKg: number;
+  configuredCapSumKg: number;
+  regrowthTooltipZoneSource: Record<string, { m2: number; nativeKg: number }>;
+  /** Zone norm key → inventory kg/m² từ cấu hình (quy đổi fill no-zone → m²). */
+  regrowthTooltipKgPerM2ByZone: Record<string, number>;
+};
+
+function RegrowthEventNumbersHelp({
+  ev,
+  zoneLabelFn,
+  t,
+}: {
+  ev: RegrowthEventTooltipModel;
+  zoneLabelFn: (id: string) => string;
+  t: (key: string, values?: TranslationValues) => string;
+}) {
+  const [open, setOpen] = useState(false);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearCloseTimer = () => {
+    if (closeTimerRef.current != null) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  };
+
+  const scheduleClose = () => {
+    clearCloseTimer();
+    closeTimerRef.current = setTimeout(() => setOpen(false), 160);
+  };
+
+  const openPanel = () => {
+    clearCloseTimer();
+    setOpen(true);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current != null) {
+        clearTimeout(closeTimerRef.current);
+        closeTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  const zonesToShow = ev.zoneBreakdowns.filter(regrowthZoneTooltipVisible);
+  const nZonesConfigured = ev.zoneBreakdowns.filter((z) => z.capKg > 0).length;
+  const noZoneLabel = t("events.noZoneName");
+
+  const tooltipBody = (
+    <>
+      <p className="font-medium text-foreground">
+        {t("events.regrowthTooltipZoneCount", { count: nZonesConfigured })}
+      </p>
+      {zonesToShow.map((z) => {
+        const nk = zoneNormKeyForHarvestZoneTooltip(z.zoneLabel);
+        const src = ev.regrowthTooltipZoneSource[nk] ?? { m2: 0, nativeKg: 0 };
+        const label = zoneDisplayForRegrowthTooltip(z.zoneLabel, zoneLabelFn, t);
+        const intoStr = z.totalIntoZoneKg.toLocaleString();
+        const fillStr = z.nozoneFillKg.toLocaleString();
+        const spreadKg = z.grossZonedFromNozoneSpreadKg;
+        const nativeDirectKg = Math.max(0, z.grossZonedKg - spreadKg);
+        const primarilyFromNozone = z.nozoneFillKg > 0.5 && z.grossZonedKg < 0.5;
+        const primarilyFromMapSpread =
+          spreadKg > 0.5 && nativeDirectKg < 0.5 && z.nozoneFillKg < 0.5;
+
+        const mixBreakdown =
+          spreadKg > 0.5 ? (
+            <span className="block text-[10px] text-muted-foreground/90">
+              {t("events.regrowthTooltipZoneNozoneMapSpread", {
+                noZone: noZoneLabel,
+                zone: label,
+                kg: spreadKg.toLocaleString(),
+              })}
+              {nativeDirectKg > 0.5 ? (
+                <>
+                  {" · "}
+                  {t("events.regrowthTooltipZoneMixDirect", {
+                    kg: nativeDirectKg.toLocaleString(),
+                  })}
+                </>
+              ) : null}
+              {z.nozoneFillKg > 0.5 ? (
+                <>
+                  {" · "}
+                  {t("events.regrowthTooltipZoneMixFill", {
+                    noZone: noZoneLabel,
+                    kg: fillStr,
+                  })}
+                </>
+              ) : null}
+            </span>
+          ) : z.nozoneFillKg > 0.5 ? (
+            <span className="block text-[10px] text-muted-foreground/90">
+              {t("events.regrowthTooltipZoneIntoBreakdown", {
+                direct: nativeDirectKg.toLocaleString(),
+                fill: fillStr,
+                noZone: noZoneLabel,
+              })}
+            </span>
+          ) : null;
+
+        if (src.m2 > 0) {
+          if (primarilyFromNozone || primarilyFromMapSpread) {
+            return (
+              <p key={z.zoneKey} className="text-muted-foreground">
+                {t("events.regrowthTooltipZoneM2NozoneFill", {
+                  noZone: noZoneLabel,
+                  zone: label,
+                  m2: src.m2.toLocaleString(),
+                  into: intoStr,
+                })}
+              </p>
+            );
+          }
+          return (
+            <p key={z.zoneKey} className="text-muted-foreground">
+              {t("events.regrowthTooltipZoneM2Kg", {
+                zone: label,
+                m2: src.m2.toLocaleString(),
+                into: intoStr,
+              })}
+              {mixBreakdown}
+            </p>
+          );
+        }
+        if (primarilyFromNozone) {
+          return (
+            <p key={z.zoneKey} className="text-muted-foreground">
+              {t("events.regrowthTooltipZoneLineNozoneFill", {
+                noZone: noZoneLabel,
+                zone: label,
+                into: intoStr,
+              })}
+            </p>
+          );
+        }
+        if (primarilyFromMapSpread) {
+          return (
+            <p key={z.zoneKey} className="text-muted-foreground">
+              {t("events.regrowthTooltipZoneLineNozoneFill", {
+                noZone: noZoneLabel,
+                zone: label,
+                into: intoStr,
+              })}
+            </p>
+          );
+        }
+        return (
+          <p key={z.zoneKey} className="text-muted-foreground">
+            {t("events.regrowthTooltipZoneKg", { zone: label, into: intoStr })}
+            {mixBreakdown}
+          </p>
+        );
+      })}
+      {ev.nozoneInputKg > 0 ? (
+        <p className="text-muted-foreground">
+          {t("events.regrowthTooltipNozone", {
+            noZone: noZoneLabel,
+            kg: ev.nozoneInputKg.toLocaleString(),
+          })}
+        </p>
+      ) : null}
+      {zonesToShow.map((z) => {
+        if (z.nozoneFillKg <= 0) return null;
+        if (z.nozoneFillKg > 0.5 && z.grossZonedKg < 0.5) return null;
+        const nk = zoneNormKeyForHarvestZoneTooltip(z.zoneLabel);
+        const kgpm2 = ev.regrowthTooltipKgPerM2ByZone[nk] ?? 0;
+        const m2Equiv = kgpm2 > 0 ? z.nozoneFillKg / kgpm2 : 0;
+        const label = zoneDisplayForRegrowthTooltip(z.zoneLabel, zoneLabelFn, t);
+        const m2Str =
+          m2Equiv > 0 && Number.isFinite(m2Equiv)
+            ? m2Equiv.toLocaleString(undefined, { maximumFractionDigits: 2 })
+            : "";
+        return (
+          <p key={`nz-into-${z.zoneKey}`} className="text-muted-foreground">
+            {t("events.regrowthTooltipNozoneInto", {
+              noZone: noZoneLabel,
+              zone: label,
+              kg: z.nozoneFillKg.toLocaleString(),
+            })}
+            {m2Str ? t("events.regrowthTooltipNozoneIntoM2Equiv", { m2: m2Str }) : null}
+          </p>
+        );
+      })}
+      <p className="border-t border-border pt-1 text-muted-foreground">
+        {t("events.regrowthTooltipCapacity", {
+          kg: ev.configuredCapSumKg.toLocaleString(),
+        })}
+      </p>
+    </>
+  );
+
+  return (
+    <Popover
+      modal={false}
+      open={open}
+      onOpenChange={(next) => {
+        if (next) openPanel();
+        else {
+          clearCloseTimer();
+          setOpen(false);
+        }
+      }}
+    >
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="rounded-full p-0.5 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          aria-label={t("events.regrowthTooltipAria")}
+          aria-expanded={open}
+          onMouseEnter={openPanel}
+          onMouseLeave={scheduleClose}
+          onFocus={openPanel}
+          onBlur={scheduleClose}
+        >
+          <HelpCircle className="h-3.5 w-3.5" strokeWidth={2} />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        role="tooltip"
+        side="top"
+        align="start"
+        sideOffset={6}
+        collisionPadding={12}
+        onOpenAutoFocus={(e) => e.preventDefault()}
+        onMouseEnter={openPanel}
+        onMouseLeave={scheduleClose}
+        className={cn(
+          "z-110 w-[min(18rem,calc(100vw-2rem))] max-h-[min(70vh,22rem)] space-y-1 overflow-y-auto border-border bg-card p-2.5 text-left text-[11px] leading-snug text-card-foreground shadow-lg",
+        )}
+      >
+        {tooltipBody}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+type RegrowthOverflowHelpEv = {
+  zoneBreakdowns: ZoneRegrowthBreakdown[];
+  overflowBeyondCapKg: number;
+};
+
+/** Chi tiết overflow theo từng zone (vượt cap sau khi gộp no-zone). */
+function RegrowthOverflowHelp({
+  ev,
+  zoneLabelFn,
+  t,
+}: {
+  ev: RegrowthOverflowHelpEv;
+  zoneLabelFn: (id: string) => string;
+  t: (key: string, values?: TranslationValues) => string;
+}) {
+  const [open, setOpen] = useState(false);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearCloseTimer = () => {
+    if (closeTimerRef.current != null) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  };
+
+  const scheduleClose = () => {
+    clearCloseTimer();
+    closeTimerRef.current = setTimeout(() => setOpen(false), 160);
+  };
+
+  const openPanel = () => {
+    clearCloseTimer();
+    setOpen(true);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current != null) {
+        clearTimeout(closeTimerRef.current);
+        closeTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  const byZone = ev.zoneBreakdowns.filter((z) => z.zoneOverflowKg > 0.0005);
+  const sumByZone = byZone.reduce((s, z) => s + z.zoneOverflowKg, 0);
+  const otherKg = Math.max(0, ev.overflowBeyondCapKg - sumByZone);
+
+  const tooltipBody = (
+    <>
+      <p className="font-medium text-foreground">
+        {t("events.overflowTooltipTotal", { kg: ev.overflowBeyondCapKg.toLocaleString() })}
+      </p>
+      {byZone.map((z) => (
+        <p key={z.zoneKey} className="text-muted-foreground">
+          {t("events.overflowTooltipZoneLine", {
+            zone: zoneDisplayForRegrowthTooltip(z.zoneLabel, zoneLabelFn, t),
+            kg: z.zoneOverflowKg.toLocaleString(),
+          })}
+        </p>
+      ))}
+      {otherKg > 0.5 ? (
+        <p className="text-muted-foreground">{t("events.overflowTooltipOther", { kg: otherKg.toLocaleString() })}</p>
+      ) : null}
+    </>
+  );
+
+  return (
+    <Popover
+      modal={false}
+      open={open}
+      onOpenChange={(next) => {
+        if (next) openPanel();
+        else {
+          clearCloseTimer();
+          setOpen(false);
+        }
+      }}
+    >
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="shrink-0 rounded-full p-0 text-red-800/85 transition-colors hover:text-red-950 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1"
+          aria-label={t("events.overflowTooltipAria")}
+          aria-expanded={open}
+          onMouseEnter={openPanel}
+          onMouseLeave={scheduleClose}
+          onFocus={openPanel}
+          onBlur={scheduleClose}
+        >
+          <HelpCircle className="h-3 w-3" strokeWidth={2} />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        role="tooltip"
+        side="top"
+        align="end"
+        sideOffset={6}
+        collisionPadding={12}
+        onOpenAutoFocus={(e) => e.preventDefault()}
+        onMouseEnter={openPanel}
+        onMouseLeave={scheduleClose}
+        className={cn(
+          "z-110 w-[min(18rem,calc(100vw-2rem))] max-h-[min(70vh,22rem)] space-y-1 overflow-y-auto border-border bg-card p-2.5 text-left text-[11px] leading-snug text-card-foreground shadow-lg",
+        )}
+      >
+        {tooltipBody}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function addDays(date: Date, days: number): Date {
   const next = new Date(date);
   next.setDate(next.getDate() + days);
@@ -231,6 +700,9 @@ export function InventoryForecast() {
   const t = useTranslations("ForecastInventory");
   const farmZones = useHarvestingDataStore((s) => s.farmZones);
   const grasses = useHarvestingDataStore((s) => s.grasses);
+  const fetchAllHarvestingReferenceData = useHarvestingDataStore(
+    (s) => s.fetchAllHarvestingReferenceData,
+  );
   const harvestListGrassFilter = useHarvestingDataStore((s) => s.harvestListGrassFilter);
   const setHarvestListGrassFilter = useHarvestingDataStore((s) => s.setHarvestListGrassFilter);
   const overridesByZone = useInventoryAvailableOverrideStore((s) => s.overridesByZone);
@@ -243,12 +715,37 @@ export function InventoryForecast() {
   } = useSyncedFarmMultiSelect();
   const [forecastMonths, setForecastMonths] = useState<number>(6);
   const [rows, setRows] = useState<ForecastHarvestRow[]>([]);
+  const [zoneConfigSnapshot, setZoneConfigSnapshot] = useState<ZoneConfigurationRow[]>([]);
   const [regrowthConfig, setRegrowthConfig] = useState<RegrowthReferenceConfig>(
     DEFAULT_REGROWTH_REFERENCE_CONFIG,
   );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const zoneLabel = (zoneId: string) => zoneIdToLabel(zoneId, farmZones) || zoneId;
+  const zoneLabel = useCallback(
+    (zoneId: string) => zoneIdToLabelResolved(zoneId, farmZones, t("events.noZoneName")),
+    [farmZones, t],
+  );
+  const pathname = usePathname();
+
+  useEffect(() => {
+    if (!pathname?.includes("forecasting")) return;
+    let cancelled = false;
+    void fetchZoneConfigurations().then((zc) => {
+      if (!cancelled) setZoneConfigSnapshot(zc);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname]);
+
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState !== "visible") return;
+      void fetchZoneConfigurations().then(setZoneConfigSnapshot).catch(() => {});
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, []);
 
   const selectedGrassIds = useMemo(
     () => parseCsvList(harvestListGrassFilter),
@@ -264,6 +761,21 @@ export function InventoryForecast() {
   useEffect(() => {
     void fetchOverrides();
   }, [fetchOverrides]);
+
+  useEffect(() => {
+    if (!pathname?.includes("forecasting")) return;
+    void fetchOverrides();
+  }, [pathname, fetchOverrides]);
+
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState !== "visible") return;
+      if (!pathname?.includes("forecasting")) return;
+      void fetchOverrides();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [pathname, fetchOverrides]);
 
   useEffect(() => {
     let alive = true;
@@ -288,6 +800,7 @@ export function InventoryForecast() {
 
       if (!alive) return;
       const mapped = rowsToMockHarvestRows(res.rows, today, zoneConfigs);
+      setZoneConfigSnapshot(zoneConfigs);
       setRows(mapped);
       setError(res.error ?? null);
       setLoading(false);
@@ -316,58 +829,69 @@ export function InventoryForecast() {
     };
   }, []);
 
+  useEffect(() => {
+    void fetchAllHarvestingReferenceData();
+  }, [fetchAllHarvestingReferenceData]);
+
   const farmFilterOptions = useMemo(
     () => farmOptions.map((o) => ({ value: o.id, label: o.label })),
     [farmOptions],
   );
 
-  /**
-   * Grasses present in loaded forecast rows (after farm filter). Labels prefer reference store
-   * (`/api/grasses` or fallback catalog) `title`/`name` by `product_id`; otherwise `grass_name` from the row.
-   * Sales-window filtering is not applied here — catalog `/api/items` rows lack `sales_*`, which
-   * previously made the grass multi-select empty ("No options found.").
-   */
+  /** Grass filter: STS sales window on today (empty `refYmds` → today); URL-selected ids stay pinned. */
   const grassFilterOptions = useMemo(() => {
-    const idToRowLabel = new Map<string, string>();
-    for (const r of rows) {
-      if (selectedFarmIds.length > 0 && !selectedFarmIdSet.has(String(r.farmId))) continue;
-      const pid = String(r.productId);
-      if (!pid || pid === "0") continue;
-      if (!idToRowLabel.has(pid)) {
-        const name = String(r.grassType ?? "").trim();
-        idToRowLabel.set(pid, name || pid);
-      }
-    }
-    const titleById = new Map<string, string>();
-    for (const g of grasses) {
-      if (!g || typeof g !== "object") continue;
-      const rec = g as Record<string, unknown>;
-      const id = String(rec.id ?? "").trim();
-      if (!id) continue;
-      const title = String(rec.title ?? rec.name ?? "").trim();
-      if (title) titleById.set(id, title);
-    }
-    return Array.from(idToRowLabel.entries())
-      .map(([value, rowLabel]) => ({
-        value,
-        label: titleById.get(value) ?? rowLabel,
-      }))
+    const picked = pickGrassCatalogRows({
+      catalog: grasses as unknown[],
+      mode: "sales_window",
+      refYmds: [],
+      pinnedGrassIds: selectedGrassIds,
+    });
+    return picked
+      .map((g) => {
+        if (!g || typeof g !== "object") return null;
+        const rec = g as Record<string, unknown>;
+        const value = String(rec.id ?? "").trim();
+        const label = String(rec.title ?? rec.name ?? "").trim() || value;
+        if (!value) return null;
+        return { value, label };
+      })
+      .filter((x): x is { value: string; label: string } => x !== null)
       .sort((a, b) => a.label.localeCompare(b.label));
-  }, [rows, selectedFarmIds, selectedFarmIdSet, grasses]);
+  }, [grasses, selectedGrassIds]);
+
+  const rowsWithLiveZoneCaps = useMemo(
+    () => applyLatestZoneMaxKgToForecastRows(rows, zoneConfigSnapshot),
+    [rows, zoneConfigSnapshot],
+  );
 
   const filteredRows = useMemo(
     () =>
-      rows.filter((r) => {
+      rowsWithLiveZoneCaps.filter((r) => {
         const farmIdStr = String(r.farmId);
         const productIdStr = String(r.productId);
         if (selectedFarmIds.length > 0 && !selectedFarmIdSet.has(farmIdStr)) return false;
         if (selectedGrassIds.length > 0 && !selectedGrassIdSet.has(productIdStr)) return false;
         return true;
       }),
-    [rows, selectedFarmIds, selectedFarmIdSet, selectedGrassIds, selectedGrassIdSet],
+    [
+      rowsWithLiveZoneCaps,
+      selectedFarmIds,
+      selectedFarmIdSet,
+      selectedGrassIds,
+      selectedGrassIdSet,
+    ],
   );
 
-  const zoneCapacityByKey = useMemo(() => computeZoneCapacityMap(filteredRows), [filteredRows]);
+  const zoneCapacityByKey = useMemo(
+    () =>
+      mergeZoneCapacityMaps(
+        computeZoneCapacityMap(filteredRows),
+        zoneConfigSnapshot.length > 0
+          ? buildZoneConfigurationCapacityMap(zoneConfigSnapshot)
+          : new Map(),
+      ),
+    [filteredRows, zoneConfigSnapshot],
+  );
 
   const totalMax = useMemo(
     () => Array.from(zoneCapacityByKey.values()).reduce((s, n) => s + n, 0),
@@ -381,8 +905,14 @@ export function InventoryForecast() {
       if (out.has(zoneKey)) continue;
       out.set(zoneKey, r.grassType);
     }
+    for (const entry of Object.values(overridesByZone)) {
+      if (selectedFarmIds.length > 0 && !selectedFarmIdSet.has(String(entry.farmId))) continue;
+      if (selectedGrassIds.length > 0 && !selectedGrassIdSet.has(String(entry.grassId))) continue;
+      if (!entry.zoneKey || !entry.turfgrass) continue;
+      if (!out.has(entry.zoneKey)) out.set(entry.zoneKey, entry.turfgrass);
+    }
     return out;
-  }, [filteredRows]);
+  }, [filteredRows, overridesByZone, selectedFarmIds, selectedFarmIdSet, selectedGrassIds, selectedGrassIdSet]);
 
   const zoneFarmMeta = useMemo(() => {
     const out = new Map<string, string>();
@@ -390,8 +920,14 @@ export function InventoryForecast() {
       const zoneKey = forecastZoneKeyFromRow(r);
       if (!out.has(zoneKey)) out.set(zoneKey, r.farm);
     }
+    for (const entry of Object.values(overridesByZone)) {
+      if (selectedFarmIds.length > 0 && !selectedFarmIdSet.has(String(entry.farmId))) continue;
+      if (selectedGrassIds.length > 0 && !selectedGrassIdSet.has(String(entry.grassId))) continue;
+      if (!entry.zoneKey || !entry.farmName) continue;
+      if (!out.has(entry.zoneKey)) out.set(entry.zoneKey, entry.farmName);
+    }
     return out;
-  }, [filteredRows]);
+  }, [filteredRows, overridesByZone, selectedFarmIds, selectedFarmIdSet, selectedGrassIds, selectedGrassIdSet]);
 
   const breakdownMode: "grass" | "farm" =
     selectedGrassIds.length > 0 ? "farm" : "grass";
@@ -468,12 +1004,29 @@ export function InventoryForecast() {
       for (const r of filteredRows) {
         if (r.farm) set.add(r.farm);
       }
+      for (const entry of Object.values(overridesByZone)) {
+        if (selectedFarmIds.length > 0 && !selectedFarmIdSet.has(String(entry.farmId))) continue;
+        if (selectedGrassIds.length > 0 && !selectedGrassIdSet.has(String(entry.grassId))) continue;
+        if (entry.farmName) set.add(entry.farmName);
+      }
       return Array.from(set).sort((a, b) => a.localeCompare(b));
     }
-    return Array.from(new Set(filteredRows.map((r) => r.grassType).filter(Boolean))).sort(
-      (a, b) => a.localeCompare(b),
-    );
-  }, [filteredRows, breakdownMode]);
+    const set = new Set(filteredRows.map((r) => r.grassType).filter(Boolean));
+    for (const entry of Object.values(overridesByZone)) {
+      if (selectedFarmIds.length > 0 && !selectedFarmIdSet.has(String(entry.farmId))) continue;
+      if (selectedGrassIds.length > 0 && !selectedGrassIdSet.has(String(entry.grassId))) continue;
+      if (entry.turfgrass) set.add(entry.turfgrass);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [
+    filteredRows,
+    breakdownMode,
+    overridesByZone,
+    selectedFarmIds,
+    selectedFarmIdSet,
+    selectedGrassIds,
+    selectedGrassIdSet,
+  ]);
 
   const forecastBySeries = useMemo<SeriesPoint[]>(() => {
     const today = getForecastToday();
@@ -557,13 +1110,12 @@ export function InventoryForecast() {
     const today = getForecastToday();
     const end = addMonths(today, forecastMonths);
     const result = filteredRows
-      .filter((h, index) => {
+      .filter((h) => {
         const normalized = normalizeYmd(h.harvestDate);
         const d = parseYmdLocal(normalized);
         if (!d) {
           // if (DEBUG_UPCOMING_FILTER) {
           //   console.log("[forecast][upcoming-filter] reject invalid date", {
-          //     index,
           //     id: h.id,
           //     harvestDate: h.harvestDate,
           //     normalized,
@@ -578,7 +1130,6 @@ export function InventoryForecast() {
           //     ? "[forecast][upcoming-filter] pass"
           //     : "[forecast][upcoming-filter] reject out of range",
           //   {
-          //     index,
           //     id: h.id,
           //     harvestDate: h.harvestDate,
           //     normalized,
@@ -591,11 +1142,12 @@ export function InventoryForecast() {
         return inRange;
       })
       .map((h) => ({
+        planId: forecastLogicalPlanRowId(h.id),
         id: h.id,
         date: normalizeYmd(h.harvestDate),
         farm: h.farm,
         grass: h.grassType,
-        zone: h.zone ?? "",
+        zone: String(h.zone ?? "").trim(),
         project: h.project ?? "",
         customer: h.customer ?? "",
         qty: Number.isFinite(h.inventoryKg) ? h.inventoryKg : h.quantity,
@@ -605,6 +1157,92 @@ export function InventoryForecast() {
         type: harvestTypeLabel(h.harvestType, t),
       }))
       .sort((a, b) => a.date.localeCompare(b.date));
+
+    const upcomingByPlan = new Map<
+      string,
+      {
+        planId: string;
+        id: string;
+        date: string;
+        farm: string;
+        grass: string;
+        zoneIdsSeen: Set<string>;
+        zoneIdsOrder: string[];
+        project: string;
+        customer: string;
+        qty: number;
+        uom: string;
+        inventoryIsCapped: boolean;
+        harvestType: (typeof filteredRows)[number]["harvestType"];
+        type: string;
+      }
+    >();
+    for (const row of result) {
+      const k = `${row.planId}|${row.date}`;
+      const prev = upcomingByPlan.get(k);
+      if (!prev) {
+        const zoneIdsSeen = new Set<string>();
+        const zoneIdsOrder: string[] = [];
+        const z0 = row.zone.trim();
+        if (z0) {
+          zoneIdsSeen.add(z0.toLowerCase());
+          zoneIdsOrder.push(z0);
+        }
+        upcomingByPlan.set(k, {
+          planId: row.planId,
+          id: row.planId,
+          date: row.date,
+          farm: row.farm,
+          grass: row.grass,
+          zoneIdsSeen,
+          zoneIdsOrder,
+          project: row.project,
+          customer: row.customer,
+          qty: row.qty,
+          uom: row.uom,
+          inventoryIsCapped: row.inventoryIsCapped,
+          harvestType: row.harvestType,
+          type: row.type,
+        });
+      } else {
+        prev.qty += row.qty;
+        prev.inventoryIsCapped = prev.inventoryIsCapped || row.inventoryIsCapped;
+        const z = row.zone.trim();
+        if (z) {
+          const lk = z.toLowerCase();
+          if (!prev.zoneIdsSeen.has(lk)) {
+            prev.zoneIdsSeen.add(lk);
+            prev.zoneIdsOrder.push(z);
+          }
+        }
+        if (!prev.project && row.project) prev.project = row.project;
+        if (!prev.customer && row.customer) prev.customer = row.customer;
+      }
+    }
+
+    const mergedUpcoming = Array.from(upcomingByPlan.values())
+      .map((agg) => {
+        const zones = agg.zoneIdsOrder;
+        const nZones = zones.length;
+        const zoneLabelOut =
+          nZones <= 1 ? zoneLabel(zones[0] ?? "") : t("upcoming.multiZoneZones", { count: nZones });
+        return {
+          id: agg.id,
+          date: agg.date,
+          farm: agg.farm,
+          grass: agg.grass,
+          zone: zoneLabelOut,
+          project: agg.project,
+          customer: agg.customer,
+          qty: agg.qty,
+          uom: agg.uom,
+          inventoryIsCapped: agg.inventoryIsCapped,
+          harvestType: agg.harvestType,
+          type: agg.type,
+        };
+      })
+      .sort((a, b) => a.date.localeCompare(b.date));
+
     if (DEBUG_UPCOMING_FILTER) {
       // console.log("[forecast][upcoming-filter] summary", {
       //   filteredRowsCount: filteredRows.length,
@@ -625,8 +1263,8 @@ export function InventoryForecast() {
       //   })),
       // );
     }
-    return result;
-  }, [filteredRows, forecastMonths, t]);
+    return mergedUpcoming;
+  }, [filteredRows, forecastMonths, t, zoneLabel]);
 
   const upcomingTotalsSummary = useMemo(() => {
     const kgSum = upcomingHarvests.reduce((sum, h) => sum + h.qty, 0);
@@ -642,7 +1280,10 @@ export function InventoryForecast() {
         const regrowDateObj = getRegrowthDateFromHarvest(h, regrowthConfig);
         if (!regrowDateObj) return null;
         return {
+          planId: forecastLogicalPlanRowId(h.id),
           id: h.id,
+          farmId: h.farmId,
+          productId: h.productId,
           harvestDate: h.harvestDate,
           dateObj: regrowDateObj,
           date: ymdFromDate(regrowDateObj),
@@ -652,7 +1293,15 @@ export function InventoryForecast() {
           uom: "kg",
           type: harvestTypeLabel(h.harvestType, t),
           zoneKey: forecastZoneKeyFromRow(h),
+          zoneLabel: zoneLabel(String(h.zone ?? "").trim()),
           sourceWasCapped: h.inventoryIsCapped,
+          inventoryKgFromNozoneSpread: Math.max(
+            0,
+            typeof h.inventoryKgFromNozoneSpread === "number" &&
+              Number.isFinite(h.inventoryKgFromNozoneSpread)
+              ? h.inventoryKgFromNozoneSpread
+              : 0,
+          ),
         };
       })
       .filter((x): x is NonNullable<typeof x> => !!x)
@@ -662,9 +1311,12 @@ export function InventoryForecast() {
         return a.id.localeCompare(b.id);
       });
 
-    const rawByZone = new Map<string, number>();
-    const cappedByZone = new Map<string, number>();
-    const finalEvents: Array<{
+    type RegrowthFinalLine = {
+      planId: string;
+      /** `ForecastHarvestRow.id` (có thể là `1615~z0` khi tách zone). */
+      forecastRowId: string;
+      farmId: number;
+      productId: number;
       harvestDate: string;
       date: string;
       farm: string;
@@ -673,57 +1325,161 @@ export function InventoryForecast() {
       uom: string;
       type: string;
       inventoryIsCapped: boolean;
-      overflowKg: number;
-    }> = [];
+      zoneLabel: string;
+      zoneKey: string;
+      inventoryKgFromNozoneSpread: number;
+    };
+
+    const finalEvents: RegrowthFinalLine[] = [];
 
     for (const ev of candidates) {
-      const max = maxByZone.get(ev.zoneKey) ?? 0;
-      const beforeRaw = rawByZone.get(ev.zoneKey) ?? 0;
-      const beforeCapped = cappedByZone.get(ev.zoneKey) ?? 0;
-      const afterRaw = beforeRaw + ev.qty;
-      const afterCapped = max > 0 ? Math.min(afterRaw, max) : afterRaw;
-      const creditedKg = Math.max(0, afterCapped - beforeCapped);
-      const overflowKg = Math.max(0, ev.qty - creditedKg);
-
-      rawByZone.set(ev.zoneKey, afterRaw);
-      cappedByZone.set(ev.zoneKey, afterCapped);
-
+      // Skip past events
       if (ev.dateObj <= today) continue;
+
       finalEvents.push({
+        planId: ev.planId,
+        forecastRowId: ev.id,
+        farmId: ev.farmId,
+        productId: ev.productId,
         harvestDate: ev.harvestDate,
         date: ev.date,
         farm: ev.farm,
         grass: ev.grass,
-        qty: creditedKg,
+        qty: ev.qty,
         uom: ev.uom,
         type: ev.type,
-        inventoryIsCapped: ev.sourceWasCapped || overflowKg > 0,
-        overflowKg,
+        inventoryIsCapped: ev.sourceWasCapped,
+        zoneLabel: ev.zoneLabel,
+        zoneKey: ev.zoneKey,
+        inventoryKgFromNozoneSpread: ev.inventoryKgFromNozoneSpread,
       });
     }
+
+    const groups = new Map<string, RegrowthFinalLine[]>();
+    for (const ev of finalEvents) {
+      const k = `${ev.farmId}|${ev.productId}|${ev.date}`;
+      const arr = groups.get(k) ?? [];
+      arr.push(ev);
+      groups.set(k, arr);
+    }
+    const mergedRegrowthList = [...groups.values()]
+      .map((frags) => {
+        const first = frags[0]!;
+        const alloc = computeRegrowthAllocationForFarmProductDate({
+          farmId: first.farmId,
+          productId: first.productId,
+          maxByZone,
+          fragments: frags.map((f) => ({
+            zoneKey: f.zoneKey,
+            zoneLabel: f.zoneLabel,
+            qty: f.qty,
+            inventoryKgFromNozoneSpread: f.inventoryKgFromNozoneSpread,
+          })),
+        });
+        const capSum = sumConfiguredZoneCapKgForFarmProduct(maxByZone, first.farmId, first.productId);
+
+        let harvestDate = first.harvestDate;
+        const planIds: string[] = [];
+        const sourceForecastRowIds = frags.map((f) => f.forecastRowId);
+        let mergedType = first.type;
+        for (const f of frags) {
+          if (f.harvestDate && harvestDate && f.harvestDate < harvestDate) harvestDate = f.harvestDate;
+          if (!planIds.includes(f.planId)) planIds.push(f.planId);
+          mergedType = mergeHarvestTypeLabels(mergedType, f.type);
+        }
+
+        const zoneSlotLabels: string[] = [];
+        const seenZ = new Set<string>();
+        const zoneSlotDedupeKey = (raw: string) => {
+          const s = raw.trim().toLowerCase();
+          if (!s || s === "nozone" || s === "no-zone" || s === "no zone") return "__nozone__";
+          return s;
+        };
+        const pushZone = (z: string) => {
+          const s = z.trim();
+          if (!s) return;
+          const dk = zoneSlotDedupeKey(s);
+          if (seenZ.has(dk)) return;
+          seenZ.add(dk);
+          zoneSlotLabels.push(zoneLabel(s));
+        };
+        for (const f of frags) pushZone(f.zoneLabel);
+        for (const z of alloc.zoneBreakdowns) {
+          if (z.capKg > 0 || z.grossZonedKg > 0 || z.nozoneFillKg > 0) pushZone(z.zoneLabel);
+        }
+
+        const inventoryIsCapped =
+          frags.some((f) => f.inventoryIsCapped) ||
+          alloc.overflowUncreditedKg > 0 ||
+          alloc.zoneBreakdowns.some((z) => z.zoneOverflowKg > 0);
+
+        return {
+          ...alloc,
+          harvestDate,
+          date: first.date,
+          farmId: first.farmId,
+          productId: first.productId,
+          farm: first.farm,
+          grass: first.grass,
+          uom: first.uom,
+          type: mergedType,
+          inventoryIsCapped,
+          configuredCapSumKg: capSum,
+          planIds,
+          /** Mỗi dòng forecast trong nhóm (debug: so với `planIds` nếu thiếu plan DB). */
+          sourceForecastRowIds,
+          totalGrossKg: alloc.totalGrossKg,
+          primaryDisplayKg: alloc.totalCreditedMappedKg,
+          overflowBeyondCapKg: alloc.overflowUncreditedKg,
+          zoneSlotLabels,
+          regrowthTooltipZoneSource: aggregateHarvestByZoneForRegrowthYmd(
+            filteredRows,
+            regrowthConfig,
+            first.farmId,
+            first.productId,
+            first.date,
+          ),
+          regrowthTooltipKgPerM2ByZone: kgPerM2ByNormalizedZoneForFarmProduct(
+            zoneConfigSnapshot,
+            first.farmId,
+            first.productId,
+          ),
+        };
+      })
+      .sort((a, b) => {
+        const d = a.date.localeCompare(b.date);
+        if (d !== 0) return d;
+        return a.harvestDate.localeCompare(b.harvestDate);
+      });
 
     if (DEBUG_REGROWTH_EVENTS) {
       console.log("[forecast][regrowth-events] summary", {
         filteredRowsCount: filteredRows.length,
-        finalCountAfterSlice: finalEvents.length,
+        finalCountAfterSlice: mergedRegrowthList.length,
       });
       // Same order as UI list (sorted by regrowth date, then sliced top 15).
       console.table(
-        finalEvents.map((ev, idx) => ({
+        mergedRegrowthList.map((ev, idx) => ({
           order: idx + 1,
           harvestDate: ev.harvestDate,
           regrowthDate: ev.date,
-          qty: ev.qty,
+          totalGross: ev.totalGrossKg,
+          primaryDisplayKg: ev.primaryDisplayKg,
+          overflowBeyondCapKg: ev.overflowBeyondCapKg,
+          nozoneInput: ev.nozoneInputKg,
+          nozoneRemain: ev.nozoneRemainingKg,
           uom: ev.uom,
           farm: ev.farm,
           grass: ev.grass,
           type: ev.type,
-          overflowKg: ev.overflowKg,
+          zones: ev.zoneSlotLabels.join(","),
+          capSum: ev.configuredCapSumKg,
+          planIds: ev.planIds.join(","),
         })),
       );
     }
-    return finalEvents;
-  }, [filteredRows, regrowthConfig, t]);
+    return mergedRegrowthList;
+  }, [filteredRows, regrowthConfig, t, zoneConfigSnapshot, zoneLabel]);
 
   /** Stable colors from full dataset so hues do not shift when filters change (matches Harvesting Portal). */
   const grassColors = useMemo(() => {
@@ -1049,7 +1805,9 @@ export function InventoryForecast() {
                 <div className="min-w-[90px] text-sm font-medium">{formatDayMonth(h.date)}</div>
                 <div className="min-w-0 flex-1 text-sm">
                   <p className="truncate">
-                    <span className="font-medium">{h.farm}</span>
+                    <span className="font-medium">
+                      {forecastDisplayFarmName(h.farm, t("events.noFarmName"))}
+                    </span>
                     <span className="text-muted-foreground"> . {h.grass} {zoneLabel(h.zone)}</span>
                   </p>
                   {(h.project || h.customer) && (
@@ -1082,42 +1840,81 @@ export function InventoryForecast() {
 
       <div className="rounded-xl border border-border bg-card p-5">
         <h3 className="mb-4 text-sm font-semibold">{t("events.title")}</h3>
-        <p className="mb-4 text-xs text-muted-foreground">
+        {/* <p className="mb-4 text-xs text-muted-foreground">
           {t("events.description")}
-        </p>
+        </p> */}
         {regrowthEvents.length === 0 ? (
           <p className="py-6 text-center text-sm text-muted-foreground">{t("events.empty")}</p>
         ) : (
           <div className="max-h-[360px] space-y-2 overflow-y-auto pr-1">
-            {regrowthEvents.map((ev, i) => (
+            {regrowthEvents.map((ev) => {
+              const noZoneInline = regrowthNoZoneInlineText(
+                ev.regrowthTooltipZoneSource,
+                ev.nozoneInputKg,
+                t,
+              );
+              return (
               <div
-                key={`${ev.date}-${ev.farm}-${ev.grass}-${i}`}
+                key={`${ev.farmId}-${ev.productId}-${ev.date}`}
                 className="flex items-center gap-4 rounded-lg px-3 py-2.5 hover:bg-[hsl(var(--muted)/0.3)]"
               >
                 <div className="h-2 w-2 shrink-0 rounded-full bg-primary" />
                 <div className="min-w-[90px] text-sm font-medium">{formatDayMonth(ev.date)}</div>
-                <div className="flex-1 text-sm">
-                  <span className="font-medium">{ev.farm}</span>
-                  <span className="text-muted-foreground"> . {ev.grass}</span>
+                <div className="min-w-0 flex-1 text-sm">
+                  <p className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
+                    <span className="shrink-0 font-medium">
+                      {forecastDisplayFarmName(ev.farm, t("events.noFarmName"))}
+                    </span>
+                    <span className="shrink-0 text-muted-foreground">·</span>
+                    <span className="inline-flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5 text-muted-foreground">
+                      <span className="truncate">{ev.grass}</span>
+                      <RegrowthEventNumbersHelp ev={ev} zoneLabelFn={zoneLabel} t={t} />
+                      {noZoneInline ? (
+                        <>
+                          <span className="text-muted-foreground/80" aria-hidden>
+                            ·
+                          </span>
+                          <span className="whitespace-nowrap">{noZoneInline}</span>
+                        </>
+                      ) : null}
+                    </span>
+                  </p>
+                  {ev.planIds.length > 1 ? (
+                    <p className="mt-0.5 text-[10px] text-muted-foreground">
+                      {t("events.mergedHarvestPlans", { count: ev.planIds.length })}
+                    </p>
+                  ) : null}
                 </div>
                 <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
                   {ev.type}
                 </span>
-                {ev.inventoryIsCapped ? (
+                {ev.inventoryIsCapped || ev.overflowBeyondCapKg > 0 ? (
                   <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
                     {t("badges.max")}
                   </span>
                 ) : null}
-                {ev.overflowKg > 0 ? (
-                  <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-medium text-red-700">
-                    +{ev.overflowKg.toLocaleString()} {t("events.overflow")}
+                {ev.nozoneRemainingKg > 0 ? (
+                  <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-medium text-orange-900">
+                    {t("events.nonzonPoolBadge", {
+                      noZone: t("events.noZoneName"),
+                      kg: ev.nozoneRemainingKg.toLocaleString(),
+                    })}
+                  </span>
+                ) : null}
+                {ev.overflowBeyondCapKg > 0 ? (
+                  <span className="inline-flex shrink-0 items-center gap-1">
+                    <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-medium text-red-700">
+                      +{ev.overflowBeyondCapKg.toLocaleString()} {t("events.overflow")}
+                    </span>
+                    <RegrowthOverflowHelp ev={ev} zoneLabelFn={zoneLabel} t={t} />
                   </span>
                 ) : null}
                 <span className="min-w-22 shrink-0 text-right text-sm font-medium">
-                  +{formatForecastQty(ev.qty, ev.uom)}
+                  +{formatForecastQty(ev.primaryDisplayKg, ev.uom)}
                 </span>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

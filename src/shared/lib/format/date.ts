@@ -7,13 +7,14 @@ export function isValidDate(v: unknown): v is string {
   return !!s && s !== "0000-00-00" && s.toLowerCase() !== "null";
 }
 
-/** Display date as `Mar 28, 2026`; invalid values return `-`. */
-export function formatDateDisplay(v: unknown): string {
+/** Display date with localized month (e.g. `Mar 28, 2026` / `16 thg 5, 2026`); invalid values return `-`. */
+export function formatDateDisplay(v: unknown, locale?: string): string {
   const s = String(v ?? "").trim();
   if (!isValidDate(s)) return "-";
   const d = new Date(s);
   if (Number.isNaN(d.getTime())) return "-";
-  return d.toLocaleDateString("en-US", {
+  const tag = locale?.trim() || "en-US";
+  return d.toLocaleDateString(tag, {
     month: "short",
     day: "numeric",
     year: "numeric",

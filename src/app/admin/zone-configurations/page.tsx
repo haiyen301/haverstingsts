@@ -73,6 +73,7 @@ export default function AdminZoneConfigurationsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedFarmFilter, setSelectedFarmFilter] = useState("");
+  const [selectedGrassFilter, setSelectedGrassFilter] = useState("");
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<FormState>(emptyForm());
 
@@ -141,10 +142,39 @@ export default function AdminZoneConfigurationsPage() {
     };
   }, []);
 
+  const grassFilterOptions = useMemo(() => {
+    const ids = new Set(rows.map((r) => String(r.grass_id)));
+    const idToTitle = new Map<string, string>();
+    for (const g of grasses as unknown[]) {
+      if (!g || typeof g !== "object") continue;
+      const r = g as Record<string, unknown>;
+      const id = r.id != null ? String(r.id) : "";
+      if (!id || !ids.has(id)) continue;
+      const raw = r.title ?? r.name;
+      idToTitle.set(id, raw != null ? String(raw) : id);
+    }
+    const options = [...ids].map((id) => {
+      const fromRef = idToTitle.get(id);
+      const sample = rows.find((row) => String(row.grass_id) === id);
+      const turf =
+        sample?.turfgrass != null && String(sample.turfgrass).trim() !== ""
+          ? String(sample.turfgrass)
+          : null;
+      return { id, label: fromRef ?? turf ?? id };
+    });
+    return options.sort((a, b) => a.label.localeCompare(b.label));
+  }, [rows, grasses]);
+
   const visibleRows = useMemo(() => {
-    if (!selectedFarmFilter) return rows;
-    return rows.filter((row) => String(row.farm_id) === selectedFarmFilter);
-  }, [rows, selectedFarmFilter]);
+    let next = rows;
+    if (selectedFarmFilter) {
+      next = next.filter((row) => String(row.farm_id) === selectedFarmFilter);
+    }
+    if (selectedGrassFilter) {
+      next = next.filter((row) => String(row.grass_id) === selectedGrassFilter);
+    }
+    return next;
+  }, [rows, selectedFarmFilter, selectedGrassFilter]);
 
   const openCreate = () => {
     setForm(emptyForm());
@@ -250,7 +280,7 @@ export default function AdminZoneConfigurationsPage() {
             </button>
           </div>
 
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
             <select
               className={cn(inputClass, "w-full sm:max-w-xs")}
               value={selectedFarmFilter}
@@ -260,6 +290,18 @@ export default function AdminZoneConfigurationsPage() {
               {farmOptions.map((farm) => (
                 <option key={farm.id} value={farm.id}>
                   {farm.label}
+                </option>
+              ))}
+            </select>
+            <select
+              className={cn(inputClass, "w-full sm:max-w-xs")}
+              value={selectedGrassFilter}
+              onChange={(e) => setSelectedGrassFilter(e.target.value)}
+            >
+              <option value="">{t("allGrasses")}</option>
+              {grassFilterOptions.map((grass) => (
+                <option key={grass.id} value={grass.id}>
+                  {grass.label}
                 </option>
               ))}
             </select>
@@ -412,6 +454,11 @@ export default function AdminZoneConfigurationsPage() {
                     }))
                   }
                 />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {t("form.maxInventoryComputed", {
+                    kg: formatNumber(toNumber(form.size_m2) * toNumber(form.inventory_kg_per_m2)),
+                  })}
+                </p>
               </Field>
 
               <Field label={t("form.datePlanted")}>

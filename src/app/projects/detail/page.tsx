@@ -44,6 +44,7 @@ import {
 import { parseJsonMaybe, parseSubitems } from "@/shared/lib/parseJsonMaybe";
 import { calculateDeliveredQuantityDeliveryOnly } from "@/features/project/lib/subitemDeliveredQuantity";
 import { effectiveRequiredQuantityFromRecord } from "@/features/project/lib/effectiveRequirementQuantity";
+import { useLocale } from "next-intl";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
 import { translateProjectType } from "@/features/project/lib/projectTypeDisplay";
 import { cn } from "@/lib/utils";
@@ -155,10 +156,42 @@ type HarvestMapCtx = {
   remainingByProductUom: Map<string, number>;
   unitByProductUom: Map<string, string>;
   productMap: Map<string, string>;
+  locale: string;
   /** Subitem rows may omit `table_id`; use parent project row as fallback. */
   defaultTableId?: string;
   defaultTableName?: string;
 };
+
+/** Raw harvest lines + requirement maps; rows are remapped when locale or reference data changes. */
+type HarvestSourceBundle = {
+  planRows: Record<string, unknown>[];
+  projectSubitems: Record<string, unknown>[];
+  projectId: string;
+  fallbackTableId: string;
+  fallbackTableName: string;
+  remainingByProductUom: [string, number][];
+  unitByProductUom: [string, string][];
+};
+
+function harvestLineStatusLabel(
+  tr: (key: string) => string,
+  status: HarvestLineStatus,
+): string {
+  switch (status) {
+    case "planned":
+      return tr("harvestStatus_planned");
+    case "scheduled":
+      return tr("harvestStatus_scheduled");
+    case "harvested":
+      return tr("harvestStatus_harvested");
+    case "delivered":
+      return tr("harvestStatus_delivered");
+    case "completed":
+      return tr("harvestStatus_completed");
+    default:
+      return status;
+  }
+}
 
 /**
  * Map one harvesting-plan row OR one dynamic-table subitem to UI row.
@@ -237,7 +270,10 @@ function mapHarvestRecordToHarvestRow(
     status,
     filterDate,
     createdAt,
-    date: formatDateDisplay(isValidDate(actual) ? actual : estimated),
+    date: formatDateDisplay(
+      isValidDate(actual) ? actual : estimated,
+      ctx.locale,
+    ),
     grass,
     farm,
     zone:
@@ -249,9 +285,9 @@ function mapHarvestRecordToHarvestRow(
     refQtyDisplay,
     harvestedAreaDisplay,
     harvestedAreaM2Display,
-    estimatedDate: formatDateDisplay(r.estimated_harvest_date),
-    actualDate: formatDateDisplay(r.actual_harvest_date),
-    deliveryDate: formatDateDisplay(r.delivery_harvest_date),
+    estimatedDate: formatDateDisplay(r.estimated_harvest_date, ctx.locale),
+    actualDate: formatDateDisplay(r.actual_harvest_date, ctx.locale),
+    deliveryDate: formatDateDisplay(r.delivery_harvest_date, ctx.locale),
     doSoNumber: String(r.do_so_number ?? "").trim() || "-",
     truckNote: String(r.truck_note ?? "").trim() || "-",
     attachments,
@@ -426,17 +462,22 @@ export default function ProjectDetailPage() {
   const countriesRef = useHarvestingDataStore((s) => s.countries);
   const staffsRef = useHarvestingDataStore((s) => s.staffs);
   const productsRef = useHarvestingDataStore((s) => s.products);
+  const farmZonesForHarvest = useHarvestingDataStore((s) => s.farmZones);
+  const farmsForHarvest = useHarvestingDataStore((s) => s.farms);
   const fetchAllHarvestingReferenceData = useHarvestingDataStore(
     (s) => s.fetchAllHarvestingReferenceData,
   );
 
+  const locale = useLocale();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [projectRow, setProjectRow] = useState<MondayProjectServerRow | null>(null);
   const [deliveredQuantityRows, setDeliveredQuantityRows] = useState<
     Array<Record<string, unknown>>
   >([]);
-  const [harvests, setHarvests] = useState<HarvestRow[]>([]);
+  const [harvestSource, setHarvestSource] = useState<HarvestSourceBundle | null>(
+    null,
+  );
   const [expandedHarvestId, setExpandedHarvestId] = useState<string | null>(null);
   const [harvestDeleteTarget, setHarvestDeleteTarget] = useState<HarvestRow | null>(
     null,
@@ -507,6 +548,37 @@ export default function ProjectDetailPage() {
     return map;
   }, [productsRef]);
 
+  const harvests = useMemo((): HarvestRow[] => {
+    if (!harvestSource) return [];
+    const remainingByProductUom = new Map(harvestSource.remainingByProductUom);
+    const unitByProductUom = new Map(harvestSource.unitByProductUom);
+    const mapCtxBase: HarvestMapCtx = {
+      farmZones: farmZonesForHarvest,
+      farms: farmsForHarvest,
+      remainingByProductUom,
+      unitByProductUom,
+      productMap,
+      locale,
+      defaultTableId: harvestSource.fallbackTableId,
+      defaultTableName: harvestSource.fallbackTableName,
+    };
+    const fromPlan = harvestSource.planRows
+      .filter((x) => String(x.project_id ?? "").trim() === harvestSource.projectId)
+      .map((r) => mapHarvestRecordToHarvestRow(r, mapCtxBase));
+    const planIds = new Set(fromPlan.map((x) => x.id).filter((id) => id !== ""));
+    const mapCtxSub: HarvestMapCtx = { ...mapCtxBase };
+    const fromSubitemsOnly = harvestSource.projectSubitems
+      .filter((sub) => {
+        const subProjectId = String(sub.project_id ?? "").trim();
+        if (subProjectId && subProjectId !== harvestSource.projectId) return false;
+        const sid = String(sub.id ?? "").trim();
+        if (sid && planIds.has(sid)) return false;
+        return subitemLooksLikeHarvestLine(sub);
+      })
+      .map((sub) => mapHarvestRecordToHarvestRow(sub, mapCtxSub));
+    return [...fromPlan, ...fromSubitemsOnly];
+  }, [harvestSource, locale, productMap, farmZonesForHarvest, farmsForHarvest]);
+
   useEffect(() => {
     let mounted = true;
     void (async () => {
@@ -516,6 +588,7 @@ export default function ProjectDetailPage() {
         const normalizedTableId = tableId.trim();
         const normalizedProjectId = projectIdFromQuery.trim();
         if (!rowId && !normalizedProjectId) {
+          setHarvestSource(null);
           setError(t("cannotFindDetail"));
           return;
         }
@@ -540,6 +613,7 @@ export default function ProjectDetailPage() {
         };
         const row = res.rows.find(matchesProject) ?? null;
         if (!row) {
+          setHarvestSource(null);
           setError(t("cannotFindDetail"));
           return;
         }
@@ -583,46 +657,25 @@ export default function ProjectDetailPage() {
             unitByProductUom.set(mapKey, reqUomRaw || "-");
           }
 
-          const { farmZones: farmZonesForLabels, farms: farmsForLabels } =
-            useHarvestingDataStore.getState();
           const fallbackTableId = String(row.table_id ?? tableId ?? "").trim();
           const fallbackTableName =
             String(row.table_name ?? "Harvesting").trim() || "Harvesting";
-          const mapCtxBase: HarvestMapCtx = {
-            farmZones: farmZonesForLabels,
-            farms: farmsForLabels,
-            remainingByProductUom,
-            unitByProductUom,
-            productMap,
-            defaultTableId: fallbackTableId,
-            defaultTableName: fallbackTableName,
-          };
-          const fromPlan: HarvestRow[] = planRows
-            .filter((x) => String(x.project_id ?? "").trim() === projectId)
-            .map((r) => mapHarvestRecordToHarvestRow(r, mapCtxBase));
-          const planIds = new Set(
-            fromPlan.map((x) => x.id).filter((id) => id !== ""),
-          );
-          const mapCtxSub: HarvestMapCtx = {
-            ...mapCtxBase,
-            defaultTableId: fallbackTableId,
-            defaultTableName: fallbackTableName,
-          };
-          const fromSubitemsOnly: HarvestRow[] = projectSubitems
-            .filter((sub) => {
-              const subProjectId = String(sub.project_id ?? "").trim();
-              if (subProjectId && subProjectId !== projectId) return false;
-              const sid = String(sub.id ?? "").trim();
-              if (sid && planIds.has(sid)) return false;
-              return subitemLooksLikeHarvestLine(sub);
-            })
-            .map((sub) => mapHarvestRecordToHarvestRow(sub, mapCtxSub));
-          setHarvests([...fromPlan, ...fromSubitemsOnly]);
+          setHarvestSource({
+            planRows,
+            projectSubitems,
+            projectId,
+            fallbackTableId,
+            fallbackTableName,
+            remainingByProductUom: [...remainingByProductUom.entries()],
+            unitByProductUom: [...unitByProductUom.entries()],
+          });
         } else {
+          setHarvestSource(null);
           setProjectRow(row);
         }
       } catch (e) {
         if (!mounted) return;
+        setHarvestSource(null);
         setError(
           e instanceof Error ? e.message : t("loadError"),
         );
@@ -693,16 +746,16 @@ export default function ProjectDetailPage() {
         return translateProjectType(raw, (k) => tProjectForm(k));
       })(),
       holes: String(r.no_of_holes ?? "-"),
-      estimateStartDate: formatDateDisplay(rec.estimate_start_date),
-      actualStartDate: formatDateDisplay(actualStartRaw),
-      endDate: formatDateDisplay(r.deadline),
+      estimateStartDate: formatDateDisplay(rec.estimate_start_date, locale),
+      actualStartDate: formatDateDisplay(actualStartRaw, locale),
+      endDate: formatDateDisplay(r.deadline, locale),
       keyAreas: keyAreasParsed,
       mainContactName: String(rec.main_contact_name ?? "").trim(),
       mainContactEmail: String(rec.main_contact_email ?? "").trim(),
       mainContactPhone: String(rec.main_contact_phone ?? "").trim(),
-      actualCompletionDisplay: formatDateDisplay(rec.actual_completion_date),
+      actualCompletionDisplay: formatDateDisplay(rec.actual_completion_date, locale),
     };
-  }, [projectRow, projectTitleMap, countryMap, staffMap, tProjectForm]);
+  }, [projectRow, projectTitleMap, countryMap, staffMap, tProjectForm, locale]);
 
   const grassRows = useMemo<GrassRow[]>(() => {
     if (!projectRow) return [];
@@ -841,7 +894,18 @@ export default function ProjectDetailPage() {
       });
       const removedId = target.id;
       setHarvestDeleteTarget(null);
-      setHarvests((prev) => prev.filter((x) => x.id !== removedId));
+      setHarvestSource((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          planRows: prev.planRows.filter(
+            (r) => String(r.id ?? "").trim() !== removedId,
+          ),
+          projectSubitems: prev.projectSubitems.filter(
+            (s) => String(s.id ?? "").trim() !== removedId,
+          ),
+        };
+      });
       setExpandedHarvestId((cur) => (cur === removedId ? null : cur));
     } catch (e) {
       setHarvestDeleteError(
@@ -1276,10 +1340,10 @@ export default function ProjectDetailPage() {
                                 </td>
                                 <td className="py-2.5 pr-4">
                                   <span
-                                    className={`inline-flex items-center gap-1 text-xs font-medium capitalize ${HARVEST_STATUS_ROW_CLASSES[h.status] ?? "text-muted-foreground"}`}
+                                    className={`inline-flex items-center gap-1 text-xs font-medium ${HARVEST_STATUS_ROW_CLASSES[h.status] ?? "text-muted-foreground"}`}
                                   >
                                     <StatusIcon className="h-3.5 w-3.5" />
-                                    {h.status}
+                                    {harvestLineStatusLabel(t, h.status)}
                                   </span>
                                 </td>
                                 <td className="py-2.5 text-right">
@@ -1399,10 +1463,10 @@ export default function ProjectDetailPage() {
                   <div className="flex items-center gap-3">
                     <span className="text-sm font-semibold text-gray-500">#{filteredHarvests.findIndex((x) => x.id === h.id) + 1}</span>
                     <span
-                      className={`inline-flex items-center gap-1 text-xs font-medium capitalize ${HARVEST_STATUS_ROW_CLASSES[h.status] ?? "text-muted-foreground"}`}
+                      className={`inline-flex items-center gap-1 text-xs font-medium ${HARVEST_STATUS_ROW_CLASSES[h.status] ?? "text-muted-foreground"}`}
                     >
                       <HeaderStatusIcon className="h-3.5 w-3.5" />
-                      {h.status}
+                      {harvestLineStatusLabel(t, h.status)}
                     </span>
                   </div>
                   <div className="flex items-center gap-1">
@@ -1427,7 +1491,7 @@ export default function ProjectDetailPage() {
                       onClick={() => setExpandedHarvestId(null)}
                       className="rounded-lg border border-gray-200 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
                     >
-                      Close
+                      {tCommon("close")}
                     </button>
                   </div>
                 </div>
@@ -1545,7 +1609,7 @@ export default function ProjectDetailPage() {
                         }}
                         className="flex gap-2 rounded-lg border p-2 text-gray-300 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
                       >
-                        <Trash2 className="h-5 w-5" /> Delete
+                        <Trash2 className="h-5 w-5" /> {tCommon("delete")}
                       </button>
                     </div>
                   ) : null}

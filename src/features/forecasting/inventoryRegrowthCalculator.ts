@@ -2,7 +2,13 @@ import {
   computeRegrowthDaysForHarvest,
   type RegrowthReferenceConfig,
 } from "@/features/forecasting/forecastingRegrowth";
+import type { ZoneConfigurationRow } from "@/features/admin/api/adminApi";
 import type { ForecastHarvestRow } from "@/features/forecasting/forecastingTypes";
+
+function toNum(v: string | number | null | undefined): number {
+  const n = Number(v ?? 0);
+  return Number.isFinite(n) ? n : 0;
+}
 
 function normalizeYmd(value: string): string {
   return value.trim().slice(0, 10);
@@ -43,6 +49,14 @@ export function forecastZoneKeyFromRow(row: ForecastHarvestRow): string {
   return forecastZoneKeyFromParts(row.farmId, row.zone, row.productId);
 }
 
+/**
+ * `rowsToMockHarvestRows` tách một plan thành nhiều dòng theo zone (`1612~z0`, `1612~z1`…).
+ * Hàm này trả về id plan gốc để gộp hiển thị / nhóm theo một đợt gặt.
+ */
+export function forecastLogicalPlanRowId(rowId: string): string {
+  return String(rowId ?? "").replace(/~z\d+$/u, "");
+}
+
 export function getRegrowthDateFromHarvest(
   row: ForecastHarvestRow,
   regrowthConfig: RegrowthReferenceConfig,
@@ -61,6 +75,56 @@ export function computeZoneCapacityMap(rows: ForecastHarvestRow[]): Map<string, 
     byZone.set(key, Math.max(byZone.get(key) ?? 0, maxKg));
   }
   return byZone;
+}
+
+/** Max kg per zone from `sts_zone_configurations` (same keys as harvest / manual balance rows). */
+export function buildZoneConfigurationCapacityMap(
+  rows: ZoneConfigurationRow[],
+): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const row of rows) {
+    const sizeM2 = toNum(row.size_m2);
+    const inventoryKgPerM2 = toNum(row.inventory_kg_per_m2);
+    const maxKgRaw = toNum(row.max_inventory_kg);
+    const maxKg = maxKgRaw > 0 ? maxKgRaw : sizeM2 * inventoryKgPerM2;
+    const key = forecastZoneKeyFromParts(row.farm_id, String(row.zone ?? ""), row.grass_id);
+    out.set(key, Math.max(out.get(key) ?? 0, maxKg));
+  }
+  return out;
+}
+
+/** Harvest-derived caps merged with zone configuration caps (used by inventory + forecasting). */
+export function mergeZoneCapacityMaps(
+  harvestCaps: Map<string, number>,
+  configCaps: Map<string, number>,
+): Map<string, number> {
+  const out = new Map<string, number>(harvestCaps);
+  for (const [key, maxKg] of configCaps) {
+    out.set(key, Math.max(out.get(key) ?? 0, maxKg));
+  }
+  return out;
+}
+
+/**
+ * Tổng trần kg (max) trên tất cả các zone-key có cấu hình cho cùng farm + product,
+ * không gồm bucket `nozone` (dùng cho giải thích UI vs tổng tái sinh).
+ */
+export function sumConfiguredZoneCapKgForFarmProduct(
+  maxByZone: Map<string, number>,
+  farmId: number,
+  productId: number,
+): number {
+  const prefix = `${farmId}|`;
+  const suffix = `|${productId}`;
+  let sum = 0;
+  for (const [key, max] of maxByZone) {
+    if (!key.startsWith(prefix) || !key.endsWith(suffix)) continue;
+    const zoneSeg = key.slice(prefix.length, key.length - suffix.length);
+    if (zoneSeg === "nozone") continue;
+    const n = Number(max);
+    if (Number.isFinite(n) && n > 0) sum += n;
+  }
+  return sum;
 }
 
 export function computeCappedAvailableByZoneAtDate(

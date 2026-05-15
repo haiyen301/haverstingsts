@@ -17,6 +17,38 @@ function startOfLocalDay(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
+function ymdFromDate(date: Date): string {
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+/**
+ * For a zone, pick the manual balance row whose `balance_date` is on or before `asOf`
+ * and is the latest such row. This supports multiple dated rows per zone in `sts_inventory_balance`.
+ */
+export function pickInventoryOverrideForAsOf(
+  overridesByStorageKey: Record<string, InventoryAvailableOverrideEntry>,
+  zoneKey: string,
+  asOf: Date,
+): InventoryAvailableOverrideEntry | null {
+  const asOfYmd = ymdFromDate(startOfLocalDay(asOf));
+  let best: InventoryAvailableOverrideEntry | null = null;
+  let bestYmd = "";
+  for (const entry of Object.values(overridesByStorageKey)) {
+    if (entry.zoneKey !== zoneKey) continue;
+    const d = normalizeYmd(entry.date);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) continue;
+    if (d > asOfYmd) continue;
+    if (!best || d > bestYmd) {
+      best = entry;
+      bestYmd = d;
+    }
+  }
+  return best;
+}
+
 function clampKg(value: number, maxKg: number): number {
   if (!Number.isFinite(value)) return 0;
   if (maxKg > 0) return Math.min(maxKg, Math.max(0, value));
@@ -89,6 +121,7 @@ export function applyInventoryAvailableOverrideToZone(params: {
 export function applyInventoryAvailableOverridesToZoneMap(params: {
   availableByZone: Map<string, number>;
   maxByZone: Map<string, number>;
+  /** Keys are `zoneKey|yyyy-mm-dd` (see `inventoryBalanceOverrideStorageKey`). Values hold `zoneKey` + `date`. */
   overridesByZone: Record<string, InventoryAvailableOverrideEntry>;
   asOf: Date;
   overrideRecoveryDays: number;
@@ -99,7 +132,13 @@ export function applyInventoryAvailableOverridesToZoneMap(params: {
   const adjustedByZone = new Map<string, number>(params.availableByZone);
   const appliedByZone = new Map<string, AppliedInventoryAvailableOverride>();
 
-  for (const [zoneKey, override] of Object.entries(params.overridesByZone)) {
+  const zoneKeys = new Set<string>(params.availableByZone.keys());
+  for (const entry of Object.values(params.overridesByZone)) {
+    zoneKeys.add(entry.zoneKey);
+  }
+
+  for (const zoneKey of zoneKeys) {
+    const override = pickInventoryOverrideForAsOf(params.overridesByZone, zoneKey, params.asOf);
     const calculatedKg = params.availableByZone.get(zoneKey) ?? 0;
     const maxKg = params.maxByZone.get(zoneKey) ?? 0;
     const applied = applyInventoryAvailableOverrideToZone({

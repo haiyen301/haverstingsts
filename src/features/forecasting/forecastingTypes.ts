@@ -29,4 +29,9 @@ export type ForecastHarvestRow = {
   inventoryIsCapped: boolean;
   /** Trần tồn kho áp dụng cho group farm_id + zone + product_id. */
   zoneMaxInventoryKg: number;
+  /**
+   * Phần `inventoryKg` của dòng này đến từ plan **không gán zone** rồi được spread vào zone hiện tại
+   * (`distributePlanRowToZoneFragments`). Dùng regrowth / tooltip để biết bao nhiêu kg trên zone có nguồn từ bước đó.
+   */
+  inventoryKgFromNozoneSpread?: number;
 };

@@ -16,6 +16,13 @@ type DatePickerProps = {
   className?: string;
   hasError?: boolean;
   onBlur?: () => void;
+  /**
+   * Calendar markers: local `yyyy-MM-dd` strings. Those days get a highlight class
+   * (see `markedDateModifierClassName`) in the popover month grid.
+   */
+  markedDatesYmd?: string[];
+  /** Tailwind / utility classes for days listed in `markedDatesYmd`. */
+  markedDateModifierClassName?: string;
 };
 
 export function DatePicker({
@@ -26,6 +33,8 @@ export function DatePicker({
   className,
   hasError,
   onBlur,
+  markedDatesYmd,
+  markedDateModifierClassName = "relative font-semibold after:pointer-events-none after:absolute after:bottom-1 after:left-1/2 after:h-1.5 after:w-1.5 after:-translate-x-1/2 after:rounded-full after:bg-amber-500",
 }: DatePickerProps) {
   const [open, setOpen] = useState(false);
 
@@ -44,6 +53,31 @@ export function DatePicker({
   useEffect(() => {
     setInputValue(selectedDate ? format(selectedDate, "dd/M/yyyy") : "");
   }, [selectedDate]);
+
+  const markedLocalDates = useMemo(() => {
+    if (!markedDatesYmd?.length) return [];
+    const out: Date[] = [];
+    for (const raw of markedDatesYmd) {
+      const ymd = String(raw ?? "").trim().slice(0, 10);
+      const m = ymd.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (!m) continue;
+      out.push(new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0));
+    }
+    return out;
+  }, [markedDatesYmd]);
+
+  const calendarModifiers = useMemo(
+    () => (markedLocalDates.length > 0 ? { hasMarkedBalance: markedLocalDates } : undefined),
+    [markedLocalDates],
+  );
+
+  const calendarModifiersClassNames = useMemo(
+    () =>
+      markedLocalDates.length > 0 && markedDateModifierClassName
+        ? { hasMarkedBalance: markedDateModifierClassName }
+        : undefined,
+    [markedDateModifierClassName, markedLocalDates.length],
+  );
 
   const commitManualDateInput = () => {
     const raw = inputValue.trim();
@@ -143,6 +177,8 @@ export function DatePicker({
           }}
           disabled={disabled}
           initialFocus
+          modifiers={calendarModifiers}
+          modifiersClassNames={calendarModifiersClassNames}
         />
         {selectedDate ? (
           <div className="border-t border-gray-200 p-2">

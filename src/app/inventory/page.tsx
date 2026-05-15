@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ClipboardEdit, RotateCcw, X } from "lucide-react";
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { toast } from "react-toastify";
+import { useTranslations } from "next-intl";
 
 import RequireAuth from "@/features/auth/RequireAuth";
 import {
@@ -21,8 +22,10 @@ import {
   type AppliedInventoryAvailableOverride,
 } from "@/features/forecasting/inventoryAvailableOverrides";
 import {
+  buildZoneConfigurationCapacityMap,
   computeCappedAvailableByZoneAtDate,
   computeZoneCapacityMap,
+  mergeZoneCapacityMaps,
   forecastZoneKeyFromParts,
   forecastZoneKeyFromRow,
 } from "@/features/forecasting/inventoryRegrowthCalculator";
@@ -31,10 +34,13 @@ import {
   rowsToMockHarvestRows,
 } from "@/features/forecasting/mapHarvestApiToForecastRows";
 import type { ForecastHarvestRow } from "@/features/forecasting/forecastingTypes";
-import { zoneIdToLabel } from "@/shared/lib/harvestReferenceData";
+import { zoneIdToLabelResolved, pickGrassCatalogRows } from "@/shared/lib/harvestReferenceData";
 import { DatePicker } from "@/shared/ui/date-picker";
 import type { InventoryAvailableOverrideEntry } from "@/shared/store/inventoryAvailableOverrideStore";
-import { useInventoryAvailableOverrideStore } from "@/shared/store/inventoryAvailableOverrideStore";
+import {
+  inventoryBalanceOverrideStorageKey,
+  useInventoryAvailableOverrideStore,
+} from "@/shared/store/inventoryAvailableOverrideStore";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 
@@ -105,19 +111,6 @@ function parseBalanceInput(value: string | number | null | undefined): number {
   const digits = String(value ?? "").replace(/[^\d]/g, "");
   if (!digits) return Number.NaN;
   return Number(digits);
-}
-
-function buildZoneConfigurationCapacityMap(rows: ZoneConfigurationRow[]): Map<string, number> {
-  const out = new Map<string, number>();
-  for (const row of rows) {
-    const sizeM2 = toNum(row.size_m2);
-    const inventoryKgPerM2 = toNum(row.inventory_kg_per_m2);
-    const maxKgRaw = toNum(row.max_inventory_kg);
-    const maxKg = maxKgRaw > 0 ? maxKgRaw : sizeM2 * inventoryKgPerM2;
-    const key = forecastZoneKeyFromParts(row.farm_id, String(row.zone ?? ""), row.grass_id);
-    out.set(key, Math.max(out.get(key) ?? 0, maxKg));
-  }
-  return out;
 }
 
 /** When zone configuration is empty, list one row per harvest-derived zone key (same basis as Inventory Forecast). */
@@ -217,6 +210,8 @@ function mapZoneToInventoryRow(
 }
 
 export default function InventoryPage() {
+  const t = useTranslations("InventoryBalance");
+  const tForecast = useTranslations("ForecastInventory");
   const [zoneConfigurations, setZoneConfigurations] = useState<ZoneConfigurationRow[]>([]);
   const [forecastRows, setForecastRows] = useState<ForecastHarvestRow[]>([]);
   const [regrowthConfig, setRegrowthConfig] = useState(
@@ -234,12 +229,22 @@ export default function InventoryPage() {
   const [balanceUpdates, setBalanceUpdates] = useState<Record<string, string>>({});
 
   const overridesByZone = useInventoryAvailableOverrideStore((s) => s.overridesByZone);
+  const overridesLoading = useInventoryAvailableOverrideStore((s) => s.loading);
   const fetchOverrides = useInventoryAvailableOverrideStore((s) => s.fetchOverrides);
   const upsertOverrides = useInventoryAvailableOverrideStore((s) => s.upsertOverrides);
   const removeOverride = useInventoryAvailableOverrideStore((s) => s.removeOverride);
   const farmZones = useHarvestingDataStore((s) => s.farmZones);
+  const grasses = useHarvestingDataStore((s) => s.grasses);
+  const fetchAllHarvestingReferenceData = useHarvestingDataStore(
+    (s) => s.fetchAllHarvestingReferenceData,
+  );
 
-  const zoneLabel = (zoneId: string) => zoneIdToLabel(zoneId, farmZones) || zoneId;
+  useEffect(() => {
+    void fetchAllHarvestingReferenceData();
+  }, [fetchAllHarvestingReferenceData]);
+
+  const zoneLabel = (zoneId: string) =>
+    zoneIdToLabelResolved(zoneId, farmZones, tForecast("events.noZoneName"));
 
   useEffect(() => {
     if (!error) return;
@@ -275,7 +280,7 @@ export default function InventoryPage() {
         setRegrowthConfig(resolveRegrowthReferenceConfigFromRules(rules));
       } catch (e) {
         if (!alive) return;
-        setError(e instanceof Error ? e.message : "Failed to load inventory data.");
+        setError(e instanceof Error ? e.message : t("loadErrorGeneric"));
       } finally {
         if (alive) setLoading(false);
       }
@@ -290,6 +295,11 @@ export default function InventoryPage() {
   }, [fetchOverrides]);
 
   useEffect(() => {
+    if (!updateOpen) return;
+    void fetchOverrides();
+  }, [updateOpen, fetchOverrides]);
+
+  useEffect(() => {
     if (!notice) return;
     const timer = window.setTimeout(() => setNotice(null), 4000);
     return () => window.clearTimeout(timer);
@@ -302,10 +312,10 @@ export default function InventoryPage() {
       regrowthConfig,
       today,
     );
-    const maxByZone =
-      zoneConfigurations.length > 0
-        ? buildZoneConfigurationCapacityMap(zoneConfigurations)
-        : computeZoneCapacityMap(forecastRows);
+    const maxByZone = mergeZoneCapacityMaps(
+      computeZoneCapacityMap(forecastRows),
+      zoneConfigurations.length > 0 ? buildZoneConfigurationCapacityMap(zoneConfigurations) : new Map(),
+    );
     const { adjustedByZone, appliedByZone } = applyInventoryAvailableOverridesToZoneMap({
       availableByZone: calculatedByZone,
       maxByZone,
@@ -331,25 +341,32 @@ export default function InventoryPage() {
     () => Array.from(new Set(rows.map((r) => r.farmName).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
     [rows],
   );
-  const availableGrasses = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          rows
-            .filter((r) => (!filterFarm ? true : r.farmName === filterFarm))
-            .map((r) => r.turfgrass)
-            .filter(Boolean),
-        ),
-      ).sort((a, b) => a.localeCompare(b)),
-    [rows, filterFarm],
-  );
+  /** Grass dropdown: sales window (today); current filter value pinned if outside window. */
+  const availableGrasses = useMemo(() => {
+    const picked = pickGrassCatalogRows({
+      catalog: grasses as unknown[],
+      mode: "sales_window",
+      refYmds: [],
+      pinnedGrassIds: filterGrass.trim() ? [filterGrass.trim()] : [],
+    });
+    return picked
+      .map((g) => {
+        if (!g || typeof g !== "object") return null;
+        const rec = g as Record<string, unknown>;
+        const id = String(rec.id ?? "").trim();
+        const label = String(rec.title ?? rec.name ?? "").trim() || id;
+        return id ? { id, label } : null;
+      })
+      .filter((x): x is { id: string; label: string } => x !== null)
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [grasses, filterGrass]);
 
   const inventory = useMemo(
     () =>
       rows.filter(
         (r) =>
           (!filterFarm || r.farmName === filterFarm) &&
-          (!filterGrass || r.turfgrass === filterGrass),
+          (!filterGrass || String(r.grassId) === filterGrass),
       ),
     [rows, filterFarm, filterGrass],
   );
@@ -368,6 +385,23 @@ export default function InventoryPage() {
     [rows, selectedFarm, farmZones],
   );
 
+  const farmZoneKeySet = useMemo(() => {
+    if (!selectedFarm) return new Set<string>();
+    return new Set(rows.filter((r) => r.farmName === selectedFarm).map((r) => r.forecastZoneKey));
+  }, [rows, selectedFarm]);
+
+  /** Balance dates that have at least one saved row for the selected farm (for calendar markers). */
+  const markedBalanceDatesYmd = useMemo(() => {
+    if (!selectedFarm || farmZoneKeySet.size === 0) return [];
+    const days = new Set<string>();
+    for (const entry of Object.values(overridesByZone)) {
+      if (!entry.date || !farmZoneKeySet.has(entry.zoneKey)) continue;
+      const ymd = entry.date.trim().slice(0, 10);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(ymd)) days.add(ymd);
+    }
+    return Array.from(days).sort();
+  }, [overridesByZone, farmZoneKeySet, selectedFarm]);
+
   const activeOverrideCount = useMemo(
     () => rows.filter((r) => r.isManualOverrideActive).length,
     [rows],
@@ -382,11 +416,12 @@ export default function InventoryPage() {
     if (!updateOpen) return;
     const next: Record<string, string> = {};
     for (const row of updateZones) {
-      const existing = overridesByZone[row.forecastZoneKey];
+      const sk = inventoryBalanceOverrideStorageKey(row.forecastZoneKey, updateDate);
+      const existing = overridesByZone[sk];
       if (existing) next[row.key] = formatBalanceInput(existing.availableKg);
     }
     setBalanceUpdates(next);
-  }, [overridesByZone, updateOpen, updateZones]);
+  }, [overridesByZone, updateOpen, updateZones, updateDate]);
 
   async function handleSaveUpdates() {
     const updates: InventoryAvailableOverrideEntry[] = [];
@@ -396,7 +431,8 @@ export default function InventoryPage() {
       const availableKg = parseBalanceInput(raw);
       if (!Number.isFinite(availableKg) || availableKg < 0) continue;
       updates.push({
-        id: overridesByZone[row.forecastZoneKey]?.id ?? 0,
+        id:
+          overridesByZone[inventoryBalanceOverrideStorageKey(row.forecastZoneKey, updateDate)]?.id ?? 0,
         zoneKey: row.forecastZoneKey,
         zoneConfigurationId: row.zoneConfigurationId,
         farmId: row.farmId,
@@ -412,17 +448,18 @@ export default function InventoryPage() {
     }
 
     if (updates.length === 0) {
-      setNotice("Please enter at least one updated balance.");
+      setNotice(t("noticeMinOneBalance"));
       return;
     }
 
     try {
       await upsertOverrides(updates);
-      setNotice(`Saved ${updates.length} manual balance override(s) for ${selectedFarm}.`);
+      await fetchOverrides();
+      setNotice(t("savedOverrides", { count: updates.length, farm: selectedFarm }));
       setBalanceUpdates({});
       setUpdateOpen(false);
     } catch (error) {
-      setNotice(error instanceof Error ? error.message : "Failed to save balance updates.");
+      setNotice(error instanceof Error ? error.message : t("saveBalanceFailed"));
     }
   }
 
@@ -456,9 +493,9 @@ export default function InventoryPage() {
         <div className="space-y-6 p-4 lg:p-8">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <h1 className="text-2xl lg:text-3xl font-semibold text-gray-900">Inventory Balance</h1>
+              <h1 className="text-2xl lg:text-3xl font-semibold text-gray-900">{t("title")}</h1>
               <p className="mt-1 text-sm text-gray-600">
-                Balance across all farm zones
+                {t("subtitle")}
               </p>
             </div>
             <button
@@ -467,7 +504,7 @@ export default function InventoryPage() {
               className="inline-flex items-center gap-2 rounded-lg border border-border bg-white px-3 py-2 text-sm font-medium text-foreground shadow-sm transition hover:bg-muted/40"
             >
               <ClipboardEdit className="h-4 w-4" />
-              Update Inventory
+              {t("updateInventory")}
             </button>
           </div>
 
@@ -477,7 +514,7 @@ export default function InventoryPage() {
               onChange={(e) => setFilterFarm(e.target.value)}
               className="px-3 py-1.5 rounded-lg text-xs bg-muted border border-border text-foreground"
             >
-              <option value="">All Farms</option>
+              <option value="">{t("allFarms")}</option>
               {availableFarms.map((f) => (
                 <option key={f} value={f}>
                   {f}
@@ -489,10 +526,10 @@ export default function InventoryPage() {
               onChange={(e) => setFilterGrass(e.target.value)}
               className="px-3 py-1.5 rounded-lg text-xs bg-muted border border-border text-foreground"
             >
-              <option value="">All Grass Types</option>
+              <option value="">{t("allGrassTypes")}</option>
               {availableGrasses.map((g) => (
-                <option key={g} value={g}>
-                  {g}
+                <option key={g.id} value={g.id}>
+                  {g.label}
                 </option>
               ))}
             </select>
@@ -504,17 +541,16 @@ export default function InventoryPage() {
             </div>
           ) : null}
 
-          {loading ? <p className="text-sm text-gray-500">Loading inventory...</p> : null}
+          {loading ? <p className="text-sm text-gray-500">{t("loading")}</p> : null}
           
           {updateOpen ? (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
               <div className="max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-xl border border-border bg-white shadow-2xl">
                 <div className="flex items-center justify-between border-b border-border px-5 py-4">
                   <div>
-                    <h2 className="text-lg font-semibold text-gray-900">Monthly Inventory Balance Update</h2>
+                    <h2 className="text-lg font-semibold text-gray-900">{t("dialogTitle")}</h2>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      Manual balance overrides the system value for the selected zone, then fades back
-                      using the override recovery rule.
+                      {t("dialogSubtitle")}
                     </p>
                   </div>
                   <button
@@ -524,7 +560,7 @@ export default function InventoryPage() {
                       setBalanceUpdates({});
                     }}
                     className="rounded-md p-2 text-muted-foreground transition hover:bg-muted/40 hover:text-foreground"
-                    aria-label="Close update inventory dialog"
+                    aria-label={t("closeDialogAria")}
                   >
                     <X className="h-4 w-4" />
                   </button>
@@ -533,13 +569,13 @@ export default function InventoryPage() {
                 <div className="space-y-4 overflow-y-auto p-5">
                   <div className="grid gap-4 sm:grid-cols-2">
                     <label className="space-y-2 text-sm">
-                      <span className="font-medium text-foreground">Farm</span>
+                      <span className="font-medium text-foreground">{t("farm")}</span>
                       <select
                         value={selectedFarm}
                         onChange={(e) => setSelectedFarm(e.target.value)}
                         className="w-full rounded-lg border border-border bg-white px-3 py-2 text-sm text-foreground"
                       >
-                        <option value="">Select farm</option>
+                        <option value="">{t("selectFarm")}</option>
                         {availableFarms.map((farm) => (
                           <option key={farm} value={farm}>
                             {farm}
@@ -548,13 +584,25 @@ export default function InventoryPage() {
                       </select>
                     </label>
                     <label className="space-y-2 text-sm">
-                      <span className="font-medium text-foreground">Update Date</span>
+                      <span className="font-medium text-foreground">{t("updateDate")}</span>
                       <DatePicker
                         value={updateDate}
                         onChange={setUpdateDate}
+                        markedDatesYmd={markedBalanceDatesYmd}
                       />
+                      {selectedFarm ? (
+                        <p className="text-[11px] text-muted-foreground">
+                          {t("calendarMarkedDatesHint")}
+                        </p>
+                      ) : null}
                     </label>
                   </div>
+
+                  {selectedFarm && overridesLoading ? (
+                    <p className="rounded-md border border-amber-100 bg-amber-50/80 px-3 py-2 text-xs text-amber-900">
+                      {t("loadingSavedBalances")}
+                    </p>
+                  ) : null}
 
                   {selectedFarm ? (
                     updateZones.length > 0 ? (
@@ -562,18 +610,21 @@ export default function InventoryPage() {
                         <table className="w-full text-sm">
                           <thead>
                             <tr className="">
-                              <th className="sticky top-0 px-3 py-2 text-left font-medium bg-muted text-muted-foreground">Grass Type</th>
-                              <th className="sticky top-0 px-3 py-2 text-left font-medium bg-muted text-muted-foreground">Zone</th>
-                              <th className="sticky top-0 px-3 py-2 text-right font-medium bg-muted text-muted-foreground">Zone Size (m²)</th>
-                              <th className="sticky top-0 px-3 py-2 text-right font-medium bg-muted text-muted-foreground">Est. Kg Output</th>
-                              <th className="sticky top-0 px-3 py-2 text-right font-medium bg-muted text-muted-foreground">Total Kg</th>
-                              <th className="sticky top-0 px-3 py-2 text-right font-medium bg-muted text-muted-foreground">Balance</th>
-                              <th className="sticky top-0 px-3 py-2 text-right font-medium bg-muted text-muted-foreground">New Balance</th>
+                              <th className="sticky top-0 px-3 py-2 text-left font-medium bg-muted text-muted-foreground">{t("thGrassType")}</th>
+                              <th className="sticky top-0 px-3 py-2 text-left font-medium bg-muted text-muted-foreground">{t("thZone")}</th>
+                              <th className="sticky top-0 px-3 py-2 text-right font-medium bg-muted text-muted-foreground">{t("thZoneSize")}</th>
+                              <th className="sticky top-0 px-3 py-2 text-right font-medium bg-muted text-muted-foreground">{t("thEstKgOutput")}</th>
+                              <th className="sticky top-0 px-3 py-2 text-right font-medium bg-muted text-muted-foreground">{t("thTotalKg")}</th>
+                              <th className="sticky top-0 px-3 py-2 text-right font-medium bg-muted text-muted-foreground">{t("thBalance")}</th>
+                              <th className="sticky top-0 px-3 py-2 text-right font-medium bg-muted text-muted-foreground">{t("thNewBalance")}</th>
                             </tr>
                           </thead>
                           <tbody>
                             {updateZones.map((row) => {
-                              const existing = overridesByZone[row.forecastZoneKey];
+                              const existing =
+                                overridesByZone[
+                                  inventoryBalanceOverrideStorageKey(row.forecastZoneKey, updateDate)
+                                ];
                               const isOverridden = !!existing;
                               return (
                                 <tr key={row.key} className="border-t border-border/60 align-top">
@@ -597,14 +648,16 @@ export default function InventoryPage() {
                                             [row.key]: formatBalanceInput(e.target.value),
                                           }))
                                         }
-                                        placeholder={isOverridden ? formatBalanceInput(existing.availableKg) : "Enter kg"}
+                                        placeholder={isOverridden ? formatBalanceInput(existing.availableKg) : t("enterKgPlaceholder")}
                                         className="w-full rounded-lg border border-border bg-white px-3 py-2 text-right text-sm text-foreground"
                                       />
                                       {isOverridden ? (
                                         <>
                                           <p className="text-[11px] text-amber-700">
-                                            Saved balance: {existing.availableKg.toLocaleString()} kg from{" "}
-                                            {formatShortDate(existing.date)}
+                                            {t("savedBalanceLine", {
+                                              kg: existing.availableKg.toLocaleString(),
+                                              date: formatShortDate(existing.date),
+                                            })}
                                           </p>
                                           <button
                                             type="button"
@@ -618,13 +671,17 @@ export default function InventoryPage() {
                                                     return next;
                                                   });
                                                   setNotice(
-                                                    `Removed manual balance override for ${row.farmName} ${row.turfgrass} ${zoneLabel(row.zone)}.`,
+                                                    t("removedOverride", {
+                                                      farm: row.farmName,
+                                                      grass: row.turfgrass,
+                                                      zone: zoneLabel(row.zone),
+                                                    }),
                                                   );
                                                 } catch (error) {
                                                   setNotice(
                                                     error instanceof Error
                                                       ? error.message
-                                                      : "Failed to remove balance override.",
+                                                      : t("removeOverrideFailed"),
                                                   );
                                                 }
                                               })();
@@ -632,7 +689,7 @@ export default function InventoryPage() {
                                             className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground transition hover:text-foreground"
                                           >
                                             <RotateCcw className="h-3.5 w-3.5" />
-                                            Reset
+                                            {t("reset")}
                                           </button>
                                         </>
                                       ) : null}
@@ -646,12 +703,12 @@ export default function InventoryPage() {
                       </div>
                     ) : (
                       <p className="rounded-lg border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
-                        No zones found for this farm.
+                        {t("noZonesForFarm")}
                       </p>
                     )
                   ) : (
                     <p className="rounded-lg border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
-                      Select a farm to edit balance by zone.
+                      {t("selectFarmToEdit")}
                     </p>
                   )}
                 </div>
@@ -665,14 +722,14 @@ export default function InventoryPage() {
                     }}
                     className="rounded-lg border border-border bg-white px-3 py-2 text-sm font-medium text-foreground transition hover:bg-muted/40"
                   >
-                    Cancel
+                    {t("cancel")}
                   </button>
                   <button
                     type="button"
                     onClick={handleSaveUpdates}
                     className="rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition hover:opacity-90"
                   >
-                    Save Updates
+                    {t("saveUpdates")}
                   </button>
                 </div>
               </div>
@@ -718,21 +775,18 @@ export default function InventoryPage() {
           <div className="rounded-xl border border-border bg-white p-4">
             <div className="flex items-baseline justify-between mb-4">
               <div>
-                <h3 className="text-base font-semibold">Inventory by Grass Type</h3>
+                <h3 className="text-base font-semibold">{t("byGrassTitle")}</h3>
                 <p className="text-xs text-muted-foreground">
-                  Farm contribution per grass - balance (kg)
+                  {t("byGrassSubtitle")}
                 </p>
               </div>
-              <p className="text-xs text-muted-foreground">
-                Company total:{" "}
-                <span className="font-semibold text-foreground">
-                  {(companyTotalKg / 1000).toFixed(1)}k kg
-                </span>
+              <p className="text-xs font-semibold text-foreground">
+                {t("companyTotal", { kg: (companyTotalKg / 1000).toFixed(1) })}
               </p>
             </div>
             {stackedByGrass.length === 0 ? (
               <p className="text-sm text-muted-foreground py-8 text-center">
-                No inventory recorded yet.
+                {t("emptyInventory")}
               </p>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
@@ -769,7 +823,10 @@ export default function InventoryPage() {
                             </Pie>
                             <Tooltip
                               formatter={(value: number, name: string) => [
-                                `${value.toLocaleString()} kg (${total ? Math.round((value / total) * 100) : 0}%)`,
+                                t("pieTooltip", {
+                                  kg: value.toLocaleString(),
+                                  pct: total ? Math.round((value / total) * 100) : 0,
+                                }),
                                 name,
                               ]}
                             />
@@ -787,23 +844,23 @@ export default function InventoryPage() {
           {drillFarm ? (
             <div className="rounded-xl border border-border bg-white p-4">
               <div className="mb-3 flex items-center justify-between">
-                <h3 className="text-sm font-semibold">{drillFarm} - Stock by Grass Type</h3>
+                <h3 className="text-sm font-semibold">{t("drillTitle", { farm: drillFarm ?? "" })}</h3>
                 <button
                   type="button"
                   className="text-xs text-muted-foreground hover:text-foreground"
                   onClick={() => setDrillFarm(null)}
                 >
-                  Close
+                  {t("close")}
                 </button>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="bg-muted/50">
-                      <th className="text-left py-2 px-3">Grass Type</th>
-                      <th className="text-right py-2 px-3">Balance (kg)</th>
-                      <th className="text-right py-2 px-3">Max (kg)</th>
-                      <th className="text-left py-2 px-3">Level</th>
+                      <th className="text-left py-2 px-3">{t("drillThGrass")}</th>
+                      <th className="text-right py-2 px-3">{t("drillThBalance")}</th>
+                      <th className="text-right py-2 px-3">{t("drillThMax")}</th>
+                      <th className="text-left py-2 px-3">{t("drillThLevel")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -865,30 +922,33 @@ export default function InventoryPage() {
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold text-foreground">{z.farmName}</p>
                       <p className="mt-0.5 text-sm text-foreground">{z.turfgrass}</p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">Zone: {zoneLabel(z.zone)}</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">{t("zonePrefix")} {zoneLabel(z.zone)}</p>
                     </div>
                     {z.isManualOverrideActive ? (
                       <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
-                        Manual
+                        {t("manualBadge")}
                       </span>
                     ) : null}
                   </div>
 
                   <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
                     <div>
-                      <p className="text-[11px] text-muted-foreground">Size (m2)</p>
+                      <p className="text-[11px] text-muted-foreground">{t("sizeM2")}</p>
                       <p className="font-medium text-foreground">{z.sizeM2.toLocaleString()}</p>
                     </div>
                     <div>
-                      <p className="text-[11px] text-muted-foreground">Max (kg)</p>
+                      <p className="text-[11px] text-muted-foreground">{t("maxKg")}</p>
                       <p className="font-medium text-foreground">{z.maxKg.toLocaleString()}</p>
                     </div>
                     <div className="col-span-2">
-                      <p className="text-[11px] text-muted-foreground">Balance (kg)</p>
+                      <p className="text-[11px] text-muted-foreground">{t("balanceKg")}</p>
                       <p className="font-medium text-foreground">{z.currentKg.toLocaleString()}</p>
                       {z.isManualOverrideActive ? (
                         <p className="mt-1 text-[11px] text-muted-foreground">
-                          System {z.calculatedKg.toLocaleString()} kg · Updated {formatShortDate(z.manualOverrideDate)}
+                          {t("systemUpdated", {
+                            calc: z.calculatedKg.toLocaleString(),
+                            date: formatShortDate(z.manualOverrideDate),
+                          })}
                         </p>
                       ) : null}
                     </div>
@@ -896,7 +956,7 @@ export default function InventoryPage() {
 
                   <div className="mt-3">
                     <div className="mb-1 flex items-center justify-between gap-2">
-                      <span className="text-[11px] text-muted-foreground">Level</span>
+                      <span className="text-[11px] text-muted-foreground">{t("level")}</span>
                       <span className="w-8 text-right text-xs text-muted-foreground">{z.pct}%</span>
                     </div>
                     <div className="h-2 rounded-full bg-muted">
@@ -918,13 +978,13 @@ export default function InventoryPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-muted/50">
-                    <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground">Farm</th>
-                    <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground">Grass</th>
-                    <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground">Zone</th>
-                    <th className="text-right py-3 px-4 text-xs font-medium text-muted-foreground">Size (m2)</th>
-                    <th className="text-right py-3 px-4 text-xs font-medium text-muted-foreground">Max (kg)</th>
-                    <th className="text-right py-3 px-4 text-xs font-medium text-muted-foreground">Balance (kg)</th>
-                    <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground w-32">Level</th>
+                    <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground">{t("thFarm")}</th>
+                    <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground">{t("thGrass")}</th>
+                    <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground">{t("thZone")}</th>
+                    <th className="text-right py-3 px-4 text-xs font-medium text-muted-foreground">{t("thSizeM2Short")}</th>
+                    <th className="text-right py-3 px-4 text-xs font-medium text-muted-foreground">{t("thMaxKg")}</th>
+                    <th className="text-right py-3 px-4 text-xs font-medium text-muted-foreground">{t("thBalanceKg")}</th>
+                    <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground w-32">{t("thLevel")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -940,13 +1000,16 @@ export default function InventoryPage() {
                           <span className="font-medium">{z.currentKg.toLocaleString()}</span>
                           {z.isManualOverrideActive ? (
                             <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
-                              Manual
+                              {t("manualBadge")}
                             </span>
                           ) : null}
                         </div>
                         {z.isManualOverrideActive ? (
                           <p className="mt-1 text-[11px] text-muted-foreground">
-                            System {z.calculatedKg.toLocaleString()} kg · Updated {formatShortDate(z.manualOverrideDate)}
+                            {t("systemUpdated", {
+                            calc: z.calculatedKg.toLocaleString(),
+                            date: formatShortDate(z.manualOverrideDate),
+                          })}
                           </p>
                         ) : null}
                       </td>

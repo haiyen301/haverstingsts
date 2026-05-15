@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Pencil, Plus, Trash2 } from "lucide-react";
+import { useTranslations } from "next-intl";
 import {
   fetchProjectFormCatalog,
   isProjectCatalogKey,
@@ -13,9 +14,6 @@ import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
 const segment = "project" as const;
-const title = "Projects";
-const subtitle = "Administration · Projects";
-const kindLabel = "Project Type";
 
 const inputClass =
   "flex h-9 w-full min-w-0 rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground shadow-sm outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/35 disabled:cursor-not-allowed disabled:opacity-50";
@@ -83,6 +81,7 @@ function CatalogSwitch({
 }
 
 export function ProjectTypesCatalogTab() {
+  const t = useTranslations("AdminFormCatalog");
   const [rows, setRows] = useState<ProjectFormCatalogRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -105,7 +104,7 @@ export function ProjectTypesCatalogTab() {
         await load();
       } catch (e) {
         if (!mounted) return;
-        setError(e instanceof Error ? e.message : "Failed to load catalog.");
+        setError(e instanceof Error ? e.message : t("loadError"));
       } finally {
         if (mounted) setLoading(false);
       }
@@ -122,7 +121,7 @@ export function ProjectTypesCatalogTab() {
       await fn();
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Request failed.");
+      setError(e instanceof Error ? e.message : t("requestFailed"));
     } finally {
       setBusy(false);
     }
@@ -164,10 +163,10 @@ export function ProjectTypesCatalogTab() {
   return (
     <div className="space-y-6 p-4 text-foreground lg:p-8">
       <div>
-        <h1 className="font-heading text-2xl font-bold text-foreground lg:text-3xl">{title}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>
+        <h1 className="font-heading text-2xl font-bold text-foreground lg:text-3xl">{t("projectTitle")}</h1>
+        <p className="mt-1 text-sm text-muted-foreground">{t("projectSubtitle")}</p>
       </div>
-      {loading ? <p className="text-sm text-muted-foreground">Loading…</p> : null}
+      {loading ? <p className="text-sm text-muted-foreground">{t("loading")}</p> : null}
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
       {!loading ? (
         <>
@@ -175,7 +174,7 @@ export function ProjectTypesCatalogTab() {
             <CardContent className="flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:gap-2">
               <input
                 className={inputClass}
-                placeholder={`New ${kindLabel.toLowerCase()} name…`}
+                placeholder={t("projectNewPlaceholder")}
                 value={newName}
                 disabled={busy}
                 onChange={(e) => setNewName(e.target.value)}
@@ -183,7 +182,7 @@ export function ProjectTypesCatalogTab() {
               />
               <button type="button" className={btnPrimary} disabled={busy} onClick={handleAdd}>
                 <Plus className="h-4 w-4" />
-                Add
+                {t("add")}
               </button>
             </CardContent>
           </Card>
@@ -194,16 +193,16 @@ export function ProjectTypesCatalogTab() {
                   <thead className="border-b border-border [&_tr]:border-b">
                     <tr className="border-b border-border transition-colors">
                       <th className="h-10 px-4 text-left align-middle font-medium text-muted-foreground">
-                        Title (from value)
+                        {t("colTitleFromValue")}
                       </th>
                       <th className="h-10 px-4 text-left align-middle font-medium text-muted-foreground">
-                        Status
+                        {t("colStatus")}
                       </th>
                       <th className="h-10 px-4 text-left align-middle font-medium text-muted-foreground">
-                        Odoo ID
+                        {t("colOdooId")}
                       </th>
                       <th className="h-10 px-4 text-right align-middle font-medium text-muted-foreground">
-                        Actions
+                        {t("colActions")}
                       </th>
                     </tr>
                   </thead>
@@ -233,14 +232,14 @@ export function ProjectTypesCatalogTab() {
                                 onCheckedChange={(v) => persistRow(row, { active: v })}
                               />
                               <span className="text-xs text-muted-foreground">
-                                {active ? "Active" : "Inactive"}
+                                {active ? t("active") : t("inactive")}
                               </span>
                             </div>
                           </td>
                           <td className="p-2 px-4 align-middle">
                             <input
                               className={cn(inputClass, "h-8 max-w-[160px]")}
-                              placeholder="—"
+                              placeholder={t("odooPlaceholder")}
                               disabled={busy}
                               value={row.odoo_id ?? ""}
                               onChange={(e) =>
@@ -268,7 +267,7 @@ export function ProjectTypesCatalogTab() {
                                       });
                                     }}
                                   >
-                                    Save
+                                    {t("save")}
                                   </button>
                                   <button
                                     type="button"
@@ -276,7 +275,7 @@ export function ProjectTypesCatalogTab() {
                                     disabled={busy}
                                     onClick={() => setEditKey(null)}
                                   >
-                                    Cancel
+                                    {t("cancel")}
                                   </button>
                                 </>
                               ) : (

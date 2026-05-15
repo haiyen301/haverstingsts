@@ -32,10 +32,21 @@ import {
   PROJECT_TYPE_VALUES,
   projectTypeMessageKey,
 } from "@/features/project/lib/projectTypeDisplay";
+import {
+  generatePlannedHarvestsForNewProject,
+  isProjectPaceForHarvestPlan,
+  persistPlannedHarvestSeedsForProject,
+} from "@/features/project/lib/generatePlannedHarvestsForNewProject";
+import {
+  pickGrassCatalogRows,
+  todayYmdLocal,
+} from "@/shared/lib/harvestReferenceData";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 import { AlertRouteCategoryBanner } from "@/features/alerts/AlertRouteCategoryBanner";
 import { dispatchRouteAlert } from "@/features/alerts/dispatchRouteAlert";
 import { CheckBadge } from "@/shared/ui/check-badge";
+import { getInternalStsProxyUrl } from "@/shared/api/stsProxyClient";
+import { STS_API_PATHS } from "@/shared/api/stsApiPaths";
 
 interface GrassRow {
   id: string;
@@ -130,7 +141,13 @@ function firstCatalogLine(raw: string | null | undefined): string {
 
 export default function ProjectInputPage() {
   const tBase = useAppTranslations();
-  const t = (key: string) => tBase(`ProjectForm.${key}`);
+  const t = (
+    key: string,
+    values?: Record<string, string | number | boolean | null | undefined>,
+  ) =>
+    values
+      ? tBase(`ProjectForm.${key}`, values as Parameters<typeof tBase>[1])
+      : tBase(`ProjectForm.${key}`);
   const tCommon = (key: string) => tBase(`Common.${key}`);
   const holeOptions = useMemo(
     () =>
@@ -158,6 +175,8 @@ export default function ProjectInputPage() {
     : canCreateProjects;
   const accessDenied = Boolean(user) && !canAccessProjectForm;
   const canSubmitProject = isEdit ? canEditProjects : canCreateProjects;
+  const canSeedPlannedHarvests =
+    !isEdit && canAccessModule(user, "harvests", "create");
   const canDeleteProject = isEdit && canDeleteProjects;
   const returnTarget = useMemo(() => {
     if (!returnToParam) return "/projects";
@@ -375,13 +394,28 @@ export default function ProjectInputPage() {
       };
     })
     .filter((x) => x.id && x.name);
-  const productOptions = (products as unknown[])
-    .filter((p): p is Record<string, unknown> => !!p && typeof p === "object")
-    .map((p) => ({
-      id: String(p.id ?? "").trim(),
-      name: String(p.name ?? p.title ?? "").trim(),
-    }))
-    .filter((x) => x.id && x.name);
+  const productOptions = useMemo(() => {
+    const refs = [formData.estimateStartDate, formData.actualStartDate]
+      .map((s) => String(s ?? "").trim())
+      .filter((s) => /^\d{4}-\d{2}-\d{2}$/.test(s));
+    const pinned = grassRows.map((r) => r.grass.trim()).filter((id) => id.length > 0);
+    const mergedRows = pickGrassCatalogRows({
+      catalog: products as unknown[],
+      mode: "harvest_form_dates",
+      refYmds: refs.length ? refs : [todayYmdLocal()],
+      pinnedGrassIds: pinned,
+    });
+
+    return mergedRows
+      .map((p) => {
+        const rec = p as Record<string, unknown>;
+        return {
+          id: String(rec.id ?? "").trim(),
+          name: String(rec.name ?? rec.title ?? "").trim(),
+        };
+      })
+      .filter((x) => x.id && x.name);
+  }, [products, formData.estimateStartDate, formData.actualStartDate, grassRows]);
 
   /** All farms (same as harvest entry) — grass supply is not limited to the project country. */
   const farmOptions = useMemo(() => {
@@ -894,22 +928,109 @@ export default function ProjectInputPage() {
         upsertProjectInList(saveResponse.project);
       }
       const proj = saveResponse?.project;
-      const projectIdStr =
-        proj && typeof proj === "object" && "project_id" in proj
-          ? String((proj as Record<string, unknown>).project_id ?? "").trim()
-          : "";
+      const rowData = saveResponse?.row_data;
+      /** `react_update_parent_item` returns `Projects_model` as array — PK is `id`, not `project_id`. */
+      const projectIdStr = (() => {
+        if (proj && typeof proj === "object") {
+          const o = proj as Record<string, unknown>;
+          const fromProject = String(o.project_id ?? o.id ?? "").trim();
+          if (fromProject) return fromProject;
+        }
+        if (rowData && typeof rowData === "object") {
+          const fromRow = String(
+            (rowData as Record<string, unknown>).project_id ?? "",
+          ).trim();
+          if (fromRow) return fromRow;
+        }
+        return "";
+      })();
+
+      let plannedHarvestAlertSuffix = "";
+      let plannedHarvestAlertSeverity:
+        | "info"
+        | "success"
+        | "warning"
+        | "critical"
+        | undefined;
+      if (canSeedPlannedHarvests && projectIdStr) {
+        const paceKey = formData.projectPace.trim().toLowerCase();
+        if (isProjectPaceForHarvestPlan(paceKey)) {
+          const anchorYmd =
+            formData.estimateStartDate.trim() ||
+            formData.actualStartDate.trim();
+          const grassReqs = grassRows
+            .filter(isGrassItemComplete)
+            .map((r) => ({
+              productId: r.grass.trim(),
+              uom: r.type,
+              amountRequired: Number.parseFloat(r.required) || 0,
+            }));
+          const seeds = generatePlannedHarvestsForNewProject({
+            pace: paceKey,
+            estimatedStartYmd: anchorYmd,
+            grassRequirements: grassReqs,
+          });
+          if (seeds.length > 0) {
+            const { ok, fail, firstMessage } =
+              await persistPlannedHarvestSeedsForProject({
+                projectId: projectIdStr,
+                countryId: formData.country,
+                customerId: formData.odooCustomerId,
+                userId: user?.id != null ? String(user.id) : undefined,
+                seeds,
+              });
+            if (ok > 0) {
+              plannedHarvestAlertSuffix += t(
+                "alertPlannedHarvestsSavedSuffix",
+                { count: ok },
+              );
+              const url = getInternalStsProxyUrl(
+                STS_API_PATHS.updateHarvestLimitDescriptions,
+              );
+              void fetch(url, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "same-origin",
+                keepalive: true,
+                body: JSON.stringify({ project_id: projectIdStr }),
+              }).catch(() => {});
+            }
+            if (fail > 0) {
+              plannedHarvestAlertSuffix += t(
+                "alertPlannedHarvestsFailedSuffix",
+                {
+                  count: fail,
+                  detail: firstMessage
+                    ? t("alertPlannedHarvestFailDetail", {
+                        message: firstMessage,
+                      })
+                    : "",
+                },
+              );
+              plannedHarvestAlertSeverity = "warning";
+            }
+          }
+        }
+      }
+
       const alertHref =
         projectIdStr !== ""
           ? `/projects/detail?id=${encodeURIComponent(projectIdStr)}`
           : "/projects";
       await dispatchRouteAlert({
         routeKey: "projects_new",
-        title: isEdit ? `Project updated: ${projectName}` : `New project: ${projectName}`,
+        title: isEdit
+          ? t("alertProjectUpdatedTitle", { name: projectName })
+          : t("alertNewProjectTitle", { name: projectName }),
         message: [formData.company.trim(), formData.golfClub.trim(), projectName]
           .filter(Boolean)
-          .join(" · "),
+          .join(" · ")
+          .concat(plannedHarvestAlertSuffix),
         href: alertHref,
         sourceEntityId: projectIdStr || String(resolvedRowId),
+        ...(plannedHarvestAlertSeverity
+          ? { severity: plannedHarvestAlertSeverity }
+          : {}),
       });
       try {
         await fetchAllHarvestingReferenceData(true);
@@ -919,7 +1040,15 @@ export default function ProjectInputPage() {
       const nextReturnTarget = returnTarget.startsWith("/projects")
         ? withRefreshQueryParam(returnTarget)
         : returnTarget;
-      router.push(nextReturnTarget);
+      if (!isEdit && projectIdStr) {
+        router.push(
+          withRefreshQueryParam(
+            `/projects/detail?id=${encodeURIComponent(projectIdStr)}`,
+          ),
+        );
+      } else {
+        router.push(nextReturnTarget);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : t("saveFailed"));
     } finally {
@@ -963,10 +1092,8 @@ export default function ProjectInputPage() {
       } catch {
         // Best-effort only; the return route still gets a refresh token.
       }
-      const nextReturnTarget = returnTarget.startsWith("/projects")
-        ? withRefreshQueryParam(returnTarget)
-        : returnTarget;
-      router.push(nextReturnTarget);
+      // After delete, never send the user back to detail — the row no longer exists.
+      router.push(withRefreshQueryParam("/projects"));
     } catch (e) {
       setError(e instanceof Error ? e.message : t("deleteFailed"));
     } finally {

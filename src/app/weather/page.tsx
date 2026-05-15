@@ -1,37 +1,20 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useTranslations } from "next-intl";
 
 import RequireAuth from "@/features/auth/RequireAuth";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 
-type PresetLocation = {
-  id: string;
-  label: string;
-};
+const PRESET_LOCATION_IDS = [
+  "ban-bueng-th",
+  "laem-chabang-th",
+  "semenyih-my",
+  "hoi-an-vn",
+  "phan-thiet-vn",
+] as const;
 
-const PRESET_LOCATIONS: PresetLocation[] = [
-  {
-    id: "ban-bueng-th",
-    label: "Ban Bueng, Thailand",
-  },
-  {
-    id: "laem-chabang-th",
-    label: "Laem Chabang, Thailand",
-  },
-  {
-    id: "semenyih-my",
-    label: "Semenyih, Malaysia",
-  },
-  {
-    id: "hoi-an-vn",
-    label: "Hoi An, Vietnam",
-  },
-  {
-    id: "phan-thiet-vn",
-    label: "Phan Thiet, Vietnam",
-  },
-];
+type PresetLocation = { id: (typeof PRESET_LOCATION_IDS)[number]; label: string };
 
 type OpenMeteoResponse = {
   current?: {
@@ -60,23 +43,28 @@ type OpenMeteoResponse = {
   };
 };
 
-function weatherIconFromCode(code?: number): { icon: string; label: string } {
-  if (code == null) return { icon: "❔", label: "Unknown" };
-  if (code === 0) return { icon: "☀️", label: "Clear sky" };
-  if (code === 1) return { icon: "🌤️", label: "Mainly clear" };
-  if (code === 2) return { icon: "⛅", label: "Partly cloudy" };
-  if (code === 3) return { icon: "☁️", label: "Overcast" };
-  if (code === 45 || code === 48) return { icon: "🌫️", label: "Fog" };
-  if ([51, 53, 55, 56, 57].includes(code)) return { icon: "🌦️", label: "Drizzle" };
-  if ([61, 63, 65, 66, 67].includes(code)) return { icon: "🌧️", label: "Rain" };
-  if ([71, 73, 75, 77].includes(code)) return { icon: "🌨️", label: "Snow" };
-  if ([80, 81, 82].includes(code)) return { icon: "🌧️", label: "Rain showers" };
-  if ([85, 86].includes(code)) return { icon: "🌨️", label: "Snow showers" };
-  if (code === 95 || code === 96 || code === 99) return { icon: "⛈️", label: "Thunderstorm" };
-  return { icon: "🌡️", label: "Other weather" };
+function weatherIconFromCode(
+  code: number | undefined,
+  translate: (key: string) => string,
+): { icon: string; label: string } {
+  const L = (k: string) => translate(`codes.${k}`);
+  if (code == null) return { icon: "❔", label: L("unknown") };
+  if (code === 0) return { icon: "☀️", label: L("clearSky") };
+  if (code === 1) return { icon: "🌤️", label: L("mainlyClear") };
+  if (code === 2) return { icon: "⛅", label: L("partlyCloudy") };
+  if (code === 3) return { icon: "☁️", label: L("overcast") };
+  if (code === 45 || code === 48) return { icon: "🌫️", label: L("fog") };
+  if ([51, 53, 55, 56, 57].includes(code)) return { icon: "🌦️", label: L("drizzle") };
+  if ([61, 63, 65, 66, 67].includes(code)) return { icon: "🌧️", label: L("rain") };
+  if ([71, 73, 75, 77].includes(code)) return { icon: "🌨️", label: L("snow") };
+  if ([80, 81, 82].includes(code)) return { icon: "🌧️", label: L("rainShowers") };
+  if ([85, 86].includes(code)) return { icon: "🌨️", label: L("snowShowers") };
+  if (code === 95 || code === 96 || code === 99) return { icon: "⛈️", label: L("thunderstorm") };
+  return { icon: "🌡️", label: L("other") };
 }
 
 export default function WeatherPage() {
+  const t = useTranslations("Weather");
   const [selectedPresetId, setSelectedPresetId] = useState("");
   const [loadingOpenMeteo, setLoadingOpenMeteo] = useState(false);
   const [openMeteoError, setOpenMeteoError] = useState<string | null>(null);
@@ -95,9 +83,9 @@ export default function WeatherPage() {
 
   useEffect(() => {
     if (selectedPresetId || loadingOpenMeteo) return;
-    const first = PRESET_LOCATIONS[0];
+    const first = PRESET_LOCATION_IDS[0];
     if (!first) return;
-    handleSelectPreset(first);
+    handleSelectPreset({ id: first, label: t(`locations.${first}`) });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -125,7 +113,7 @@ export default function WeatherPage() {
         },
       );
       if (!res.ok) {
-        throw new Error(`STSPortal weather fetch failed (${res.status})`);
+        throw new Error(t("errors.fetchStatus", { status: res.status }));
       }
       const payload = (await res.json()) as {
         success?: boolean;
@@ -134,12 +122,12 @@ export default function WeatherPage() {
         error?: string;
       };
       if (!payload.success || !payload.data) {
-        throw new Error(payload.message ?? payload.error ?? "Open-Meteo response invalid");
+        throw new Error(payload.message ?? payload.error ?? t("errors.responseInvalid"));
       }
       setOpenMeteoData(payload.data);
     } catch (err) {
       setOpenMeteoData(null);
-      setOpenMeteoError(err instanceof Error ? err.message : "Load Open-Meteo failed.");
+      setOpenMeteoError(err instanceof Error ? err.message : t("errors.loadFailed"));
     } finally {
       setLoadingOpenMeteo(false);
     }
@@ -300,6 +288,10 @@ export default function WeatherPage() {
     return Math.max(1, fit || 1);
   }, [computedAvailableWidth, visibleDayColumns]);
 
+  const currentWeatherDisplay = openMeteoData?.current
+    ? weatherIconFromCode(openMeteoData.current.weather_code, (k) => t(k as "title"))
+    : null;
+
   return (
     <RequireAuth>
       <DashboardLayout>
@@ -310,13 +302,15 @@ export default function WeatherPage() {
           >
             <div className="mb-4">
               <h1 className="text-2xl font-semibold text-gray-900 lg:text-3xl">
-                Weather
+                {t("title")}
               </h1>
             </div>
             <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-lg">
               <div className="border-b border-gray-100 p-4 lg:p-5">
                 <div className="flex flex-wrap gap-2">
-                  {PRESET_LOCATIONS.map((preset) => (
+                  {PRESET_LOCATION_IDS.map((id) => {
+                    const preset: PresetLocation = { id, label: t(`locations.${id}`) };
+                    return (
                     <button
                       key={preset.id}
                       type="button"
@@ -329,47 +323,61 @@ export default function WeatherPage() {
                     >
                       {preset.label}
                     </button>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
               <div className="border-b border-gray-100 p-4 lg:p-5">
                 
                 {selectedPresetId ? (
                   loadingOpenMeteo ? (
-                    <p className="mt-2 text-sm text-gray-600">Loading Open-Meteo forecast...</p>
+                    <p className="mt-2 text-sm text-gray-600">{t("loadingForecast")}</p>
                   ) : openMeteoError ? (
                     <p className="mt-2 text-sm text-red-600">
-                      Open-Meteo error: {openMeteoError}
+                      {t("openMeteoErrorPrefix")} {openMeteoError}
                     </p>
                   ) : openMeteoData?.current ? (
                     <div className="mt-2 overflow-x-auto">
                       <div className="grid min-w-[780px] gap-2 text-sm text-gray-700 sm:grid-cols-2 lg:grid-cols-3">
                         <p>
-                          Weather: {weatherIconFromCode(openMeteoData.current.weather_code).icon}{" "}
-                          {weatherIconFromCode(openMeteoData.current.weather_code).label}
+                          {t("labelWeather")}{" "}
+                          {currentWeatherDisplay?.icon}{" "}
+                          {currentWeatherDisplay?.label}
                         </p>
-                        <p>Temp: {openMeteoData.current.temperature_2m ?? "-"} °C</p>
-                        <p>Feels like: {openMeteoData.current.apparent_temperature ?? "-"} °C</p>
-                        <p>Humidity: {openMeteoData.current.relative_humidity_2m ?? "-"} %</p>
-                        <p>Precipitation: {openMeteoData.current.precipitation ?? "-"} mm</p>
-                        <p>Wind: {openMeteoData.current.wind_speed_10m ?? "-"} km/h</p>
-                        <p>Weather code: {openMeteoData.current.weather_code ?? "-"}</p>
+                        <p>
+                          {t("labelTemp")} {openMeteoData.current.temperature_2m ?? "-"} °C
+                        </p>
+                        <p>
+                          {t("labelFeelsLike")} {openMeteoData.current.apparent_temperature ?? "-"} °C
+                        </p>
+                        <p>
+                          {t("labelHumidity")} {openMeteoData.current.relative_humidity_2m ?? "-"} %
+                        </p>
+                        <p>
+                          {t("labelPrecipitation")} {openMeteoData.current.precipitation ?? "-"} mm
+                        </p>
+                        <p>
+                          {t("labelWind")} {openMeteoData.current.wind_speed_10m ?? "-"} km/h
+                        </p>
+                        <p>
+                          {t("labelWeatherCode")} {openMeteoData.current.weather_code ?? "-"}
+                        </p>
                       </div>
                     </div>
                   ) : (
                     <p className="mt-2 text-sm text-gray-500">
-                      Select one quick location to load Open-Meteo forecast.
+                      {t("selectLocationForecast")}
                     </p>
                   )
                 ) : (
                   <p className="mt-2 text-sm text-gray-500">
-                    Select one quick location to load Open-Meteo forecast.
+                    {t("selectLocationForecast")}
                   </p>
                 )}
                 <div className="mt-4 rounded-xl border border-gray-200 bg-white p-3">
                     <div className="mb-2 flex items-center justify-between">
                       <p className="text-sm font-semibold text-gray-800">
-                        Weather Timeline (hourly)
+                        {t("timelineTitle")}
                       </p>
                       <div className="flex items-center gap-2">
                         <button
@@ -394,12 +402,12 @@ export default function WeatherPage() {
                     {!openMeteoData || loadingOpenMeteo ? (
                       <p className="text-xs text-gray-500">
                         {loadingOpenMeteo
-                          ? "Loading timeline data..."
-                          : "Select one quick location to display timeline."}
+                          ? t("loadingTimeline")
+                          : t("selectLocationTimeline")}
                       </p>
                     ) : openMeteoError ? (
                       <p className="text-xs text-red-600">
-                        Timeline unavailable: {openMeteoError}
+                        {t("timelineErrorPrefix")} {openMeteoError}
                       </p>
                     ) : (
                       <div className="min-w-0 max-w-full overflow-hidden rounded border border-gray-100 bg-gray-50 p-3">
@@ -461,17 +469,17 @@ export default function WeatherPage() {
                                     {cell ? (
                                       <div className="flex flex-col items-center gap-[10px] overflow-hidden">
                                         <div className="flex h-[60px] w-[60px] shrink-0 items-center justify-center text-[40px] leading-none">
-                                          {weatherIconFromCode(cell.weatherCode ?? undefined).icon}
+                                          {weatherIconFromCode(cell.weatherCode ?? undefined, (k) => t(k as "title")).icon}
                                         </div>
                                         <div className="shrink-0 text-[30px] font-semibold leading-none text-gray-700">
                                           {cell.temp ?? "-"}°
                                         </div>
                                        
                                         <div className="w-full truncate text-center text-[16px] leading-tight text-gray-600">
-                                          {weatherIconFromCode(cell.weatherCode ?? undefined).label}
+                                          {weatherIconFromCode(cell.weatherCode ?? undefined, (k) => t(k as "title")).label}
                                         </div>
                                         <div className="shrink-0 text-[14px] leading-none text-gray-500">
-                                          Rain: {cell.precipitationProb ?? "-"}%
+                                          {t("rainPct")} {cell.precipitationProb ?? "-"}%
                                         </div>
                                       </div>
                                     ) : (

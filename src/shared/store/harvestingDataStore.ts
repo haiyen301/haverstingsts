@@ -5,8 +5,8 @@ import {
   filterGrassesBySalesWindow,
   filterGrassesBySalesWindowsOr,
   grassRowsForHarvestGrassSelect,
-  grassSelectRowsWithPinnedIds,
-  grassZoneConfigSelectRowsWithPinnedIds,
+  pickGrassCatalogRows,
+  type PickGrassCatalogRowsArgs,
   normalizeFarmZoneRows,
   type FarmZoneReferenceRow,
 } from "@/shared/lib/harvestReferenceData";
@@ -104,10 +104,14 @@ export type HarvestingDataState = {
     harvestRefYmds: string[],
     pinnedGrassId: string,
   ) => unknown[];
-  /** Like {@link filterGrassesBySalesWindow} on store grasses, plus pinned ids from the full list. */
+  /** Harvest list grass filter: full catalog + pinned ids (URL / multi-select). */
   pickGrassesVisibleOnSalesDateWithPins: (refYmd: string, pinnedGrassIds: string[]) => unknown[];
-  /** Zone-config grass select: empty sales window → show all; else today in range; plus pinned ids. */
+  /** Zone-config grass select: delegates to {@link pickGrassCatalogRows} `zone_config_dates`. */
   pickGrassesForZoneConfigSelectWithPins: (refYmd: string, pinnedGrassIds: string[]) => unknown[];
+  /** Central grass catalog picker backed by store `grasses`. */
+  pickGrassCatalogRowsFromStore: (
+    args: Omit<PickGrassCatalogRowsArgs, "catalog">,
+  ) => unknown[];
   /** Merge or append one project (e.g. from `react_update_parent_item` response) by `id`. */
   upsertProjectInList: (project: unknown) => void;
   reset: () => void;
@@ -143,10 +147,22 @@ export const useHarvestingDataStore = create<HarvestingDataState>((set, get) => 
     filterGrassesBySalesWindowsOr(get().grasses, refYmds),
   pickGrassesForHarvestGrassSelect: (harvestRefYmds, pinnedGrassId) =>
     grassRowsForHarvestGrassSelect(get().grasses, harvestRefYmds, pinnedGrassId),
-  pickGrassesVisibleOnSalesDateWithPins: (refYmd, pinnedGrassIds) =>
-    grassSelectRowsWithPinnedIds(get().grasses, refYmd, pinnedGrassIds),
+  pickGrassesVisibleOnSalesDateWithPins: (_refYmd, pinnedGrassIds) =>
+    pickGrassCatalogRows({
+      catalog: get().grasses,
+      mode: "all",
+      refYmds: [],
+      pinnedGrassIds,
+    }),
   pickGrassesForZoneConfigSelectWithPins: (refYmd, pinnedGrassIds) =>
-    grassZoneConfigSelectRowsWithPinnedIds(get().grasses, refYmd, pinnedGrassIds),
+    pickGrassCatalogRows({
+      catalog: get().grasses,
+      mode: "zone_config_dates",
+      refYmds: [refYmd],
+      pinnedGrassIds,
+    }),
+  pickGrassCatalogRowsFromStore: (args) =>
+    pickGrassCatalogRows({ ...args, catalog: get().grasses }),
 
   upsertProjectInList: (project) => {
     const p = project as Record<string, unknown>;

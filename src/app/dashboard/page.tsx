@@ -751,6 +751,19 @@ export default function DashboardPage() {
     return `${ACTIVE_PROJECTS_PAGE_HREF}?${q.toString()}`;
   }, [deliveryPeriod, excludeProjectsWithoutFarm]);
 
+  /** Same delivery window as KPI cards — `/harvest` list + API `delivery_harvest_date_*`. */
+  const kpiDeliveriesHarvestListHref = useMemo(() => {
+    const q = new URLSearchParams();
+    q.set("status", "delivered");
+    q.set("deliveryFrom", periodStartYmd(deliveryPeriod));
+    q.set("deliveryTo", todayYmd());
+    const farmCsv = [...new Set(selectedFarmIds.map((x) => String(x).trim()).filter(Boolean))]
+      .sort()
+      .join(",");
+    if (farmCsv) q.set("farm", farmCsv);
+    return `/harvest?${q.toString()}`;
+  }, [deliveryPeriod, selectedFarmIds]);
+
   const kpiProjectTrendMonth = useMemo(() => {
     if (kpiActiveProjectsPriorPeriodCount <= 0) return 0;
     return Math.round(
@@ -1891,7 +1904,7 @@ export default function DashboardPage() {
                 />
               </Link>
               <Link
-                href="/harvest"
+                href={kpiDeliveriesHarvestListHref}
                 className="block h-full min-h-0 transition-transform hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               >
                 <KpiCard
@@ -1902,7 +1915,7 @@ export default function DashboardPage() {
                 />
               </Link>
               <Link
-                href="/harvest"
+                href={kpiDeliveriesHarvestListHref}
                 className="block h-full min-h-0 transition-transform hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               >
                 <KpiCard

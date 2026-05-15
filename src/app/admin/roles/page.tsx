@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Pencil, Plus, Trash2 } from "lucide-react";
+import { useTranslations } from "next-intl";
 import RequireAuth from "@/features/auth/RequireAuth";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 import { Card, CardContent } from "@/components/ui/card";
@@ -40,6 +41,7 @@ function permissionKey(action: RoleAction, moduleName: RoleModule): string {
 }
 
 export default function AdminRolesPage() {
+  const t = useTranslations("AdminRoles");
   const [roles, setRoles] = useState<RoleRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -58,7 +60,7 @@ export default function AdminRolesPage() {
         setRoles(data);
       } catch (e) {
         if (!mounted) return;
-        setError(e instanceof Error ? e.message : "Failed to load roles.");
+        setError(e instanceof Error ? e.message : t("loadFailed"));
       } finally {
         if (mounted) setLoading(false);
       }
@@ -70,21 +72,21 @@ export default function AdminRolesPage() {
 
   const moduleLabels = useMemo<Record<RoleModule, string>>(
     () => ({
-      my_alerts: "My Alerts",
-      projects: "Projects",
-      forecasting: "Forecasting",
-      inventory: "Inventory",
-      harvest_schedule: "Harvest Schedule",
-      harvests: "Harvests",
-      admin_people: "People",
-      admin_project_types: "Project Types",
-      admin_architects: "Architects",
-      admin_zones: "Zones",
-      admin_regrowth: "Regrowth",
-      admin_grasses: "Grass types",
-      dashboard: "Dashboard",
+      my_alerts: t("modules.my_alerts"),
+      projects: t("modules.projects"),
+      forecasting: t("modules.forecasting"),
+      inventory: t("modules.inventory"),
+      harvest_schedule: t("modules.harvest_schedule"),
+      harvests: t("modules.harvests"),
+      admin_people: t("modules.admin_people"),
+      admin_project_types: t("modules.admin_project_types"),
+      admin_architects: t("modules.admin_architects"),
+      admin_zones: t("modules.admin_zones"),
+      admin_regrowth: t("modules.admin_regrowth"),
+      admin_grasses: t("modules.admin_grasses"),
+      dashboard: t("modules.dashboard"),
     }),
-    [],
+    [t],
   );
 
   const openCreate = () => {
@@ -161,10 +163,10 @@ export default function AdminRolesPage() {
       <DashboardLayout>
         <div className="space-y-6 p-4 lg:p-8">
           <div className="flex items-center justify-between">
-            <h1 className="text-2xl font-semibold tracking-tight lg:text-3xl">Role Management</h1>
+            <h1 className="text-2xl font-semibold tracking-tight lg:text-3xl">{t("title")}</h1>
             <button type="button" className={btnOutline} onClick={openCreate}>
               <Plus className="h-4 w-4" />
-              Add Role
+              {t("addRole")}
             </button>
           </div>
 
@@ -174,9 +176,9 @@ export default function AdminRolesPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-border bg-muted/30">
-                      <th className="px-4 py-3 text-left font-medium">Role</th>
-                      <th className="px-4 py-3 text-left font-medium">Permission Summary</th>
-                      <th className="px-4 py-3 text-right font-medium">Actions</th>
+                      <th className="px-4 py-3 text-left font-medium">{t("colRole")}</th>
+                      <th className="px-4 py-3 text-left font-medium">{t("colPermissionSummary")}</th>
+                      <th className="px-4 py-3 text-right font-medium">{t("colActions")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -188,7 +190,12 @@ export default function AdminRolesPage() {
                             const count = QUICK_ROLE_MODULES.filter(
                               (moduleName) => r.permissions?.[permissionKey(action, moduleName)] === "1",
                             ).length;
-                            return `${action.replace("can_", "")}: ${count}/${QUICK_ROLE_MODULES.length}`;
+                            const actionKey = action.slice(4) as "show" | "edit" | "create" | "delete" | "import";
+                            return t("permissionCount", {
+                              action: t(`actions.${actionKey}`),
+                              count,
+                              total: QUICK_ROLE_MODULES.length,
+                            });
                           }).join(" | ")}
                         </td>
                         <td className="px-4 py-3">
@@ -210,7 +217,7 @@ export default function AdminRolesPage() {
                     {roles.length === 0 ? (
                       <tr>
                         <td colSpan={3} className="px-4 py-8 text-center text-muted-foreground">
-                          {loading ? "Loading roles..." : error ?? "No roles found."}
+                          {loading ? t("loadingRoles") : error ?? t("noRoles")}
                         </td>
                       </tr>
                     ) : null}
@@ -225,9 +232,9 @@ export default function AdminRolesPage() {
           <div className="fixed inset-0 z-90 flex items-center justify-center bg-black/40 p-4" onMouseDown={() => setOpen(false)}>
             <Card className="max-h-[90vh] w-full max-w-4xl overflow-y-auto" onMouseDown={(e) => e.stopPropagation()}>
               <CardContent className="space-y-5 p-6">
-                <h2 className="text-xl font-semibold">{form.id ? "Edit Role" : "Add Role"}</h2>
+                <h2 className="text-xl font-semibold">{form.id ? t("editRole") : t("newRole")}</h2>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Role Name *</label>
+                  <label className="text-sm font-medium">{t("roleNameLabel")}</label>
                   <input
                     className={inputClass}
                     value={form.title}
@@ -236,10 +243,11 @@ export default function AdminRolesPage() {
                 </div>
 
                 <div className="space-y-3 rounded-lg border border-border p-4">
-                  <p className="text-sm font-medium">Quick Toggle (Selected Modules)</p>
+                  <p className="text-sm font-medium">{t("quickToggle")}</p>
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
                     {ROLE_ACTIONS.map((action) => {
-                      const label = action.replace("can_", "");
+                      const actionKey = action.slice(4) as "show" | "edit" | "create" | "delete" | "import";
+                      const label = t(`actions.${actionKey}`);
                       const checked = isActionAllChecked(action);
                       return (
                         <label key={action} className="relative block cursor-pointer">
@@ -269,12 +277,15 @@ export default function AdminRolesPage() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-border bg-muted/20">
-                        <th className="px-4 py-3 text-left font-medium">Module</th>
-                        {ROLE_ACTIONS.map((action) => (
+                        <th className="px-4 py-3 text-left font-medium">{t("colModule")}</th>
+                        {ROLE_ACTIONS.map((action) => {
+                          const actionKey = action.slice(4) as "show" | "edit" | "create" | "delete" | "import";
+                          return (
                           <th key={action} className="w-40 px-4 py-3 text-center font-medium capitalize">
-                            {action.replace("can_", "")}
+                            {t(`actions.${actionKey}`)}
                           </th>
-                        ))}
+                          );
+                        })}
                       </tr>
                     </thead>
                     <tbody>
@@ -284,6 +295,7 @@ export default function AdminRolesPage() {
                           {ROLE_ACTIONS.map((action) => {
                             const key = permissionKey(action, moduleName);
                             const checked = form.permissions[key] === "1";
+                            const actionKey = action.slice(4) as "show" | "edit" | "create" | "delete" | "import";
                             return (
                               <td key={key} className="px-4 py-2 text-center align-middle">
                                 <label className="relative inline-block cursor-pointer">
@@ -300,7 +312,7 @@ export default function AdminRolesPage() {
                                         : "border-input bg-card text-foreground shadow-sm"
                                     }`}
                                   >
-                                    {action.replace("can_", "")}
+                                    {t(`actions.${actionKey}`)}
                                   </span>
                                   {checked ? (
                                     <CheckBadge
@@ -320,10 +332,10 @@ export default function AdminRolesPage() {
 
                 <div className="flex justify-end gap-2">
                   <button type="button" className={btnOutline} onClick={() => setOpen(false)}>
-                    Cancel
+                    {t("cancel")}
                   </button>
                   <button type="button" className={btnOutline} onClick={() => void handleSave()} disabled={saving}>
-                    {saving ? "Saving..." : form.id ? "Save Changes" : "Create Role"}
+                    {saving ? t("saving") : form.id ? t("saveChanges") : t("createRole")}
                   </button>
                 </div>
               </CardContent>

@@ -161,6 +161,25 @@ export function farmZoneSelectIdForStoredZone(
   return id || null;
 }
 
+/** Virtual no-zone bucket keys produced by forecasting allocation (not always in `/api/zones`). */
+export function isNoZoneSyntheticZoneId(zoneId: string | null | undefined): boolean {
+  const s = String(zoneId ?? "").trim().toLowerCase();
+  return !s || s === "nozone" || s === "no-zone" || s === "no zone";
+}
+
+/** Like {@link zoneIdToLabel}, but maps synthetic no-zone keys to a caller-provided display label (i18n). */
+export function zoneIdToLabelResolved(
+  zoneId: string | undefined | null,
+  farmZones: FarmZoneReferenceRow[],
+  noZoneDisplayLabel: string,
+): string {
+  if (isNoZoneSyntheticZoneId(zoneId)) {
+    return noZoneDisplayLabel;
+  }
+  const key = zoneId != null ? String(zoneId).trim() : "";
+  return zoneIdToLabel(zoneId, farmZones) || key;
+}
+
 /** Resolve zone display label from `/api/zones` reference rows. */
 export function zoneIdToLabel(
   zoneId: string | undefined | null,
@@ -291,6 +310,29 @@ export function filterGrassesBySalesWindowsOr(
 }
 
 /**
+ * Catalog / filter `sales_window` in {@link pickGrassCatalogRows} (Forecasting, Inventory, etc.):
+ * - Both `sales_from` and `sales_to` unset → row is **visible** (no window configured).
+ * - Only `sales_from` → visible when `refYmd >= sales_from`.
+ * - Only `sales_to` → visible when `refYmd <= sales_to` (hidden when `refYmd > sales_to`).
+ * - Both set → inclusive `[sales_from, sales_to]`.
+ *
+ * OR across `refYmds`; empty / invalid list → {@link todayYmdLocal}.
+ * Same predicate as {@link isGrassRowVisibleForZoneConfigOnDate}.
+ */
+export function filterGrassesForSalesCatalogWindowsOr(
+  grasses: unknown[],
+  refYmds: string[],
+): unknown[] {
+  const dates = refYmds
+    .map((s) => String(s ?? "").trim())
+    .filter((s) => /^\d{4}-\d{2}-\d{2}$/.test(s));
+  const effective = dates.length > 0 ? dates : [todayYmdLocal()];
+  return grasses.filter((g) =>
+    effective.some((ymd) => isGrassRowVisibleForZoneConfigOnDate(g, ymd)),
+  );
+}
+
+/**
  * Harvest form grass visibility on one date (`/harvest/new`):
  * - Both `sales_from` and `sales_to` empty → show by default.
  * - Otherwise date must be in range (inclusive).
@@ -309,24 +351,44 @@ export function isGrassRowVisibleForHarvestGrassSelectOnDate(
   return true;
 }
 
-/** Rows allowed on `refYmd`, plus any `pinnedGrassIds` rows from the full list (e.g. active URL filter or edit form). */
-export function grassSelectRowsWithPinnedIds(
-  grasses: unknown[],
-  refYmd: string,
+/** Single entry point for grass dropdown / filter rows (list screens vs date-aware forms). */
+export type GrassCatalogPickMode =
+  | "all"
+  /** Sales window for catalog filters: unset window → show; in-range inclusive; {@link filterGrassesForSalesCatalogWindowsOr}. */
+  | "sales_window"
+  /** Harvest / project product selects: OR on `refYmds` (empty → today) + {@link isGrassRowVisibleForHarvestGrassSelectOnDate}. */
+  | "harvest_form_dates"
+  /** Admin zone configuration grass select. */
+  | "zone_config_dates";
+
+export type PickGrassCatalogRowsArgs = {
+  catalog: unknown[];
+  mode: GrassCatalogPickMode;
+  /** `YYYY-MM-DD` strings; meaning depends on `mode` (ignored for `all`). */
+  refYmds: string[];
+  /** Ids to always include from `catalog` (URL filters, edit mode). */
+  pinnedGrassIds: string[];
+};
+
+/**
+ * Append any `pinnedGrassIds` rows missing from `baseRows` (looked up in `fullCatalog`).
+ */
+export function mergePinnedGrassRowsFromCatalog(
+  fullCatalog: unknown[],
+  baseRows: unknown[],
   pinnedGrassIds: string[],
 ): unknown[] {
-  const base = filterGrassesBySalesWindow(grasses, refYmd);
   const seen = new Set(
-    base.map((r) => {
+    baseRows.map((r) => {
       if (!r || typeof r !== "object") return "";
       return String((r as Record<string, unknown>).id ?? "").trim();
     }),
   );
-  const out = [...base];
+  const out = [...baseRows];
   for (const rawId of pinnedGrassIds) {
     const id = rawId.trim();
     if (!id || seen.has(id)) continue;
-    const row = grasses.find(
+    const row = fullCatalog.find(
       (g) =>
         g &&
         typeof g === "object" &&
@@ -340,33 +402,83 @@ export function grassSelectRowsWithPinnedIds(
   return out;
 }
 
+export function pickGrassCatalogRows(args: PickGrassCatalogRowsArgs): unknown[] {
+  const { catalog, mode, refYmds, pinnedGrassIds } = args;
+  const dates = refYmds
+    .map((s) => String(s ?? "").trim())
+    .filter((s) => /^\d{4}-\d{2}-\d{2}$/.test(s));
+
+  if (mode === "all") {
+    const base = catalog.filter(
+      (g) =>
+        g &&
+        typeof g === "object" &&
+        String((g as Record<string, unknown>).id ?? "").trim() !== "",
+    );
+    return mergePinnedGrassRowsFromCatalog(catalog, base, pinnedGrassIds);
+  }
+
+  if (mode === "sales_window") {
+    const base = filterGrassesForSalesCatalogWindowsOr(catalog, dates);
+    return mergePinnedGrassRowsFromCatalog(catalog, base, pinnedGrassIds);
+  }
+
+  if (mode === "harvest_form_dates") {
+    const effective = dates.length > 0 ? dates : [todayYmdLocal()];
+    const base = catalog.filter((g) =>
+      effective.some((ymd) => isGrassRowVisibleForHarvestGrassSelectOnDate(g, ymd)),
+    );
+    return mergePinnedGrassRowsFromCatalog(catalog, base, pinnedGrassIds);
+  }
+
+  if (mode === "zone_config_dates") {
+    const refYmd = dates.length > 0 ? dates[0]! : todayYmdLocal();
+    return grassZoneConfigSelectRowsWithPinnedIds(catalog, refYmd, pinnedGrassIds);
+  }
+
+  return [];
+}
+
+/**
+ * @deprecated Prefer {@link pickGrassCatalogRows} with `mode: "harvest_form_dates"` and `refYmds: [refYmd]`.
+ */
+export function grassHarvestListFilterRowsWithPinnedIds(
+  grasses: unknown[],
+  refYmd: string,
+  pinnedGrassIds: string[],
+): unknown[] {
+  return pickGrassCatalogRows({
+    catalog: grasses,
+    mode: "harvest_form_dates",
+    refYmds: [refYmd],
+    pinnedGrassIds,
+  });
+}
+
+/** Rows allowed on `refYmd`, plus any `pinnedGrassIds` rows from the full list (e.g. active URL filter or edit form). */
+export function grassSelectRowsWithPinnedIds(
+  grasses: unknown[],
+  refYmd: string,
+  pinnedGrassIds: string[],
+): unknown[] {
+  return pickGrassCatalogRows({
+    catalog: grasses,
+    mode: "sales_window",
+    refYmds: [refYmd],
+    pinnedGrassIds,
+  });
+}
+
 /** Harvest grass `<select>`: OR on any harvest calendar refs (fallback today); always include current `pinnedGrassId` if set. */
 export function grassRowsForHarvestGrassSelect(
   grasses: unknown[],
   harvestRefYmds: string[],
   pinnedGrassId: string,
 ): unknown[] {
-  const dates = harvestRefYmds
-    .map((s) => s.trim())
-    .filter((s) => /^\d{4}-\d{2}-\d{2}$/.test(s));
-  const effective = dates.length > 0 ? dates : [todayYmdLocal()];
-  const base = grasses.filter((g) =>
-    effective.some((ymd) => isGrassRowVisibleForHarvestGrassSelectOnDate(g, ymd)),
-  );
-  const p = pinnedGrassId.trim();
-  if (!p) return base;
-  const has = base.some(
-    (g) =>
-      g &&
-      typeof g === "object" &&
-      String((g as Record<string, unknown>).id ?? "").trim() === p,
-  );
-  if (has) return base;
-  const row = grasses.find(
-    (g) =>
-      g &&
-      typeof g === "object" &&
-      String((g as Record<string, unknown>).id ?? "").trim() === p,
-  );
-  return row ? [...base, row] : base;
+  return pickGrassCatalogRows({
+    catalog: grasses,
+    mode: "harvest_form_dates",
+    refYmds: harvestRefYmds,
+    pinnedGrassIds: pinnedGrassId.trim() ? [pinnedGrassId.trim()] : [],
+  });
 }
