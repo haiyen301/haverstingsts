@@ -527,6 +527,7 @@ type HarvestValidationMessages = {
   referenceHarvestQuantityRequired: string;
   harvestedAreaKgRequired: string;
   selectZone: string;
+  zoneRequiredWhenActual: string;
   selectFarm: string;
   datePairRequired: string;
 };
@@ -558,7 +559,9 @@ function getHarvestFieldErrors(
     }
   }
   const hasActual = Boolean(formData.actualDate.trim());
-  if (hasActual && !formData.zone.trim()) errors.zone = messages.selectZone;
+  if (hasActual && !formData.zone.trim()) {
+    errors.zone = messages.zoneRequiredWhenActual;
+  }
   if (!formData.farm.trim()) errors.farm = messages.selectFarm;
   if (hasActual && uomLower === "kg") {
     const ha = formData.harvestedArea.trim();
@@ -995,6 +998,7 @@ function HarvestInputPageInner() {
     referenceHarvestQuantityRequired: t("validationReferenceHarvestQuantityRequired"),
     harvestedAreaKgRequired: t("validationHarvestedAreaKg"),
     selectZone: t("validationSelectZone"),
+    zoneRequiredWhenActual: t("zoneRequiredWhenActual"),
     selectFarm: t("validationSelectFarm"),
     datePairRequired: t("datePairRequiredError"),
   };
@@ -1295,6 +1299,24 @@ function HarvestInputPageInner() {
     }));
   }, [formData.estimatedDate, formData.actualDate, harvestDateTouched]);
 
+  useEffect(() => {
+    const hasActual = Boolean(formData.actualDate.trim());
+    const zoneErr = validationMessages.zoneRequiredWhenActual;
+    setFieldErrors((prev) => {
+      if (hasActual && !formData.zone.trim()) {
+        return prev.zone === zoneErr ? prev : { ...prev, zone: zoneErr };
+      }
+      if (prev.zone === zoneErr) {
+        return { ...prev, zone: undefined };
+      }
+      return prev;
+    });
+  }, [
+    formData.actualDate,
+    formData.zone,
+    validationMessages.zoneRequiredWhenActual,
+  ]);
+
   const harvestDatePairError =
     fieldErrors.actualDate ?? fieldErrors.estimatedDate ?? null;
 
@@ -1550,8 +1572,9 @@ function HarvestInputPageInner() {
     !canSubmitHarvest ||
     (Boolean(editId) && !editLoaded);
 
-  const zoneRequiredButMissing =
-    Boolean(formData.actualDate.trim()) && !formData.zone.trim();
+  const zoneFieldHelpText = formData.actualDate.trim()
+    ? t("zoneFieldHelpTooltipWhenActual")
+    : t("zoneFieldHelpTooltip");
 
   const activeFieldIssueCount = useMemo(
     () =>
@@ -1835,7 +1858,7 @@ function HarvestInputPageInner() {
                           <span
                             className="peer inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-input text-[10px] font-semibold text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground focus:border-foreground/30 focus:text-foreground"
                             tabIndex={0}
-                            aria-label={t("zoneFieldHelpTooltip")}
+                            aria-label={zoneFieldHelpText}
                           >
                             ?
                           </span>
@@ -1850,7 +1873,7 @@ function HarvestInputPageInner() {
                             role="tooltip"
                             className="pointer-events-none absolute left-0 top-full z-20 mt-2 hidden w-full max-w-[300px] rounded-md border border-border bg-card px-3 py-2 text-left text-[11px] font-normal leading-relaxed text-card-foreground shadow-lg peer-hover:block peer-focus:block"
                           >
-                            {t("zoneFieldHelpTooltip")}
+                            {zoneFieldHelpText}
                           </span>
                         </div>
                         <select
@@ -1860,7 +1883,7 @@ function HarvestInputPageInner() {
                             setFormData({ ...formData, zone: e.target.value });
                             setFieldErrors((prev) => ({ ...prev, zone: undefined }));
                           }}
-                          className={`${harvestFieldClass} ${fieldErrors.zone || zoneRequiredButMissing ? "ring-2 ring-destructive" : ""}`}
+                          className={`${harvestFieldClass} ${fieldErrors.zone ? "ring-2 ring-destructive" : ""}`}
                           disabled={formDisabled}
                         >
                           <option value="">
@@ -1872,14 +1895,9 @@ function HarvestInputPageInner() {
                             </option>
                           ))}
                         </select>
-                        {zoneRequiredButMissing ? (
+                        {fieldErrors.zone ? (
                           <p className="mt-1.5 flex items-center gap-1 text-xs leading-snug text-destructive">
                             <AlertCircle className="h-3 w-3 shrink-0" aria-hidden />
-                            {t("zoneRequiredWhenActual")}
-                          </p>
-                        ) : null}
-                        {fieldErrors.zone ? (
-                          <p className="mt-1.5 text-xs leading-snug text-destructive">
                             {fieldErrors.zone}
                           </p>
                         ) : null}
@@ -2283,7 +2301,6 @@ function HarvestInputPageInner() {
                             setFieldErrors((prev) => ({
                               ...prev,
                               actualDate: undefined,
-                              zone: value.trim() ? prev.zone : undefined,
                             }));
                           }}
                           onBlur={() => setHarvestDateTouched(true)}
