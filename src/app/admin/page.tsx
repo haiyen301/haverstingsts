@@ -24,6 +24,7 @@ export default async function AdminPage() {
     { module: "admin_zones", path: "/admin/zones" },
     { module: "admin_regrowth", path: "/admin/regrowth" },
     { module: "admin_grasses", path: "/admin/grasses" },
+    { module: "admin_countries", path: "/admin/settings/countries" },
   ];
 
   const firstAllowed = targets.find((target) =>

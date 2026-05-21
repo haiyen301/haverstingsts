@@ -544,6 +544,7 @@ export default function DashboardPage() {
   );
   const farmsRef = useHarvestingDataStore((s) => s.farms);
   const countriesRef = useHarvestingDataStore((s) => s.countries);
+  const activeCountriesRef = useHarvestingDataStore((s) => s.activeCountries);
   const productsRef = useHarvestingDataStore((s) => s.products);
   const fetchAllHarvestingReferenceData = useHarvestingDataStore((s) => s.fetchAllHarvestingReferenceData);
 
@@ -595,7 +596,7 @@ export default function DashboardPage() {
 
   const farmFilters = useMemo(() => {
     const countriesById = new Map<string, { countryName: string; countryCode: string }>();
-    for (const row of countriesRef) {
+    for (const row of activeCountriesRef) {
       if (!row || typeof row !== "object") continue;
       const r = row as Record<string, unknown>;
       const id = String(r.id ?? "").trim();
@@ -650,7 +651,7 @@ export default function DashboardPage() {
       if (countryCmp !== 0) return countryCmp;
       return a.farmName.localeCompare(b.farmName, undefined, { sensitivity: "base" });
     });
-  }, [farmsRef, countriesRef]);
+  }, [farmsRef, activeCountriesRef]);
 
   const normalizeStatus = (v: unknown): string => {
     const s = String(v ?? "").toLowerCase().trim();

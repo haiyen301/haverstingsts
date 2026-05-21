@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { Geist_Mono, Plus_Jakarta_Sans } from "next/font/google";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages } from "next-intl/server";
 import { ThemeProvider } from "@/shared/theme/ThemeProvider";
 import { AppToasts } from "@/shared/ui/AppToasts";
+import { MaintenanceGate } from "@/widgets/system/MaintenanceGate";
 import "./globals.css";
 
 const plusJakartaSans = Plus_Jakarta_Sans({
@@ -57,6 +59,9 @@ export default async function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: themeBootScript }} />
         <NextIntlClientProvider locale={locale} messages={messages}>
           <ThemeProvider>
+            <Suspense fallback={null}>
+              <MaintenanceGate />
+            </Suspense>
             {children}
             <AppToasts />
           </ThemeProvider>

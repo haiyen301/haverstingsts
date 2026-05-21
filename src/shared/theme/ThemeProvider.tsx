@@ -38,13 +38,9 @@ function applyDomTheme(theme: AppColorScheme) {
   document.documentElement.classList.toggle("dark", theme === "dark");
 }
 
-function initialThemeFromDom(): AppColorScheme {
-  if (typeof document === "undefined") return "light";
-  return document.documentElement.classList.contains("dark") ? "dark" : "light";
-}
-
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setThemeState] = useState<AppColorScheme>(initialThemeFromDom);
+  // Match layout theme boot script default (dark unless localStorage is "light").
+  const [theme, setThemeState] = useState<AppColorScheme>("dark");
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {

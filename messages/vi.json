@@ -58,7 +58,53 @@
     "adminZoneSetup": "Thiết lập khu vực",
     "adminZoneConfiguration": "Cấu hình khu vực",
     "adminRegrowthRules": "Quy tắc tái sinh",
-    "adminGrassTypes": "Loại cỏ"
+    "adminGrassTypes": "Loại cỏ",
+    "settings": "Cài đặt",
+    "adminCountries": "Quốc gia",
+    "adminMaintenance": "Chế độ bảo trì"
+  },
+  "Maintenance": {
+    "badge": "Đang bảo trì hệ thống",
+    "title": "Chúng tôi sẽ quay lại sớm",
+    "subtitle": "STS Portal tạm thời không khả dụng trong khi nâng cấp. Cảm ơn bạn đã kiên nhẫn chờ đợi.",
+    "estimatedReturn": "Dự kiến hoạt động lại",
+    "bullet1": "Dữ liệu của bạn vẫn an toàn — chúng tôi chỉ tạm khóa truy cập.",
+    "bullet2": "Thu hoạch, dự án và công cụ quản trị sẽ tự mở lại khi bảo trì kết thúc.",
+    "bullet3": "Nếu cần hỗ trợ khẩn, vui lòng liên hệ quản trị viên STS của bạn.",
+    "footer": "Sports Turf Solutions · STS TURF OPS",
+    "eviction": {
+      "badge": "Sắp bảo trì hệ thống",
+      "title": "Bạn sẽ bị đăng xuất trong giây lát",
+      "description": "STS Portal đang chuyển sang chế độ bảo trì. Vui lòng lưu công việc — hệ thống sẽ tự chuyển hướng.",
+      "secondsLabel": "giây còn lại",
+      "secondsShort": "giây",
+      "cornerHint": "Bạn vẫn xem được trang hiện tại cho đến khi hết đếm ngược.",
+      "lockedHint": "Vui lòng không đóng cửa sổ này. Mọi thao tác tạm thời bị khóa."
+    }
+  },
+  "AdminMaintenance": {
+    "title": "Chế độ bảo trì",
+    "description": "Khi bật, mọi người dùng (trừ tài khoản quản trị của bạn) sẽ bị đăng xuất và thấy màn hình bảo trì. Phiên đăng nhập sẽ bị xóa trong vài giây.",
+    "loading": "Đang tải…",
+    "modeTitle": "Truy cập hệ thống",
+    "modeDescription": "Dùng khi triển khai hoặc bảo trì cơ sở dữ liệu. Chỉ user ID 409 vẫn dùng được portal.",
+    "toggleLabel": "Chế độ bảo trì",
+    "toggleHint": "Chặn đăng nhập và chuyển hướng người đang đăng nhập",
+    "enableWarning": "Bật bảo trì sẽ thông báo cho mọi người đang đăng nhập, hiển thị đếm ngược 10 giây, sau đó đăng xuất và chuyển họ sang màn hình bảo trì.",
+    "messageTitle": "Thông báo công khai",
+    "messageDescription": "Hiển thị trên màn hình bảo trì. Để trống để dùng văn bản mặc định.",
+    "messageLabel": "Tin nhắn tùy chỉnh",
+    "messagePlaceholder": "VD: Đang nâng cấp dịch vụ tồn kho…",
+    "estimatedReturnLabel": "Thời gian dự kiến (tùy chọn)",
+    "estimatedReturnPlaceholder": "VD: 22/05/2026, 14:00",
+    "save": "Lưu cài đặt",
+    "saving": "Đang lưu…",
+    "savedEnabled": "Đã BẬT chế độ bảo trì. Người dùng khác sẽ thấy thông báo 10 giây rồi bị đăng xuất.",
+    "savedDisabled": "Đã TẮT chế độ bảo trì. Mọi người có thể đăng nhập lại.",
+    "errors": {
+      "load": "Không tải được cài đặt bảo trì.",
+      "save": "Không lưu được cài đặt bảo trì."
+    }
   },
   "Nav": {
     "dashboard": "Bảng điều khiển",
@@ -327,6 +373,8 @@
     "importExcel": "Nhập Excel",
     "searchPlaceholder": "Tìm theo tên dự án, loại cỏ, quốc gia,...",
     "allCountries": "Tất cả quốc gia",
+    "allProjects": "Tất cả dự án",
+    "allProjectsCount": "Tất cả dự án ({count})",
     "allFarms": "Tất cả nông trại",
     "allGrass": "Tất cả loại cỏ",
     "allStatuses": "Tất cả trạng thái",
@@ -1117,6 +1165,38 @@
       "required": "Vui lòng chọn farm, loại cỏ, khu vực và nhập diện tích, năng suất hợp lệ."
     }
   },
+  "AdminCountries": {
+    "title": "Quốc gia",
+    "description": "Dữ liệu tham chiếu ISO 3166. Chỉ được sửa tên hiển thị; mã quốc gia phải duy nhất. Bật/tắt trạng thái để kích hoạt hoặc vô hiệu hóa quốc gia.",
+    "loading": "Đang tải…",
+    "empty": "Không có quốc gia.",
+    "searchPlaceholder": "Tìm theo tên, mã, TLD…",
+    "rowCount": "Hiển thị {count} / {total} quốc gia",
+    "editableHint": "Nhấn để sửa tên hiển thị",
+    "confirmEdit": "Lưu thay đổi",
+    "cancelEdit": "Hủy thay đổi",
+    "columns": {
+      "code": "Mã quốc gia",
+      "name": "Tên",
+      "sovereignty": "Chủ quyền",
+      "alpha2": "A-2",
+      "alpha3": "A-3",
+      "numeric": "Số",
+      "iso3166_2": "ISO 3166-2",
+      "tld": "TLD",
+      "status": "Trạng thái",
+      "actions": "Thao tác"
+    },
+    "status": {
+      "active": "Hoạt động",
+      "inactive": "Không hoạt động"
+    },
+    "errors": {
+      "load": "Không tải được danh sách quốc gia.",
+      "save": "Không lưu được quốc gia.",
+      "nameRequired": "Tên là bắt buộc."
+    }
+  },
   "AdminGrasses": {
     "title": "Loại cỏ",
     "description": "Định nghĩa sản phẩm cỏ trên STSPortal (`sts_grasses`): mô tả và khoảng Từ ngày / Đến ngày (ngày cuối còn bán; sau ngày Đến thì coi như ngừng bán).",
@@ -1457,6 +1537,7 @@
       "admin_zones": "Cấu hình khu vực",
       "admin_regrowth": "Tái sinh",
       "admin_grasses": "Loại cỏ",
+      "admin_countries": "Quốc gia",
       "dashboard": "Bảng điều khiển"
     }
   },

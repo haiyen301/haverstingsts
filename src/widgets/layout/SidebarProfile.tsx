@@ -90,7 +90,7 @@ export function SidebarProfile({ onNavigate, compact = false }: SidebarProfilePr
   const router = useRouter();
   const user = useAuthUserStore((s) => s.user);
   const farms = useHarvestingDataStore((s) => s.farms);
-  const countries = useHarvestingDataStore((s) => s.countries);
+  const countries = useHarvestingDataStore((s) => s.activeCountries);
   const fetchAllHarvestingReferenceData = useHarvestingDataStore(
     (s) => s.fetchAllHarvestingReferenceData,
   );

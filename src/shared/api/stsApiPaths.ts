@@ -20,6 +20,7 @@ export const STS_API_PATHS = {
   farms: "/api/farms",
   projects: "/api/projects",
   countries: "/api/countries",
+  countriesSave: "/api/countries/save",
   products: "/api/items",
   /** GET `Project_form_catalog::index` — use `?admin=1` for inactive rows too. */
   projectFormCatalog: "/api/project_form_catalog",
@@ -85,4 +86,8 @@ export const STS_API_PATHS = {
   roles: "/api/roles",
   rolesSave: "/api/roles/save",
   rolesRemove: "/api/roles/remove",
+  /** GET public maintenance status (DB via sts_settings). */
+  maintenanceGet: "/api/base/react_get_maintenance_mode",
+  /** POST toggle maintenance — user id 409 only. */
+  maintenanceSave: "/api/base/react_save_maintenance_mode",
 } as const;

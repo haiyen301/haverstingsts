@@ -2,6 +2,7 @@ import { create } from "zustand";
 
 import { STS_API_PATHS } from "@/shared/api/stsApiPaths";
 import {
+  filterActiveCountryRows,
   filterGrassesBySalesWindow,
   filterGrassesBySalesWindowsOr,
   grassRowsForHarvestGrassSelect,
@@ -46,6 +47,8 @@ const empty = {
   projects: [] as unknown[],
   staffs: [] as unknown[],
   countries: [] as unknown[],
+  /** Subset of `countries` where `active = 1` (selects / filters). */
+  activeCountries: [] as unknown[],
   grasses: [] as unknown[],
   /** @deprecated Use `grasses`. */
   products: [] as unknown[],
@@ -63,6 +66,8 @@ export type HarvestingDataState = {
   projects: unknown[];
   staffs: unknown[];
   countries: unknown[];
+  /** Active countries only — use for create/edit/filter dropdowns. */
+  activeCountries: unknown[];
   grasses: unknown[];
   /** @deprecated Use `grasses`. */
   products: unknown[];
@@ -90,6 +95,7 @@ export type HarvestingDataState = {
   setProjects: (projects: unknown[]) => void;
   setStaffs: (staffs: unknown[]) => void;
   setCountries: (countries: unknown[]) => void;
+  setActiveCountries: (activeCountries: unknown[]) => void;
   setGrasses: (grasses: unknown[]) => void;
   /** @deprecated Use `setGrasses`. */
   setProducts: (products: unknown[]) => void;
@@ -127,7 +133,12 @@ export const useHarvestingDataStore = create<HarvestingDataState>((set, get) => 
   setFarms: (farms) => set({ farms }),
   setProjects: (projects) => set({ projects }),
   setStaffs: (staffs) => set({ staffs }),
-  setCountries: (countries) => set({ countries }),
+  setCountries: (countries) =>
+    set({
+      countries,
+      activeCountries: filterActiveCountryRows(countries),
+    }),
+  setActiveCountries: (activeCountries) => set({ activeCountries }),
   setGrasses: (grasses) => set({ grasses, products: grasses }),
   setProducts: (products) => set({ products, grasses: products }),
 
@@ -231,13 +242,15 @@ export const useHarvestingDataStore = create<HarvestingDataState>((set, get) => 
     const products = byKey.get("products");
     const grassesArr = grassesRaw !== undefined ? asArray(grassesRaw) : [];
     const productsArr = asArray(products);
+    const countriesArr = asArray(countries);
 
     set({
       farmZones: normalizeFarmZoneRows(farmZones),
       staffs: asArray(staffs),
       farms: asArray(farms),
       projects: asArray(projects),
-      countries: asArray(countries),
+      countries: countriesArr,
+      activeCountries: filterActiveCountryRows(countriesArr),
       /** `sts_grasses` via `/api/grasses`; fall back to `/api/items` if grasses request failed or returned nothing. */
       grasses: grassesArr.length > 0 ? grassesArr : productsArr,
       products: productsArr,

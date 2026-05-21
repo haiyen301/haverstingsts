@@ -1,3 +1,4 @@
+import { parseMaintenanceUserId } from "@/shared/auth/maintenanceAccess";
 import { getStsApiBaseUrl, INTERNAL_API } from "@/shared/api/stsLogin";
 
 /** Legacy key — JWT now lives in HttpOnly session cookie only. */
@@ -15,19 +16,37 @@ export function removeAuthToken(): void {
   }
 }
 
-/** Whether the HttpOnly session cookie is present (server-side JWT). */
-export async function fetchSessionAuthenticated(): Promise<boolean> {
-  if (typeof window === "undefined") return false;
+export type SessionStatus = {
+  authenticated: boolean;
+  userId?: number;
+};
+
+/** HttpOnly session + STS `users.id` (for maintenance bypass). */
+export async function fetchSessionStatus(): Promise<SessionStatus> {
+  if (typeof window === "undefined") {
+    return { authenticated: false };
+  }
   try {
     const res = await fetch(INTERNAL_API.authentication.session, {
       credentials: "same-origin",
+      cache: "no-store",
     });
-    if (!res.ok) return false;
-    const j = (await res.json()) as { authenticated?: boolean };
-    return j.authenticated === true;
+    if (!res.ok) return { authenticated: false };
+    const j = (await res.json()) as { authenticated?: boolean; userId?: unknown };
+    const userId = parseMaintenanceUserId(j.userId);
+    return {
+      authenticated: j.authenticated === true,
+      userId,
+    };
   } catch {
-    return false;
+    return { authenticated: false };
   }
+}
+
+/** Whether the HttpOnly session cookie is present (server-side JWT). */
+export async function fetchSessionAuthenticated(): Promise<boolean> {
+  const s = await fetchSessionStatus();
+  return s.authenticated;
 }
 
 /** Clears the HttpOnly JWT cookie (call on logout). */

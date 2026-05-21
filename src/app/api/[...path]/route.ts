@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getStsApiUrlCandidates } from "@/shared/api/stsLogin";
 import { resolveStsBearerFromRequest } from "@/shared/server/stsAuthBearer";
 import { isTrustedSameOriginRequest } from "@/shared/server/csrfOrigin";
+import { maintenanceGraceHeadersFromRequest } from "@/shared/server/stsMaintenanceGrace";
 import { fetchWithBaseUrlFallback } from "@/shared/server/stsUpstreamFetch";
 
 function upstreamFetchErrorMessage(err: unknown): string {
@@ -157,6 +158,7 @@ export async function GET(
       headers: {
         Accept: "application/json",
         Authorization: auth,
+        ...maintenanceGraceHeadersFromRequest(req),
       },
     });
     upstreamRes = result.response;
@@ -250,15 +252,18 @@ export async function POST(
 
   let upstreamRes: Response;
   try {
+    const graceHeaders = maintenanceGraceHeadersFromRequest(req);
     const result = await fetchWithBaseUrlFallback(upstreamUrls, {
       method: "POST",
       headers: isJson
         ? {
             Authorization: auth,
             "Content-Type": "application/json",
+            ...graceHeaders,
           }
         : {
             Authorization: auth,
+            ...graceHeaders,
           },
       body,
     });

@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 
 import { fetchSessionAuthenticated } from "@/shared/lib/sessionUser";
+import { clearAuthSession } from "@/shared/store/authUserStore";
 
 export default function RequireAuth({ children }: { children: ReactNode }) {
   const router = useRouter();
@@ -11,11 +12,10 @@ export default function RequireAuth({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    void (async () => {
       const authed = await fetchSessionAuthenticated();
       if (cancelled) return;
       if (!authed) {
-        const { clearAuthSession } = await import("@/shared/store/authUserStore");
         await clearAuthSession();
         setAuthed(false);
         router.replace("/");
@@ -32,4 +32,3 @@ export default function RequireAuth({ children }: { children: ReactNode }) {
   if (!authed) return null;
   return <>{children}</>;
 }
-

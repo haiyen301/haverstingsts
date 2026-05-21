@@ -38,6 +38,7 @@ import {
   persistPlannedHarvestSeedsForProject,
 } from "@/features/project/lib/generatePlannedHarvestsForNewProject";
 import {
+  buildCountrySelectOptions,
   pickGrassCatalogRows,
   todayYmdLocal,
 } from "@/shared/lib/harvestReferenceData";
@@ -375,13 +376,14 @@ export default function ProjectInputPage() {
     }))
     .filter((x) => x.id && x.label);
 
-  const countryOptions = (countries as unknown[])
-    .filter((c): c is Record<string, unknown> => !!c && typeof c === "object")
-    .map((c) => ({
-      id: String(c.id ?? "").trim(),
-      name: String(c.country_name ?? c.name ?? c.title ?? "").trim(),
-    }))
-    .filter((x) => x.id && x.name);
+  const countryOptions = useMemo(
+    () =>
+      buildCountrySelectOptions(
+        countries as unknown[],
+        isEdit ? formData.country : null,
+      ),
+    [countries, formData.country, isEdit],
+  );
   const staffOptions = (staffs as unknown[])
     .filter((s): s is Record<string, unknown> => !!s && typeof s === "object")
     .map((s) => {

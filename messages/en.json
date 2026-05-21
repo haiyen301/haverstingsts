@@ -58,7 +58,53 @@
     "adminZoneSetup": "Zone Setup",
     "adminZoneConfiguration": "Zone Configuration",
     "adminRegrowthRules": "Regrowth Rules",
-    "adminGrassTypes": "Grass types"
+    "adminGrassTypes": "Grass types",
+    "settings": "Settings",
+    "adminCountries": "Countries",
+    "adminMaintenance": "Maintenance mode"
+  },
+  "Maintenance": {
+    "badge": "Scheduled maintenance",
+    "title": "We'll be right back",
+    "subtitle": "STS Portal is temporarily unavailable while we apply upgrades. Thank you for your patience.",
+    "estimatedReturn": "Expected back",
+    "bullet1": "Your data is safe — we're only pausing access during this window.",
+    "bullet2": "Harvesting, projects, and admin tools will resume automatically when maintenance ends.",
+    "bullet3": "If you need urgent assistance, contact your STS administrator.",
+    "footer": "Sports Turf Solutions · STS TURF OPS",
+    "eviction": {
+      "badge": "Maintenance starting",
+      "title": "You will be signed out shortly",
+      "description": "STS Portal is entering maintenance mode. Please save your work — you will be redirected automatically.",
+      "secondsLabel": "seconds remaining",
+      "secondsShort": "sec",
+      "cornerHint": "You can keep viewing this page until the countdown ends.",
+      "lockedHint": "Please do not close this window. All actions are temporarily disabled."
+    }
+  },
+  "AdminMaintenance": {
+    "title": "Maintenance mode",
+    "description": "When enabled, all users except your administrator account are signed out and see the maintenance screen. Active sessions are cleared within a few seconds.",
+    "loading": "Loading…",
+    "modeTitle": "System access",
+    "modeDescription": "Use this during deployments or database work. Only user ID 409 can still use the portal.",
+    "toggleLabel": "Maintenance mode",
+    "toggleHint": "Blocks sign-in and redirects signed-in users",
+    "enableWarning": "Enabling maintenance will notify every other signed-in user, show a 10-second countdown, then sign them out and redirect them to the maintenance screen.",
+    "messageTitle": "Public message",
+    "messageDescription": "Shown on the maintenance screen. Leave blank for the default text.",
+    "messageLabel": "Custom message",
+    "messagePlaceholder": "e.g. We are upgrading inventory services…",
+    "estimatedReturnLabel": "Expected return (optional)",
+    "estimatedReturnPlaceholder": "e.g. 22 May 2026, 2:00 PM AEST",
+    "save": "Save settings",
+    "saving": "Saving…",
+    "savedEnabled": "Maintenance mode is ON. Other users will see a 10-second notice, then be signed out.",
+    "savedDisabled": "Maintenance mode is OFF. Users can sign in again.",
+    "errors": {
+      "load": "Could not load maintenance settings.",
+      "save": "Could not save maintenance settings."
+    }
   },
   "Nav": {
     "dashboard": "Dashboard",
@@ -327,6 +373,8 @@
     "importExcel": "Import Excel",
     "searchPlaceholder": "Searching name of project, grass, country,...",
     "allCountries": "All countries",
+    "allProjects": "All projects",
+    "allProjectsCount": "All projects ({count})",
     "allFarms": "All farms",
     "allGrass": "All grass",
     "allStatuses": "All statuses",
@@ -1119,6 +1167,38 @@
       "required": "Farm, grass, zone, size, and yield are required."
     }
   },
+  "AdminCountries": {
+    "title": "Countries",
+    "description": "ISO 3166 country reference data. Only the display name is editable; country codes must stay unique. Toggle status to enable or disable a country.",
+    "loading": "Loading…",
+    "empty": "No countries found.",
+    "searchPlaceholder": "Search by name, code, TLD…",
+    "rowCount": "Showing {count} of {total} countries",
+    "editableHint": "Click to edit the display name",
+    "confirmEdit": "Save changes",
+    "cancelEdit": "Discard changes",
+    "columns": {
+      "code": "Country code",
+      "name": "Name",
+      "sovereignty": "Sovereignty",
+      "alpha2": "A-2",
+      "alpha3": "A-3",
+      "numeric": "Numeric",
+      "iso3166_2": "ISO 3166-2",
+      "tld": "TLD",
+      "status": "Status",
+      "actions": "Actions"
+    },
+    "status": {
+      "active": "Active",
+      "inactive": "Inactive"
+    },
+    "errors": {
+      "load": "Failed to load countries.",
+      "save": "Failed to save country.",
+      "nameRequired": "Name is required."
+    }
+  },
   "AdminGrasses": {
     "title": "Grass types",
     "description": "Define turf products in STSPortal (`sts_grasses`): notes and optional `sales_from` / `sales_to` (UI: Sales From / Sales To; last day you still sell; after `sales_to`, treat as discontinued).",
@@ -1459,6 +1539,7 @@
       "admin_zones": "Zones",
       "admin_regrowth": "Regrowth",
       "admin_grasses": "Grass types",
+      "admin_countries": "Countries",
       "dashboard": "Dashboard"
     }
   },

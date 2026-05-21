@@ -37,7 +37,7 @@ export function DevImportTestClient() {
   const projects = useHarvestingDataStore((s) => s.projects);
   const farms = useHarvestingDataStore((s) => s.farms);
   const products = useHarvestingDataStore((s) => s.products);
-  const countries = useHarvestingDataStore((s) => s.countries);
+  const activeCountries = useHarvestingDataStore((s) => s.activeCountries);
   const staffs = useHarvestingDataStore((s) => s.staffs);
   const fetchAllHarvestingReferenceData = useHarvestingDataStore(
     (s) => s.fetchAllHarvestingReferenceData,
@@ -54,8 +54,8 @@ export function DevImportTestClient() {
     [products],
   );
   const firstCountryId = useMemo(
-    () => toStr((countries[0] as Record<string, unknown> | undefined)?.id),
-    [countries],
+    () => toStr((activeCountries[0] as Record<string, unknown> | undefined)?.id),
+    [activeCountries],
   );
   const firstStaffId = useMemo(
     () => toStr((staffs[0] as Record<string, unknown> | undefined)?.id),

@@ -417,7 +417,7 @@ export default function ProjectImportPage() {
   );
 
   const projects = useHarvestingDataStore((s) => s.projects);
-  const countries = useHarvestingDataStore((s) => s.countries);
+  const activeCountries = useHarvestingDataStore((s) => s.activeCountries);
   const staffs = useHarvestingDataStore((s) => s.staffs);
   const grasses = useHarvestingDataStore((s) => s.grasses);
   
@@ -590,13 +590,13 @@ export default function ProjectImportPage() {
   type LooseCandidate = { id: string; label: string; aliases?: string[] };
 
   const countryCandidates = useMemo(() => {
-    return (countries as unknown[])
+    return (activeCountries as unknown[])
       .filter((c): c is Record<string, unknown> => !!c && typeof c === "object")
       .map((c) => ({
         id: toStringSafe(c.id),
         label: toStringSafe(c.country_name ?? c.name ?? c.title),
       }));
-  }, [countries]);
+  }, [activeCountries]);
 
   const productCandidates = useMemo<LooseCandidate[]>(() => {
     return (grasses as unknown[])

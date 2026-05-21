@@ -3,7 +3,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Lock, Mail } from "lucide-react";
+import { Eye, EyeOff, Lock, Mail } from "lucide-react";
 
 import { INTERNAL_API } from "@/shared/api/stsLogin";
 import { Checkbox } from "@/shared/ui/checkbox";
@@ -14,6 +14,11 @@ import {
 } from "@/shared/lib/loginRemember";
 import { fetchSessionAuthenticated, removeAuthToken } from "@/shared/lib/sessionUser";
 import type { SessionUser } from "@/shared/lib/sessionUser";
+import { enableMaintenancePolling } from "@/shared/auth/maintenancePollControl";
+import {
+  clearMaintenanceReturnPath,
+  getMaintenanceReturnPath,
+} from "@/shared/auth/maintenanceReturnPath";
 import { useAuthUserStore } from "@/shared/store/authUserStore";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
 
@@ -31,6 +36,7 @@ export default function LoginForm() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [remember, setRemember] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -74,6 +80,10 @@ export default function LoginForm() {
         const msg =
           (json as { message?: string })?.message ??
           t("loginFailedCheckCredentials");
+        if (res.status === 503) {
+          router.replace("/maintenance");
+          return;
+        }
         setError(msg);
         return;
       }
@@ -86,6 +96,7 @@ export default function LoginForm() {
       }
       const { token: _omit, ...profile } = data;
       useAuthUserStore.getState().setUser(profile as SessionUser);
+      enableMaintenancePolling();
 
       const sessionOk = await fetchSessionAuthenticated();
       if (!sessionOk) {
@@ -99,7 +110,9 @@ export default function LoginForm() {
         clearRememberedCredentials();
       }
 
-      router.replace("/dashboard");
+      const returnPath = getMaintenanceReturnPath();
+      if (returnPath) clearMaintenanceReturnPath();
+      router.replace(returnPath ?? "/dashboard");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t("loginFailedGeneric"));
     } finally {
@@ -149,11 +162,19 @@ export default function LoginForm() {
               <input
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                type="password"
+                type={showPassword ? "text" : "password"}
                 placeholder={t("passwordPlaceholder")}
-                className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#1F7A4C] focus:border-transparent"
+                className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[#1F7A4C] focus:border-transparent"
                 autoComplete="current-password"
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword((prev) => !prev)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                aria-label={showPassword ? "Hide password" : "Show password"}
+              >
+                {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+              </button>
             </div>
           </div>
 

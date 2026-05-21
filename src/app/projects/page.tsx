@@ -158,6 +158,9 @@ export default function ProjectListPage() {
   const [grassFilterIds, setGrassFilterIds] = useState(() =>
     parseCsvParam(searchParams.get("grass")),
   );
+  const [projectFilterIds, setProjectFilterIds] = useState(() =>
+    parseCsvParam(searchParams.get("project")),
+  );
   const [statusFilterValues, setStatusFilterValues] = useState(() =>
     parseStatusFilterFromUrl(searchParams.get("status")),
   );
@@ -166,6 +169,7 @@ export default function ProjectListPage() {
   const { selectedFarmIds: farmFilterIds, setSelectedFarmIds } = useSyncedFarmMultiSelect();
   const projectsRef = useHarvestingDataStore((s) => s.projects);
   const countriesRef = useHarvestingDataStore((s) => s.countries);
+  const activeCountriesRef = useHarvestingDataStore((s) => s.activeCountries);
   const farmsRef = useHarvestingDataStore((s) => s.farms);
   const staffsRef = useHarvestingDataStore((s) => s.staffs);
   const productsRef = useHarvestingDataStore((s) => s.products);
@@ -184,6 +188,7 @@ export default function ProjectListPage() {
       setSelectedFarmIds(parseCsvParam(parsed.get("farm")));
     }
     setGrassFilterIds(parseCsvParam(parsed.get("grass")));
+    setProjectFilterIds(parseCsvParam(parsed.get("project")));
     setStatusFilterValues(parseStatusFilterFromUrl(parsed.get("status")));
     setUrlReady(true);
   }, [searchParamsKey, setSelectedFarmIds]);
@@ -196,6 +201,7 @@ export default function ProjectListPage() {
     if (harvestListFarmFilter.trim())
       params.set("farm", harvestListFarmFilter.trim());
     if (grassFilterIds.length) params.set("grass", grassFilterIds.join(","));
+    if (projectFilterIds.length) params.set("project", projectFilterIds.join(","));
     params.set("status", statusFilterValues.join(","));
     const qs = params.toString();
     return qs ? `${pathname}?${qs}` : pathname;
@@ -205,6 +211,7 @@ export default function ProjectListPage() {
     countryFilterIds,
     harvestListFarmFilter,
     grassFilterIds,
+    projectFilterIds,
     statusFilterValues,
   ]);
   const [loading, setLoading] = useState(true);
@@ -250,6 +257,7 @@ export default function ProjectListPage() {
     if (harvestListFarmFilter.trim())
       params.set("farm", harvestListFarmFilter.trim());
     if (grassFilterIds.length) params.set("grass", grassFilterIds.join(","));
+    if (projectFilterIds.length) params.set("project", projectFilterIds.join(","));
     params.set("status", statusFilterValues.join(","));
     const qs = params.toString();
     if (urlSearchParamsEquivalent(qs, searchParamsKey)) return;
@@ -258,6 +266,7 @@ export default function ProjectListPage() {
     countryFilterIds,
     debouncedSearch,
     grassFilterIds,
+    projectFilterIds,
     harvestListFarmFilter,
     pathname,
     router,
@@ -451,9 +460,12 @@ export default function ProjectListPage() {
       const grassOk =
         grassFilterIds.length === 0 ||
         grassFilterIds.some((id) => rowHasGrassProduct(data as MondayProjectServerRow, id));
-      return visibleByServerRow && countryOk && farmOk && grassOk;
+      const projectOk =
+        projectFilterIds.length === 0 ||
+        projectFilterIds.includes(String(rec.project_id ?? "").trim());
+      return visibleByServerRow && countryOk && farmOk && grassOk && projectOk;
     });
-  }, [rows, countryFilterIds, farmFilterIds, grassFilterIds]);
+  }, [rows, countryFilterIds, farmFilterIds, grassFilterIds, projectFilterIds]);
 
   const projectTitleMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -528,7 +540,7 @@ export default function ProjectListPage() {
   }, [productsRef]);
 
   const countryOptions = useMemo(() => {
-    const list = toRecArray(countriesRef)
+    const list = toRecArray(activeCountriesRef)
       .map((r) => ({
         id: String(r.id ?? "").trim(),
         name: String(r.country_name ?? r.name ?? r.title ?? "").trim(),
@@ -536,7 +548,7 @@ export default function ProjectListPage() {
       .filter((x) => x.id && x.name);
     list.sort((a, b) => a.name.localeCompare(b.name));
     return list;
-  }, [countriesRef]);
+  }, [activeCountriesRef]);
 
   const grassOptions = useMemo(() => {
     const rows = pickGrassCatalogRows({
@@ -550,6 +562,22 @@ export default function ProjectListPage() {
       name: o.label,
     }));
   }, [grassesRef, grassFilterIds]);
+
+  const projectOptions = useMemo(() => {
+    const catalog = toRecArray(projectsRef);
+    const pinned = new Set(projectFilterIds);
+    const pinnedRows = projectFilterIds
+      .map((id) => catalog.find((r) => String(r.id ?? "").trim() === id))
+      .filter((r): r is Record<string, unknown> => !!r);
+    const merged = [
+      ...pinnedRows,
+      ...catalog.filter((r) => !pinned.has(String(r.id ?? "").trim())),
+    ];
+    return mapRowsToSelectOptions(merged as unknown[], "title").map((o) => ({
+      id: o.id,
+      name: o.label,
+    }));
+  }, [projectsRef, projectFilterIds]);
 
   const farmOptions = useMemo(() => {
     const list = toRecArray(farmsRef)
@@ -651,6 +679,15 @@ export default function ProjectListPage() {
               className={cn(multiSelectBaseClass, bgSurfaceFilter(countryFilterIds.length > 0))}
               rightIcon={filterTriggerIcon}
             />
+            {/* <MultiSelect
+              options={projectOptions.map((p) => ({ value: p.id, label: p.name }))}
+              values={projectFilterIds}
+              onChange={setProjectFilterIds}
+              disabled={projectOptions.length === 0}
+              placeholder={t("allProjectsCount", { count: projectOptions.length })}
+              className={cn(multiSelectBaseClass, bgSurfaceFilter(projectFilterIds.length > 0))}
+              rightIcon={filterTriggerIcon}
+            /> */}
             <MultiSelect
               options={farmOptions.map((f) => ({ value: f.id, label: f.name }))}
               values={farmFilterIds}

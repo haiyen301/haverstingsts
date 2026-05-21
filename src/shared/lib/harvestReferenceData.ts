@@ -105,6 +105,68 @@ export function filterFarmZoneRowsByFarmId(
   });
 }
 
+export type CountrySelectOption = { id: string; name: string };
+
+/** Whether `sts_countries.active` is enabled (1 / true / "active"). */
+export function isCountryRowActive(row: unknown): boolean {
+  if (!row || typeof row !== "object") return false;
+  const r = row as Record<string, unknown>;
+  const active = r.active;
+  if (active === true || active === 1 || active === "1") return true;
+  const text = String(active ?? "").trim().toLowerCase();
+  return text === "true" || text === "yes" || text === "active";
+}
+
+/** Rows with `active = 1` for dropdowns and filters. */
+export function filterActiveCountryRows(countries: unknown[]): unknown[] {
+  return countries.filter(isCountryRowActive);
+}
+
+function countryRowToSelectOption(row: unknown): CountrySelectOption | null {
+  if (!row || typeof row !== "object") return null;
+  const r = row as Record<string, unknown>;
+  const id = String(r.id ?? "").trim();
+  const name = String(r.country_name ?? r.name ?? r.title ?? "").trim();
+  if (!id || !name) return null;
+  return { id, name };
+}
+
+/**
+ * Select options from active countries only.
+ * `pinnedCountryId` keeps the current value visible on edit when it is no longer active.
+ */
+export function buildCountrySelectOptions(
+  countries: unknown[],
+  pinnedCountryId?: string | null,
+): CountrySelectOption[] {
+  const seen = new Set<string>();
+  const out: CountrySelectOption[] = [];
+
+  for (const row of filterActiveCountryRows(countries)) {
+    const opt = countryRowToSelectOption(row);
+    if (!opt || seen.has(opt.id)) continue;
+    seen.add(opt.id);
+    out.push(opt);
+  }
+
+  const pinned = String(pinnedCountryId ?? "").trim();
+  if (pinned && !seen.has(pinned)) {
+    for (const row of countries) {
+      if (!row || typeof row !== "object") continue;
+      const r = row as Record<string, unknown>;
+      if (String(r.id ?? "").trim() !== pinned) continue;
+      const opt = countryRowToSelectOption(row);
+      if (opt) {
+        out.push(opt);
+        seen.add(opt.id);
+      }
+      break;
+    }
+  }
+
+  return out.sort((a, b) => a.name.localeCompare(b.name));
+}
+
 /**
  * Resolve country label from STS country rows (`id`, `country_name`, …) stored in Zustand.
  */

@@ -146,6 +146,7 @@ function ActiveProjectsPageInner() {
   const { selectedFarmIds: farmFilterIds, setSelectedFarmIds } = useSyncedFarmMultiSelect();
   const projectsRef = useHarvestingDataStore((s) => s.projects);
   const countriesRef = useHarvestingDataStore((s) => s.countries);
+  const activeCountriesRef = useHarvestingDataStore((s) => s.activeCountries);
   const farmsRef = useHarvestingDataStore((s) => s.farms);
   const staffsRef = useHarvestingDataStore((s) => s.staffs);
   const productsRef = useHarvestingDataStore((s) => s.products);
@@ -424,7 +425,7 @@ function ActiveProjectsPageInner() {
   }, [productsRef]);
 
   const countryOptions = useMemo(() => {
-    const list = toRecArray(countriesRef)
+    const list = toRecArray(activeCountriesRef)
       .map((r) => ({
         id: String(r.id ?? "").trim(),
         name: String(r.country_name ?? r.name ?? r.title ?? "").trim(),
@@ -432,7 +433,7 @@ function ActiveProjectsPageInner() {
       .filter((x) => x.id && x.name);
     list.sort((a, b) => a.name.localeCompare(b.name));
     return list;
-  }, [countriesRef]);
+  }, [activeCountriesRef]);
 
   const grassOptions = useMemo(() => {
     const list = toRecArray(productsRef)

@@ -1,9 +1,18 @@
 import { NextResponse } from "next/server";
 
-import { AUTH_ACL_COOKIE_NAME, AUTH_COOKIE_NAME } from "@/shared/lib/authCookie";
+import {
+  AUTH_ACL_COOKIE_NAME,
+  AUTH_COOKIE_NAME,
+  AUTH_USER_ID_COOKIE_NAME,
+} from "@/shared/lib/authCookie";
 import { getStsApiUrlCandidates, STS_LOGIN_PATHS } from "@/shared/api/stsLogin";
 import { AUTH_COOKIE_OPTIONS } from "@/shared/server/stsAuthBearer";
+import {
+  parseMaintenanceUserId,
+  userIdMayBypassMaintenance,
+} from "@/shared/auth/maintenanceAccess";
 import { buildAclSnapshotFromProfile } from "@/shared/auth/permissions";
+import { fetchMaintenanceStatusFromUpstream } from "@/shared/server/maintenanceUpstream";
 import {
   fetchJsonWithBaseUrlFallback,
 } from "@/shared/server/stsUpstreamFetch";
@@ -111,13 +120,35 @@ export async function POST(req: Request) {
       // Swallow intentionally.
     }
 
+    const profile = (data as { data?: unknown }).data;
+    const profileObj =
+      profile && typeof profile === "object"
+        ? (profile as Record<string, unknown>)
+        : null;
+    const userId = parseMaintenanceUserId(
+      profileObj?.id ?? profileObj?.user_id ?? profileObj?.userId,
+    );
+    const maintenance = await fetchMaintenanceStatusFromUpstream();
+    if (maintenance.enabled && !userIdMayBypassMaintenance(userId)) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            "The application is under maintenance. Please try again later.",
+        },
+        { status: 503 },
+      );
+    }
+
     const res = NextResponse.json(stripTokenFromLoginJson(data), {
       status: upstreamRes.status,
     });
     res.cookies.set(AUTH_COOKIE_NAME, token, AUTH_COOKIE_OPTIONS);
-    const profile = (data as { data?: unknown }).data;
     const acl = buildAclSnapshotFromProfile(profile);
     res.cookies.set(AUTH_ACL_COOKIE_NAME, JSON.stringify(acl), AUTH_COOKIE_OPTIONS);
+    if (userId != null) {
+      res.cookies.set(AUTH_USER_ID_COOKIE_NAME, String(userId), AUTH_COOKIE_OPTIONS);
+    }
     return res;
   }
 

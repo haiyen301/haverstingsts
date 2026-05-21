@@ -23,7 +23,9 @@ import {
   MessageCircle,
   PanelLeftClose,
   PanelLeftOpen,
+  Settings,
   ShieldCheck,
+  ShieldAlert,
   Sprout,
   Timer,
   Tractor,
@@ -39,6 +41,7 @@ import { ALERTS_UPDATED_EVENT } from "@/features/alerts/alertClientEvents";
 import { useSyncedFarmMultiSelect } from "@/shared/hooks/useSyncedFarmMultiSelect";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
 import { ALERT_FEED_SETTINGS_ALLOWED_USER_IDS } from "@/shared/auth/alertFeedSettingsAccess";
+import { MAINTENANCE_BYPASS_USER_IDS } from "@/shared/auth/maintenanceAccess";
 import {
   canAccessModule,
 } from "@/shared/auth/permissions";
@@ -315,6 +318,35 @@ export function DashboardLayout({ children, hideAppNav = false }: DashboardLayou
                 module: "admin_people",
                 restrictToUserIds: [...ALERT_FEED_SETTINGS_ALLOWED_USER_IDS],
                 isActive: (p) => p === "/admin/people/alerts" || p.startsWith("/admin/people/alerts/"),
+              },
+            ],
+          },
+          {
+            key: "settings",
+            path: "/admin/settings/countries",
+            icon: Settings,
+            label: tn("settings"),
+            isActive: (p) => p.startsWith("/admin/settings"),
+            tabs: [
+              {
+                value: "countries",
+                label: tn("adminCountries"),
+                icon: Settings,
+                path: "/admin/settings/countries",
+                module: "admin_countries",
+                isActive: (p) =>
+                  p === "/admin/settings/countries" ||
+                  p.startsWith("/admin/settings/countries/"),
+              },
+              {
+                value: "maintenance",
+                label: tn("adminMaintenance"),
+                icon: ShieldAlert,
+                path: "/admin/settings/maintenance",
+                restrictToUserIds: [...MAINTENANCE_BYPASS_USER_IDS],
+                isActive: (p) =>
+                  p === "/admin/settings/maintenance" ||
+                  p.startsWith("/admin/settings/maintenance/"),
               },
             ],
           },
