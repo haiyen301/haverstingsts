@@ -1,7 +1,35 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useTranslations } from "next-intl";
+import { AlignLeft, ArrowDown, FolderOpen, Loader2, Plus, Search, Upload } from "lucide-react";
+
+import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
+import RequireAuth from "@/features/auth/RequireAuth";
+import { canAccessModule } from "@/shared/auth/permissions";
+import { useSyncedFarmMultiSelect } from "@/shared/hooks/useSyncedFarmMultiSelect";
+import { useAuthUserStore } from "@/shared/store/authUserStore";
+import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
+import { MultiSelect } from "@/shared/ui/multi-select";
+import {
+  fetchMondayProjectRowsFromServer,
+  type MondayDynamicRowLike,
+  type MondayProjectServerRow,
+} from "@/entities/projects";
+import {
+  ProjectListItem,
+  buildMondayEditArgs,
+  mergeMondayDisplayData,
+} from "@/features/project";
+import { parseJsonMaybe } from "@/shared/lib/parseJsonMaybe";
+import { resolveStaffAvatarImageUrl } from "@/features/project/lib/staffAvatarUrl";
+import { cn } from "@/lib/utils";
+import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
+import {
+  mapRowsToSelectOptions,
+  pickGrassCatalogRows,
+} from "@/shared/lib/harvestReferenceData";
 
 function parseCsvParam(v: string | null): string[] {
   return String(v ?? "")
@@ -25,28 +53,6 @@ function urlSearchParamsEquivalent(builtQs: string, currentQs: string): boolean 
   }
   return true;
 }
-import { AlignLeft, ArrowDown, Loader2, Plus, Search, Upload } from "lucide-react";
-
-import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
-import RequireAuth from "@/features/auth/RequireAuth";
-import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
-import { MultiSelect } from "@/components/ui/multi-select";
-import {
-  fetchMondayProjectRowsFromServer,
-  type MondayDynamicRowLike,
-  type MondayProjectServerRow,
-  type ProjectStatus,
-} from "@/entities/projects";
-import {
-  ProjectListItem,
-  buildMondayEditArgs,
-  mergeMondayDisplayData,
-  resolveMondayCardStatusForListFilter,
-  sortMondayProjectRows,
-} from "@/features/project";
-import { parseJsonMaybe } from "@/shared/lib/parseJsonMaybe";
-import { resolveStaffAvatarImageUrl } from "@/features/project/lib/staffAvatarUrl";
-import { stsProxyGetHarvestingIndex } from "@/shared/api/stsProxyClient";
 
 function formatNumber(v: number): string {
   return new Intl.NumberFormat().format(Math.max(0, Math.floor(v)));
@@ -82,50 +88,6 @@ function rowHasFarmInSubitems(row: MondayProjectServerRow, farmId: string): bool
   });
 }
 
-function parseRowSubitems(raw: unknown): Array<Record<string, unknown>> {
-  const parsed = parseJsonMaybe(raw);
-  if (!Array.isArray(parsed)) return [];
-  return parsed.filter((x): x is Record<string, unknown> => !!x && typeof x === "object");
-}
-
-function mergeProjectSubitemsWithPlanRows(
-  projectRows: Array<Record<string, unknown>>,
-  harvestPlanRows: Array<Record<string, unknown>>,
-): Array<Record<string, unknown>> {
-  if (projectRows.length === 0 || harvestPlanRows.length === 0) return projectRows;
-  const planByProjectId = new Map<string, Array<Record<string, unknown>>>();
-  for (const row of harvestPlanRows) {
-    const pid = String(row.project_id ?? "").trim();
-    if (!pid) continue;
-    const list = planByProjectId.get(pid) ?? [];
-    list.push(row);
-    planByProjectId.set(pid, list);
-  }
-  return projectRows.map((row) => {
-    const projectId = String(row.project_id ?? "").trim();
-    if (!projectId) return row;
-    const planRows = planByProjectId.get(projectId) ?? [];
-    if (planRows.length === 0) return row;
-    const existingSubitems = parseRowSubitems(row.subitems);
-    const planIds = new Set(
-      planRows
-        .map((x) => String(x.id ?? "").trim())
-        .filter(Boolean),
-    );
-    const merged = [
-      ...planRows,
-      ...existingSubitems.filter((x) => {
-        const sid = String(x.id ?? "").trim();
-        return !sid || !planIds.has(sid);
-      }),
-    ];
-    return {
-      ...row,
-      subitems: JSON.stringify(merged),
-    };
-  });
-}
-
 function normalizeProjectStatusLabel(v: unknown): string {
   const s = String(v ?? "").toLowerCase().trim();
   if (!s) return "";
@@ -150,10 +112,40 @@ function makeRowTableKey(row: Record<string, unknown>): string {
   return `${rowId}__${tableId}`;
 }
 
+const PROJECT_LIST_PAGE_SIZE = 40;
+
+function mondayRowDedupeKey(row: MondayProjectServerRow): string {
+  return makeRowTableKey(row as unknown as Record<string, unknown>);
+}
+
+function mergeMondayRowsUnique(
+  prev: MondayProjectServerRow[],
+  more: MondayProjectServerRow[],
+): MondayProjectServerRow[] {
+  const keys = new Set(prev.map((x) => mondayRowDedupeKey(x)));
+  const out = [...prev];
+  for (const x of more) {
+    const k = mondayRowDedupeKey(x);
+    if (!keys.has(k)) {
+      keys.add(k);
+      out.push(x);
+    }
+  }
+  return out;
+}
+
 export default function ProjectListPage() {
+  const t = useTranslations("Projects");
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const refreshParam = (searchParams.get("refresh") ?? "").trim();
+  const user = useAuthUserStore((s) => s.user);
+  const canCreateProjects = canAccessModule(user, "projects", "create");
+  const canEditProjects = canAccessModule(user, "projects", "edit");
+  const canDeleteProjects = canAccessModule(user, "projects", "delete");
+  const canManageExistingProjects = canEditProjects || canDeleteProjects;
+  const canImportProjects = canAccessModule(user, "projects", "import");
   const searchParamsKey = searchParams.toString();
   const [urlReady, setUrlReady] = useState(false);
   const [search, setSearch] = useState(() => searchParams.get("q") ?? "");
@@ -163,14 +155,27 @@ export default function ProjectListPage() {
   const [countryFilterIds, setCountryFilterIds] = useState(() =>
     parseCsvParam(searchParams.get("country")),
   );
-  const [farmFilterIds, setFarmFilterIds] = useState(() =>
-    parseCsvParam(searchParams.get("farm")),
-  );
   const [grassFilterIds, setGrassFilterIds] = useState(() =>
     parseCsvParam(searchParams.get("grass")),
   );
+  const [projectFilterIds, setProjectFilterIds] = useState(() =>
+    parseCsvParam(searchParams.get("project")),
+  );
   const [statusFilterValues, setStatusFilterValues] = useState(() =>
     parseStatusFilterFromUrl(searchParams.get("status")),
+  );
+
+  const harvestListFarmFilter = useHarvestingDataStore((s) => s.harvestListFarmFilter);
+  const { selectedFarmIds: farmFilterIds, setSelectedFarmIds } = useSyncedFarmMultiSelect();
+  const projectsRef = useHarvestingDataStore((s) => s.projects);
+  const countriesRef = useHarvestingDataStore((s) => s.countries);
+  const activeCountriesRef = useHarvestingDataStore((s) => s.activeCountries);
+  const farmsRef = useHarvestingDataStore((s) => s.farms);
+  const staffsRef = useHarvestingDataStore((s) => s.staffs);
+  const productsRef = useHarvestingDataStore((s) => s.products);
+  const grassesRef = useHarvestingDataStore((s) => s.grasses);
+  const fetchAllHarvestingReferenceData = useHarvestingDataStore(
+    (s) => s.fetchAllHarvestingReferenceData,
   );
 
   useEffect(() => {
@@ -178,39 +183,62 @@ export default function ProjectListPage() {
     setSearch(parsed.get("q") ?? "");
     setDebouncedSearch((parsed.get("q") ?? "").trim());
     setCountryFilterIds(parseCsvParam(parsed.get("country")));
-    setFarmFilterIds(parseCsvParam(parsed.get("farm")));
+    /** Only overwrite global farm filter when URL carries `farm` (parity with Harvest page). Avoid clearing store on `/projects` without farm. */
+    if (parsed.has("farm")) {
+      setSelectedFarmIds(parseCsvParam(parsed.get("farm")));
+    }
     setGrassFilterIds(parseCsvParam(parsed.get("grass")));
+    setProjectFilterIds(parseCsvParam(parsed.get("project")));
     setStatusFilterValues(parseStatusFilterFromUrl(parsed.get("status")));
     setUrlReady(true);
-  }, [searchParamsKey]);
+  }, [searchParamsKey, setSelectedFarmIds]);
 
   const returnTo = useMemo(() => {
     const params = new URLSearchParams();
     const q = debouncedSearch.trim();
     if (q) params.set("q", q);
     if (countryFilterIds.length) params.set("country", countryFilterIds.join(","));
-    if (farmFilterIds.length) params.set("farm", farmFilterIds.join(","));
+    if (harvestListFarmFilter.trim())
+      params.set("farm", harvestListFarmFilter.trim());
     if (grassFilterIds.length) params.set("grass", grassFilterIds.join(","));
+    if (projectFilterIds.length) params.set("project", projectFilterIds.join(","));
     params.set("status", statusFilterValues.join(","));
     const qs = params.toString();
     return qs ? `${pathname}?${qs}` : pathname;
-  }, [pathname, debouncedSearch, countryFilterIds, farmFilterIds, grassFilterIds, statusFilterValues]);
+  }, [
+    pathname,
+    debouncedSearch,
+    countryFilterIds,
+    harvestListFarmFilter,
+    grassFilterIds,
+    projectFilterIds,
+    statusFilterValues,
+  ]);
   const [loading, setLoading] = useState(true);
-  const [backgroundLoading, setBackgroundLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<MondayProjectServerRow[]>([]);
-  const projectsRef = useHarvestingDataStore((s) => s.projects);
-  const countriesRef = useHarvestingDataStore((s) => s.countries);
-  const farmsRef = useHarvestingDataStore((s) => s.farms);
-  const staffsRef = useHarvestingDataStore((s) => s.staffs);
-  const productsRef = useHarvestingDataStore((s) => s.products);
-  const fetchAllHarvestingReferenceData = useHarvestingDataStore(
-    (s) => s.fetchAllHarvestingReferenceData,
-  );
+  const [manualReloadSeq, setManualReloadSeq] = useState(() => (refreshParam ? 1 : 0));
+  const pageLoadedRef = useRef(0);
+  const loadMoreLockRef = useRef(false);
+  const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
+  const refsBootstrappedRef = useRef(false);
+  const handledRefreshParamRef = useRef(refreshParam);
+  const requestedProjectTitleRefreshIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
-    void fetchAllHarvestingReferenceData();
-  }, [fetchAllHarvestingReferenceData]);
+    if (!refsBootstrappedRef.current) {
+      refsBootstrappedRef.current = true;
+      handledRefreshParamRef.current = refreshParam;
+      void fetchAllHarvestingReferenceData(refreshParam !== "");
+      return;
+    }
+    if (!refreshParam || handledRefreshParamRef.current === refreshParam) return;
+    handledRefreshParamRef.current = refreshParam;
+    setManualReloadSeq((prev) => prev + 1);
+    void fetchAllHarvestingReferenceData(true);
+  }, [fetchAllHarvestingReferenceData, refreshParam]);
 
   // Debounce search to avoid calling server on every keystroke
   useEffect(() => {
@@ -226,8 +254,10 @@ export default function ProjectListPage() {
     const q = debouncedSearch.trim();
     if (q) params.set("q", q);
     if (countryFilterIds.length) params.set("country", countryFilterIds.join(","));
-    if (farmFilterIds.length) params.set("farm", farmFilterIds.join(","));
+    if (harvestListFarmFilter.trim())
+      params.set("farm", harvestListFarmFilter.trim());
     if (grassFilterIds.length) params.set("grass", grassFilterIds.join(","));
+    if (projectFilterIds.length) params.set("project", projectFilterIds.join(","));
     params.set("status", statusFilterValues.join(","));
     const qs = params.toString();
     if (urlSearchParamsEquivalent(qs, searchParamsKey)) return;
@@ -235,8 +265,9 @@ export default function ProjectListPage() {
   }, [
     countryFilterIds,
     debouncedSearch,
-    farmFilterIds,
     grassFilterIds,
+    projectFilterIds,
+    harvestListFarmFilter,
     pathname,
     router,
     searchParamsKey,
@@ -244,89 +275,101 @@ export default function ProjectListPage() {
     urlReady,
   ]);
 
+  const buildStatusQuery = useCallback(
+    () =>
+      statusFilterValues
+        .map((x) => normalizeProjectStatusLabel(x))
+        .filter(Boolean)
+        .join(","),
+    [statusFilterValues],
+  );
+
   useEffect(() => {
-    let mounted = true;
+    let cancelled = false;
+    pageLoadedRef.current = 0;
+    loadMoreLockRef.current = false;
     void (async () => {
       try {
         setLoading(true);
         setError(null);
-        const statusQuery = statusFilterValues
-          .map((x) => normalizeProjectStatusLabel(x))
-          .filter(Boolean)
-          .join(",");
-        const quickPerPage = 30;
-        const fullPerPage = 100;
-
-        // Fast first paint: request a smaller page size, render immediately.
-        const quickRes = await fetchMondayProjectRowsFromServer({
+        setRows([]);
+        setHasMore(true);
+        const statusQuery = buildStatusQuery();
+        const res = await fetchMondayProjectRowsFromServer({
           module: "project",
           search: debouncedSearch || undefined,
           page: 1,
-          perPage: quickPerPage,
+          perPage: PROJECT_LIST_PAGE_SIZE,
           status: statusQuery || undefined,
+          sortBy: "project_id",
+          sortDir: "desc",
+          listPaged: true,
         });
-        if (!mounted) return;
-        let baseRows = quickRes.rows as unknown as Record<string, unknown>[];
-        setRows(sortMondayProjectRows(baseRows));
-        setLoading(false);
-
-        // Continue loading the full page size in background, then refresh list.
-        void (async () => {
-          if (mounted) setBackgroundLoading(true);
-          try {
-            const fullRes = await fetchMondayProjectRowsFromServer({
-              module: "project",
-              search: debouncedSearch || undefined,
-              page: 1,
-              perPage: fullPerPage,
-              status: statusQuery || undefined,
-            });
-            if (!mounted) return;
-            const fullRows = fullRes.rows as unknown as Record<string, unknown>[];
-            if (fullRows.length > 0) {
-              baseRows = fullRows;
-              setRows(sortMondayProjectRows(baseRows));
-            }
-
-            const allHarvestRows: Array<Record<string, unknown>> = [];
-            let page = 1;
-            let totalPages = 1;
-            const maxPages = 20;
-            do {
-              const harvestRes = await stsProxyGetHarvestingIndex({
-                page,
-                per_page: 200,
-              });
-              allHarvestRows.push(
-                ...harvestRes.rows.filter(
-                  (x): x is Record<string, unknown> => !!x && typeof x === "object",
-                ),
-              );
-              totalPages = Math.max(1, harvestRes.totalPages);
-              page += 1;
-            } while (page <= totalPages && page <= maxPages);
-
-            if (!mounted) return;
-            const enrichedRows = mergeProjectSubitemsWithPlanRows(baseRows, allHarvestRows);
-            setRows(sortMondayProjectRows(enrichedRows));
-          } catch {
-            // Keep already-rendered base rows if enrichment fails.
-          } finally {
-            if (mounted) setBackgroundLoading(false);
-          }
-        })();
+        if (cancelled) return;
+        const list = res.rows as MondayProjectServerRow[];
+        setRows(list);
+        pageLoadedRef.current = 1;
+        setHasMore(list.length >= PROJECT_LIST_PAGE_SIZE);
       } catch (e) {
-        if (!mounted) return;
+        if (cancelled) return;
         setRows([]);
-        setError(e instanceof Error ? e.message : "Failed to load projects.");
-        setBackgroundLoading(false);
+        setError(e instanceof Error ? e.message : t("loadError"));
+        setHasMore(false);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-      if (mounted) setLoading(false);
     })();
     return () => {
-      mounted = false;
+      cancelled = true;
     };
-  }, [debouncedSearch, statusFilterValues]);
+  }, [debouncedSearch, statusFilterValues, buildStatusQuery, manualReloadSeq]);
+
+  useEffect(() => {
+    const el = loadMoreSentinelRef.current;
+    if (!el || loading || !hasMore) return;
+
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((e) => e.isIntersecting)) return;
+        if (loadMoreLockRef.current || loading) return;
+        loadMoreLockRef.current = true;
+        setLoadingMore(true);
+        const nextPage = pageLoadedRef.current + 1;
+        const statusQuery = buildStatusQuery();
+        void fetchMondayProjectRowsFromServer({
+          module: "project",
+          search: debouncedSearch || undefined,
+          page: nextPage,
+          perPage: PROJECT_LIST_PAGE_SIZE,
+          status: statusQuery || undefined,
+          sortBy: "project_id",
+          sortDir: "desc",
+          listPaged: true,
+        })
+          .then((res) => {
+            const list = res.rows as MondayProjectServerRow[];
+            if (list.length === 0) {
+              setHasMore(false);
+              return;
+            }
+            setRows((prev) => mergeMondayRowsUnique(prev, list));
+            pageLoadedRef.current = nextPage;
+            setHasMore(list.length >= PROJECT_LIST_PAGE_SIZE);
+          })
+          .catch(() => {
+            /* keep hasMore; user can scroll again to retry */
+          })
+          .finally(() => {
+            loadMoreLockRef.current = false;
+            setLoadingMore(false);
+          });
+      },
+      { root: null, rootMargin: "160px", threshold: 0 },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+    // Re-bind after each append so a still-visible sentinel triggers the next page.
+  }, [loading, hasMore, debouncedSearch, buildStatusQuery, rows.length]);
 
   /**
    * Flutter monday_screen.dart parity:
@@ -404,6 +447,7 @@ export default function ProjectListPage() {
     return mergedRows.filter(({ data }) => {
       const rec = data as Record<string, unknown>;
       const recProjectId = String(rec.project_id ?? "").trim();
+      const visibleByServerRow = recProjectId !== "";
       const countryOk =
         countryFilterIds.length === 0 ||
         countryFilterIds.includes(String(rec.country_id ?? "").trim()) ||
@@ -416,9 +460,12 @@ export default function ProjectListPage() {
       const grassOk =
         grassFilterIds.length === 0 ||
         grassFilterIds.some((id) => rowHasGrassProduct(data as MondayProjectServerRow, id));
-      return countryOk && farmOk && grassOk;
+      const projectOk =
+        projectFilterIds.length === 0 ||
+        projectFilterIds.includes(String(rec.project_id ?? "").trim());
+      return visibleByServerRow && countryOk && farmOk && grassOk && projectOk;
     });
-  }, [rows, countryFilterIds, farmFilterIds, grassFilterIds]);
+  }, [rows, countryFilterIds, farmFilterIds, grassFilterIds, projectFilterIds]);
 
   const projectTitleMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -429,6 +476,26 @@ export default function ProjectListPage() {
     }
     return map;
   }, [projectsRef]);
+
+  const missingProjectTitleIds = useMemo(() => {
+    const missing: string[] = [];
+    for (const row of rows) {
+      const projectId = String(row.project_id ?? "").trim();
+      if (!projectId) continue;
+      if (projectTitleMap.has(projectId)) continue;
+      missing.push(projectId);
+    }
+    return Array.from(new Set(missing));
+  }, [projectTitleMap, rows]);
+
+  useEffect(() => {
+    const unresolved = missingProjectTitleIds.filter(
+      (id) => !requestedProjectTitleRefreshIdsRef.current.has(id),
+    );
+    if (unresolved.length === 0) return;
+    unresolved.forEach((id) => requestedProjectTitleRefreshIdsRef.current.add(id));
+    void fetchAllHarvestingReferenceData(true);
+  }, [fetchAllHarvestingReferenceData, missingProjectTitleIds]);
 
   const countryNameMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -473,7 +540,7 @@ export default function ProjectListPage() {
   }, [productsRef]);
 
   const countryOptions = useMemo(() => {
-    const list = toRecArray(countriesRef)
+    const list = toRecArray(activeCountriesRef)
       .map((r) => ({
         id: String(r.id ?? "").trim(),
         name: String(r.country_name ?? r.name ?? r.title ?? "").trim(),
@@ -481,18 +548,36 @@ export default function ProjectListPage() {
       .filter((x) => x.id && x.name);
     list.sort((a, b) => a.name.localeCompare(b.name));
     return list;
-  }, [countriesRef]);
+  }, [activeCountriesRef]);
 
   const grassOptions = useMemo(() => {
-    const list = toRecArray(productsRef)
-      .map((r) => ({
-        id: String(r.id ?? "").trim(),
-        name: String(r.name ?? r.title ?? "").trim(),
-      }))
-      .filter((x) => x.id && x.name);
-    list.sort((a, b) => a.name.localeCompare(b.name));
-    return list;
-  }, [productsRef]);
+    const rows = pickGrassCatalogRows({
+      catalog: grassesRef as unknown[],
+      mode: "all",
+      refYmds: [],
+      pinnedGrassIds: grassFilterIds,
+    });
+    return mapRowsToSelectOptions(rows as unknown[], "title").map((o) => ({
+      id: o.id,
+      name: o.label,
+    }));
+  }, [grassesRef, grassFilterIds]);
+
+  const projectOptions = useMemo(() => {
+    const catalog = toRecArray(projectsRef);
+    const pinned = new Set(projectFilterIds);
+    const pinnedRows = projectFilterIds
+      .map((id) => catalog.find((r) => String(r.id ?? "").trim() === id))
+      .filter((r): r is Record<string, unknown> => !!r);
+    const merged = [
+      ...pinnedRows,
+      ...catalog.filter((r) => !pinned.has(String(r.id ?? "").trim())),
+    ];
+    return mapRowsToSelectOptions(merged as unknown[], "title").map((o) => ({
+      id: o.id,
+      name: o.label,
+    }));
+  }, [projectsRef, projectFilterIds]);
 
   const farmOptions = useMemo(() => {
     const list = toRecArray(farmsRef)
@@ -505,144 +590,150 @@ export default function ProjectListPage() {
     return list;
   }, [farmsRef]);
 
-  const pageStart = projects.length > 0 ? 1 : 0;
-  const pageEnd = projects.length;
-  const approxTotalLabel =
-    projects.length >= 100
-      ? `${formatNumber(projects.length)}+`
-      : formatNumber(projects.length);
+  const projectCountLabel = useMemo(() => {
+    const n = projects.length;
+    if (n >= 100) return t("projectsFoundPlus", { count: formatNumber(n) });
+    return t("projectsFound", { count: n });
+  }, [projects.length, t]);
+
+  const filterTriggerIcon = (
+    <>
+      <AlignLeft className="h-3.5 w-3.5 shrink-0" />
+      <ArrowDown className="h-3.5 w-3.5 shrink-0" />
+    </>
+  );
+
+  const multiSelectBaseClass =
+    "min-w-[140px] max-w-[180px] rounded-md border border-input text-sm text-foreground hover:bg-btnhover/40";
 
   return (
     <RequireAuth>
       <DashboardLayout>
-        <div className="p-4 lg:p-8">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 gap-4">
-            <h1 className="text-2xl lg:text-3xl font-semibold text-gray-900">
-              Projects
-            </h1>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => router.push("/projects/import")}
-                className="flex items-center justify-center gap-2 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-                type="button"
-              >
-                <Upload className="w-5 h-5" />
-                Import Excel
-              </button>
-              <button
-                onClick={() =>
-                  router.push(
-                    `/projects/new?returnTo=${encodeURIComponent(returnTo)}`,
-                  )
-                }
-                className="flex items-center justify-center gap-2 px-4 py-2 bg-button-primary text-white rounded-lg hover:bg-[#196A40] transition-colors"
-                type="button"
-              >
-                <Plus className="w-5 h-5" />
-                New Project
-              </button>
+        <div className="p-4 lg:p-8 space-y-6">
+          {/* Header — Harvesting Portal Projects layout */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-heading font-bold text-foreground">
+                {t("title")}
+              </h1>
+              <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                {loading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" />
+                    <span>{t("loading")}</span>
+                  </>
+                ) : (
+                  projectCountLabel
+                )}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {canImportProjects ? (
+                <button
+                  onClick={() => router.push("/projects/import")}
+                  className="bg-background inline-flex h-10 items-center justify-center gap-2 rounded-md border border-input px-4 text-sm font-medium text-foreground transition-colors"
+                  type="button"
+                >
+                  <Upload className="h-4 w-4 shrink-0" />
+                  {t("importExcel")}
+                </button>
+              ) : null}
+              {canCreateProjects ? (
+                <button
+                  onClick={() =>
+                    router.push(
+                      `/projects/new?returnTo=${encodeURIComponent(returnTo)}`,
+                    )
+                  }
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:opacity-90 transition-opacity"
+                  type="button"
+                >
+                  <Plus className="h-4 w-4 shrink-0" />
+                  {t("newProject")}
+                </button>
+              ) : null}
             </div>
           </div>
 
-          <div className="bg-white rounded-lg border border-gray-200 p-4 mb-6 space-y-4">
-            <div className="relative">
+          {/* Search & filters — inline row like Harvesting Portal */}
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="relative flex-1 min-w-[200px] max-w-sm">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <input
                 type="search"
-                placeholder="Searching name of project, grass, country,..."
+                placeholder={t("searchPlaceholder")}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="w-full rounded-full border border-gray-300 pl-4 pr-12 py-2.5 text-sm text-gray-800 placeholder:text-gray-400 focus:ring-2 focus:ring-[#1F7A4C] focus:border-transparent"
+                className={cn(
+                  "h-10 w-full rounded-md border border-input pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground",
+                  bgSurfaceFilter(!!search.trim()),
+                )}
                 autoComplete="off"
               />
-              <Search className="pointer-events-none absolute right-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" />
             </div>
-
-            <div className="grid grid-cols-1 gap-3 lg:grid-cols-4">
-
-              <div className="flex w-full items-center gap-1">
-                <MultiSelect
-                  options={countryOptions.map((c) => ({ value: c.id, label: c.name }))}
-                  values={countryFilterIds}
-                  onChange={setCountryFilterIds}
-                  placeholder="All countries"
-                  rightIcon={
-                    <>
-                      <AlignLeft className="h-3.5 w-3.5" />
-                      <ArrowDown className="h-3.5 w-3.5" />
-                    </>
-                  }
-                />
-              </div>
-
-              <div className="flex w-full items-center gap-1">
-                <MultiSelect
-                  options={farmOptions.map((f) => ({ value: f.id, label: f.name }))}
-                  values={farmFilterIds}
-                  onChange={setFarmFilterIds}
-                  placeholder="All farms"
-                  rightIcon={
-                    <>
-                      <AlignLeft className="h-3.5 w-3.5" />
-                      <ArrowDown className="h-3.5 w-3.5" />
-                    </>
-                  }
-                />
-              </div>
-
-              <div className="flex w-full items-center gap-1">
-                <MultiSelect
-                  options={grassOptions.map((g) => ({ value: g.id, label: g.name }))}
-                  values={grassFilterIds}
-                  onChange={setGrassFilterIds}
-                  placeholder="All grass"
-                  rightIcon={
-                    <>
-                      <AlignLeft className="h-3.5 w-3.5" />
-                      <ArrowDown className="h-3.5 w-3.5" />
-                    </>
-                  }
-                />
-              </div>
-
-              <div className="flex w-full items-center gap-1">
-                <MultiSelect
-                  options={[
-                    { value: "Ongoing", label: "Ongoing" },
-                    { value: "Future", label: "Future" },
-                    { value: "Done", label: "Done" },
-                    { value: "Warning", label: "Warning" },
-                  ]}
-                  values={statusFilterValues}
-                  onChange={setStatusFilterValues}
-                  placeholder="All statuses"
-                  rightIcon={
-                    <>
-                      <AlignLeft className="h-3.5 w-3.5" />
-                      <ArrowDown className="h-3.5 w-3.5" />
-                    </>
-                  }
-                />
-              </div>
-
-            </div>
+            <MultiSelect
+              options={countryOptions.map((c) => ({ value: c.id, label: c.name }))}
+              values={countryFilterIds}
+              onChange={setCountryFilterIds}
+              placeholder={t("allCountries")}
+              className={cn(multiSelectBaseClass, bgSurfaceFilter(countryFilterIds.length > 0))}
+              rightIcon={filterTriggerIcon}
+            />
+            {/* <MultiSelect
+              options={projectOptions.map((p) => ({ value: p.id, label: p.name }))}
+              values={projectFilterIds}
+              onChange={setProjectFilterIds}
+              disabled={projectOptions.length === 0}
+              placeholder={t("allProjectsCount", { count: projectOptions.length })}
+              className={cn(multiSelectBaseClass, bgSurfaceFilter(projectFilterIds.length > 0))}
+              rightIcon={filterTriggerIcon}
+            /> */}
+            <MultiSelect
+              options={farmOptions.map((f) => ({ value: f.id, label: f.name }))}
+              values={farmFilterIds}
+              onChange={setSelectedFarmIds}
+              placeholder={t("allFarms")}
+              className={cn(multiSelectBaseClass, bgSurfaceFilter(farmFilterIds.length > 0))}
+              rightIcon={filterTriggerIcon}
+            />
+            <MultiSelect
+              options={grassOptions.map((g) => ({ value: g.id, label: g.name }))}
+              values={grassFilterIds}
+              onChange={setGrassFilterIds}
+              placeholder={t("allGrass")}
+              className={cn(multiSelectBaseClass, bgSurfaceFilter(grassFilterIds.length > 0))}
+              rightIcon={filterTriggerIcon}
+            />
+            <MultiSelect
+              options={[
+                { value: "Ongoing", label: t("statusOngoing") },
+                { value: "Future", label: t("statusFuture") },
+                { value: "Done", label: t("statusDone") },
+                { value: "Warning", label: t("statusWarning") },
+              ]}
+              values={statusFilterValues}
+              onChange={setStatusFilterValues}
+              placeholder={t("allStatuses")}
+              className={cn(multiSelectBaseClass, bgSurfaceFilter(statusFilterValues.length > 0))}
+              rightIcon={filterTriggerIcon}
+            />
           </div>
 
-
-
-          {/* 2 columns per row using grid */}
           {error ? (
-            <p className="text-sm text-red-600 mb-3">{error}</p>
+            <p className="text-sm text-destructive">{error}</p>
           ) : null}
-          {loading ? (
-            <p className="text-sm text-gray-600">Loading projects...</p>
-          ) : projects.length === 0 ? (
-            <p className="text-sm text-gray-600">No projects found.</p>
-          ) : (
-            <div className="space-y-3">
-              <div className="text-sm text-gray-600">
-                {pageStart} - {pageEnd} of {approxTotalLabel} projects
+
+          {loading ? null : projects.length === 0 ? (
+            <div className="rounded-lg border border-border bg-background text-card-foreground shadow-sm">
+              <div className="flex flex-col items-center justify-center py-16 text-muted-foreground px-4">
+                <FolderOpen className="mb-3 h-12 w-12 opacity-40" />
+                <p className="font-medium text-foreground">{t("empty")}</p>
+                <p className="mt-1 text-center text-sm">{t("emptyHint")}</p>
               </div>
-              <div className="grid grid-cols-1 gap-6 min-[1300px]:grid-cols-2">
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                 {projects.map(({ data, rowData }) => (
                   <ProjectListItem
                     key={String(data.row_id ?? data.id)}
@@ -652,12 +743,17 @@ export default function ProjectListPage() {
                     getUserNameById={(id?: string) => (id ? staffNameMap.get(id) : undefined)}
                     getUserAvatarById={(id?: string) => (id ? staffAvatarMap.get(id) : undefined)}
                     getProductNameById={(id?: string) => (id ? productNameMap.get(id) : undefined)}
+                    showEditAction={canManageExistingProjects}
                     onEditProject={() => {
                       const args = buildMondayEditArgs(
                         data as unknown as Record<string, unknown>,
                         rowData,
                       );
-                      const projectId = String((data as Record<string, unknown>).project_id ?? "").trim();
+                      const projectId = String(
+                        (data as Record<string, unknown>).project_id ??
+                          (data as Record<string, unknown>).id ??
+                          "",
+                      ).trim();
                       router.push(
                         `/projects/detail?rowId=${encodeURIComponent(args.rowId ?? "")}&tableId=${encodeURIComponent(args.tableId ?? "")}&projectId=${encodeURIComponent(projectId)}&returnTo=${encodeURIComponent(returnTo)}`,
                       );
@@ -665,10 +761,17 @@ export default function ProjectListPage() {
                   />
                 ))}
               </div>
-              {backgroundLoading ? (
-                <div className="flex items-center justify-center gap-2 rounded-full border border-gray-200 bg-white px-4 py-2 text-sm text-gray-600">
-                  <Loader2 className="h-4 w-4 animate-spin text-[#1F7A4C]" />
-                  <span>Updating projects...</span>
+              {hasMore ? (
+                <div
+                  ref={loadMoreSentinelRef}
+                  className="h-6 w-full shrink-0"
+                  aria-hidden
+                />
+              ) : null}
+              {loadingMore ? (
+                <div className="flex items-center justify-center gap-2 rounded-md border border-border bg-background px-4 py-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                  <span>{t("loadingMore")}</span>
                 </div>
               ) : null}
             </div>

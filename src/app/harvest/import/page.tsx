@@ -7,8 +7,11 @@ import * as XLSX from "xlsx";
 
 import RequireAuth from "@/features/auth/RequireAuth";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
+import { AlertRouteCategoryBanner } from "@/features/alerts/AlertRouteCategoryBanner";
+import { dispatchRouteAlert } from "@/features/alerts/dispatchRouteAlert";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { useAuthUserStore } from "@/shared/store/authUserStore";
+import { canAccessModule } from "@/shared/auth/permissions";
 import { submitFlutterHarvest } from "@/features/harvesting/api/flutterHarvestSubmit";
 import { stsProxyGetHarvestingIndex, stsProxyPostJson } from "@/shared/api/stsProxyClient";
 import { STS_API_PATHS } from "@/shared/api/stsApiPaths";
@@ -16,6 +19,8 @@ import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
 import { SortableTh } from "@/components/ui/sortable-th";
 import { useTableColumnSort } from "@/shared/hooks/useTableColumnSort";
 import { compareNumbers, compareStrings } from "@/shared/lib/tableSort";
+import { cn } from "@/lib/utils";
+import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
 
 type FieldKey =
   | "customerName"
@@ -293,6 +298,8 @@ export default function HarvestImportPage() {
       : tBase(`HarvestImport.${key}`);
   const router = useRouter();
   const user = useAuthUserStore((s) => s.user);
+  const canImportHarvest = canAccessModule(user, "harvests", "import");
+  const importDenied = Boolean(user) && !canImportHarvest;
   const [fileName, setFileName] = useState("");
   const [headers, setHeaders] = useState<string[]>([]);
   const [rows, setRows] = useState<ExcelRow[]>([]);
@@ -547,6 +554,10 @@ export default function HarvestImportPage() {
   };
 
   const runTest = async () => {
+    if (!canImportHarvest) {
+      setError("You do not have permission to import harvest data.");
+      return;
+    }
     setTesting(true);
     try {
       if (mapping) {
@@ -649,6 +660,10 @@ export default function HarvestImportPage() {
   };
 
   const handleImport = async () => {
+    if (!canImportHarvest) {
+      setError("You do not have permission to import harvest data.");
+      return;
+    }
     if (!testResult) return;
     setImporting(true);
     setError("");
@@ -702,6 +717,7 @@ export default function HarvestImportPage() {
               truckNote: r.truckNote,
               licensePlate: r.licensePlate,
               assignedTo,
+              createdBy: user?.id != null ? String(user.id) : undefined,
               harvestedArea: r.harvestedArea || undefined,
             },
             {},
@@ -725,6 +741,15 @@ export default function HarvestImportPage() {
       const ok = logs.filter((x) => x.status === "success").length;
       const bad = logs.filter((x) => x.status === "error").length;
       setSummary(t("summaryDone", { ok, bad }));
+      if (ok > 0) {
+        void dispatchRouteAlert({
+          routeKey: "harvest_import",
+          title: t("alertImportHarvestTitle", { ok }),
+          message: t("alertImportHarvestMessage", { ok, bad }),
+          href: "/harvest/import",
+          sourceEntityId: currentFileHash.trim() || `harvest-import-${Date.now()}`,
+        });
+      }
       if (currentFileHash) {
         localStorage.setItem("stsrenew:harvest-import:last-file-hash", currentFileHash);
       }
@@ -752,6 +777,23 @@ export default function HarvestImportPage() {
   return (
     <RequireAuth>
       <DashboardLayout>
+        {importDenied ? (
+          <div className="p-4 lg:p-8">
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-5 space-y-3">
+              <h1 className="text-xl font-semibold text-amber-900">{t("title")}</h1>
+              <p className="text-sm text-amber-800">
+                You do not have permission to import harvest data.
+              </p>
+              <button
+                type="button"
+                onClick={() => router.push("/harvest")}
+                className="px-4 py-2 rounded-lg border border-amber-300 text-sm text-amber-900 hover:bg-amber-100"
+              >
+                {t("backToHarvests")}
+              </button>
+            </div>
+          </div>
+        ) : (
         <div className="p-4 lg:p-8 space-y-6">
           <div className="flex items-center justify-between">
             <h1 className="text-2xl lg:text-3xl font-semibold text-gray-900">
@@ -765,6 +807,8 @@ export default function HarvestImportPage() {
               {t("backToHarvests")}
             </button>
           </div>
+
+          <AlertRouteCategoryBanner routeKey="harvest_import" />
 
           <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-3">
             <p className="text-sm text-gray-700">
@@ -830,7 +874,10 @@ export default function HarvestImportPage() {
                           return next;
                         });
                       }}
-                      className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                      className={cn(
+                        "w-full rounded-lg border border-input px-3 py-2 text-sm text-foreground",
+                        bgSurfaceFilter(Boolean((mapping?.[f.key] ?? "").trim())),
+                      )}
                     >
                       <option value="">{t("selectExcelColumn")}</option>
                       {headers.map((h) => (
@@ -1032,6 +1079,7 @@ export default function HarvestImportPage() {
           {error ? <p className="text-sm text-red-600">{error}</p> : null}
           {summary ? <p className="text-sm text-green-700">{summary}</p> : null}
         </div>
+        )}
       </DashboardLayout>
     </RequireAuth>
   );

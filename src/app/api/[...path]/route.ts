@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getStsApiUrlCandidates } from "@/shared/api/stsLogin";
 import { resolveStsBearerFromRequest } from "@/shared/server/stsAuthBearer";
 import { isTrustedSameOriginRequest } from "@/shared/server/csrfOrigin";
+import { maintenanceGraceHeadersFromRequest } from "@/shared/server/stsMaintenanceGrace";
 import { fetchWithBaseUrlFallback } from "@/shared/server/stsUpstreamFetch";
 
 function upstreamFetchErrorMessage(err: unknown): string {
@@ -95,6 +96,25 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function extractEmailFromBearer(authHeader: string | null | undefined): string {
+  const raw = String(authHeader ?? "").trim();
+  if (!raw.toLowerCase().startsWith("bearer ")) return "";
+  const token = raw.slice(7).trim();
+  const parts = token.split(".");
+  if (parts.length < 2) return "";
+  try {
+    const payloadRaw = Buffer.from(parts[1], "base64url").toString("utf8");
+    const payload = JSON.parse(payloadRaw) as Record<string, unknown>;
+    const nested = payload.data as Record<string, unknown> | undefined;
+    const email =
+      (typeof nested?.email === "string" ? nested.email : "") ||
+      (typeof payload.email === "string" ? payload.email : "");
+    return email.trim();
+  } catch {
+    return "";
+  }
+}
+
 export async function GET(
   req: Request,
   context: { params: Promise<{ path: string[] }> },
@@ -138,6 +158,7 @@ export async function GET(
       headers: {
         Accept: "application/json",
         Authorization: auth,
+        ...maintenanceGraceHeadersFromRequest(req),
       },
     });
     upstreamRes = result.response;
@@ -175,7 +196,15 @@ export async function GET(
     });
   }
 
-  return NextResponse.json(data, { status: upstreamRes.status });
+  const res = NextResponse.json(data, { status: upstreamRes.status });
+  if (process.env.NODE_ENV === "development") {
+    const authEmail = extractEmailFromBearer(auth);
+    if (authEmail) {
+      res.headers.set("x-sts-auth-email", authEmail);
+    }
+    res.headers.set("x-sts-upstream-status", String(upstreamRes.status));
+  }
+  return res;
 }
 
 export async function POST(
@@ -223,15 +252,18 @@ export async function POST(
 
   let upstreamRes: Response;
   try {
+    const graceHeaders = maintenanceGraceHeadersFromRequest(req);
     const result = await fetchWithBaseUrlFallback(upstreamUrls, {
       method: "POST",
       headers: isJson
         ? {
             Authorization: auth,
             "Content-Type": "application/json",
+            ...graceHeaders,
           }
         : {
             Authorization: auth,
+            ...graceHeaders,
           },
       body,
     });

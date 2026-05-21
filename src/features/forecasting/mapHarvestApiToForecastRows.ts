@@ -2,15 +2,84 @@ import { parseISO } from "date-fns";
 
 import { effectiveHarvestDateYmd } from "@/shared/lib/harvestPlanDates";
 import { stsProxyGetHarvestingIndex } from "@/shared/api/stsProxyClient";
+import { normalizeHarvestTypeStorageKey } from "@/shared/lib/harvestType";
 import { computeReadyDateYmdFromPlanRow } from "@/features/forecasting/computeReadyDateFromPlanRow";
+import {
+  convertPlanRowQuantityToKgFromZones,
+  DEFAULT_FALLBACK_MAX_INVENTORY_KG,
+  distributePlanRowToZoneFragments,
+  forecastZoneBucketKey,
+  harvestPlanProductIdFromRaw,
+  harvestPlanQuantityFromRaw,
+  harvestPlanScalarFromRaw,
+  harvestQuantityCellPresent,
+  type ZoneInventoryFragment,
+} from "@/features/forecasting/forecastingInventoryConversion";
+import type { ZoneConfigurationRow } from "@/features/admin/api/adminApi";
 
 import type { ForecastHarvestRow } from "./forecastingTypes";
 
-function turfToHarvestType(raw: unknown): "sod" | "sprig" {
-  const t = String(raw ?? "")
-    .toLowerCase()
-    .trim();
-  if (t.includes("sprig")) return "sprig";
+/** Plan có cột zone (không trống) xử lý trước để phần no-zone spread thấy headroom đã bị plan có zone chiếm. */
+function compareRawHarvestPlansForNoZoneSpread(
+  a: Record<string, unknown>,
+  b: Record<string, unknown>,
+): number {
+  const aHas = !!String(a.zone ?? "").trim();
+  const bHas = !!String(b.zone ?? "").trim();
+  if (aHas !== bHas) return aHas ? -1 : 1;
+  return harvestPlanScalarFromRaw(a.id) - harvestPlanScalarFromRaw(b.id);
+}
+
+function recordFragmentsOnUsedByFarmProduct(
+  usedByFarmProduct: Map<string, Map<string, number>>,
+  farmId: number,
+  productId: number,
+  fragments: ZoneInventoryFragment[],
+) {
+  if (farmId <= 0 || productId <= 0) return;
+  const fp = `${farmId}|${productId}`;
+  const inner = usedByFarmProduct.get(fp) ?? new Map<string, number>();
+  for (const frag of fragments) {
+    const bk = forecastZoneBucketKey(String(frag.zone ?? "").trim().toLowerCase());
+    inner.set(bk, (inner.get(bk) ?? 0) + frag.inventoryKg);
+  }
+  usedByFarmProduct.set(fp, inner);
+}
+
+/** UOM as returned by plan / index JSON (`uom`, `unit`, camelCase variants). */
+export function resolvePlanRowUom(raw: Record<string, unknown>): string {
+  const keys = [
+    "uom",
+    "UOM",
+    "unit",
+    "Unit",
+    "quantity_uom",
+    "quantityUom",
+  ] as const;
+  for (const k of keys) {
+    const v = raw[k];
+    const s = String(v ?? "").trim();
+    if (s) return s;
+  }
+  return "";
+}
+
+function detectHarvestType(
+  raw: Record<string, unknown>,
+): "sod" | "sprig" | "sod_for_sprig" {
+  const candidates = [raw.harvest_type, raw.load_type, raw.turf_type, raw.type];
+  const normalized = candidates
+    .map((v) => normalizeHarvestTypeStorageKey(v))
+    .find(Boolean);
+  if (normalized === "sod_to_sprig") return "sod_for_sprig";
+  if (normalized === "sprig") return "sprig";
+  if (normalized === "sod") return "sod";
+
+  const uom = resolvePlanRowUom(raw).toLowerCase();
+  if (uom === "kg" || uom === "kgs" || uom === "kilogram" || uom === "kilograms") {
+    return "sprig";
+  }
+
   return "sod";
 }
 
@@ -29,10 +98,18 @@ export function harvestApiRowToForecastRow(
   if (!harvestDateYmd) return null;
 
   const farm = String(raw.farm_name ?? "");
+  const farmIdRaw = harvestPlanScalarFromRaw(raw.farm_id);
+  const farmId = farmIdRaw > 0 ? Math.floor(farmIdRaw) : 0;
   const grassType = String(raw.grass_name ?? "");
-  const harvestType = turfToHarvestType(raw.turf_type);
-  const qty = Number(raw.quantity);
-  const quantity = Number.isFinite(qty) ? qty : 0;
+  const productId = harvestPlanProductIdFromRaw(raw);
+  const zone = String(raw.zone ?? "").trim();
+  const project = String(raw.project_name ?? raw.project ?? "").trim();
+  const customer = String(raw.customer_name ?? raw.customer ?? "").trim();
+  const harvestType = detectHarvestType(raw);
+  const quantity = harvestPlanQuantityFromRaw(raw);
+  const harvestedAreaM2 = harvestQuantityCellPresent(raw.harvested_area)
+    ? Math.max(0, harvestPlanScalarFromRaw(raw.harvested_area))
+    : 0;
 
   const readyDateYmd =
     computeReadyDateYmdFromPlanRow(raw, harvestDateYmd) ?? harvestDateYmd;
@@ -48,15 +125,26 @@ export function harvestApiRowToForecastRow(
 
   return {
     id: String(id),
+    farmId,
+    productId,
     farm,
     grassType,
+    zone,
+    project,
+    customer,
     harvestType,
     harvestDate: harvestDateYmd,
     readyDate: readyDateYmd,
     quantity,
+    harvestedAreaM2,
     isReady,
     daysUntilReady,
-    uom: String(raw.uom ?? "KG").trim() || "KG",
+    uom: resolvePlanRowUom(raw),
+    // Giá trị mặc định; sẽ được override ở bước `rowsToMockHarvestRows` nếu có Zone Configuration.
+    inventoryKg: quantity,
+    inventoryIsCapped: false,
+    zoneMaxInventoryKg: DEFAULT_FALLBACK_MAX_INVENTORY_KG,
+    inventoryKgFromNozoneSpread: undefined,
   };
 }
 
@@ -82,6 +170,14 @@ export async function fetchHarvestRowsForForecasting(params: {
         per_page: perPage,
         actual_harvest_date_from: params.actual_harvest_date_from,
         actual_harvest_date_to: params.actual_harvest_date_to,
+        /** Include plans with blank zone so we can allocate them across configured zones / `nozone`. */
+        exclude_empty_zone: 0,
+        /**
+         * STSPortal `Project_harvesting_plan_model::_build_created_by_scope_where`:
+         * all plans on farms assigned to the user (not only `created_by` = self), so regrowth totals
+         * match farm reality (e.g. multiple plan ids same day / grass).
+         */
+        forecast_farm_scope: 1,
       };
       if (params.country_id) q.country_id = params.country_id;
 
@@ -104,11 +200,56 @@ export async function fetchHarvestRowsForForecasting(params: {
 export function rowsToMockHarvestRows(
   rows: Record<string, unknown>[],
   today = new Date(),
+  zoneConfigs?: ZoneConfigurationRow[],
 ): ForecastHarvestRow[] {
   const list: ForecastHarvestRow[] = [];
-  for (const r of rows) {
+  const usedByFarmProduct = new Map<string, Map<string, number>>();
+  const orderedRows =
+    zoneConfigs && zoneConfigs.length > 0
+      ? [...rows].sort(compareRawHarvestPlansForNoZoneSpread)
+      : rows;
+
+  for (const r of orderedRows) {
     const m = harvestApiRowToForecastRow(r, today);
-    if (m) list.push(m);
+    if (!m) continue;
+
+    if (zoneConfigs && zoneConfigs.length > 0) {
+      /** Plan không gán zone: phân bổ qua `distributePlanRowToZoneFragments` (forecastingInventoryConversion). Regrowth UI: `computeRegrowthAllocationForFarmProductDate` (regrowthAllocation.ts). */
+      const fp = `${m.farmId}|${m.productId}`;
+      const prior = new Map(usedByFarmProduct.get(fp) ?? []);
+      const fragments = distributePlanRowToZoneFragments({
+        rawPlanRow: r,
+        zoneConfigs,
+        priorUsedKgByZoneBucket: prior,
+      });
+      fragments.forEach((frag, idx) => {
+        const row: ForecastHarvestRow = {
+          ...m,
+          id: fragments.length === 1 ? m.id : `${m.id}~z${idx}`,
+          zone: frag.zone,
+          inventoryKg: frag.inventoryKg,
+          inventoryIsCapped: frag.inventoryIsCapped,
+          zoneMaxInventoryKg: frag.zoneMaxInventoryKg,
+          inventoryKgFromNozoneSpread:
+            frag.inventoryKgFromNozoneSpread && frag.inventoryKgFromNozoneSpread > 0
+              ? frag.inventoryKgFromNozoneSpread
+              : undefined,
+        };
+        list.push(row);
+      });
+      recordFragmentsOnUsedByFarmProduct(usedByFarmProduct, m.farmId, m.productId, fragments);
+    } else {
+      const { quantityKg, isCapped, maxInventoryKgUsed } = convertPlanRowQuantityToKgFromZones({
+        rawPlanRow: r,
+        zoneConfigs: [],
+      });
+      m.inventoryKg = Number.isFinite(quantityKg) ? quantityKg : m.quantity;
+      m.inventoryIsCapped = !!isCapped;
+      m.zoneMaxInventoryKg = Number.isFinite(maxInventoryKgUsed)
+        ? maxInventoryKgUsed
+        : m.zoneMaxInventoryKg;
+      list.push(m);
+    }
   }
   return list;
 }

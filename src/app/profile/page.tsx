@@ -47,7 +47,7 @@ function ProfileContent() {
               <img
                 src={avatarSrc}
                 alt={displayName}
-                className="w-24 h-24 rounded-full object-cover border border-gray-200 bg-gray-100 shrink-0"
+                className="h-24 w-24 shrink-0 rounded-full border border-gray-200 bg-gray-100 object-cover object-[center_22%] brightness-105 contrast-110 saturate-105"
                 referrerPolicy="no-referrer"
               />
             ) : (

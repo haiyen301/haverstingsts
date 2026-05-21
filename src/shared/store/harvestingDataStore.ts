@@ -1,7 +1,17 @@
 import { create } from "zustand";
 
 import { STS_API_PATHS } from "@/shared/api/stsApiPaths";
-import { stsProxyGet } from "@/shared/api/stsProxyClient";
+import {
+  filterActiveCountryRows,
+  filterGrassesBySalesWindow,
+  filterGrassesBySalesWindowsOr,
+  grassRowsForHarvestGrassSelect,
+  pickGrassCatalogRows,
+  type PickGrassCatalogRowsArgs,
+  normalizeFarmZoneRows,
+  type FarmZoneReferenceRow,
+} from "@/shared/lib/harvestReferenceData";
+import { stsProxyGetWithParams } from "@/shared/api/stsProxyClient";
 
 function asArray(v: unknown): unknown[] {
   if (Array.isArray(v)) return v;
@@ -31,36 +41,33 @@ function asArray(v: unknown): unknown[] {
   return [];
 }
 
-/** API returns a zone key → label map (not an array). */
-function normalizeFarmZonesPayload(v: unknown): unknown {
-  if (v === null || v === undefined) return {};
-  if (Array.isArray(v)) return v;
-  if (typeof v === "object") return v;
-  return {};
-}
-
 const empty = {
-  farmZones: {} as unknown,
+  farmZones: [] as FarmZoneReferenceRow[],
   farms: [] as unknown[],
   projects: [] as unknown[],
   staffs: [] as unknown[],
   countries: [] as unknown[],
+  /** Subset of `countries` where `active = 1` (selects / filters). */
+  activeCountries: [] as unknown[],
   grasses: [] as unknown[],
   /** @deprecated Use `grasses`. */
   products: [] as unknown[],
   harvestListSearch: "",
   harvestListFarmFilter: "",
   harvestListProjectFilter: "",
+  harvestListGrassFilter: "",
   harvestListStatusFilter: "",
 };
 
 export type HarvestingDataState = {
-  /** Zone key → label map from `react_get_farm_zones`, or legacy array. */
-  farmZones: unknown;
+  /** Zone reference rows from `/api/zones`. */
+  farmZones: FarmZoneReferenceRow[];
   farms: unknown[];
   projects: unknown[];
   staffs: unknown[];
   countries: unknown[];
+  /** Active countries only — use for create/edit/filter dropdowns. */
+  activeCountries: unknown[];
   grasses: unknown[];
   /** @deprecated Use `grasses`. */
   products: unknown[];
@@ -74,22 +81,43 @@ export type HarvestingDataState = {
   harvestListFarmFilter: string;
   /** Harvest list: project select; empty = all. */
   harvestListProjectFilter: string;
+  /** Harvest list: grass/product id; empty = all. */
+  harvestListGrassFilter: string;
   /** Harvest list: status select; empty = all. */
   harvestListStatusFilter: string;
   setHarvestListSearch: (value: string) => void;
   setHarvestListFarmFilter: (value: string) => void;
   setHarvestListProjectFilter: (value: string) => void;
+  setHarvestListGrassFilter: (value: string) => void;
   setHarvestListStatusFilter: (value: string) => void;
-  setFarmZones: (farmZones: unknown) => void;
+  setFarmZones: (farmZones: FarmZoneReferenceRow[]) => void;
   setFarms: (farms: unknown[]) => void;
   setProjects: (projects: unknown[]) => void;
   setStaffs: (staffs: unknown[]) => void;
   setCountries: (countries: unknown[]) => void;
+  setActiveCountries: (activeCountries: unknown[]) => void;
   setGrasses: (grasses: unknown[]) => void;
   /** @deprecated Use `setGrasses`. */
   setProducts: (products: unknown[]) => void;
   /** Loads farm zones, staffs, farms, projects, countries, products (parallel). */
   fetchAllHarvestingReferenceData: (force?: boolean) => Promise<void>;
+  /** Grass rows visible for a single calendar day (`YYYY-MM-DD`), using `sales_from` / `sales_to`. */
+  pickGrassesVisibleOnSalesDate: (refYmd: string) => unknown[];
+  /** Grass rows visible if any of `refYmds` falls in range; empty refs → today (local). */
+  pickGrassesVisibleOnAnySalesDate: (refYmds: string[]) => unknown[];
+  /** Harvest form grass dropdown: OR on harvest date refs (else today); keeps `pinnedGrassId` if set. */
+  pickGrassesForHarvestGrassSelect: (
+    harvestRefYmds: string[],
+    pinnedGrassId: string,
+  ) => unknown[];
+  /** Harvest list grass filter: full catalog + pinned ids (URL / multi-select). */
+  pickGrassesVisibleOnSalesDateWithPins: (refYmd: string, pinnedGrassIds: string[]) => unknown[];
+  /** Zone-config grass select: delegates to {@link pickGrassCatalogRows} `zone_config_dates`. */
+  pickGrassesForZoneConfigSelectWithPins: (refYmd: string, pinnedGrassIds: string[]) => unknown[];
+  /** Central grass catalog picker backed by store `grasses`. */
+  pickGrassCatalogRowsFromStore: (
+    args: Omit<PickGrassCatalogRowsArgs, "catalog">,
+  ) => unknown[];
   /** Merge or append one project (e.g. from `react_update_parent_item` response) by `id`. */
   upsertProjectInList: (project: unknown) => void;
   reset: () => void;
@@ -105,7 +133,12 @@ export const useHarvestingDataStore = create<HarvestingDataState>((set, get) => 
   setFarms: (farms) => set({ farms }),
   setProjects: (projects) => set({ projects }),
   setStaffs: (staffs) => set({ staffs }),
-  setCountries: (countries) => set({ countries }),
+  setCountries: (countries) =>
+    set({
+      countries,
+      activeCountries: filterActiveCountryRows(countries),
+    }),
+  setActiveCountries: (activeCountries) => set({ activeCountries }),
   setGrasses: (grasses) => set({ grasses, products: grasses }),
   setProducts: (products) => set({ products, grasses: products }),
 
@@ -114,8 +147,33 @@ export const useHarvestingDataStore = create<HarvestingDataState>((set, get) => 
     set({ harvestListFarmFilter }),
   setHarvestListProjectFilter: (harvestListProjectFilter) =>
     set({ harvestListProjectFilter }),
+  setHarvestListGrassFilter: (harvestListGrassFilter) =>
+    set({ harvestListGrassFilter }),
   setHarvestListStatusFilter: (harvestListStatusFilter) =>
     set({ harvestListStatusFilter }),
+
+  pickGrassesVisibleOnSalesDate: (refYmd) =>
+    filterGrassesBySalesWindow(get().grasses, refYmd),
+  pickGrassesVisibleOnAnySalesDate: (refYmds) =>
+    filterGrassesBySalesWindowsOr(get().grasses, refYmds),
+  pickGrassesForHarvestGrassSelect: (harvestRefYmds, pinnedGrassId) =>
+    grassRowsForHarvestGrassSelect(get().grasses, harvestRefYmds, pinnedGrassId),
+  pickGrassesVisibleOnSalesDateWithPins: (_refYmd, pinnedGrassIds) =>
+    pickGrassCatalogRows({
+      catalog: get().grasses,
+      mode: "all",
+      refYmds: [],
+      pinnedGrassIds,
+    }),
+  pickGrassesForZoneConfigSelectWithPins: (refYmd, pinnedGrassIds) =>
+    pickGrassCatalogRows({
+      catalog: get().grasses,
+      mode: "zone_config_dates",
+      refYmds: [refYmd],
+      pinnedGrassIds,
+    }),
+  pickGrassCatalogRowsFromStore: (args) =>
+    pickGrassCatalogRows({ ...args, catalog: get().grasses }),
 
   upsertProjectInList: (project) => {
     const p = project as Record<string, unknown>;
@@ -143,15 +201,26 @@ export const useHarvestingDataStore = create<HarvestingDataState>((set, get) => 
   fetchAllHarvestingReferenceData: async (force = false) => {
     if (!force && get().bootstrapDone) return;
     set({ loading: true, error: null });
+    const refParams: Record<string, string | number | undefined> = {};
+    if (typeof window !== "undefined") {
+      const { getSessionUser } = await import("@/shared/store/authUserStore");
+      const uid = getSessionUser()?.id;
+      if (uid != null && Number.isFinite(Number(uid)) && Number(uid) > 0) {
+        refParams.react_client_user_id = Number(uid);
+      }
+    }
     const entries = [
       ["farmZones", STS_API_PATHS.farmZones],
       ["staffs", STS_API_PATHS.staffs],
       ["farms", STS_API_PATHS.farms],
       ["projects", STS_API_PATHS.projects],
       ["countries", STS_API_PATHS.countries],
+      ["grasses", STS_API_PATHS.grasses],
       ["products", STS_API_PATHS.products],
     ] as const;
-    const settled = await Promise.allSettled(entries.map(([, path]) => stsProxyGet(path)));
+    const settled = await Promise.allSettled(
+      entries.map(([, path]) => stsProxyGetWithParams(path, refParams)),
+    );
     const byKey = new Map<string, unknown>();
     const errors: string[] = [];
     entries.forEach(([key], idx) => {
@@ -169,16 +238,22 @@ export const useHarvestingDataStore = create<HarvestingDataState>((set, get) => 
     const farms = byKey.get("farms");
     const projects = byKey.get("projects");
     const countries = byKey.get("countries");
+    const grassesRaw = byKey.get("grasses");
     const products = byKey.get("products");
+    const grassesArr = grassesRaw !== undefined ? asArray(grassesRaw) : [];
+    const productsArr = asArray(products);
+    const countriesArr = asArray(countries);
 
     set({
-      farmZones: normalizeFarmZonesPayload(farmZones),
+      farmZones: normalizeFarmZoneRows(farmZones),
       staffs: asArray(staffs),
       farms: asArray(farms),
       projects: asArray(projects),
-      countries: asArray(countries),
-      grasses: asArray(products),
-      products: asArray(products),
+      countries: countriesArr,
+      activeCountries: filterActiveCountryRows(countriesArr),
+      /** `sts_grasses` via `/api/grasses`; fall back to `/api/items` if grasses request failed or returned nothing. */
+      grasses: grassesArr.length > 0 ? grassesArr : productsArr,
+      products: productsArr,
       loading: false,
       error: errors.length ? `Reference partial load: ${errors.join(" | ")}` : null,
       bootstrapDone: true,
