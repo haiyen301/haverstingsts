@@ -129,11 +129,9 @@ export function CountriesCatalogTab() {
     try {
       setPendingId(id);
       setError(null);
-      const saved = await saveAdminCountry({ id, name });
-      setRows((prev) =>
-        prev.map((r) => (Number(r.id) === id ? { ...r, ...saved } : r)),
-      );
+      await saveAdminCountry({ id, name });
       cancelEditName();
+      await load();
       void fetchAllHarvestingReferenceData();
     } catch (e) {
       setError(e instanceof Error ? e.message : t("errors.save"));
@@ -148,10 +146,8 @@ export function CountriesCatalogTab() {
     try {
       setPendingId(id);
       setError(null);
-      const saved = await saveAdminCountry({ id, active: nextActive });
-      setRows((prev) =>
-        prev.map((r) => (Number(r.id) === id ? { ...r, ...saved } : r)),
-      );
+      await saveAdminCountry({ id, active: nextActive });
+      await load();
       void fetchAllHarvestingReferenceData();
     } catch (e) {
       setError(e instanceof Error ? e.message : t("errors.save"));

@@ -418,3 +418,28 @@ export async function saveGrassType(payload: GrassTypeSavePayload): Promise<Gras
 export async function removeGrassType(id: number): Promise<{ id: number }> {
   return stsProxyPostJson<{ id: number }>(STS_API_PATHS.grassesRemove, { id });
 }
+
+export type KeyAreaRow = {
+  id: number;
+  title: string;
+  sort_order?: number | null;
+};
+
+export type KeyAreaSavePayload = {
+  id?: number;
+  title: string;
+  sort_order?: number;
+};
+
+export async function fetchKeyAreas(): Promise<KeyAreaRow[]> {
+  const data = await stsProxyGet<unknown[]>(STS_API_PATHS.keyareas);
+  return Array.isArray(data) ? (data as KeyAreaRow[]) : [];
+}
+
+export async function saveKeyArea(payload: KeyAreaSavePayload): Promise<KeyAreaRow> {
+  return stsProxyPostJson<KeyAreaRow>(STS_API_PATHS.keyareasSave, payload);
+}
+
+export async function removeKeyArea(id: number): Promise<{ id: number }> {
+  return stsProxyPostJson<{ id: number }>(STS_API_PATHS.keyareasRemove, { id });
+}

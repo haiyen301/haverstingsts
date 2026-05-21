@@ -43,6 +43,7 @@ export async function GET() {
       message: data.message,
       estimatedReturn: data.estimatedReturn,
       updatedAt: data.updatedAt,
+      evictionCountdownSec: data.evictionCountdownSec,
     },
   });
 }
@@ -69,10 +70,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: false, message: "Invalid payload." }, { status: 400 });
   }
 
+  const bodyObj = body as Record<string, unknown>;
+  const countdownRaw =
+    bodyObj.evictionCountdownSec ?? bodyObj.eviction_countdown_sec;
   const saved = await saveMaintenanceConfigToUpstream(token, {
     enabled: cfg.enabled,
     message: cfg.message,
     estimatedReturn: cfg.estimatedReturn,
+    ...(countdownRaw !== undefined && countdownRaw !== null
+      ? { evictionCountdownSec: Number(countdownRaw) }
+      : {}),
   });
 
   if (!saved) {
@@ -82,5 +89,14 @@ export async function POST(req: Request) {
     );
   }
 
-  return NextResponse.json({ success: true, data: saved });
+  return NextResponse.json({
+    success: true,
+    data: {
+      enabled: saved.enabled,
+      message: saved.message ?? "",
+      estimatedReturn: saved.estimatedReturn ?? "",
+      updatedAt: saved.updatedAt ?? null,
+      evictionCountdownSec: saved.evictionCountdownSec,
+    },
+  });
 }

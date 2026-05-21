@@ -15,6 +15,7 @@ export interface ProjectListItemProps {
   getCountryNameById?: (countryId?: string) => string | undefined;
   getUserNameById?: (userId?: string) => string | undefined;
   getProductNameById?: (productId?: string) => string | undefined;
+  getKeyAreaNameById?: (keyAreaId?: string | number) => string | undefined;
   getUserAvatarById?: (userId?: string) => string | undefined;
   /** Clone of Flutter onEditProject args in monday_screen.dart */
   onEditProject?: (args: MondayProjectEditArgs) => void;

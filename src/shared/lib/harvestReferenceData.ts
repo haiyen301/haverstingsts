@@ -12,6 +12,13 @@ export type FarmZoneReferenceRow = {
   country_name?: string | null;
   zone_name?: string | null;
   label?: string | null;
+  /** Legacy Flutter / constant-map key when present on API rows. */
+  legacy_key?: string | null;
+};
+
+export type KeyAreaReferenceRow = {
+  id: string;
+  title: string;
 };
 
 export function mapRowsToSelectOptions(
@@ -44,20 +51,64 @@ export function normalizeFarmZoneRows(farmZones: unknown): FarmZoneReferenceRow[
   for (const row of rows) {
     if (!row || typeof row !== "object") continue;
     const r = row as Record<string, unknown>;
+    const id = String(r.id ?? "").trim();
     const zoneName = String(r.zone_name ?? r.label ?? "").trim();
-    if (!zoneName) continue;
+    if (!zoneName && !id) continue;
+    const displayName = zoneName || id;
+    const legacyKey =
+      r.legacy_key != null && String(r.legacy_key).trim() !== ""
+        ? String(r.legacy_key).trim()
+        : null;
     out.push({
-      id: r.id as string | number | undefined,
+      id: id || undefined,
       farm_id: r.farm_id as string | number | undefined,
       is_global: Boolean(r.is_global),
       farm_name: r.farm_name != null ? String(r.farm_name) : null,
       country_name: r.country_name != null ? String(r.country_name) : null,
-      zone_name: zoneName,
-      label: r.label != null ? String(r.label) : zoneName,
+      zone_name: displayName,
+      label: String(r.label ?? r.zone_name ?? displayName).trim() || displayName,
+      legacy_key: legacyKey,
     });
   }
 
   return out;
+}
+
+/** Admin `/api/keyareas` rows for id → title resolution. */
+export function normalizeKeyAreaRows(raw: unknown): KeyAreaReferenceRow[] {
+  const rows = Array.isArray(raw) ? raw : [];
+  const out: KeyAreaReferenceRow[] = [];
+  for (const row of rows) {
+    if (!row || typeof row !== "object") continue;
+    const r = row as Record<string, unknown>;
+    const id = String(r.id ?? "").trim();
+    const title = String(r.title ?? "").trim();
+    if (!id || !title) continue;
+    out.push({ id, title });
+  }
+  return out;
+}
+
+/** Resolve stored key-area id or legacy title slug to admin catalog title. */
+export function keyAreaIdOrKeyToLabel(
+  raw: string | null | undefined,
+  catalog: KeyAreaReferenceRow[],
+): string {
+  const key = String(raw ?? "").trim();
+  if (!key) return "";
+  const byId = catalog.find((r) => r.id === key);
+  if (byId) return byId.title;
+  const norm = normalizeText(key);
+  const byTitle = catalog.find((r) => normalizeText(r.title) === norm);
+  if (byTitle) return byTitle.title;
+  return key;
+}
+
+/** Harvest / plan rows may persist zone under `zone` or `zone_id`. */
+export function harvestRecordZoneStoredValue(
+  record: Record<string, unknown>,
+): string {
+  return String(record.zone ?? record.zone_id ?? "").trim();
 }
 
 function dedupeZoneEntries(entries: [string, string][]): [string, string][] {
@@ -212,15 +263,24 @@ export function farmZoneSelectIdForStoredZone(
 ): string | null {
   const key = storedZone != null ? String(storedZone).trim() : "";
   if (!key) return null;
-  const exact = farmZones.find(
-    (row) =>
-      normalizeText(String(row.id ?? "")) === normalizeText(key) ||
-      normalizeText(String(row.zone_name ?? "")) === normalizeText(key) ||
-      normalizeText(String(row.label ?? "")) === normalizeText(key),
-  );
+  const exact = farmZones.find((row) => farmZoneRowMatchesStoredValue(row, key));
   if (!exact) return null;
   const id = String(exact.id ?? "").trim();
   return id || null;
+}
+
+function farmZoneRowMatchesStoredValue(
+  row: FarmZoneReferenceRow,
+  stored: string,
+): boolean {
+  const key = normalizeText(stored);
+  if (!key) return false;
+  return (
+    normalizeText(String(row.id ?? "")) === key ||
+    normalizeText(String(row.zone_name ?? "")) === key ||
+    normalizeText(String(row.label ?? "")) === key ||
+    normalizeText(String(row.legacy_key ?? "")) === key
+  );
 }
 
 /** Virtual no-zone bucket keys produced by forecasting allocation (not always in `/api/zones`). */
@@ -250,12 +310,7 @@ export function zoneIdToLabel(
   const key = zoneId != null ? String(zoneId).trim() : "";
   if (!key) return "";
 
-  const exact = farmZones.find(
-    (row) =>
-      normalizeText(String(row.id ?? "")) === normalizeText(key) ||
-      normalizeText(String(row.zone_name ?? "")) === normalizeText(key) ||
-      normalizeText(String(row.label ?? "")) === normalizeText(key),
-  );
+  const exact = farmZones.find((row) => farmZoneRowMatchesStoredValue(row, key));
   if (exact) {
     return String(exact.label ?? exact.zone_name ?? key).trim() || key;
   }

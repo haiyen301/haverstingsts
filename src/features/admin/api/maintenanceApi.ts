@@ -1,27 +1,52 @@
+import { normalizeMaintenanceEvictionCountdownSec } from "@/shared/lib/maintenanceCountdown";
+
 export type MaintenanceStatus = {
   enabled: boolean;
   message: string;
   estimatedReturn: string;
   updatedAt: string | null;
+  evictionCountdownSec: number;
 };
 
 export type MaintenanceConfigPayload = {
   enabled: boolean;
   message?: string;
   estimatedReturn?: string;
+  evictionCountdownSec?: number;
 };
+
+function toMaintenanceStatus(data: Record<string, unknown>): MaintenanceStatus {
+  const enabled =
+    data.enabled === true ||
+    data.enabled === 1 ||
+    String(data.enabled ?? "").trim() === "1";
+  return {
+    enabled,
+    message: String(data.message ?? "").trim(),
+    estimatedReturn: String(
+      data.estimated_return ?? data.estimatedReturn ?? "",
+    ).trim(),
+    updatedAt:
+      data.updated_at == null || data.updated_at === ""
+        ? null
+        : String(data.updated_at).trim(),
+    evictionCountdownSec: normalizeMaintenanceEvictionCountdownSec(
+      data.eviction_countdown_sec ?? data.evictionCountdownSec,
+    ),
+  };
+}
 
 export async function fetchMaintenanceStatus(): Promise<MaintenanceStatus> {
   const res = await fetch("/api/system/maintenance", { cache: "no-store" });
   const json = (await res.json()) as {
     success?: boolean;
-    data?: MaintenanceStatus;
+    data?: Record<string, unknown>;
     message?: string;
   };
   if (!res.ok || json.success !== true || !json.data) {
     throw new Error(json.message ?? "Could not load maintenance status.");
   }
-  return json.data;
+  return toMaintenanceStatus(json.data);
 }
 
 export async function saveMaintenanceConfig(
@@ -35,11 +60,11 @@ export async function saveMaintenanceConfig(
   });
   const json = (await res.json()) as {
     success?: boolean;
-    data?: MaintenanceStatus & { enabledAt?: string | null };
+    data?: Record<string, unknown>;
     message?: string;
   };
   if (!res.ok || json.success !== true || !json.data) {
     throw new Error(json.message ?? "Could not save maintenance settings.");
   }
-  return json.data;
+  return toMaintenanceStatus(json.data);
 }

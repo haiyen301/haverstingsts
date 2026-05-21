@@ -59,6 +59,7 @@
     "adminZoneConfiguration": "Zone Configuration",
     "adminRegrowthRules": "Regrowth Rules",
     "adminGrassTypes": "Grass types",
+    "adminKeyAreas": "Key Areas",
     "settings": "Settings",
     "adminCountries": "Countries",
     "adminMaintenance": "Maintenance mode"
@@ -90,7 +91,9 @@
     "modeDescription": "Use this during deployments or database work. Only user ID 409 can still use the portal.",
     "toggleLabel": "Maintenance mode",
     "toggleHint": "Blocks sign-in and redirects signed-in users",
-    "enableWarning": "Enabling maintenance will notify every other signed-in user, show a 10-second countdown, then sign them out and redirect them to the maintenance screen.",
+    "countdownLabel": "Sign-out countdown (seconds)",
+    "countdownHint": "Shared by web and mobile (5–120). Users see this many seconds before they are signed out.",
+    "enableWarning": "Enabling maintenance will notify every other signed-in user, show a {seconds}-second countdown, then sign them out and redirect them to the maintenance screen.",
     "messageTitle": "Public message",
     "messageDescription": "Shown on the maintenance screen. Leave blank for the default text.",
     "messageLabel": "Custom message",
@@ -99,7 +102,7 @@
     "estimatedReturnPlaceholder": "e.g. 22 May 2026, 2:00 PM AEST",
     "save": "Save settings",
     "saving": "Saving…",
-    "savedEnabled": "Maintenance mode is ON. Other users will see a 10-second notice, then be signed out.",
+    "savedEnabled": "Maintenance mode is ON. Other users will see a {seconds}-second notice, then be signed out.",
     "savedDisabled": "Maintenance mode is OFF. Users can sign in again.",
     "errors": {
       "load": "Could not load maintenance settings.",
@@ -639,6 +642,8 @@
     "keyAreas": "Key Areas",
     "grassRequirements": "Grass Requirements",
     "grassType": "Grass Type",
+    "keyArea": "Key Area",
+    "selectKeyArea": "Select key area",
     "selectCountry": "Select country",
     "selectPersonInCharge": "Select person in charge",
     "selectGrass": "Select grass",
@@ -652,6 +657,7 @@
     "actionsTitle": "Project actions",
     "loadingProject": "Loading project...",
     "saving": "Saving...",
+    "creatingPlannedHarvests": "Creating planned harvest schedule…",
     "deleting": "Deleting...",
     "cannotFindProjectRow": "Cannot find project row.",
     "loadProjectFailed": "Failed to load project.",
@@ -1234,6 +1240,39 @@
     },
     "deleteConfirm": "Remove this grass type? Linked zone configuration may need updating."
   },
+  "AdminKeyAreas": {
+    "title": "Key Areas",
+    "description": "Catalog of golf course key areas used on grass requirement lines (e.g. Fairways, Greens).",
+    "loading": "Loading…",
+    "add": "Add key area",
+    "edit": "Edit key area",
+    "save": "Save",
+    "saving": "Saving…",
+    "cancel": "Cancel",
+    "empty": "No key areas found.",
+    "dragHint": "Drag rows by the handle to change display order.",
+    "reordering": "Saving order…",
+    "table": {
+      "title": "Name",
+      "sortOrder": "Sort order",
+      "actions": "Actions",
+      "reorder": "Reorder",
+      "dragTitle": "Drag to reorder",
+      "dragRowTitle": "Drag to reorder",
+      "dragRowAria": "Drag {title}"
+    },
+    "form": {
+      "title": "Name *"
+    },
+    "errors": {
+      "titleRequired": "Name is required.",
+      "load": "Could not load key areas.",
+      "save": "Could not save.",
+      "delete": "Could not delete.",
+      "reorder": "Could not save sort order."
+    },
+    "deleteConfirm": "Remove this key area?"
+  },
   "InventoryOnhandImport": {
     "title": "Import Inventory from Raw Excel",
     "subtitle": "Map raw columns `alias` and `quantity` to `Sku STS` and `On Hand`, then append Country ID for every raw row.",
@@ -1539,6 +1578,7 @@
       "admin_zones": "Zones",
       "admin_regrowth": "Regrowth",
       "admin_grasses": "Grass types",
+      "admin_key_areas": "Key Areas",
       "admin_countries": "Countries",
       "dashboard": "Dashboard"
     }

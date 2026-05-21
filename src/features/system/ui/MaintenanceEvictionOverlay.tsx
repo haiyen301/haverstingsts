@@ -5,10 +5,8 @@ import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { AlertTriangle } from "lucide-react";
 
-import {
-  MAINTENANCE_EVICTION_COUNTDOWN_SEC,
-  maintenanceEvictionToastPositionClass,
-} from "@/shared/config/maintenanceEvictionConfig";
+import { maintenanceEvictionToastPositionClass } from "@/shared/config/maintenanceEvictionConfig";
+import { useMaintenanceConfigStore } from "@/shared/store/maintenanceConfigStore";
 import { useMaintenanceEvictionStore } from "@/shared/store/maintenanceEvictionStore";
 import { clearMaintenanceGraceCookie } from "@/shared/auth/maintenanceGraceCookie";
 import { clearAuthSession } from "@/shared/store/authUserStore";
@@ -18,14 +16,13 @@ export function MaintenanceEvictionOverlay() {
   const router = useRouter();
   const evicting = useMaintenanceEvictionStore((s) => s.evicting);
   const resetEviction = useMaintenanceEvictionStore((s) => s.resetEviction);
-  const [secondsLeft, setSecondsLeft] = useState(
-    MAINTENANCE_EVICTION_COUNTDOWN_SEC,
-  );
+  const countdownSec = useMaintenanceConfigStore((s) => s.evictionCountdownSec);
+  const [secondsLeft, setSecondsLeft] = useState(countdownSec);
 
   useEffect(() => {
     if (!evicting) return;
 
-    setSecondsLeft(MAINTENANCE_EVICTION_COUNTDOWN_SEC);
+    setSecondsLeft(countdownSec);
 
     const intervalId = window.setInterval(() => {
       setSecondsLeft((prev) => {
@@ -37,7 +34,7 @@ export function MaintenanceEvictionOverlay() {
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [evicting]);
+  }, [evicting, countdownSec]);
 
   useEffect(() => {
     if (!evicting || secondsLeft > 0) return;
@@ -59,9 +56,7 @@ export function MaintenanceEvictionOverlay() {
   if (!evicting) return null;
 
   const progress =
-    ((MAINTENANCE_EVICTION_COUNTDOWN_SEC - secondsLeft) /
-      MAINTENANCE_EVICTION_COUNTDOWN_SEC) *
-    100;
+    ((countdownSec - secondsLeft) / countdownSec) * 100;
 
   return (
     <div

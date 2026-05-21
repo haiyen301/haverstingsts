@@ -90,6 +90,24 @@ export function resolveReactHarvestingImageUrl(fileNameOrUrl: string): string {
   return `${domain}${STS_PUBLIC_PATHS.reactHarvesting}/${s}`;
 }
 
+/** Kg → sprig; M2 / m² → sod (card grass requirement label). */
+export function sprigSodLabelFromUom(uom: string | undefined): "sprig" | "sod" {
+  const n = String(uom ?? "").trim().toLowerCase();
+  if (n === "m2" || n === "sqm" || n === "m²") return "sod";
+  return "sprig";
+}
+
+export function formatGrassRequirementDisplayName(
+  grassName: string,
+  keyAreaName: string | undefined,
+  uom: string | undefined,
+): string {
+  const grass = grassName.trim() || "N/A";
+  const area = keyAreaName?.trim();
+  if (!area) return grass;
+  return `${grass} - ${area} - ${sprigSodLabelFromUom(uom)}`;
+}
+
 function normalizeRequirements(raw: unknown): QuantityRequiredProject[] {
   let parsed = parseJsonMaybe(raw);
   if (
@@ -111,6 +129,8 @@ function normalizeRequirements(raw: unknown): QuantityRequiredProject[] {
       quantity_kg: x.quantity_kg as string | number | null | undefined,
       uom: String(x.uom ?? "").trim() || undefined,
       zone_id: String(x.zone_id ?? "").trim() || undefined,
+      key_area_id: x.key_area_id as string | number | undefined,
+      farm_id: x.farm_id as string | number | undefined,
     }));
 }
 
@@ -355,10 +375,11 @@ export function buildProjectDataFromServerRow(
     const percentage = requiredQty > 0 ? Math.round((deliveredQty / requiredQty) * 100) : 0;
 
     const productName = options.getProductNameById?.(r.product_id) || r.product_id || "N/A";
+    const keyAreaName = options.getKeyAreaNameById?.(r.key_area_id);
     const uom = String(r.uom ?? "").trim();
 
     return {
-      name: productName,
+      name: formatGrassRequirementDisplayName(productName, keyAreaName, uom),
       uom: uom || undefined,
       required: requiredQty,
       delivered: deliveredQty,

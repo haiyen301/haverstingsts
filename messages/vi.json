@@ -59,6 +59,7 @@
     "adminZoneConfiguration": "Cấu hình khu vực",
     "adminRegrowthRules": "Quy tắc tái sinh",
     "adminGrassTypes": "Loại cỏ",
+    "adminKeyAreas": "Khu vực chính",
     "settings": "Cài đặt",
     "adminCountries": "Quốc gia",
     "adminMaintenance": "Chế độ bảo trì"
@@ -90,7 +91,9 @@
     "modeDescription": "Dùng khi triển khai hoặc bảo trì cơ sở dữ liệu. Chỉ user ID 409 vẫn dùng được portal.",
     "toggleLabel": "Chế độ bảo trì",
     "toggleHint": "Chặn đăng nhập và chuyển hướng người đang đăng nhập",
-    "enableWarning": "Bật bảo trì sẽ thông báo cho mọi người đang đăng nhập, hiển thị đếm ngược 10 giây, sau đó đăng xuất và chuyển họ sang màn hình bảo trì.",
+    "countdownLabel": "Đếm ngược trước khi đăng xuất (giây)",
+    "countdownHint": "Dùng chung web và app (5–120). Người dùng thấy số giây này trước khi bị đăng xuất.",
+    "enableWarning": "Bật bảo trì sẽ thông báo cho mọi người đang đăng nhập, hiển thị đếm ngược {seconds} giây, sau đó đăng xuất và chuyển họ sang màn hình bảo trì.",
     "messageTitle": "Thông báo công khai",
     "messageDescription": "Hiển thị trên màn hình bảo trì. Để trống để dùng văn bản mặc định.",
     "messageLabel": "Tin nhắn tùy chỉnh",
@@ -99,7 +102,7 @@
     "estimatedReturnPlaceholder": "VD: 22/05/2026, 14:00",
     "save": "Lưu cài đặt",
     "saving": "Đang lưu…",
-    "savedEnabled": "Đã BẬT chế độ bảo trì. Người dùng khác sẽ thấy thông báo 10 giây rồi bị đăng xuất.",
+    "savedEnabled": "Đã BẬT chế độ bảo trì. Người dùng khác sẽ thấy thông báo {seconds} giây rồi bị đăng xuất.",
     "savedDisabled": "Đã TẮT chế độ bảo trì. Mọi người có thể đăng nhập lại.",
     "errors": {
       "load": "Không tải được cài đặt bảo trì.",
@@ -639,6 +642,8 @@
     "keyAreas": "Khu vực chính",
     "grassRequirements": "Yêu cầu loại cỏ",
     "grassType": "Loại cỏ",
+    "keyArea": "Khu vực chính",
+    "selectKeyArea": "Chọn khu vực chính",
     "selectCountry": "Chọn quốc gia",
     "selectPersonInCharge": "Chọn người phụ trách",
     "selectGrass": "Chọn loại cỏ",
@@ -652,6 +657,7 @@
     "actionsTitle": "Thao tác dự án",
     "loadingProject": "Đang tải dự án...",
     "saving": "Đang lưu...",
+    "creatingPlannedHarvests": "Đang tạo kế hoạch thu hoạch dự kiến…",
     "deleting": "Đang xóa...",
     "cannotFindProjectRow": "Không tìm thấy dòng dự án.",
     "loadProjectFailed": "Không tải được dự án.",
@@ -1232,6 +1238,39 @@
     },
     "deleteConfirm": "Xóa loại cỏ này? Cấu hình khu vực đang trỏ tới có thể cần cập nhật."
   },
+  "AdminKeyAreas": {
+    "title": "Khu vực chính",
+    "description": "Danh mục khu vực sân golf dùng trên từng dòng yêu cầu cỏ (ví dụ Fairways, Greens).",
+    "loading": "Đang tải…",
+    "add": "Thêm khu vực",
+    "edit": "Sửa khu vực",
+    "save": "Lưu",
+    "saving": "Đang lưu…",
+    "cancel": "Hủy",
+    "empty": "Chưa có khu vực chính.",
+    "dragHint": "Kéo thả theo biểu tượng ⋮⋮ để đổi thứ tự hiển thị.",
+    "reordering": "Đang lưu thứ tự…",
+    "table": {
+      "title": "Tên",
+      "sortOrder": "Thứ tự",
+      "actions": "Thao tác",
+      "reorder": "Sắp xếp",
+      "dragTitle": "Kéo để sắp xếp",
+      "dragRowTitle": "Kéo để sắp xếp",
+      "dragRowAria": "Kéo {title}"
+    },
+    "form": {
+      "title": "Tên *"
+    },
+    "errors": {
+      "titleRequired": "Vui lòng nhập tên.",
+      "load": "Không tải được danh sách khu vực.",
+      "save": "Không lưu được.",
+      "delete": "Không xóa được.",
+      "reorder": "Không lưu được thứ tự."
+    },
+    "deleteConfirm": "Xóa khu vực này?"
+  },
   "InventoryOnhandImport": {
     "title": "Import tồn kho từ file raw Excel",
     "subtitle": "Map cột `alias` và `quantity` của file raw sang `Sku STS` và `On Hand`, sau đó thêm Country ID cho toàn bộ dòng raw.",
@@ -1537,6 +1576,7 @@
       "admin_zones": "Cấu hình khu vực",
       "admin_regrowth": "Tái sinh",
       "admin_grasses": "Loại cỏ",
+      "admin_key_areas": "Khu vực chính",
       "admin_countries": "Quốc gia",
       "dashboard": "Bảng điều khiển"
     }

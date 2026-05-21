@@ -40,10 +40,7 @@ export function isCountryActive(row: CountryRow): boolean {
 
 export async function fetchAdminCountries(): Promise<CountryRow[]> {
   const data = await stsProxyGet<unknown[]>(STS_API_PATHS.countries);
-  const rows = Array.isArray(data) ? (data as CountryRow[]) : [];
-  return rows.sort((a, b) =>
-    countryDisplayName(a).localeCompare(countryDisplayName(b)),
-  );
+  return Array.isArray(data) ? (data as CountryRow[]) : [];
 }
 
 export async function saveAdminCountry(
