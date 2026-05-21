@@ -94,6 +94,7 @@ export function ProjectListItem({
   getCountryNameById,
   getUserNameById,
   getProductNameById,
+  getKeyAreaNameById,
   getUserAvatarById,
   onEditProject,
   showEditAction,
@@ -107,6 +108,7 @@ export function ProjectListItem({
     getCountryNameById: getCountryNameById ?? options?.getCountryNameById,
     getUserNameById: getUserNameById ?? options?.getUserNameById,
     getProductNameById: getProductNameById ?? options?.getProductNameById,
+    getKeyAreaNameById: getKeyAreaNameById ?? options?.getKeyAreaNameById,
     getUserAvatarById: getUserAvatarById ?? options?.getUserAvatarById,
     getProjectTypeLabel:
       options?.getProjectTypeLabel ??

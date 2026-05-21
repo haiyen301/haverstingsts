@@ -46,6 +46,8 @@ export type QuantityRequiredProject = {
   quantity_kg?: string | number | null;
   uom?: string;
   zone_id?: string;
+  /** Key area catalog id (`key_areas` table). */
+  key_area_id?: string | number;
   /** Optional supplying farm (dynamic table / Next.js form). */
   farm_id?: string | number;
 };
@@ -132,6 +134,8 @@ export interface BuildProjectDataOptions {
   getUserNameById?: (userId?: string) => string | undefined;
   /** Flutter getGrassName(product_id) */
   getProductNameById?: (productId?: string) => string | undefined;
+  /** Key area title from admin catalog (`key_area_id`). */
+  getKeyAreaNameById?: (keyAreaId?: string | number) => string | undefined;
   /** Flutter baseController.getUserValueById(pic, "image") -> profile avatar URL */
   getUserAvatarById?: (userId?: string) => string | undefined;
   /** Optional already-resolved image URL from row model */

@@ -23,9 +23,11 @@ import {
 import { DatePicker } from "@/shared/ui/date-picker";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
 import {
+  fetchKeyAreas,
   fetchProjectFormCatalog,
   isArchitectCatalogKey,
   isProjectCatalogKey,
+  type KeyAreaRow,
   type ProjectFormCatalogRow,
 } from "@/features/admin/api/adminApi";
 import {
@@ -52,10 +54,25 @@ import { STS_API_PATHS } from "@/shared/api/stsApiPaths";
 interface GrassRow {
   id: string;
   grass: string;
+  keyAreaId: string;
   type: string;
   required: string;
   delivered: string;
   farmId: string;
+}
+
+function deriveKeyAreasCsvFromGrassRows(
+  rows: GrassRow[],
+  keyAreaTitleById: Map<string, string>,
+): string {
+  const titles = new Set<string>();
+  for (const row of rows) {
+    const id = row.keyAreaId.trim();
+    if (!id) continue;
+    const title = keyAreaTitleById.get(id);
+    if (title) titles.add(title);
+  }
+  return [...titles].join(",");
 }
 
 function normalizeProjectNameForCompare(v: unknown): string {
@@ -99,28 +116,6 @@ const GOLF_COURSE_TYPES_REQUIRING_HOLES = [
 const GOLF_COURSE_TYPES_REQUIRING_HOLES_NORMALIZED = new Set(
   GOLF_COURSE_TYPES_REQUIRING_HOLES.map((v) => v.toLowerCase()),
 );
-
-/** Canonical values saved to Monday / API (`key_areas` comma list). Labels are localized in the component. */
-const KEY_AREA_CANONICAL = [
-  "Tees",
-  "Roughs",
-  "Fairways",
-  "Greens",
-  "Bunkers",
-] as const;
-
-type KeyAreaId = (typeof KEY_AREA_CANONICAL)[number];
-
-function keyAreaMessageKey(area: KeyAreaId): string {
-  const map: Record<KeyAreaId, string> = {
-    Tees: "keyAreaTees",
-    Roughs: "keyAreaRoughs",
-    Fairways: "keyAreaFairways",
-    Greens: "keyAreaGreens",
-    Bunkers: "keyAreaBunkers",
-  };
-  return map[area];
-}
 
 function normalizeHoleValue(raw: unknown): string {
   const value = String(raw ?? "").trim();
@@ -176,7 +171,8 @@ export default function ProjectInputPage() {
     : canCreateProjects;
   const accessDenied = Boolean(user) && !canAccessProjectForm;
   const canSubmitProject = isEdit ? canEditProjects : canCreateProjects;
-  const canSeedPlannedHarvests =
+  /** Planned harvest seeds run only on create — never when updating an existing project row. */
+  const canSeedPlannedHarvestsOnCreate =
     !isEdit && canAccessModule(user, "harvests", "create");
   const canDeleteProject = isEdit && canDeleteProjects;
   const returnTarget = useMemo(() => {
@@ -206,14 +202,24 @@ export default function ProjectInputPage() {
   }, [router, returnTarget]);
 
   const [loading, setLoading] = useState(isEdit);
-  const [saving, setSaving] = useState(false);
+  type ProjectSavePhase = false | "project" | "planned_harvests";
+  const [savePhase, setSavePhase] = useState<ProjectSavePhase>(false);
+  const saving = savePhase !== false;
   const formControlsDisabled = loading || saving || !canSubmitProject;
+  const submitButtonLabel = useMemo(() => {
+    if (!saving) {
+      return isEdit ? t("updateProject") : t("createProject");
+    }
+    if (!isEdit && savePhase === "planned_harvests") {
+      return t("creatingPlannedHarvests");
+    }
+    return t("saving");
+  }, [isEdit, savePhase, saving, t]);
   const [error, setError] = useState<string | null>(null);
   const [defaultTableId, setDefaultTableId] = useState("");
   const [editTableId, setEditTableId] = useState(editTableIdFromQuery);
   const [projectTypeError, setProjectTypeError] = useState<string | null>(null);
   const [holesError, setHolesError] = useState<string | null>(null);
-  const [keyAreasError, setKeyAreasError] = useState<string | null>(null);
   const [startDateError, setStartDateError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<TopFieldErrors>({});
   const [startDateTouched, setStartDateTouched] = useState(false);
@@ -225,6 +231,7 @@ export default function ProjectInputPage() {
   const [deleting, setDeleting] = useState(false);
   const [projectTypeCatalogRows, setProjectTypeCatalogRows] = useState<ProjectFormCatalogRow[]>([]);
   const [architectCatalogRows, setArchitectCatalogRows] = useState<ProjectFormCatalogRow[]>([]);
+  const [keyAreaCatalogRows, setKeyAreaCatalogRows] = useState<KeyAreaRow[]>([]);
   const [formData, setFormData] = useState({
     projectName: "",
     golfClub: "",
@@ -239,7 +246,6 @@ export default function ProjectInputPage() {
     actualCompletionDate: "",
     projectType: "",
     holes: "",
-    keyAreas: [] as string[],
     contactName: "",
     contactEmail: "",
     contactPhone: "",
@@ -247,8 +253,36 @@ export default function ProjectInputPage() {
   });
 
   const [grassRows, setGrassRows] = useState<GrassRow[]>([
-    { id: "1", grass: "", type: "Kg", required: "", delivered: "", farmId: "" },
+    {
+      id: "1",
+      grass: "",
+      keyAreaId: "",
+      type: "Kg",
+      required: "",
+      delivered: "",
+      farmId: "",
+    },
   ]);
+
+  const keyAreaTitleById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const row of keyAreaCatalogRows) {
+      const id = String(row.id ?? "").trim();
+      const title = String(row.title ?? "").trim();
+      if (id && title) map.set(id, title);
+    }
+    return map;
+  }, [keyAreaCatalogRows]);
+
+  const keyAreaOptions = useMemo(
+    () =>
+      [...keyAreaCatalogRows].sort(
+        (a, b) =>
+          Number(a.sort_order ?? 0) - Number(b.sort_order ?? 0) ||
+          String(a.title ?? "").localeCompare(String(b.title ?? "")),
+      ),
+    [keyAreaCatalogRows],
+  );
 
   const projectTypeCatalogValues = useMemo(
     () =>
@@ -336,6 +370,23 @@ export default function ProjectInputPage() {
         if (!mounted) return;
         setProjectTypeCatalogRows([]);
         setArchitectCatalogRows([]);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    void (async () => {
+      try {
+        const rows = await fetchKeyAreas();
+        if (!mounted) return;
+        setKeyAreaCatalogRows(rows);
+      } catch {
+        if (!mounted) return;
+        setKeyAreaCatalogRows([]);
       }
     })();
     return () => {
@@ -494,6 +545,7 @@ export default function ProjectInputPage() {
       {
         id: Date.now().toString(),
         grass: "",
+        keyAreaId: "",
         type: "Kg",
         required: "",
         delivered: "",
@@ -534,18 +586,21 @@ export default function ProjectInputPage() {
 
   const isGrassItemComplete = (g: GrassRow) =>
     g.grass.trim().length > 0 &&
+    g.keyAreaId.trim().length > 0 &&
     g.required.trim().length > 0 &&
     g.type.trim().length > 0;
 
   const hasInvalidGrassItem = grassRows.some((g) => {
     const touched =
       g.grass.trim().length > 0 ||
+      g.keyAreaId.trim().length > 0 ||
       g.type.trim().length > 0 ||
       g.required.trim().length > 0;
     if (!touched) return false;
     const requiredQty = Number.parseFloat(g.required);
     return (
       !g.grass.trim() ||
+      !g.keyAreaId.trim() ||
       !g.type.trim() ||
       !g.required.trim() ||
       !Number.isFinite(requiredQty) ||
@@ -642,14 +697,13 @@ export default function ProjectInputPage() {
 
   const activeIssueCount = useMemo(() => {
     const topCount = orderedTopFieldKeys.filter((k) => Boolean(fieldErrors[k])).length;
-    const others = [projectTypeError, holesError, keyAreasError, startDateError, grassValidationError]
+    const others = [projectTypeError, holesError, startDateError, grassValidationError]
       .filter(Boolean).length;
     return topCount + others;
   }, [
     fieldErrors,
     grassValidationError,
     holesError,
-    keyAreasError,
     orderedTopFieldKeys,
     projectTypeError,
     startDateError,
@@ -676,14 +730,10 @@ export default function ProjectInputPage() {
       scrollToField("project-holes");
       return;
     }
-    if (keyAreasError) {
-      scrollToField("project-holes");
-      return;
-    }
     if (grassValidationError) {
       scrollToField("project-grass-info");
     }
-  }, [fieldErrors, grassValidationError, holesError, keyAreasError, orderedTopFieldKeys, scrollToField]);
+  }, [fieldErrors, grassValidationError, holesError, orderedTopFieldKeys, scrollToField]);
 
   useEffect(() => {
     if (!startDateTouched) return;
@@ -730,10 +780,6 @@ export default function ProjectInputPage() {
       actualCompletionDate: String(rec.actual_completion_date ?? "").trim(),
       projectType: String(row.project_type ?? "").trim(),
       holes: normalizeHoleValue(row.no_of_holes),
-      keyAreas: String(row.key_areas ?? "")
-        .split(",")
-        .map((x) => x.trim())
-        .filter(Boolean),
       contactName: String(rec.main_contact_name ?? "").trim(),
       contactEmail: String(rec.main_contact_email ?? "").trim(),
       contactPhone: String(rec.main_contact_phone ?? "").trim(),
@@ -756,6 +802,7 @@ export default function ProjectInputPage() {
         return {
           id: String(x.id ?? Date.now()),
           grass: String(x.product_id ?? "").trim(),
+          keyAreaId: String(x.key_area_id ?? "").trim(),
           type: uomRaw ? typeNorm : "Kg",
           required: String(x.quantity ?? "").trim(),
           delivered: "",
@@ -777,7 +824,6 @@ export default function ProjectInputPage() {
     }
     setProjectTypeError(null);
     setHolesError(null);
-    setKeyAreasError(null);
     setStartDateError(null);
     setFieldErrors({});
     setGrassValidationError(null);
@@ -795,10 +841,8 @@ export default function ProjectInputPage() {
       requiresHoles && !formData.holes
         ? t("validationSelectHoles")
         : null;
-    const nextKeyAreasError = null;
     setProjectTypeError(nextProjectTypeError);
     setHolesError(nextHolesError);
-    setKeyAreasError(nextKeyAreasError);
     setStartDateError(nextStartDateError);
 
     const hasCompleteGrassItem = grassRows.some(isGrassItemComplete);
@@ -812,11 +856,7 @@ export default function ProjectInputPage() {
       setGrassValidationError(null);
     }
 
-    const firstError =
-      textFieldError ??
-      nextStartDateError ??
-      nextHolesError ??
-      nextKeyAreasError;
+    const firstError = textFieldError ?? nextStartDateError ?? nextHolesError;
     if (firstError) {
       setError(firstError);
       const topFieldScrollMap: Record<keyof TopFieldErrors, string> = {
@@ -850,7 +890,7 @@ export default function ProjectInputPage() {
     }
 
     try {
-      setSaving(true);
+      setSavePhase("project");
       setError(null);
       const resolvedTableId = isEdit ? editTableId : defaultTableId;
       if (!resolvedTableId) {
@@ -904,14 +944,20 @@ export default function ProjectInputPage() {
           odoo_customer_id: formData.odooCustomerId.trim(),
           project_type: formData.projectType,
           no_of_holes: normalizedHoles,
-          key_areas: formData.keyAreas.join(","),
-          quantity_required_sprig_sod: grassRows.map((r) => ({
-            id: r.id,
-            product_id: r.grass,
-            quantity: r.required,
-            uom: r.type,
-            ...(r.farmId.trim() ? { farm_id: r.farmId.trim() } : {}),
-          })),
+          key_areas: deriveKeyAreasCsvFromGrassRows(grassRows, keyAreaTitleById),
+          quantity_required_sprig_sod: grassRows.map((r) => {
+            const keyAreaId = Number.parseInt(r.keyAreaId.trim(), 10);
+            return {
+              id: r.id,
+              product_id: r.grass,
+              quantity: r.required,
+              uom: r.type,
+              ...(Number.isFinite(keyAreaId) && keyAreaId > 0
+                ? { key_area_id: keyAreaId }
+                : {}),
+              ...(r.farmId.trim() ? { farm_id: r.farmId.trim() } : {}),
+            };
+          }),
           main_contact_name: formData.contactName.trim(),
           main_contact_email: formData.contactEmail.trim(),
           main_contact_phone: formData.contactPhone.trim(),
@@ -954,7 +1000,7 @@ export default function ProjectInputPage() {
         | "warning"
         | "critical"
         | undefined;
-      if (canSeedPlannedHarvests && projectIdStr) {
+      if (!isEdit && canSeedPlannedHarvestsOnCreate && projectIdStr) {
         const paceKey = formData.projectPace.trim().toLowerCase();
         if (isProjectPaceForHarvestPlan(paceKey)) {
           const anchorYmd =
@@ -973,6 +1019,7 @@ export default function ProjectInputPage() {
             grassRequirements: grassReqs,
           });
           if (seeds.length > 0) {
+            setSavePhase("planned_harvests");
             const { ok, fail, firstMessage } =
               await persistPlannedHarvestSeedsForProject({
                 projectId: projectIdStr,
@@ -1015,10 +1062,15 @@ export default function ProjectInputPage() {
         }
       }
 
-      const alertHref =
-        projectIdStr !== ""
-          ? `/projects/detail?id=${encodeURIComponent(projectIdStr)}`
-          : "/projects";
+      const detailHrefAfterSave = (() => {
+        if (!projectIdStr) return "/projects";
+        const params = new URLSearchParams();
+        params.set("projectId", projectIdStr);
+        params.set("rowId", resolvedRowId);
+        params.set("tableId", resolvedTableId);
+        return `/projects/detail?${params.toString()}`;
+      })();
+      const alertHref = detailHrefAfterSave;
       await dispatchRouteAlert({
         routeKey: "projects_new",
         title: isEdit
@@ -1043,18 +1095,14 @@ export default function ProjectInputPage() {
         ? withRefreshQueryParam(returnTarget)
         : returnTarget;
       if (!isEdit && projectIdStr) {
-        router.push(
-          withRefreshQueryParam(
-            `/projects/detail?id=${encodeURIComponent(projectIdStr)}`,
-          ),
-        );
+        router.push(withRefreshQueryParam(detailHrefAfterSave));
       } else {
         router.push(nextReturnTarget);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : t("saveFailed"));
     } finally {
-      setSaving(false);
+      setSavePhase(false);
     }
   };
 
@@ -1162,7 +1210,7 @@ export default function ProjectInputPage() {
             <form
               onSubmit={handleSubmit}
               noValidate
-              className="space-y-6 [&_input]:h-10 [&_input]:py-0 [&_select]:h-10 [&_select]:py-0"
+              className="space-y-8 [&_input]:h-10 [&_input]:py-0 [&_select]:h-10 [&_select]:py-0"
             >
               {activeIssueCount > 0 ? (
                 <div
@@ -1188,7 +1236,7 @@ export default function ProjectInputPage() {
 
               <fieldset
                 disabled={formControlsDisabled}
-                className="contents"
+                className="flex min-w-0 flex-col gap-10 border-0 p-0 m-0"
                 aria-readonly={!canSubmitProject}
               >
               {/* Basic Information */}
@@ -1609,44 +1657,6 @@ export default function ProjectInputPage() {
                     </div>
                     {holesError ? <p className="text-xs text-destructive">{holesError}</p> : null}
                   </div>
-                  <div className="space-y-2">
-                    <p className="text-sm text-muted-foreground">{t("keyAreas")}</p>
-                    <div
-                      className="rounded-lg border border-border bg-surface-filter-filled p-3"
-                      style={{ outline: keyAreasError ? "1px solid hsl(var(--destructive))" : "none" }}
-                    >
-                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                      {KEY_AREA_CANONICAL.map((area) => (
-                        <label key={area} className="relative block cursor-pointer">
-                          <input
-                            type="checkbox"
-                            className="sr-only"
-                            checked={formData.keyAreas.includes(area)}
-                            onChange={(e) => {
-                              const next = e.target.checked
-                                ? [...formData.keyAreas, area]
-                                : formData.keyAreas.filter((x) => x !== area);
-                              setFormData({ ...formData, keyAreas: next });
-                              setKeyAreasError(null);
-                            }}
-                          />
-                          <span
-                            className={`flex min-h-10 items-center justify-center rounded-md border px-3 text-sm transition-colors ${formData.keyAreas.includes(area)
-                                ? "border-primary bg-primary/5 text-primary"
-                                : "border-input bg-card text-foreground shadow-sm"
-                              }`}
-                          >
-                            {t(keyAreaMessageKey(area))}
-                          </span>
-                          {formData.keyAreas.includes(area) ? <CheckBadge /> : null}
-                        </label>
-                      ))}
-                      </div>
-                    </div>
-                    {keyAreasError ? (
-                      <p className="text-xs text-destructive">{keyAreasError}</p>
-                    ) : null}
-                  </div>
                 </div>
               </section>
 
@@ -1680,7 +1690,12 @@ export default function ProjectInputPage() {
                             setGrassRows((prev) =>
                               prev.map((r) =>
                                 r.id === row.id
-                                  ? { ...r, grass: v, farmId: v.trim() ? r.farmId : "" }
+                                  ? {
+                                      ...r,
+                                      grass: v,
+                                      keyAreaId: v.trim() ? r.keyAreaId : "",
+                                      farmId: v.trim() ? r.farmId : "",
+                                    }
                                   : r,
                               ),
                             );
@@ -1691,6 +1706,26 @@ export default function ProjectInputPage() {
                           {productOptions.map((p) => (
                             <option key={p.id} value={p.id}>
                               {p.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="min-w-[150px] flex-1 space-y-1.5">
+                        <label className="text-sm font-medium text-foreground">{t("keyArea")}</label>
+                        <select
+                          value={row.keyAreaId}
+                          onChange={(e) =>
+                            updateGrassRow(row.id, "keyAreaId", e.target.value)
+                          }
+                          disabled={!row.grass.trim()}
+                          className="w-full rounded-md border border-input bg-card px-3 text-sm text-foreground shadow-sm disabled:opacity-50"
+                        >
+                          <option value="">
+                            {row.grass.trim() ? t("selectKeyArea") : t("selectGrassFirst")}
+                          </option>
+                          {keyAreaOptions.map((ka) => (
+                            <option key={ka.id} value={String(ka.id)}>
+                              {ka.title}
                             </option>
                           ))}
                         </select>
@@ -1795,9 +1830,10 @@ export default function ProjectInputPage() {
                     <button
                       type="submit"
                       disabled={loading || saving}
-                      className="inline-flex h-11 min-w-[140px] items-center justify-center rounded-lg bg-primary px-5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+                      aria-busy={saving}
+                      className={`inline-flex h-11 items-center justify-center rounded-lg bg-primary px-5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60 ${saving && !isEdit && savePhase === "planned_harvests" ? "min-w-[240px]" : "min-w-[140px]"}`}
                     >
-                      {saving ? t("saving") : isEdit ? t("updateProject") : t("createProject")}
+                      {submitButtonLabel}
                     </button>
                   ) : null}
                 </div>

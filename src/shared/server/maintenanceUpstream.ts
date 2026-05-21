@@ -4,6 +4,8 @@ import {
   DEFAULT_MAINTENANCE_CONFIG,
   type MaintenanceConfig,
 } from "@/shared/system/maintenanceConfig";
+import { normalizeMaintenanceEvictionCountdownSec } from "@/shared/lib/maintenanceCountdown";
+import { DEFAULT_MAINTENANCE_EVICTION_COUNTDOWN_SEC } from "@/shared/config/maintenanceEvictionConfig";
 import {
   fetchJsonWithBaseUrlFallback,
 } from "@/shared/server/stsUpstreamFetch";
@@ -13,6 +15,7 @@ export type MaintenanceStatusDto = {
   message: string;
   estimatedReturn: string;
   updatedAt: string | null;
+  evictionCountdownSec: number;
 };
 
 function parseMaintenanceData(raw: unknown): MaintenanceStatusDto | null {
@@ -34,6 +37,9 @@ function parseMaintenanceData(raw: unknown): MaintenanceStatusDto | null {
       d.updated_at == null || d.updated_at === ""
         ? null
         : String(d.updated_at).trim(),
+    evictionCountdownSec: normalizeMaintenanceEvictionCountdownSec(
+      d.eviction_countdown_sec ?? d.evictionCountdownSec,
+    ),
   };
 }
 
@@ -50,6 +56,7 @@ export async function fetchMaintenanceStatusFromUpstream(): Promise<MaintenanceS
       message: DEFAULT_MAINTENANCE_CONFIG.message ?? "",
       estimatedReturn: DEFAULT_MAINTENANCE_CONFIG.estimatedReturn ?? "",
       updatedAt: DEFAULT_MAINTENANCE_CONFIG.updatedAt ?? null,
+      evictionCountdownSec: DEFAULT_MAINTENANCE_EVICTION_COUNTDOWN_SEC,
     };
   }
   const parsed = parseMaintenanceData(upstream.data);
@@ -59,6 +66,7 @@ export async function fetchMaintenanceStatusFromUpstream(): Promise<MaintenanceS
     message: "",
     estimatedReturn: "",
     updatedAt: null,
+    evictionCountdownSec: DEFAULT_MAINTENANCE_EVICTION_COUNTDOWN_SEC,
   };
 }
 
@@ -68,8 +76,9 @@ export async function saveMaintenanceConfigToUpstream(
     enabled: boolean;
     message?: string;
     estimatedReturn?: string;
+    evictionCountdownSec?: number;
   },
-): Promise<MaintenanceConfig | null> {
+): Promise<(MaintenanceConfig & { evictionCountdownSec: number }) | null> {
   const candidates = getStsApiUrlCandidates(STS_API_PATHS.maintenanceSave);
   const upstream = await fetchJsonWithBaseUrlFallback(candidates, {
     method: "POST",
@@ -96,5 +105,8 @@ export async function saveMaintenanceConfigToUpstream(
     estimatedReturn: String(d.estimated_return ?? d.estimatedReturn ?? "").trim(),
     enabledAt: enabled ? now : null,
     updatedAt: now,
+    evictionCountdownSec: normalizeMaintenanceEvictionCountdownSec(
+      d.eviction_countdown_sec ?? d.evictionCountdownSec,
+    ),
   };
 }

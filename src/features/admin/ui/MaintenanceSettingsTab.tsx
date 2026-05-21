@@ -12,6 +12,7 @@ import { broadcastMaintenanceConfigChanged } from "@/shared/auth/maintenanceBroa
 import { ActiveStatusSwitch } from "@/features/admin/ui/ActiveStatusSwitch";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { useMaintenanceConfigStore } from "@/shared/store/maintenanceConfigStore";
 
 const inputClass =
   "flex min-h-[5rem] w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground shadow-sm outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/35";
@@ -24,17 +25,21 @@ export function MaintenanceSettingsTab() {
   const [enabled, setEnabled] = useState(false);
   const [message, setMessage] = useState("");
   const [estimatedReturn, setEstimatedReturn] = useState("");
+  const [evictionCountdownSec, setEvictionCountdownSec] = useState(20);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const syncCountdownStore = useMaintenanceConfigStore((s) => s.setEvictionCountdownSec);
 
   const load = useCallback(async () => {
     const data = await fetchMaintenanceStatus();
     setEnabled(data.enabled);
     setMessage(data.message ?? "");
     setEstimatedReturn(data.estimatedReturn ?? "");
-  }, []);
+    setEvictionCountdownSec(data.evictionCountdownSec);
+    syncCountdownStore(data.evictionCountdownSec);
+  }, [syncCountdownStore]);
 
   useEffect(() => {
     let mounted = true;
@@ -60,13 +65,20 @@ export function MaintenanceSettingsTab() {
     setError(null);
     setSuccess(null);
     try {
-      await saveMaintenanceConfig({
+      const saved = await saveMaintenanceConfig({
         enabled: nextEnabled,
         message: message.trim(),
         estimatedReturn: estimatedReturn.trim(),
+        evictionCountdownSec,
       });
+      setEvictionCountdownSec(saved.evictionCountdownSec);
+      syncCountdownStore(saved.evictionCountdownSec);
       broadcastMaintenanceConfigChanged();
-      setSuccess(nextEnabled ? t("savedEnabled") : t("savedDisabled"));
+      setSuccess(
+        nextEnabled
+          ? t("savedEnabled", { seconds: saved.evictionCountdownSec })
+          : t("savedDisabled"),
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : t("errors.save"));
       await load();
@@ -132,13 +144,39 @@ export function MaintenanceSettingsTab() {
             />
           </div>
 
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-foreground">
+              {t("countdownLabel")}
+            </label>
+            <input
+              type="number"
+              min={5}
+              max={120}
+              step={1}
+              value={evictionCountdownSec}
+              disabled={saving}
+              onChange={(e) => {
+                const n = Number.parseInt(e.target.value, 10);
+                if (Number.isFinite(n)) setEvictionCountdownSec(n);
+              }}
+              className={textInputClass}
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              {t("countdownHint")}
+            </p>
+          </div>
+
           {enabled ? (
             <div
               className="flex gap-3 rounded-lg border border-warning/40 bg-warning/10 px-4 py-3 text-sm text-foreground"
               role="status"
             >
               <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-warning" aria-hidden />
-              <p>{t("enableWarning")}</p>
+              <p>
+                {t("enableWarning", {
+                  seconds: evictionCountdownSec,
+                })}
+              </p>
             </div>
           ) : null}
         </CardContent>

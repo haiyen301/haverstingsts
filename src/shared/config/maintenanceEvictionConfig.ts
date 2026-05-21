@@ -1,13 +1,17 @@
 /**
- * Maintenance eviction countdown (web).
+ * Maintenance eviction countdown fallback (web).
  *
- * Change `MAINTENANCE_EVICTION_COUNTDOWN_SEC` to adjust how long users see
- * the warning before sign-out. Flutter uses the same value in
- * `stsapp/lib/data/controller/maintenance/maintenance_controller.dart`.
+ * Runtime value comes from STSPortal `app_maintenance_eviction_countdown_sec`
+ * via GET /api/system/maintenance. Change the setting in Admin → Maintenance
+ * or in sts_settings; Flutter reads the same API field.
  */
 
-/** Seconds before sign-out and redirect to /maintenance. */
-export const MAINTENANCE_EVICTION_COUNTDOWN_SEC = 20;
+/** Fallback when API has not loaded yet. */
+export const DEFAULT_MAINTENANCE_EVICTION_COUNTDOWN_SEC = 20;
+
+/** @deprecated Use `useMaintenanceConfigStore().evictionCountdownSec`. */
+export const MAINTENANCE_EVICTION_COUNTDOWN_SEC =
+  DEFAULT_MAINTENANCE_EVICTION_COUNTDOWN_SEC;
 
 /** Poll interval while users browse (detects maintenance ON without refresh). */
 export const MAINTENANCE_STATUS_POLL_MS = 10_500;

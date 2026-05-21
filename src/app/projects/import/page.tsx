@@ -21,6 +21,7 @@ import { SortableTh } from "@/components/ui/sortable-th";
 import { useTableColumnSort } from "@/shared/hooks/useTableColumnSort";
 import { compareNumbers, compareStrings } from "@/shared/lib/tableSort";
 import { normalizeProjectTypeFromImportCell } from "@/features/project/lib/projectTypeDisplay";
+import { fetchKeyAreas, type KeyAreaRow } from "@/features/admin/api/adminApi";
 import { cn } from "@/lib/utils";
 import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
 
@@ -37,6 +38,7 @@ type FieldKey =
   | "projectType"
   | "holes"
   | "keyAreas"
+  | "grassKeyArea"
   | "grass"
   | "grassType"
   | "grassRequired";
@@ -59,6 +61,7 @@ type MappedRow = {
   projectType: string;
   holes: string;
   keyAreas: string[];
+  grassKeyArea: string;
   grass: string;
   grassType: string;
   grassRequired: string;
@@ -83,6 +86,8 @@ type ImportedGrassItem = {
   product_id: string;
   quantity: string;
   uom: string;
+  key_area_id?: number;
+  key_area_title?: string;
 };
 
 function pickCandidateId(source: Record<string, unknown>): string {
@@ -114,7 +119,8 @@ const FIELDS: { key: FieldKey; required?: boolean }[] = [
   { key: "endDate", required: true },
   { key: "projectType", required: true },
   { key: "holes", required: true },
-  { key: "keyAreas", required: true },
+  { key: "keyAreas" },
+  { key: "grassKeyArea" },
   { key: "grass", required: true },
   { key: "grassType", required: true },
   { key: "grassRequired", required: true },
@@ -335,6 +341,7 @@ function suggestMapping(headers: string[]): FieldMapping {
     projectType: pick(["project type", "type"]),
     holes: pick(["holes", "no of holes"]),
     keyAreas: pick(["key areas", "areas"]),
+    grassKeyArea: pick(["grass key area", "key area", "area"]),
     grass: pick(["grass", "product"]),
     // Avoid generic "type" here to prevent wrong mapping to "Project Type".
     grassType: pick(["sod/sprig", "sod sprig", "uom", "kg/m2", "kg m2", "unit"]),
@@ -415,6 +422,7 @@ export default function ProjectImportPage() {
   const [dbExistingProjectKeys, setDbExistingProjectKeys] = useState<Set<string>>(
     new Set(),
   );
+  const [keyAreaCatalogRows, setKeyAreaCatalogRows] = useState<KeyAreaRow[]>([]);
 
   const projects = useHarvestingDataStore((s) => s.projects);
   const activeCountries = useHarvestingDataStore((s) => s.activeCountries);
@@ -429,6 +437,32 @@ export default function ProjectImportPage() {
   useEffect(() => {
     void fetchAllHarvestingReferenceData(true);
   }, [fetchAllHarvestingReferenceData]);
+
+  useEffect(() => {
+    let mounted = true;
+    void (async () => {
+      try {
+        const rows = await fetchKeyAreas();
+        if (mounted) setKeyAreaCatalogRows(rows);
+      } catch {
+        if (mounted) setKeyAreaCatalogRows([]);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const keyAreaCandidates = useMemo(
+    () =>
+      keyAreaCatalogRows
+        .map((r) => ({
+          id: String(r.id ?? "").trim(),
+          label: String(r.title ?? "").trim(),
+        }))
+        .filter((x) => x.id && x.label),
+    [keyAreaCatalogRows],
+  );
 
   const existingProjectNames = useMemo(() => {
     const set = new Set<string>();
@@ -475,15 +509,35 @@ export default function ProjectImportPage() {
     const flat: ImportedGrassItem[] = [];
     for (const rr of rowsInGroup) {
       const grassParts = splitCsvLoose(rr.grass);
+      const keyAreaParts = splitCsvLoose(rr.grassKeyArea);
       const uomPartsRaw = splitCsvLoose(rr.grassType);
       const qtyParts = splitCsvLoose(rr.grassRequired);
-      const maxParts = Math.max(grassParts.length, uomPartsRaw.length, qtyParts.length, 1);
+      const fallbackKeyAreas =
+        keyAreaParts.length === 0 && rr.keyAreas.length
+          ? rr.keyAreas
+          : [];
+      const maxParts = Math.max(
+        grassParts.length,
+        keyAreaParts.length,
+        fallbackKeyAreas.length,
+        uomPartsRaw.length,
+        qtyParts.length,
+        1,
+      );
 
       for (let i = 0; i < maxParts; i += 1) {
         const grassRaw =
           grassParts.length > 1
             ? (grassParts[i] ?? "")
             : (grassParts[0] ?? rr.grass);
+        const keyAreaRaw =
+          keyAreaParts.length > 1
+            ? (keyAreaParts[i] ?? "")
+            : keyAreaParts.length === 1
+              ? keyAreaParts[0]
+              : fallbackKeyAreas.length > 1
+                ? (fallbackKeyAreas[i] ?? "")
+                : (fallbackKeyAreas[0] ?? "");
         const uomRaw =
           uomPartsRaw.length > 1
             ? (uomPartsRaw[i] ?? "")
@@ -497,14 +551,24 @@ export default function ProjectImportPage() {
         const uom = normalizeUom(uomRaw);
         if (!productId || !uom) continue;
 
+        const keyAreaIdStr = resolveByLooseText(keyAreaRaw, keyAreaCandidates);
+        const keyAreaId = keyAreaIdStr ? Number.parseInt(keyAreaIdStr, 10) : NaN;
+        if (!keyAreaRaw.trim() || !Number.isFinite(keyAreaId) || keyAreaId <= 0) continue;
+
         const qty = Number.parseFloat(String(qtyRaw).replaceAll(",", "").trim());
         if (!Number.isFinite(qty) || qty <= 0) continue;
+
+        const keyAreaTitle =
+          keyAreaCandidates.find((k) => k.id === String(keyAreaId))?.label ??
+          keyAreaRaw.trim();
 
         flat.push({
           sourceRowNumber: rr.rowNumber,
           product_id: productId,
           quantity: String(qty),
           uom,
+          key_area_id: keyAreaId,
+          key_area_title: keyAreaTitle,
         });
       }
     }
@@ -778,6 +842,7 @@ export default function ProjectImportPage() {
         projectType: normalizeProjectType(toStringSafe(get("projectType"))),
         holes: normalizeHoles(toStringSafe(get("holes"))),
         keyAreas: normalizeKeyAreas(toStringSafe(get("keyAreas"))),
+        grassKeyArea: toStringSafe(get("grassKeyArea")),
         grass: toStringSafe(get("grass")),
         grassType: grassTypeRaw,
         grassRequired: toStringSafe(get("grassRequired")),
@@ -938,7 +1003,11 @@ export default function ProjectImportPage() {
         if (!r0.stsPic) rowWarnings.push(t("warnStsPicEmpty"));
         if (!r0.projectType) rowWarnings.push(t("warnProjectTypeInvalid"));
         if (!r0.holes) rowWarnings.push(t("warnHolesInvalid"));
-        if (!r0.keyAreas.length) rowWarnings.push(t("warnKeyAreasInvalid"));
+        const hasGrassKeyArea = g.rows.some(
+          (rr) =>
+            splitCsvLoose(rr.grassKeyArea).length > 0 || rr.keyAreas.length > 0,
+        );
+        if (!hasGrassKeyArea) rowWarnings.push(t("warnKeyAreasInvalid"));
         if (!r0.actualStartDate && !r0.estimateStartDate) {
           rowWarnings.push(t("warnStartDatePairEmpty"));
         }
@@ -1087,7 +1156,13 @@ export default function ProjectImportPage() {
               pic: staffId,
               project_type: r0.projectType,
               no_of_holes: r0.holes,
-              key_areas: r0.keyAreas.join(","),
+              key_areas: [
+                ...new Set(
+                  grassItems
+                    .map((x) => x.key_area_title?.trim())
+                    .filter((x): x is string => Boolean(x)),
+                ),
+              ].join(","),
               quantity_required_sprig_sod: grassItems.map((x) => ({
                 // Keep the same shape used by dynamic table rows on STSPortal.
                 id:
@@ -1096,6 +1171,7 @@ export default function ProjectImportPage() {
                 product_id: x.product_id,
                 quantity: x.quantity,
                 uom: x.uom,
+                ...(x.key_area_id ? { key_area_id: x.key_area_id } : {}),
                 quantity_kg:
                   String(x.uom).toLowerCase() === "kg"
                     ? Number.parseFloat(x.quantity)
@@ -1218,7 +1294,13 @@ export default function ProjectImportPage() {
         deadline: base.endDate,
         project_type: base.projectType,
         no_of_holes: base.holes,
-        key_areas: base.keyAreas.join(", "),
+        key_areas: [
+          ...new Set(
+            grassItemsMerged
+              .map((x) => x.key_area_title?.trim())
+              .filter((x): x is string => Boolean(x)),
+          ),
+        ].join(", "),
         grass_item_count: grassItemsMerged.length,
         grass_names: grassNames.join(" | "),
         grass_qty_uom: qtyUomInline,

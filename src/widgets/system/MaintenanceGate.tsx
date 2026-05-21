@@ -19,6 +19,7 @@ import {
 import { saveMaintenanceReturnPath } from "@/shared/auth/maintenanceReturnPath";
 import { MAINTENANCE_STATUS_POLL_MS } from "@/shared/config/maintenanceEvictionConfig";
 import { fetchSessionStatus } from "@/shared/lib/sessionUser";
+import { useMaintenanceConfigStore } from "@/shared/store/maintenanceConfigStore";
 import { useMaintenanceEvictionStore } from "@/shared/store/maintenanceEvictionStore";
 import { useAuthUserStore } from "@/shared/store/authUserStore";
 
@@ -57,7 +58,9 @@ export function MaintenanceGate() {
   const beginEviction = useCallback(() => {
     if (useMaintenanceEvictionStore.getState().evicting) return;
     saveMaintenanceReturnPath(currentPath(pathname, searchParams));
-    setMaintenanceGraceCookie();
+    setMaintenanceGraceCookie(
+      useMaintenanceConfigStore.getState().evictionCountdownSec,
+    );
     disableMaintenancePolling("evicted");
     startEviction();
   }, [pathname, searchParams, startEviction]);
@@ -85,6 +88,9 @@ export function MaintenanceGate() {
 
       try {
         const status = await fetchMaintenanceStatus();
+        useMaintenanceConfigStore
+          .getState()
+          .setEvictionCountdownSec(status.evictionCountdownSec);
         if (!status.enabled) return;
 
         const userId = await resolveUserId();

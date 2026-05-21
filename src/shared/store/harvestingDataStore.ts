@@ -9,7 +9,9 @@ import {
   pickGrassCatalogRows,
   type PickGrassCatalogRowsArgs,
   normalizeFarmZoneRows,
+  normalizeKeyAreaRows,
   type FarmZoneReferenceRow,
+  type KeyAreaReferenceRow,
 } from "@/shared/lib/harvestReferenceData";
 import { stsProxyGetWithParams } from "@/shared/api/stsProxyClient";
 
@@ -43,11 +45,13 @@ function asArray(v: unknown): unknown[] {
 
 const empty = {
   farmZones: [] as FarmZoneReferenceRow[],
+  /** Key areas from admin `/api/keyareas` (id → title). */
+  keyAreas: [] as KeyAreaReferenceRow[],
   farms: [] as unknown[],
   projects: [] as unknown[],
   staffs: [] as unknown[],
   countries: [] as unknown[],
-  /** Subset of `countries` where `active = 1` (selects / filters). */
+  /** Active countries from `/api/countries?active_only=1` (selects / filters). */
   activeCountries: [] as unknown[],
   grasses: [] as unknown[],
   /** @deprecated Use `grasses`. */
@@ -62,11 +66,12 @@ const empty = {
 export type HarvestingDataState = {
   /** Zone reference rows from `/api/zones`. */
   farmZones: FarmZoneReferenceRow[];
+  keyAreas: KeyAreaReferenceRow[];
   farms: unknown[];
   projects: unknown[];
   staffs: unknown[];
   countries: unknown[];
-  /** Active countries only — use for create/edit/filter dropdowns. */
+  /** Active countries only (`active_only=1` on API) — use for create/edit/filter dropdowns. */
   activeCountries: unknown[];
   grasses: unknown[];
   /** @deprecated Use `grasses`. */
@@ -91,6 +96,7 @@ export type HarvestingDataState = {
   setHarvestListGrassFilter: (value: string) => void;
   setHarvestListStatusFilter: (value: string) => void;
   setFarmZones: (farmZones: FarmZoneReferenceRow[]) => void;
+  setKeyAreas: (keyAreas: KeyAreaReferenceRow[]) => void;
   setFarms: (farms: unknown[]) => void;
   setProjects: (projects: unknown[]) => void;
   setStaffs: (staffs: unknown[]) => void;
@@ -130,14 +136,11 @@ export const useHarvestingDataStore = create<HarvestingDataState>((set, get) => 
   bootstrapDone: false,
 
   setFarmZones: (farmZones) => set({ farmZones }),
+  setKeyAreas: (keyAreas) => set({ keyAreas }),
   setFarms: (farms) => set({ farms }),
   setProjects: (projects) => set({ projects }),
   setStaffs: (staffs) => set({ staffs }),
-  setCountries: (countries) =>
-    set({
-      countries,
-      activeCountries: filterActiveCountryRows(countries),
-    }),
+  setCountries: (countries) => set({ countries }),
   setActiveCountries: (activeCountries) => set({ activeCountries }),
   setGrasses: (grasses) => set({ grasses, products: grasses }),
   setProducts: (products) => set({ products, grasses: products }),
@@ -210,16 +213,20 @@ export const useHarvestingDataStore = create<HarvestingDataState>((set, get) => 
       }
     }
     const entries = [
-      ["farmZones", STS_API_PATHS.farmZones],
-      ["staffs", STS_API_PATHS.staffs],
-      ["farms", STS_API_PATHS.farms],
-      ["projects", STS_API_PATHS.projects],
-      ["countries", STS_API_PATHS.countries],
-      ["grasses", STS_API_PATHS.grasses],
-      ["products", STS_API_PATHS.products],
+      ["farmZones", STS_API_PATHS.farmZones, undefined],
+      ["keyAreas", STS_API_PATHS.keyareas, undefined],
+      ["staffs", STS_API_PATHS.staffs, undefined],
+      ["farms", STS_API_PATHS.farms, undefined],
+      ["projects", STS_API_PATHS.projects, undefined],
+      ["countries", STS_API_PATHS.countries, undefined],
+      ["activeCountries", STS_API_PATHS.countries, { active_only: 1 }],
+      ["grasses", STS_API_PATHS.grasses, undefined],
+      ["products", STS_API_PATHS.products, undefined],
     ] as const;
     const settled = await Promise.allSettled(
-      entries.map(([, path]) => stsProxyGetWithParams(path, refParams)),
+      entries.map(([, path, extra]) =>
+        stsProxyGetWithParams(path, { ...refParams, ...extra }),
+      ),
     );
     const byKey = new Map<string, unknown>();
     const errors: string[] = [];
@@ -234,23 +241,30 @@ export const useHarvestingDataStore = create<HarvestingDataState>((set, get) => 
     });
 
     const farmZones = byKey.get("farmZones");
+    const keyAreasRaw = byKey.get("keyAreas");
     const staffs = byKey.get("staffs");
     const farms = byKey.get("farms");
     const projects = byKey.get("projects");
     const countries = byKey.get("countries");
+    const activeCountriesRaw = byKey.get("activeCountries");
     const grassesRaw = byKey.get("grasses");
     const products = byKey.get("products");
     const grassesArr = grassesRaw !== undefined ? asArray(grassesRaw) : [];
     const productsArr = asArray(products);
     const countriesArr = asArray(countries);
+    const activeCountriesArr =
+      activeCountriesRaw !== undefined
+        ? asArray(activeCountriesRaw)
+        : filterActiveCountryRows(countriesArr);
 
     set({
       farmZones: normalizeFarmZoneRows(farmZones),
+      keyAreas: normalizeKeyAreaRows(keyAreasRaw),
       staffs: asArray(staffs),
       farms: asArray(farms),
       projects: asArray(projects),
       countries: countriesArr,
-      activeCountries: filterActiveCountryRows(countriesArr),
+      activeCountries: activeCountriesArr,
       /** `sts_grasses` via `/api/grasses`; fall back to `/api/items` if grasses request failed or returned nothing. */
       grasses: grassesArr.length > 0 ? grassesArr : productsArr,
       products: productsArr,

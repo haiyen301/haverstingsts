@@ -33,6 +33,7 @@ export const APP_PERMISSION_MODULES = [
   "admin_zones",
   "admin_regrowth",
   "admin_grasses",
+  "admin_key_areas",
   "admin_countries",
 ] as const;
 

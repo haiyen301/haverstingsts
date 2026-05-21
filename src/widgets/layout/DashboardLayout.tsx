@@ -18,6 +18,7 @@ import {
   Fuel,
   Gauge,
   LayoutGrid,
+  Layers,
   Leaf,
   MapPin,
   MessageCircle,
@@ -361,7 +362,8 @@ export function DashboardLayout({ children, hideAppNav = false }: DashboardLayou
               p.startsWith("/admin/zones") ||
               p.startsWith("/admin/zone-configurations") ||
               p.startsWith("/admin/regrowth") ||
-              p.startsWith("/admin/grasses"),
+              p.startsWith("/admin/grasses") ||
+              p.startsWith("/admin/keyareas"),
             tabs: [
               {
                 value: "projectTypes",
@@ -408,6 +410,14 @@ export function DashboardLayout({ children, hideAppNav = false }: DashboardLayou
                 path: "/admin/grasses",
                 module: "admin_grasses",
                 isActive: (p) => p === "/admin/grasses" || p.startsWith("/admin/grasses/"),
+              },
+              {
+                value: "keyareas",
+                label: tn("adminKeyAreas"),
+                icon: Layers,
+                path: "/admin/keyareas",
+                module: "admin_key_areas",
+                isActive: (p) => p === "/admin/keyareas" || p.startsWith("/admin/keyareas/"),
               },
             ],
             // disabled: true,

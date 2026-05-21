@@ -38,6 +38,8 @@ import {
 import { formatDateDisplay, isValidDate } from "@/shared/lib/format/date";
 import {
   farmNameByIdFromRows,
+  harvestRecordZoneStoredValue,
+  keyAreaIdOrKeyToLabel,
   type FarmZoneReferenceRow,
   zoneIdToLabel,
 } from "@/shared/lib/harvestReferenceData";
@@ -47,6 +49,7 @@ import { effectiveRequiredQuantityFromRecord } from "@/features/project/lib/effe
 import { useLocale } from "next-intl";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
 import { translateProjectType } from "@/features/project/lib/projectTypeDisplay";
+import { formatGrassRequirementDisplayName } from "@/features/project/lib/buildProjectCardData";
 import { cn } from "@/lib/utils";
 import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
 import { DatePicker } from "@/shared/ui/date-picker";
@@ -276,8 +279,11 @@ function mapHarvestRecordToHarvestRow(
     ),
     grass,
     farm,
-    zone:
-      zoneIdToLabel(r.zone as string | undefined, ctx.farmZones) || "-",
+    zone: (() => {
+      const stored = harvestRecordZoneStoredValue(r);
+      const label = zoneIdToLabel(stored, ctx.farmZones);
+      return label || stored || "-";
+    })(),
     quantity: `${qty.toLocaleString()} ${uomRaw}`.trim() || "-",
     quantityValue: qty,
     limitStatus: harvestLimitStatusFromDescription(r.description),
@@ -447,7 +453,10 @@ export default function ProjectDetailPage() {
   const searchParams = useSearchParams();
   const rowId = searchParams.get("rowId")?.trim() ?? "";
   const tableId = searchParams.get("tableId")?.trim() ?? "";
-  const projectIdFromQuery = searchParams.get("projectId")?.trim() ?? "";
+  const projectIdFromQuery =
+    searchParams.get("projectId")?.trim() ||
+    searchParams.get("id")?.trim() ||
+    "";
   const returnTo = useMemo(() => {
     const query = searchParams.toString();
     return query ? `${pathname}?${query}` : pathname;
@@ -463,6 +472,7 @@ export default function ProjectDetailPage() {
   const staffsRef = useHarvestingDataStore((s) => s.staffs);
   const productsRef = useHarvestingDataStore((s) => s.products);
   const farmZonesForHarvest = useHarvestingDataStore((s) => s.farmZones);
+  const keyAreasFromStore = useHarvestingDataStore((s) => s.keyAreas);
   const farmsForHarvest = useHarvestingDataStore((s) => s.farms);
   const fetchAllHarvestingReferenceData = useHarvestingDataStore(
     (s) => s.fetchAllHarvestingReferenceData,
@@ -547,6 +557,14 @@ export default function ProjectDetailPage() {
     }
     return map;
   }, [productsRef]);
+
+  const keyAreaMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const r of keyAreasFromStore) {
+      if (r.id && r.title) map.set(r.id, r.title);
+    }
+    return map;
+  }, [keyAreasFromStore]);
 
   const harvests = useMemo((): HarvestRow[] => {
     if (!harvestSource) return [];
@@ -749,13 +767,15 @@ export default function ProjectDetailPage() {
       estimateStartDate: formatDateDisplay(rec.estimate_start_date, locale),
       actualStartDate: formatDateDisplay(actualStartRaw, locale),
       endDate: formatDateDisplay(r.deadline, locale),
-      keyAreas: keyAreasParsed,
+      keyAreas: keyAreasParsed.map(
+        (raw) => keyAreaIdOrKeyToLabel(raw, keyAreasFromStore) || raw,
+      ),
       mainContactName: String(rec.main_contact_name ?? "").trim(),
       mainContactEmail: String(rec.main_contact_email ?? "").trim(),
       mainContactPhone: String(rec.main_contact_phone ?? "").trim(),
       actualCompletionDisplay: formatDateDisplay(rec.actual_completion_date, locale),
     };
-  }, [projectRow, projectTitleMap, countryMap, staffMap, tProjectForm, locale]);
+  }, [projectRow, projectTitleMap, countryMap, staffMap, keyAreasFromStore, tProjectForm, locale]);
 
   const grassRows = useMemo<GrassRow[]>(() => {
     if (!projectRow) return [];
@@ -781,9 +801,11 @@ export default function ProjectDetailPage() {
         productMap.get(productId) ||
         productId ||
         t("unknownGrass");
+      const keyAreaId = String(r.key_area_id ?? "").trim();
+      const keyAreaName = keyAreaId ? keyAreaMap.get(keyAreaId) : undefined;
       return {
         id: `${productId || "item"}-${idx}`,
-        name: productName,
+        name: formatGrassRequirementDisplayName(productName, keyAreaName, uom),
         uom,
         required,
         delivered,
@@ -791,7 +813,7 @@ export default function ProjectDetailPage() {
         progress: Math.max(0, Math.min(100, progress)),
       };
     });
-  }, [deliveredQuantityRows, projectRow, productMap, t]);
+  }, [deliveredQuantityRows, keyAreaMap, projectRow, productMap, t]);
 
   const overallPercent = useMemo(() => {
     const totalReq = grassRows.reduce((s, g) => s + g.required, 0);

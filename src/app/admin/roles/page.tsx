@@ -84,6 +84,7 @@ export default function AdminRolesPage() {
       admin_zones: t("modules.admin_zones"),
       admin_regrowth: t("modules.admin_regrowth"),
       admin_grasses: t("modules.admin_grasses"),
+      admin_key_areas: t("modules.admin_key_areas"),
       admin_countries: t("modules.admin_countries"),
       dashboard: t("modules.dashboard"),
     }),

@@ -30,6 +30,7 @@ import {
   mapRowsToSelectOptions,
   pickGrassCatalogRows,
 } from "@/shared/lib/harvestReferenceData";
+import { fetchKeyAreas, type KeyAreaRow } from "@/features/admin/api/adminApi";
 
 function parseCsvParam(v: string | null): string[] {
   return String(v ?? "")
@@ -220,12 +221,28 @@ export default function ProjectListPage() {
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<MondayProjectServerRow[]>([]);
   const [manualReloadSeq, setManualReloadSeq] = useState(() => (refreshParam ? 1 : 0));
+  const [keyAreaCatalogRows, setKeyAreaCatalogRows] = useState<KeyAreaRow[]>([]);
   const pageLoadedRef = useRef(0);
   const loadMoreLockRef = useRef(false);
   const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
   const refsBootstrappedRef = useRef(false);
   const handledRefreshParamRef = useRef(refreshParam);
   const requestedProjectTitleRefreshIdsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    let mounted = true;
+    void (async () => {
+      try {
+        const rows = await fetchKeyAreas();
+        if (mounted) setKeyAreaCatalogRows(rows);
+      } catch {
+        if (mounted) setKeyAreaCatalogRows([]);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!refsBootstrappedRef.current) {
@@ -539,6 +556,16 @@ export default function ProjectListPage() {
     return map;
   }, [productsRef]);
 
+  const keyAreaNameMap = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const r of keyAreaCatalogRows) {
+      const id = String(r.id ?? "").trim();
+      const title = String(r.title ?? "").trim();
+      if (id && title) map.set(id, title);
+    }
+    return map;
+  }, [keyAreaCatalogRows]);
+
   const countryOptions = useMemo(() => {
     const list = toRecArray(activeCountriesRef)
       .map((r) => ({
@@ -743,6 +770,10 @@ export default function ProjectListPage() {
                     getUserNameById={(id?: string) => (id ? staffNameMap.get(id) : undefined)}
                     getUserAvatarById={(id?: string) => (id ? staffAvatarMap.get(id) : undefined)}
                     getProductNameById={(id?: string) => (id ? productNameMap.get(id) : undefined)}
+                    getKeyAreaNameById={(id?: string | number) => {
+                      const key = String(id ?? "").trim();
+                      return key ? keyAreaNameMap.get(key) : undefined;
+                    }}
                     showEditAction={canManageExistingProjects}
                     onEditProject={() => {
                       const args = buildMondayEditArgs(
