@@ -8,7 +8,7 @@ import {
   type FormEvent,
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, MoreVertical, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, ChevronDown, MoreVertical, Plus, Trash2 } from "lucide-react";
 
 import RequireAuth from "@/features/auth/RequireAuth";
 import { canAccessModule } from "@/shared/auth/permissions";
@@ -24,6 +24,7 @@ import { DatePicker } from "@/shared/ui/date-picker";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
 import {
   fetchKeyAreas,
+  sortKeyAreaRows,
   fetchProjectFormCatalog,
   isArchitectCatalogKey,
   isProjectCatalogKey,
@@ -48,17 +49,41 @@ import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 import { AlertRouteCategoryBanner } from "@/features/alerts/AlertRouteCategoryBanner";
 import { dispatchRouteAlert } from "@/features/alerts/dispatchRouteAlert";
 import { CheckBadge } from "@/shared/ui/check-badge";
+import { MultiSelect } from "@/shared/ui/multi-select";
 import { getInternalStsProxyUrl } from "@/shared/api/stsProxyClient";
 import { STS_API_PATHS } from "@/shared/api/stsApiPaths";
 
 interface GrassRow {
   id: string;
   grass: string;
-  keyAreaId: string;
+  keyAreaIds: string[];
   type: string;
   required: string;
   delivered: string;
   farmId: string;
+}
+
+function parseKeyAreaIds(raw: unknown): string[] {
+  if (Array.isArray(raw)) {
+    return raw.map((x) => String(x ?? "").trim()).filter(Boolean);
+  }
+  const value = String(raw ?? "").trim();
+  if (!value) return [];
+  if (value.includes(",")) {
+    return value.split(",").map((x) => x.trim()).filter(Boolean);
+  }
+  return [value];
+}
+
+function serializeKeyAreaIdForApi(
+  ids: string[],
+): string | number | number[] | undefined {
+  const parsed = ids
+    .map((id) => Number.parseInt(id.trim(), 10))
+    .filter((id) => Number.isFinite(id) && id > 0);
+  if (parsed.length === 0) return undefined;
+  if (parsed.length === 1) return parsed[0];
+  return parsed;
 }
 
 function deriveKeyAreasCsvFromGrassRows(
@@ -67,10 +92,12 @@ function deriveKeyAreasCsvFromGrassRows(
 ): string {
   const titles = new Set<string>();
   for (const row of rows) {
-    const id = row.keyAreaId.trim();
-    if (!id) continue;
-    const title = keyAreaTitleById.get(id);
-    if (title) titles.add(title);
+    for (const id of row.keyAreaIds) {
+      const trimmed = id.trim();
+      if (!trimmed) continue;
+      const title = keyAreaTitleById.get(trimmed);
+      if (title) titles.add(title);
+    }
   }
   return [...titles].join(",");
 }
@@ -256,7 +283,7 @@ export default function ProjectInputPage() {
     {
       id: "1",
       grass: "",
-      keyAreaId: "",
+      keyAreaIds: [],
       type: "Kg",
       required: "",
       delivered: "",
@@ -275,13 +302,17 @@ export default function ProjectInputPage() {
   }, [keyAreaCatalogRows]);
 
   const keyAreaOptions = useMemo(
-    () =>
-      [...keyAreaCatalogRows].sort(
-        (a, b) =>
-          Number(a.sort_order ?? 0) - Number(b.sort_order ?? 0) ||
-          String(a.title ?? "").localeCompare(String(b.title ?? "")),
-      ),
+    () => sortKeyAreaRows(keyAreaCatalogRows),
     [keyAreaCatalogRows],
+  );
+
+  const keyAreaMultiOptions = useMemo(
+    () =>
+      keyAreaOptions.map((ka) => ({
+        value: String(ka.id),
+        label: String(ka.title ?? "").trim() || String(ka.id),
+      })),
+    [keyAreaOptions],
   );
 
   const projectTypeCatalogValues = useMemo(
@@ -545,7 +576,7 @@ export default function ProjectInputPage() {
       {
         id: Date.now().toString(),
         grass: "",
-        keyAreaId: "",
+        keyAreaIds: [],
         type: "Kg",
         required: "",
         delivered: "",
@@ -586,21 +617,21 @@ export default function ProjectInputPage() {
 
   const isGrassItemComplete = (g: GrassRow) =>
     g.grass.trim().length > 0 &&
-    g.keyAreaId.trim().length > 0 &&
+    g.keyAreaIds.length > 0 &&
     g.required.trim().length > 0 &&
     g.type.trim().length > 0;
 
   const hasInvalidGrassItem = grassRows.some((g) => {
     const touched =
       g.grass.trim().length > 0 ||
-      g.keyAreaId.trim().length > 0 ||
+      g.keyAreaIds.length > 0 ||
       g.type.trim().length > 0 ||
       g.required.trim().length > 0;
     if (!touched) return false;
     const requiredQty = Number.parseFloat(g.required);
     return (
       !g.grass.trim() ||
-      !g.keyAreaId.trim() ||
+      g.keyAreaIds.length === 0 ||
       !g.type.trim() ||
       !g.required.trim() ||
       !Number.isFinite(requiredQty) ||
@@ -802,7 +833,7 @@ export default function ProjectInputPage() {
         return {
           id: String(x.id ?? Date.now()),
           grass: String(x.product_id ?? "").trim(),
-          keyAreaId: String(x.key_area_id ?? "").trim(),
+          keyAreaIds: parseKeyAreaIds(x.key_area_id),
           type: uomRaw ? typeNorm : "Kg",
           required: String(x.quantity ?? "").trim(),
           delivered: "",
@@ -925,7 +956,9 @@ export default function ProjectInputPage() {
       // `client_source: nextjs` + `project_name` triggers server-side project resolve/create only for
       // this app. Flutter sends `project_id` from its own flow and must not set `client_source`, or
       // duplicate `sts_projects` rows would be created.
-      const normalizedHoles = formData.holes.trim() || "none";
+      const normalizedHoles = requiresHoles
+        ? formData.holes.trim() || "none"
+        : "none";
       const editProjectId = editProjectIdForLabel.trim();
       const payload: Record<string, unknown> = {
         id: resolvedRowId,
@@ -946,15 +979,13 @@ export default function ProjectInputPage() {
           no_of_holes: normalizedHoles,
           key_areas: deriveKeyAreasCsvFromGrassRows(grassRows, keyAreaTitleById),
           quantity_required_sprig_sod: grassRows.map((r) => {
-            const keyAreaId = Number.parseInt(r.keyAreaId.trim(), 10);
+            const keyAreaId = serializeKeyAreaIdForApi(r.keyAreaIds);
             return {
               id: r.id,
               product_id: r.grass,
               quantity: r.required,
               uom: r.type,
-              ...(Number.isFinite(keyAreaId) && keyAreaId > 0
-                ? { key_area_id: keyAreaId }
-                : {}),
+              ...(keyAreaId != null ? { key_area_id: keyAreaId } : {}),
               ...(r.farmId.trim() ? { farm_id: r.farmId.trim() } : {}),
             };
           }),
@@ -1156,7 +1187,7 @@ export default function ProjectInputPage() {
       <DashboardLayout>
         {accessDenied ? (
           <div className="min-h-screen pb-10 lg:pb-14">
-            <div className="mx-auto w-full max-w-[900px] space-y-4 px-4 pt-4 lg:px-6 lg:pt-8">
+            <div className="mx-auto w-full space-y-4 px-4 pt-4 lg:px-6 lg:pt-8">
               <div className="rounded-xl border border-amber-200 bg-amber-50 p-5">
                 <h1 className="text-xl font-semibold text-amber-900">
                   {isEdit ? t("editTitle") : t("newTitle")}
@@ -1180,7 +1211,7 @@ export default function ProjectInputPage() {
           </div>
         ) : (
         <div className="min-h-screen pb-10 lg:pb-14">
-          <div className="mx-auto w-full max-w-[900px] space-y-6 px-4 pt-4 lg:px-6 lg:pt-8">
+          <div className="mx-auto w-full space-y-6 px-4 pt-4 lg:px-6 lg:pt-8">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-3">
                 <button
@@ -1416,7 +1447,15 @@ export default function ProjectInputPage() {
                           type="button"
                           onClick={() => {
                             const nextType = formData.projectType === type ? "" : type;
-                            setFormData({ ...formData, projectType: nextType });
+                            const nextIsGolfCourse =
+                              GOLF_COURSE_TYPES_REQUIRING_HOLES_NORMALIZED.has(
+                                nextType.trim().toLowerCase(),
+                              );
+                            setFormData({
+                              ...formData,
+                              projectType: nextType,
+                              holes: nextIsGolfCourse ? formData.holes : "",
+                            });
                             setProjectTypeError(null);
                             setHolesError(null);
                           }}
@@ -1619,6 +1658,7 @@ export default function ProjectInputPage() {
                 </div>
               </section>
 
+              {requiresHoles ? (
               <section className="overflow-hidden rounded-xl border border-border bg-card text-card-foreground shadow-sm">
                 <div className="border-b border-border px-4 py-3 lg:px-5">
                   <h2 className="text-base font-semibold">{t("details")}</h2>
@@ -1659,6 +1699,7 @@ export default function ProjectInputPage() {
                   </div>
                 </div>
               </section>
+              ) : null}
 
               <section
                 id="project-grass-info"
@@ -1679,9 +1720,9 @@ export default function ProjectInputPage() {
                   {grassRows.map((row) => (
                     <div
                       key={row.id}
-                      className="bg-background flex flex-wrap items-end gap-3 rounded-lg border border-border p-3"
+                      className="grid gap-3 rounded-lg border border-border bg-background p-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1.3fr)_minmax(0,1fr)_auto_minmax(0,0.9fr)_auto] xl:items-end"
                     >
-                      <div className="min-w-[150px] flex-1 space-y-1.5">
+                      <div className="min-w-0 space-y-1.5">
                         <label className="text-sm font-medium text-foreground">{t("grassType")}</label>
                         <select
                           value={row.grass}
@@ -1693,14 +1734,14 @@ export default function ProjectInputPage() {
                                   ? {
                                       ...r,
                                       grass: v,
-                                      keyAreaId: v.trim() ? r.keyAreaId : "",
+                                      keyAreaIds: v.trim() ? r.keyAreaIds : [],
                                       farmId: v.trim() ? r.farmId : "",
                                     }
                                   : r,
                               ),
                             );
                           }}
-                          className="w-full rounded-md border border-input bg-card px-3 text-sm text-foreground shadow-sm"
+                          className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm text-foreground shadow-sm"
                         >
                           <option value="">{t("selectGrass")}</option>
                           {productOptions.map((p) => (
@@ -1710,27 +1751,38 @@ export default function ProjectInputPage() {
                           ))}
                         </select>
                       </div>
-                      <div className="min-w-[150px] flex-1 space-y-1.5">
+                      <div className="min-w-0 space-y-1.5">
                         <label className="text-sm font-medium text-foreground">{t("keyArea")}</label>
-                        <select
-                          value={row.keyAreaId}
-                          onChange={(e) =>
-                            updateGrassRow(row.id, "keyAreaId", e.target.value)
+                        <MultiSelect
+                          options={keyAreaMultiOptions}
+                          values={row.keyAreaIds}
+                          onChange={(next) =>
+                            setGrassRows((prev) =>
+                              prev.map((r) =>
+                                r.id === row.id ? { ...r, keyAreaIds: next } : r,
+                              ),
+                            )
                           }
+                          placeholder={
+                            row.grass.trim() ? t("selectKeyArea") : t("selectGrassFirst")
+                          }
+                          selectionSummary="compact"
+                          compactNameThreshold={6}
+                          compactBadgeNamePreview={3}
+                          maxSelectedChipsPreview={6}
+                          formatSelectedCount={(count) =>
+                            t("keyAreasSelectedCount", { count })
+                          }
+                          formatMoreCount={(count) =>
+                            t("keyAreasSelectedMore", { count })
+                          }
+                          formatManySelectedHint={() => t("keyAreasManySelectedHint")}
                           disabled={!row.grass.trim()}
-                          className="w-full rounded-md border border-input bg-card px-3 text-sm text-foreground shadow-sm disabled:opacity-50"
-                        >
-                          <option value="">
-                            {row.grass.trim() ? t("selectKeyArea") : t("selectGrassFirst")}
-                          </option>
-                          {keyAreaOptions.map((ka) => (
-                            <option key={ka.id} value={String(ka.id)}>
-                              {ka.title}
-                            </option>
-                          ))}
-                        </select>
+                          className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm text-foreground shadow-sm disabled:opacity-50"
+                          rightIcon={<ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />}
+                        />
                       </div>
-                      <div className="min-w-[150px] flex-1 space-y-1.5">
+                      <div className="min-w-0 space-y-1.5">
                         <label className="text-sm font-medium text-foreground">{t("farm")}</label>
                         <select
                           value={row.farmId}
@@ -1738,7 +1790,7 @@ export default function ProjectInputPage() {
                             updateGrassRow(row.id, "farmId", e.target.value)
                           }
                           disabled={!row.grass.trim()}
-                          className="w-full rounded-md border border-input bg-card px-3 text-sm text-foreground shadow-sm disabled:opacity-50"
+                          className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm text-foreground shadow-sm disabled:opacity-50"
                         >
                           <option value="">
                             {row.grass.trim() ? t("farmOptional") : t("selectGrassFirst")}
@@ -1777,7 +1829,7 @@ export default function ProjectInputPage() {
                           ))}
                         </div>
                       </div>
-                      <div className="min-w-[120px] flex-1 space-y-1.5">
+                      <div className="min-w-0 space-y-1.5">
                         <label className="text-sm font-medium text-foreground">
                           {t("amountRequired")}
                         </label>
@@ -1787,7 +1839,7 @@ export default function ProjectInputPage() {
                           onChange={(e) =>
                             updateGrassRow(row.id, "required", e.target.value)
                           }
-                          className="w-full rounded-md border border-input bg-card px-3 text-sm text-foreground shadow-sm"
+                          className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm text-foreground shadow-sm"
                           placeholder={t("amountPlaceholder")}
                         />
                       </div>
@@ -1795,7 +1847,7 @@ export default function ProjectInputPage() {
                         <button
                           type="button"
                           onClick={() => removeGrassRow(row.id)}
-                          className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-destructive hover:bg-destructive/10"
+                          className="inline-flex h-10 w-10 shrink-0 items-center justify-center self-end rounded-md text-destructive hover:bg-destructive/10"
                           aria-label={tCommon("delete")}
                         >
                           <Trash2 className="h-4 w-4" />

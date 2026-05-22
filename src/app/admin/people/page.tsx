@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   ChevronDown,
+  Eye,
+  EyeOff,
   Loader2,
   Mail,
   Plus,
@@ -19,6 +21,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { MultiSelect } from "@/shared/ui/multi-select";
 import { cn } from "@/lib/utils";
 import { Checkbox } from "@/shared/ui/checkbox";
+import { CheckBadge } from "@/shared/ui/check-badge";
 import { STS_API_PATHS } from "@/shared/api/stsApiPaths";
 import { INTERNAL_API } from "@/shared/api/stsLogin";
 import {
@@ -322,7 +325,12 @@ export default function AdminPeoplePage() {
       job_title: payload.jobTitle ?? "",
       address: payload.location ?? "",
       disable_login: payload.hasLogin ? 0 : 1,
-      role_id: payload.hasLogin ? Number(payload.roleId ?? 0) : 0,
+      role_id: payload.hasLogin
+        ? payload.isAdmin
+          ? 0
+          : Number(payload.roleId ?? 0)
+        : 0,
+      ...(payload.hasLogin ? { is_admin: payload.isAdmin ? 1 : 0 } : {}),
       status: payload.status === "Active" ? "active" : "inactive",
       is_sts_pic: payload.isStsPic ? 1 : 0,
       odoo_id: payload.odooId ?? null,
@@ -470,11 +478,15 @@ function PeopleSection({
     kind: "success" | "error";
     message: string;
   } | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showPasswordConfirm, setShowPasswordConfirm] = useState(false);
 
   const closePeopleDialog = () => {
     setDialogOpen(false);
     setSaveError(null);
     setResetEmailFeedback(null);
+    setShowPassword(false);
+    setShowPasswordConfirm(false);
   };
 
   useEffect(() => {
@@ -568,6 +580,8 @@ function PeopleSection({
     setForm(emptyPerson());
     setSaveError(null);
     setResetEmailFeedback(null);
+    setShowPassword(false);
+    setShowPasswordConfirm(false);
     setDialogOpen(true);
   };
 
@@ -581,6 +595,8 @@ function PeopleSection({
     });
     setSaveError(null);
     setResetEmailFeedback(null);
+    setShowPassword(false);
+    setShowPasswordConfirm(false);
     setDialogOpen(true);
   };
 
@@ -633,6 +649,15 @@ function PeopleSection({
     }
     if (form.hasLogin && !form.isAdmin && !form.roleId) {
       setSaveError("Please select a role.");
+      return;
+    }
+    if (
+      form.hasLogin &&
+      !form.isAdmin &&
+      form.role === TURF_FARM_MANAGER_ROLE &&
+      form.farmIds.length === 0
+    ) {
+      setSaveError("Please select at least one farm for Turf Farm Manager.");
       return;
     }
     if (form.hasLogin) {
@@ -1145,6 +1170,41 @@ function PeopleSection({
                   {form.hasLogin ? (
                     <div className="space-y-3">
                       <div className="space-y-2">
+                        <label className="text-sm font-medium">Super Admin</label>
+                        <p className="text-xs text-muted-foreground">
+                          Full access to the app (same as legacy admin account).
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setForm((f) => {
+                              const nextIsAdmin = !f.isAdmin;
+                              return {
+                                ...f,
+                                isAdmin: nextIsAdmin,
+                                role: nextIsAdmin ? "Super Admin" : undefined,
+                                roleId: nextIsAdmin ? null : f.roleId,
+                                farmIds: nextIsAdmin ? [] : f.farmIds,
+                              };
+                            });
+                          }}
+                          className="relative block w-full cursor-pointer text-left"
+                        >
+                          <span
+                            className={cn(
+                              "flex min-h-11 items-center rounded-md border px-3 pl-9 text-sm transition-colors",
+                              form.isAdmin
+                                ? "border-primary bg-primary/5 text-primary"
+                                : "border-input bg-card text-foreground shadow-sm",
+                            )}
+                          >
+                            Super Admin
+                          </span>
+                          {form.isAdmin ? <CheckBadge /> : null}
+                        </button>
+                      </div>
+                      {!form.isAdmin ? (
+                      <div className="space-y-2">
                         <label className="text-sm font-medium">Role *</label>
                         <select
                           className={inputClass}
@@ -1181,11 +1241,12 @@ function PeopleSection({
                           ))}
                         </select>
                       </div>
+                      ) : null}
                       {!form.isAdmin && form.roleId ? (
                         <div className="space-y-2">
                           <label className="text-sm font-medium">
                             {form.role === TURF_FARM_MANAGER_ROLE
-                              ? "Farms"
+                              ? "Farms *"
                               : "Farm"}
                           </label>
                           <p className="text-xs text-muted-foreground">
@@ -1255,28 +1316,64 @@ function PeopleSection({
                         <div className="grid grid-cols-2 gap-4">
                           <div className="space-y-2">
                             <label className="text-sm font-medium">Password *</label>
-                            <input
-                              type="password"
-                              className={inputClass}
-                              value={form.password ?? ""}
-                              onChange={(e) =>
-                                setForm((f) => ({ ...f, password: e.target.value }))
-                              }
-                            />
+                            <div className="relative">
+                              <input
+                                type={showPassword ? "text" : "password"}
+                                className={cn(inputClass, "pr-9")}
+                                value={form.password ?? ""}
+                                onChange={(e) =>
+                                  setForm((f) => ({ ...f, password: e.target.value }))
+                                }
+                                autoComplete="new-password"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setShowPassword((prev) => !prev)}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                                aria-label={showPassword ? "Hide password" : "Show password"}
+                              >
+                                {showPassword ? (
+                                  <EyeOff className="h-4 w-4" />
+                                ) : (
+                                  <Eye className="h-4 w-4" />
+                                )}
+                              </button>
+                            </div>
                           </div>
                           <div className="space-y-2">
                             <label className="text-sm font-medium">Confirm Password *</label>
-                            <input
-                              type="password"
-                              className={inputClass}
-                              value={form.passwordConfirm ?? ""}
-                              onChange={(e) =>
-                                setForm((f) => ({
-                                  ...f,
-                                  passwordConfirm: e.target.value,
-                                }))
-                              }
-                            />
+                            <div className="relative">
+                              <input
+                                type={showPasswordConfirm ? "text" : "password"}
+                                className={cn(inputClass, "pr-9")}
+                                value={form.passwordConfirm ?? ""}
+                                onChange={(e) =>
+                                  setForm((f) => ({
+                                    ...f,
+                                    passwordConfirm: e.target.value,
+                                  }))
+                                }
+                                autoComplete="new-password"
+                              />
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setShowPasswordConfirm((prev) => !prev)
+                                }
+                                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                                aria-label={
+                                  showPasswordConfirm
+                                    ? "Hide confirm password"
+                                    : "Show confirm password"
+                                }
+                              >
+                                {showPasswordConfirm ? (
+                                  <EyeOff className="h-4 w-4" />
+                                ) : (
+                                  <Eye className="h-4 w-4" />
+                                )}
+                              </button>
+                            </div>
                           </div>
                         </div>
                       ) : null}

@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import {
+  canViewAllModuleData,
   hasModulePermission,
   type PermissionAction,
   type PermissionModule,
@@ -14,6 +15,8 @@ export type ModuleAccess = {
   edit: boolean;
   delete: boolean;
   import: boolean;
+  /** Full data visibility (no farm scope) — requires show on the same module. */
+  viewAllData: boolean;
 };
 
 const EMPTY_ACCESS: ModuleAccess = {
@@ -22,6 +25,7 @@ const EMPTY_ACCESS: ModuleAccess = {
   edit: false,
   delete: false,
   import: false,
+  viewAllData: false,
 };
 
 export async function getModuleAccess(
@@ -34,12 +38,15 @@ export async function getModuleAccess(
   const acl = await fetchTrustedAclByToken(token);
   if (!acl) return EMPTY_ACCESS;
 
+  const userLike = { is_admin: acl.is_admin, permissions: acl.permissions };
+
   return {
     show: hasModulePermission(moduleName, acl.permissions, "show", acl.is_admin),
     create: hasModulePermission(moduleName, acl.permissions, "create", acl.is_admin),
     edit: hasModulePermission(moduleName, acl.permissions, "edit", acl.is_admin),
     delete: hasModulePermission(moduleName, acl.permissions, "delete", acl.is_admin),
     import: hasModulePermission(moduleName, acl.permissions, "import", acl.is_admin),
+    viewAllData: canViewAllModuleData(userLike, moduleName),
   };
 }
 

@@ -15,7 +15,11 @@ import {
   hasAnyDeliveryHarvestMatchingRequirementLines,
   hasAnyActualHarvestMatchingRequirementLines,
 } from "./subitemDeliveredQuantity";
-import { effectiveRequiredQuantity } from "./effectiveRequirementQuantity";
+import {
+  effectiveRequiredQuantity,
+  formatRequirementUomDisplay,
+  inferRequirementUom,
+} from "./effectiveRequirementQuantity";
 import { formatProjectTypeForDisplay } from "./projectTypeDisplay";
 
 function normalizeStatus(v: unknown): ProjectStatus {
@@ -92,8 +96,11 @@ export function resolveReactHarvestingImageUrl(fileNameOrUrl: string): string {
 
 /** Kg → sprig; M2 / m² → sod (card grass requirement label). */
 export function sprigSodLabelFromUom(uom: string | undefined): "sprig" | "sod" {
-  const n = String(uom ?? "").trim().toLowerCase();
-  if (n === "m2" || n === "sqm" || n === "m²") return "sod";
+  const n = String(uom ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/²|³/g, (ch) => (ch === "²" ? "2" : "3"));
+  if (n === "m2" || n === "sqm") return "sod";
   return "sprig";
 }
 
@@ -104,8 +111,38 @@ export function formatGrassRequirementDisplayName(
 ): string {
   const grass = grassName.trim() || "N/A";
   const area = keyAreaName?.trim();
-  if (!area) return grass;
-  return `${grass} - ${area} - ${sprigSodLabelFromUom(uom)}`;
+  const kind = sprigSodLabelFromUom(uom);
+  if (!area) return `${grass} - ${kind}`;
+  return `${grass} - ${area} - ${kind}`;
+}
+
+/** Required qty + UOM + harvest kind (e.g. `5,678 M2 (sod)`). */
+export function formatGrassRequiredQuantityLabel(
+  required: number,
+  uomRaw: string | undefined,
+): string {
+  const uom = formatRequirementUomDisplay(uomRaw) || inferRequirementUom({ uom: uomRaw });
+  const kind = sprigSodLabelFromUom(uomRaw || uom);
+  const qty = Math.max(0, required).toLocaleString();
+  if (uom) return `${qty} ${uom} (${kind})`;
+  return `${qty} (${kind})`;
+}
+
+/** Delivered / required + UOM + harvest kind + line progress (card & detail). */
+export function formatGrassQuantityProgressLabel(
+  delivered: number,
+  required: number,
+  uomRaw: string | undefined,
+  progressPct: number,
+): string {
+  const uom =
+    formatRequirementUomDisplay(uomRaw) ||
+    inferRequirementUom({ uom: uomRaw });
+  const kind = sprigSodLabelFromUom(uomRaw || uom);
+  const del = Math.max(0, delivered).toLocaleString();
+  const req = Math.max(0, required).toLocaleString();
+  const unitPart = uom ? `${uom} (${kind})` : `(${kind})`;
+  return `${del} / ${req} ${unitPart} — ${progressPct}%`;
 }
 
 function normalizeRequirements(raw: unknown): QuantityRequiredProject[] {
@@ -376,7 +413,7 @@ export function buildProjectDataFromServerRow(
 
     const productName = options.getProductNameById?.(r.product_id) || r.product_id || "N/A";
     const keyAreaName = options.getKeyAreaNameById?.(r.key_area_id);
-    const uom = String(r.uom ?? "").trim();
+    const uom = inferRequirementUom(r) || String(r.uom ?? "").trim();
 
     return {
       name: formatGrassRequirementDisplayName(productName, keyAreaName, uom),

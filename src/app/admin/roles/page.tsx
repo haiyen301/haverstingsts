@@ -14,6 +14,7 @@ import {
   removeRole,
   ROLE_ACTIONS,
   saveRole,
+  VIEW_ALL_DATA_ACTION,
   type RoleAction,
   type RoleModule,
   type RoleRow,
@@ -36,7 +37,9 @@ function emptyForm(): FormState {
   return { title: "", permissions: {} };
 }
 
-function permissionKey(action: RoleAction, moduleName: RoleModule): string {
+type RolePermissionAction = RoleAction | typeof VIEW_ALL_DATA_ACTION;
+
+function permissionKey(action: RolePermissionAction, moduleName: RoleModule): string {
   return `${action}_${moduleName}`;
 }
 
@@ -105,15 +108,25 @@ export default function AdminRolesPage() {
     setOpen(true);
   };
 
-  const togglePermission = (action: RoleAction, moduleName: RoleModule, checked: boolean) => {
-    const key = permissionKey(action, moduleName);
-    setForm((prev) => ({
-      ...prev,
-      permissions: {
-        ...prev.permissions,
-        [key]: checked ? "1" : "",
-      },
-    }));
+  const togglePermission = (
+    action: RolePermissionAction,
+    moduleName: RoleModule,
+    checked: boolean,
+  ) => {
+    setForm((prev) => {
+      const next = { ...prev.permissions };
+      const key = permissionKey(action, moduleName);
+      next[key] = checked ? "1" : "";
+
+      if (action === "can_show" && !checked) {
+        next[permissionKey(VIEW_ALL_DATA_ACTION, moduleName)] = "";
+      }
+      if (action === VIEW_ALL_DATA_ACTION && checked) {
+        next[permissionKey("can_show", moduleName)] = "1";
+      }
+
+      return { ...prev, permissions: next };
+    });
   };
 
   const setActionForAllModules = (action: RoleAction, checked: boolean) => {
@@ -121,13 +134,35 @@ export default function AdminRolesPage() {
       const next = { ...prev.permissions };
       QUICK_ROLE_MODULES.forEach((moduleName) => {
         next[permissionKey(action, moduleName)] = checked ? "1" : "";
+        if (action === "can_show" && !checked) {
+          next[permissionKey(VIEW_ALL_DATA_ACTION, moduleName)] = "";
+        }
       });
       return { ...prev, permissions: next };
     });
   };
 
-  const isActionAllChecked = (action: RoleAction): boolean =>
-    QUICK_ROLE_MODULES.every((moduleName) => form.permissions[permissionKey(action, moduleName)] === "1");
+  const isActionAllChecked = (action: RolePermissionAction): boolean => {
+    return QUICK_ROLE_MODULES.every(
+      (moduleName) => form.permissions[permissionKey(action, moduleName)] === "1",
+    );
+  };
+
+  const setViewAllDataForAllModules = (checked: boolean) => {
+    setForm((prev) => {
+      const next = { ...prev.permissions };
+      QUICK_ROLE_MODULES.forEach((moduleName) => {
+        const showKey = permissionKey("can_show", moduleName);
+        if (checked) {
+          next[showKey] = "1";
+          next[permissionKey(VIEW_ALL_DATA_ACTION, moduleName)] = "1";
+        } else {
+          next[permissionKey(VIEW_ALL_DATA_ACTION, moduleName)] = "";
+        }
+      });
+      return { ...prev, permissions: next };
+    });
+  };
 
   const handleSave = async () => {
     const title = form.title.trim();
@@ -246,7 +281,7 @@ export default function AdminRolesPage() {
 
                 <div className="space-y-3 rounded-lg border border-border p-4">
                   <p className="text-sm font-medium">{t("quickToggle")}</p>
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
                     {ROLE_ACTIONS.map((action) => {
                       const actionKey = action.slice(4) as "show" | "edit" | "create" | "delete" | "import";
                       const label = t(`actions.${actionKey}`);
@@ -272,7 +307,26 @@ export default function AdminRolesPage() {
                         </label>
                       );
                     })}
+                    <label className="relative block cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="sr-only"
+                        checked={isActionAllChecked(VIEW_ALL_DATA_ACTION)}
+                        onChange={(e) => setViewAllDataForAllModules(e.target.checked)}
+                      />
+                      <span
+                        className={`flex h-10 w-full items-center justify-center rounded-md border px-2 text-xs font-medium transition-colors ${
+                          isActionAllChecked(VIEW_ALL_DATA_ACTION)
+                            ? "border-primary bg-primary/5 text-primary"
+                            : "border-input bg-card text-foreground shadow-sm"
+                        }`}
+                      >
+                        {t("actions.view_all_data")}
+                      </span>
+                      {isActionAllChecked(VIEW_ALL_DATA_ACTION) ? <CheckBadge /> : null}
+                    </label>
                   </div>
+                  <p className="text-xs text-muted-foreground">{t("viewAllDataRequiresShow")}</p>
                 </div>
 
                 <div className="overflow-x-auto rounded-lg border border-border">
@@ -288,6 +342,9 @@ export default function AdminRolesPage() {
                           </th>
                           );
                         })}
+                        <th className="w-44 px-4 py-3 text-center text-xs font-medium">
+                          {t("actions.view_all_data")}
+                        </th>
                       </tr>
                     </thead>
                     <tbody>
@@ -326,6 +383,51 @@ export default function AdminRolesPage() {
                               </td>
                             );
                           })}
+                          <td className="px-4 py-2 text-center align-middle">
+                            {(() => {
+                              const viewAllKey = permissionKey(VIEW_ALL_DATA_ACTION, moduleName);
+                              const viewAllChecked = form.permissions[viewAllKey] === "1";
+                              const showChecked =
+                                form.permissions[permissionKey("can_show", moduleName)] === "1";
+                              return (
+                                <label
+                                  className={cn(
+                                    "relative inline-block",
+                                    showChecked ? "cursor-pointer" : "cursor-not-allowed opacity-50",
+                                  )}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    className="sr-only"
+                                    checked={viewAllChecked}
+                                    disabled={!showChecked}
+                                    onChange={(e) =>
+                                      togglePermission(
+                                        VIEW_ALL_DATA_ACTION,
+                                        moduleName,
+                                        e.target.checked,
+                                      )
+                                    }
+                                  />
+                                  <span
+                                    className={`inline-flex h-8 min-w-24 items-center justify-center rounded-md border px-2 text-xs font-medium transition-colors ${
+                                      viewAllChecked
+                                        ? "border-primary bg-primary/5 text-primary"
+                                        : "border-input bg-card text-foreground shadow-sm"
+                                    }`}
+                                  >
+                                    {t("actions.view_all_data")}
+                                  </span>
+                                  {viewAllChecked ? (
+                                    <CheckBadge
+                                      className="left-1 top-1 h-3.5 w-3.5"
+                                      iconClassName="h-2.5 w-2.5"
+                                    />
+                                  ) : null}
+                                </label>
+                              );
+                            })()}
+                          </td>
                         </tr>
                       ))}
                     </tbody>

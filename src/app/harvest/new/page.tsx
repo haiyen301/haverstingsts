@@ -425,6 +425,33 @@ function parseRequirements(raw: unknown, productNameById: Map<string, string>) {
   return out;
 }
 
+/**
+ * Flutter `harvesting_form` grass dropdown: when `quantityRequiredSprigSod` is non-empty,
+ * only those `product_id` values are listed (sales-window filter still applied upstream).
+ * Keeps `pinnedGrassId` visible for edit / out-of-window rows.
+ */
+function filterGrassRowsForProjectRequirements(
+  catalogRows: unknown[],
+  requirements: QuantityRequirement[],
+  pinnedGrassId: string,
+): unknown[] {
+  const requiredIds = new Set(
+    requirements
+      .map((r) => r.productId.trim())
+      .filter((id) => id !== ""),
+  );
+  if (requiredIds.size === 0) {
+    return catalogRows;
+  }
+  const pinned = pinnedGrassId.trim();
+  return catalogRows.filter((row) => {
+    if (!row || typeof row !== "object") return false;
+    const id = String((row as Record<string, unknown>).id ?? "").trim();
+    if (!id) return false;
+    return requiredIds.has(id) || (pinned !== "" && id === pinned);
+  });
+}
+
 function requirementMatchesFormUom(req: QuantityRequirement, formUomRaw: string): boolean {
   const formKey = normUomKey(formUomRaw);
   if (formKey === "kg") {
@@ -817,10 +844,6 @@ function HarvestInputPageInner() {
     formData.actualHarvestEndDate,
     formData.grass,
   ]);
-  const productOptions = useMemo(
-    () => mapRowsToSelectOptions(grassRowsForSelect as unknown[], "title"),
-    [grassRowsForSelect],
-  );
 
   const filteredFarmZoneRows = useMemo(
     () => filterFarmZoneRowsByFarmId(farmZones, formData.farm),
@@ -892,10 +915,11 @@ function HarvestInputPageInner() {
     () => farmOptions.find((f) => f.id === formData.farm)?.label ?? "",
     [farmOptions, formData.farm],
   );
-  const selectedGrassLabel = useMemo(
-    () => productOptions.find((p) => p.id === formData.grass)?.label ?? "",
-    [formData.grass, productOptions],
-  );
+  const selectedGrassLabel = useMemo(() => {
+    const id = formData.grass.trim();
+    if (!id) return "";
+    return productNameById.get(id) ?? id;
+  }, [formData.grass, productNameById]);
   const selectedZoneLabel = useMemo(
     () => filteredZoneEntries.find(([key]) => key === formData.zone)?.[1] ?? "",
     [filteredZoneEntries, formData.zone],
@@ -1219,6 +1243,36 @@ function HarvestInputPageInner() {
     const row = selected as Record<string, unknown>;
     return parseRequirements(row.quantity_required_sprig_sod, productNameById);
   }, [dynamicProjectRows, formData.project, productNameById, projects]);
+
+  const grassRowsForSelectByProject = useMemo(
+    () =>
+      filterGrassRowsForProjectRequirements(
+        grassRowsForSelect,
+        selectedProjectRequirements,
+        formData.grass,
+      ),
+    [formData.grass, grassRowsForSelect, selectedProjectRequirements],
+  );
+
+  const productOptions = useMemo(
+    () => mapRowsToSelectOptions(grassRowsForSelectByProject as unknown[], "title"),
+    [grassRowsForSelectByProject],
+  );
+
+  useEffect(() => {
+    const projectId = formData.project.trim();
+    if (!projectId) return;
+    const grass = formData.grass.trim();
+    if (!grass) return;
+    const requiredIds = new Set(
+      selectedProjectRequirements
+        .map((r) => r.productId.trim())
+        .filter((id) => id !== ""),
+    );
+    if (requiredIds.size === 0 || requiredIds.has(grass)) return;
+    setFormData((prev) => ({ ...prev, grass: "" }));
+    setFieldErrors((prev) => ({ ...prev, grass: undefined }));
+  }, [formData.grass, formData.project, selectedProjectRequirements]);
 
   /** One row per `product_id` in `quantity_required_sprig_sod`, like Flutter `quantityRequiredSprigSod.firstWhereOrNull`. */
   const requirementForGrass = useMemo(() => {
@@ -1595,7 +1649,7 @@ function HarvestInputPageInner() {
       <DashboardLayout>
         {accessDenied ? (
           <div className="dashboard-harvesting-skin min-h-screen pb-10 lg:pb-14">
-            <div className="mx-auto w-full max-w-[900px] px-4 pt-4 lg:px-6 lg:pt-8">
+            <div className="mx-auto w-full px-4 pt-4 lg:px-6 lg:pt-8">
               <div className="rounded-xl border border-amber-200 bg-amber-50 p-5">
                 <h1 className="font-heading text-xl font-bold text-amber-900">
                   {editId ? t("editTitle") : t("newTitle")}
@@ -1619,7 +1673,7 @@ function HarvestInputPageInner() {
           </div>
         ) : (
           <div className="dashboard-harvesting-skin min-h-screen pb-10 lg:pb-14">
-            <div className="mx-auto w-full max-w-[900px] px-4 pt-4 lg:px-6 lg:pt-8">
+            <div className="mx-auto w-full px-4 pt-4 lg:px-6 lg:pt-8">
               <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
                 <div className="flex items-center gap-3">
                   <button
@@ -1757,12 +1811,18 @@ function HarvestInputPageInner() {
                               return String(row.id ?? "").trim() === project;
                             }) as Record<string, unknown> | undefined;
                             const cid = String(pr?.odoo_customer_id ?? "").trim();
+                            const projectChanged = project !== formData.project;
                             setFormData({
                               ...formData,
                               project,
                               customerId: formData.customerId || cid,
+                              ...(projectChanged ? { grass: "" } : null),
                             });
-                            setFieldErrors((prev) => ({ ...prev, project: undefined }));
+                            setFieldErrors((prev) => ({
+                              ...prev,
+                              project: undefined,
+                              ...(projectChanged ? { grass: undefined } : null),
+                            }));
                           }}
                           multi={false}
                           placeholder={refLoading ? t("loadingProjects") : t("selectProject")}
@@ -1823,6 +1883,16 @@ function HarvestInputPageInner() {
                           value={formData.grass}
                           onChange={(e) => {
                             const grass = e.target.value;
+                            if (
+                              grass &&
+                              selectedProjectRequirements.length > 0 &&
+                              !selectedProjectRequirements.some(
+                                (r) => r.productId === grass,
+                              )
+                            ) {
+                              setFormData((prev) => ({ ...prev, grass: "" }));
+                              return;
+                            }
                             const req =
                               selectedProjectRequirements.find(
                                 (r) => r.productId === grass,
@@ -1834,7 +1904,7 @@ function HarvestInputPageInner() {
                             setFieldErrors((prev) => ({ ...prev, grass: undefined }));
                           }}
                           className={`${harvestFieldClass} ${fieldErrors.grass ? "ring-2 ring-destructive" : ""}`}
-                          disabled={formDisabled}
+                          disabled={formDisabled || !formData.project.trim()}
                         >
                           <option value="">
                             {refLoading ? t("loadingGrassTypes") : t("selectGrassType")}

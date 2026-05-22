@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
@@ -49,7 +49,12 @@ import { effectiveRequiredQuantityFromRecord } from "@/features/project/lib/effe
 import { useLocale } from "next-intl";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
 import { translateProjectType } from "@/features/project/lib/projectTypeDisplay";
-import { formatGrassRequirementDisplayName } from "@/features/project/lib/buildProjectCardData";
+import {
+  formatGrassQuantityProgressLabel,
+  formatGrassRequiredQuantityLabel,
+  formatGrassRequirementDisplayName,
+} from "@/features/project/lib/buildProjectCardData";
+import { inferRequirementUom } from "@/features/project/lib/effectiveRequirementQuantity";
 import { cn } from "@/lib/utils";
 import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
 import { DatePicker } from "@/shared/ui/date-picker";
@@ -59,6 +64,91 @@ import { Fancybox } from "@fancyapps/ui";
 import "swiper/css";
 import "swiper/css/free-mode";
 import "@fancyapps/ui/dist/fancybox/fancybox.css";
+
+const HARVEST_HISTORY_PER_PAGE = 30;
+
+function mergeHarvestPlanRows(
+  prev: Array<Record<string, unknown>>,
+  next: Array<Record<string, unknown>>,
+): Array<Record<string, unknown>> {
+  const seen = new Set(
+    prev.map((r) => String(r.id ?? "").trim()).filter(Boolean),
+  );
+  const out = [...prev];
+  for (const r of next) {
+    const id = String(r.id ?? "").trim();
+    if (id && seen.has(id)) continue;
+    if (id) seen.add(id);
+    out.push(r);
+  }
+  return out;
+}
+
+function harvestPlanHasMoreFromResponse(
+  loadedCount: number,
+  lastPageRowCount: number,
+  totalRecords: number | null,
+): boolean {
+  if (totalRecords != null) return loadedCount < totalRecords;
+  return lastPageRowCount >= HARVEST_HISTORY_PER_PAGE;
+}
+
+function buildProjectDetailHarvestApiParams(
+  projectId: string,
+  page: number,
+  canShowProjects: boolean,
+): Record<string, string | number | undefined> {
+  const base: Record<string, string | number | undefined> = {
+    project_id: projectId,
+    per_page: HARVEST_HISTORY_PER_PAGE,
+    page,
+  };
+  if (canShowProjects) {
+    base.project_detail_scope = 1;
+    base.view_all_data_module = "projects";
+  }
+  return base;
+}
+
+async function fetchAllHarvestPlanPagesForProject(
+  projectId: string,
+  canShowProjects: boolean,
+): Promise<{
+  planRows: Array<Record<string, unknown>>;
+  totalRecords: number | null;
+}> {
+  let page = 1;
+  let allRows: Array<Record<string, unknown>> = [];
+  let totalRecords: number | null = null;
+  const maxPages = 50;
+
+  for (;;) {
+    const h = await stsProxyGetHarvestingIndex(
+      buildProjectDetailHarvestApiParams(projectId, page, canShowProjects),
+    );
+    const pageRows = h.rows.filter(
+      (x): x is Record<string, unknown> => !!x && typeof x === "object",
+    );
+    if (totalRecords == null && h.totalRecords != null) {
+      totalRecords = h.totalRecords;
+    }
+    if (pageRows.length === 0) break;
+    allRows = mergeHarvestPlanRows(allRows, pageRows);
+    if (
+      !harvestPlanHasMoreFromResponse(
+        allRows.length,
+        pageRows.length,
+        h.totalRecords,
+      )
+    ) {
+      break;
+    }
+    page += 1;
+    if (page > maxPages) break;
+  }
+
+  return { planRows: allRows, totalRecords };
+}
 
 type GrassRow = {
   id: string;
@@ -445,6 +535,7 @@ export default function ProjectDetailPage() {
   const canEditProjects = canAccessModule(user, "projects", "edit");
   const canDeleteProjects = canAccessModule(user, "projects", "delete");
   const canManageProject = canEditProjects || canDeleteProjects;
+  const canShowProjects = canAccessModule(user, "projects", "show");
   const canCreateHarvest = canAccessModule(user, "harvests", "create");
   const canEditHarvest = canAccessModule(user, "harvests", "edit");
   const canDeleteHarvest = canAccessModule(user, "harvests", "delete");
@@ -501,6 +592,14 @@ export default function ProjectDetailPage() {
   );
   const [harvestDateFrom, setHarvestDateFrom] = useState("");
   const [harvestDateTo, setHarvestDateTo] = useState("");
+  const [harvestPlanLoadingMore, setHarvestPlanLoadingMore] = useState(false);
+  const [harvestPlanHasMore, setHarvestPlanHasMore] = useState(false);
+  const [harvestPlanTotalRecords, setHarvestPlanTotalRecords] = useState<
+    number | null
+  >(null);
+  const harvestPlanPageRef = useRef(0);
+  const harvestLoadMoreLockRef = useRef(false);
+  const harvestLoadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
   const currentProjectId = useMemo(
     () => String(projectRow?.project_id ?? "").trim(),
     [projectRow],
@@ -597,12 +696,84 @@ export default function ProjectDetailPage() {
     return [...fromPlan, ...fromSubitemsOnly];
   }, [harvestSource, locale, productMap, farmZonesForHarvest, farmsForHarvest]);
 
+  const loadMoreHarvestPlan = useCallback(async () => {
+    const projectId = String(harvestSource?.projectId ?? "").trim();
+    if (!projectId || harvestLoadMoreLockRef.current) return;
+    harvestLoadMoreLockRef.current = true;
+    setHarvestPlanLoadingMore(true);
+    const nextPage = harvestPlanPageRef.current + 1;
+    try {
+      const h = await stsProxyGetHarvestingIndex(
+        buildProjectDetailHarvestApiParams(projectId, nextPage, canShowProjects),
+      );
+      const pageRows = h.rows.filter(
+        (x): x is Record<string, unknown> => !!x && typeof x === "object",
+      );
+      if (pageRows.length === 0) {
+        setHarvestPlanHasMore(false);
+        return;
+      }
+      if (h.totalRecords != null) {
+        setHarvestPlanTotalRecords(h.totalRecords);
+      }
+      let mergedCount = 0;
+      setHarvestSource((prev) => {
+        if (!prev) return prev;
+        const merged = mergeHarvestPlanRows(prev.planRows, pageRows);
+        mergedCount = merged.length;
+        return { ...prev, planRows: merged };
+      });
+      setHarvestPlanHasMore(
+        harvestPlanHasMoreFromResponse(
+          mergedCount,
+          pageRows.length,
+          h.totalRecords,
+        ),
+      );
+      harvestPlanPageRef.current = nextPage;
+    } catch {
+      /* keep hasMore; scroll again to retry */
+    } finally {
+      harvestLoadMoreLockRef.current = false;
+      setHarvestPlanLoadingMore(false);
+    }
+  }, [canShowProjects, harvestSource?.projectId]);
+
+  useEffect(() => {
+    const el = harvestLoadMoreSentinelRef.current;
+    if (!el || loading || !harvestPlanHasMore || !harvestSource) return;
+
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((e) => e.isIntersecting)) return;
+        if (harvestLoadMoreLockRef.current || loading || harvestPlanLoadingMore) {
+          return;
+        }
+        void loadMoreHarvestPlan();
+      },
+      { root: null, rootMargin: "160px", threshold: 0 },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [
+    loading,
+    harvestPlanHasMore,
+    harvestPlanLoadingMore,
+    harvestSource,
+    loadMoreHarvestPlan,
+  ]);
+
   useEffect(() => {
     let mounted = true;
     void (async () => {
       try {
         setLoading(true);
         setError(null);
+        harvestPlanPageRef.current = 0;
+        harvestLoadMoreLockRef.current = false;
+        setHarvestPlanHasMore(false);
+        setHarvestPlanTotalRecords(null);
+        setHarvestPlanLoadingMore(false);
         const normalizedTableId = tableId.trim();
         const normalizedProjectId = projectIdFromQuery.trim();
         if (!rowId && !normalizedProjectId) {
@@ -639,15 +810,17 @@ export default function ProjectDetailPage() {
         if (projectId) {
           const requirementRows = parseRequirements(row.quantity_required_sprig_sod);
           const projectSubitems = parseSubitems(row.subitems);
-          const h = await stsProxyGetHarvestingIndex({
-            project_id: projectId,
-            per_page: 30,
-            page: 1,
-          });
-          if (!mounted) return;
-          const planRows = h.rows.filter(
-            (x): x is Record<string, unknown> => !!x && typeof x === "object",
+          const { planRows, totalRecords } = await fetchAllHarvestPlanPagesForProject(
+            projectId,
+            canShowProjects,
           );
+          if (!mounted) return;
+          harvestPlanPageRef.current = Math.max(
+            1,
+            Math.ceil(planRows.length / HARVEST_HISTORY_PER_PAGE),
+          );
+          setHarvestPlanTotalRecords(totalRecords);
+          setHarvestPlanHasMore(false);
           setProjectRow(row);
           const deliveredRows = buildDeliveredQuantitySourceRows(
             projectSubitems,
@@ -705,7 +878,7 @@ export default function ProjectDetailPage() {
     return () => {
       mounted = false;
     };
-  }, [projectIdFromQuery, rowId, tableId]);
+  }, [canShowProjects, projectIdFromQuery, rowId, tableId]);
 
   useEffect(() => {
     Fancybox.bind(".harvest-fancybox-trigger", {
@@ -787,7 +960,12 @@ export default function ProjectDetailPage() {
         : parseSubitems(projectRow.subitems);
     return req.map((r, idx) => {
       const productId = String(r.product_id ?? "").trim();
-      const uom = String(r.uom ?? "").trim();
+      const uom =
+        inferRequirementUom({
+          uom: String(r.uom ?? "").trim() || undefined,
+          quantity_m2: r.quantity_m2 as string | number | null | undefined,
+          quantity_kg: r.quantity_kg as string | number | null | undefined,
+        }) || String(r.uom ?? "").trim();
       const required = effectiveRequiredQuantityFromRecord(r as Record<string, unknown>);
       const delivered = calculateDeliveredQuantityDeliveryOnly(
         sourceRows,
@@ -1085,11 +1263,20 @@ export default function ProjectDetailPage() {
                     ) : (
                       sortedGrassRows.map((g) => (
                         <div key={g.id}>
-                          <div className="mb-1 flex justify-between text-sm">
-                            <span className="font-medium text-foreground">{g.name}</span>
-                            <span className="text-muted-foreground">
-                              {g.delivered.toLocaleString()} / {g.required.toLocaleString()}
-                              {g.uom ? ` ${g.uom}` : ""} — {g.progress}%
+                          <div className="mb-1 flex justify-between gap-2 text-sm">
+                            <div className="min-w-0">
+                              <span className="block font-medium text-foreground">{g.name}</span>
+                              <span className="block tabular-nums text-muted-foreground">
+                                {formatGrassRequiredQuantityLabel(g.required, g.uom)}
+                              </span>
+                            </div>
+                            <span className="shrink-0 text-right tabular-nums text-muted-foreground">
+                              {formatGrassQuantityProgressLabel(
+                                g.delivered,
+                                g.required,
+                                g.uom,
+                                g.progress,
+                              )}
                             </span>
                           </div>
                           <DetailProgress value={g.progress} className="h-1.5" />
@@ -1181,7 +1368,9 @@ export default function ProjectDetailPage() {
                       {t("harvestHistory")}
                     </h2>
                     <p className="mt-1.5 text-sm text-muted-foreground">
-                      {t("harvestHistoryRecordCount", { count: harvests.length })}
+                      {t("harvestHistoryRecordCount", {
+                        count: harvestPlanTotalRecords ?? harvests.length,
+                      })}
                     </p>
                   </div>
                   {canCreateHarvest ? (
@@ -1407,6 +1596,19 @@ export default function ProjectDetailPage() {
                       </table>
                     </div>
                   )}
+                  {harvestPlanHasMore ? (
+                    <div
+                      ref={harvestLoadMoreSentinelRef}
+                      className="flex min-h-10 items-center justify-center py-4"
+                      aria-hidden={!harvestPlanLoadingMore}
+                    >
+                      {harvestPlanLoadingMore ? (
+                        <p className="text-sm text-muted-foreground">
+                          {t("loadingMoreHarvest")}
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </div>

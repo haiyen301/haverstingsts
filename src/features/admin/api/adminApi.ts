@@ -48,9 +48,11 @@ export function isProjectCatalogKey(settingKey: string | null | undefined): bool
 
 export type ZoneSetupRow = {
   id: number | string;
+  /** Comma-separated farm ids, e.g. `"1,2,3"`. `"0"` when global. */
   farm_id: number | string;
   is_global?: boolean;
   farm_name?: string | null;
+  farm_names?: string[];
   country_name?: string | null;
   zone_name: string;
   label?: string | null;
@@ -62,7 +64,8 @@ export type ZoneSetupRow = {
 
 export type ZoneSetupSavePayload = {
   id?: number;
-  farm_id?: number;
+  /** Comma-separated farm ids, e.g. `"1,2,3"`. */
+  farm_id?: string;
   is_global?: boolean;
   zone_name: string;
 };
@@ -431,9 +434,44 @@ export type KeyAreaSavePayload = {
   sort_order?: number;
 };
 
+/** Alphabetical tie-breaker / default placement for new or renamed rows. */
+export function compareKeyAreaRowsByTitle(a: KeyAreaRow, b: KeyAreaRow): number {
+  return (
+    String(a.title ?? "").localeCompare(String(b.title ?? ""), undefined, {
+      sensitivity: "base",
+    }) || Number(a.id) - Number(b.id)
+  );
+}
+
+export function sortKeyAreaRowsByTitle(list: KeyAreaRow[]): KeyAreaRow[] {
+  return [...list].sort(compareKeyAreaRowsByTitle);
+}
+
+/** Display order: persisted sort_order first, then title. */
+export function sortKeyAreaRowsBySortOrder(list: KeyAreaRow[]): KeyAreaRow[] {
+  return [...list].sort(
+    (a, b) =>
+      Number(a.sort_order ?? 0) - Number(b.sort_order ?? 0) ||
+      compareKeyAreaRowsByTitle(a, b),
+  );
+}
+
+export function sortKeyAreaRows(list: KeyAreaRow[]): KeyAreaRow[] {
+  return sortKeyAreaRowsBySortOrder(list);
+}
+
+/** Place one row at its alphabetical slot; keeps each row's current sort_order until persisted. */
+export function keyAreaListInAlphaOrder(
+  list: KeyAreaRow[],
+  item: KeyAreaRow,
+): KeyAreaRow[] {
+  const without = list.filter((row) => Number(row.id) !== Number(item.id));
+  return sortKeyAreaRowsByTitle([...without, item]);
+}
+
 export async function fetchKeyAreas(): Promise<KeyAreaRow[]> {
   const data = await stsProxyGet<unknown[]>(STS_API_PATHS.keyareas);
-  return Array.isArray(data) ? (data as KeyAreaRow[]) : [];
+  return sortKeyAreaRowsBySortOrder(Array.isArray(data) ? (data as KeyAreaRow[]) : []);
 }
 
 export async function saveKeyArea(payload: KeyAreaSavePayload): Promise<KeyAreaRow> {

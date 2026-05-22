@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { DashboardAccessDebug } from "@/app/dashboard/DashboardAccessDebug";
 import { getModuleAccess } from "@/shared/server/accessGuard";
 import { BlankPage } from "@/shared/ui/BlankPage";
 
@@ -9,10 +10,18 @@ export default async function DashboardLayoutGuard({
 }) {
  
   const access = await getModuleAccess("dashboard");
-  
-  if (!access.create && !access.edit && !access.delete) {
-    return <BlankPage title="Dashboard" />;
+  const canViewDashboard = access.viewAllData;
+  if (!canViewDashboard) {
+    return (
+      <>
+        <BlankPage title="Dashboard" />
+      </>
+    );
   }
 
-  return <>{children}</>;
+  return (
+    <>
+      {children}
+    </>
+  );
 }

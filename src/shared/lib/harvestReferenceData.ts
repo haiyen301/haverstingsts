@@ -6,9 +6,11 @@
 export type HarvestSelectOption = { id: string; label: string };
 export type FarmZoneReferenceRow = {
   id?: string | number;
+  /** Comma-separated farm ids, e.g. `"1,2,3"`. */
   farm_id?: string | number;
   is_global?: boolean;
   farm_name?: string | null;
+  farm_names?: string[];
   country_name?: string | null;
   zone_name?: string | null;
   label?: string | null;
@@ -16,9 +18,19 @@ export type FarmZoneReferenceRow = {
   legacy_key?: string | null;
 };
 
+export function parseFarmIdCsv(value: string | number | null | undefined): string[] {
+  const raw = String(value ?? "").trim();
+  if (!raw || raw === "0") return [];
+  return raw
+    .split(",")
+    .map((part) => part.trim())
+    .filter((part) => part !== "" && part !== "0");
+}
+
 export type KeyAreaReferenceRow = {
   id: string;
   title: string;
+  sort_order?: number;
 };
 
 export function mapRowsToSelectOptions(
@@ -59,11 +71,16 @@ export function normalizeFarmZoneRows(farmZones: unknown): FarmZoneReferenceRow[
       r.legacy_key != null && String(r.legacy_key).trim() !== ""
         ? String(r.legacy_key).trim()
         : null;
+    const farmNamesRaw = Array.isArray(r.farm_names) ? r.farm_names : [];
+    const farmNames = farmNamesRaw
+      .map((value) => String(value ?? "").trim())
+      .filter((value) => value !== "");
     out.push({
       id: id || undefined,
       farm_id: r.farm_id as string | number | undefined,
       is_global: Boolean(r.is_global),
       farm_name: r.farm_name != null ? String(r.farm_name) : null,
+      farm_names: farmNames.length ? farmNames : undefined,
       country_name: r.country_name != null ? String(r.country_name) : null,
       zone_name: displayName,
       label: String(r.label ?? r.zone_name ?? displayName).trim() || displayName,
@@ -84,9 +101,17 @@ export function normalizeKeyAreaRows(raw: unknown): KeyAreaReferenceRow[] {
     const id = String(r.id ?? "").trim();
     const title = String(r.title ?? "").trim();
     if (!id || !title) continue;
-    out.push({ id, title });
+    out.push({
+      id,
+      title,
+      sort_order: Number(r.sort_order ?? 0),
+    });
   }
-  return out;
+  return out.sort(
+    (a, b) =>
+      Number(a.sort_order ?? 0) - Number(b.sort_order ?? 0) ||
+      a.title.localeCompare(b.title, undefined, { sensitivity: "base" }),
+  );
 }
 
 /** Resolve stored key-area id or legacy title slug to admin catalog title. */
@@ -152,7 +177,8 @@ export function filterFarmZoneRowsByFarmId(
     if (row.is_global) {
       return true;
     }
-    return String(row.farm_id ?? "").trim() === farmKey;
+
+    return parseFarmIdCsv(row.farm_id).includes(farmKey);
   });
 }
 

@@ -109,6 +109,8 @@ export interface MondayProjectServerRow {
 export type MondayDynamicTableResponse = {
   rows: MondayProjectServerRow[];
   raw: unknown;
+  /** Filtered row count from API (`total_records` when `monday_slice` is set). */
+  totalRecords: number | null;
 };
 
 export type DynamicTableDataQuery = {

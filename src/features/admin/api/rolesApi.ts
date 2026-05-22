@@ -29,6 +29,11 @@ export const ROLE_ACTIONS = [
   "can_import",
 ] as const;
 
+/** Same modules as Quick Toggle — each row can grant full data visibility (requires show). */
+export const VIEW_ALL_DATA_ROLE_MODULES = QUICK_ROLE_MODULES;
+
+export const VIEW_ALL_DATA_ACTION = "can_view_all_data" as const;
+
 export type RoleAction = (typeof ROLE_ACTIONS)[number];
 export type RoleModule = (typeof QUICK_ROLE_MODULES)[number];
 export type RolePermissionKey = `${RoleAction}_${RoleModule}`;

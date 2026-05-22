@@ -1,5 +1,5 @@
 import {
-  stsProxyGet,
+  stsProxyGetFullJson,
   stsProxyPostFormData,
   stsProxyPostJson,
 } from "@/shared/api/stsProxyClient";
@@ -54,7 +54,14 @@ export async function getAllDynamicTableDataFromServer(
     ? `${basePathForList}?${sp.toString()}`
     : basePathForList;
 
-  const data = await stsProxyGet<unknown>(upstreamPath);
+  const json = await stsProxyGetFullJson(upstreamPath);
+  const data = json.data;
+  const hasTotalRecords =
+    Object.prototype.hasOwnProperty.call(json, "total_records") &&
+    json.total_records != null;
+  const tr = Number(json.total_records);
+  const totalRecords: number | null =
+    hasTotalRecords && Number.isFinite(tr) && tr >= 0 ? Math.floor(tr) : null;
 
   const rows: MondayProjectServerRow[] = [];
   const root = (data ?? {}) as Record<string, unknown>;
@@ -112,7 +119,7 @@ export async function getAllDynamicTableDataFromServer(
     }
   }
 
-  return { rows, raw: data };
+  return { rows, raw: data, totalRecords };
 }
 
 /**

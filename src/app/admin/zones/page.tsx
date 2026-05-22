@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Pencil, Plus, Trash2, X } from "lucide-react";
+import { ChevronDown, Globe2, MapPin, Pencil, Plus, Trash2, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import RequireAuth from "@/features/auth/RequireAuth";
 import {
@@ -13,8 +13,9 @@ import {
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { mapRowsToSelectOptions } from "@/shared/lib/harvestReferenceData";
+import { mapRowsToSelectOptions, parseFarmIdCsv } from "@/shared/lib/harvestReferenceData";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
+import { MultiSelect } from "@/shared/ui/multi-select";
 
 const inputClass =
   "flex h-9 w-full min-w-0 rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground shadow-sm outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/35";
@@ -24,20 +25,49 @@ const btnPrimary =
   "inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 const btnGhost =
   "inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+const farmSelectTriggerClass =
+  "h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm hover:bg-muted/50";
 
 type FormState = {
   id?: number;
-  farm_id: string;
+  farm_ids: string[];
   is_global: boolean;
   zone_name: string;
 };
 
 function emptyForm(): FormState {
   return {
-    farm_id: "",
+    farm_ids: [],
     is_global: false,
     zone_name: "",
   };
+}
+
+function resolveFarmIds(row: ZoneSetupRow): string[] {
+  return parseFarmIdCsv(row.farm_id);
+}
+
+function resolveFarmNames(row: ZoneSetupRow): string[] {
+  const fromArray = Array.isArray(row.farm_names)
+    ? row.farm_names.map((value) => String(value ?? "").trim()).filter(Boolean)
+    : [];
+  if (fromArray.length) {
+    return fromArray;
+  }
+
+  const legacy = String(row.farm_name ?? "").trim();
+  if (!legacy || legacy === "All farms") {
+    return [];
+  }
+
+  if (legacy.includes(",")) {
+    return legacy
+      .split(",")
+      .map((part) => part.trim())
+      .filter(Boolean);
+  }
+
+  return [legacy];
 }
 
 function sortRows(rows: ZoneSetupRow[]): ZoneSetupRow[] {
@@ -83,7 +113,11 @@ export default function AdminZonesPage() {
   }, [bootstrapDone, fetchAllHarvestingReferenceData]);
 
   const farmOptions = useMemo(
-    () => mapRowsToSelectOptions(farms as unknown[], "name"),
+    () =>
+      mapRowsToSelectOptions(farms as unknown[], "name").map((farm) => ({
+        value: farm.id,
+        label: farm.label,
+      })),
     [farms],
   );
 
@@ -119,7 +153,7 @@ export default function AdminZonesPage() {
     const numericId = Number(row.id);
     setForm({
       id: Number.isFinite(numericId) && numericId > 0 ? numericId : undefined,
-      farm_id: String(row.farm_id ?? ""),
+      farm_ids: resolveFarmIds(row),
       is_global: Boolean(row.is_global),
       zone_name: String(row.zone_name ?? ""),
     });
@@ -128,10 +162,12 @@ export default function AdminZonesPage() {
   };
 
   const handleSave = async () => {
-    const farmId = Number(form.farm_id);
+    const farmIds = form.farm_ids
+      .map((value) => Number(value))
+      .filter((value) => Number.isFinite(value) && value > 0);
     const zoneName = form.zone_name.trim();
 
-    if ((!form.is_global && farmId <= 0) || !zoneName) {
+    if ((!form.is_global && farmIds.length === 0) || !zoneName) {
       setError(t("errors.required"));
       return;
     }
@@ -141,7 +177,7 @@ export default function AdminZonesPage() {
       setError(null);
       const saved = await saveZone({
         id: form.id,
-        farm_id: form.is_global ? undefined : farmId,
+        farm_id: form.is_global ? undefined : form.farm_ids.join(","),
         is_global: form.is_global,
         zone_name: zoneName,
       });
@@ -193,12 +229,12 @@ export default function AdminZonesPage() {
           </div>
 
           {loading ? <p className="text-sm text-muted-foreground">{t("loading")}</p> : null}
-          {error ? <p className="text-sm text-destructive">{error}</p> : null}
+          {error && !open ? <p className="text-sm text-destructive">{error}</p> : null}
 
           <Card>
             <CardContent className="p-0">
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[780px] text-sm">
+                <table className="w-full min-w-[880px] text-sm">
                   <thead>
                     <tr className="border-b border-border bg-muted/30">
                       <th className="px-4 py-3 text-left font-medium">{t("table.scope")}</th>
@@ -212,24 +248,16 @@ export default function AdminZonesPage() {
                   <tbody>
                     {rows.map((row) => (
                       <tr key={`${row.id}-${row.zone_name}`} className="border-b border-border last:border-b-0">
-                        <td className="px-4 py-3">
-                          {row.is_global ? (
-                            <span className="rounded-full bg-sky-100 px-2 py-0.5 text-xs font-medium text-sky-800 dark:bg-sky-500/15 dark:text-sky-200">
-                              {t("scope.allFarms")}
-                            </span>
-                          ) : (
-                            <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                              {t("scope.singleFarm")}
-                            </span>
-                          )}
+                        <td className="px-4 py-3 align-top">
+                          <ScopeBadge row={row} t={t} />
                         </td>
-                        <td className="px-4 py-3 font-medium">
-                          {row.is_global ? t("scope.allFarms") : row.farm_name ?? row.farm_id}
+                        <td className="px-4 py-3 align-top">
+                          <FarmCoverageCell row={row} t={t} />
                         </td>
-                        <td className="px-4 py-3">{row.zone_name}</td>
-                        <td className="px-4 py-3">{row.created_by_name ?? "-"}</td>
-                        <td className="px-4 py-3">{formatDateTime(row.updated_at)}</td>
-                        <td className="px-4 py-3">
+                        <td className="px-4 py-3 align-top font-medium">{row.zone_name}</td>
+                        <td className="px-4 py-3 align-top">{row.created_by_name ?? "-"}</td>
+                        <td className="px-4 py-3 align-top">{formatDateTime(row.updated_at)}</td>
+                        <td className="px-4 py-3 align-top">
                           <div className="flex items-center justify-end gap-1">
                             <button type="button" className={btnGhost} onClick={() => openEdit(row)}>
                               <Pencil className="h-3.5 w-3.5" />
@@ -278,11 +306,11 @@ export default function AdminZonesPage() {
                     setForm((prev) => ({
                       ...prev,
                       is_global: e.target.value === "all",
-                      farm_id: e.target.value === "all" ? "" : prev.farm_id,
+                      farm_ids: e.target.value === "all" ? [] : prev.farm_ids,
                     }))
                   }
                 >
-                  <option value="farm">{t("scope.singleFarm")}</option>
+                  <option value="farm">{t("scope.selectedFarms")}</option>
                   <option value="all">{t("scope.allFarms")}</option>
                 </select>
               </Field>
@@ -298,24 +326,54 @@ export default function AdminZonesPage() {
                 />
               </Field>
 
-              <Field label={t("form.farmRequired")}>
-                <select
-                  className={inputClass}
-                  value={form.farm_id}
-                  disabled={form.is_global}
-                  onChange={(e) => setForm((prev) => ({ ...prev, farm_id: e.target.value }))}
-                >
-                  <option value="">
-                    {form.is_global ? t("form.allFarmsSelected") : t("form.selectFarm")}
-                  </option>
-                  {farmOptions.map((farm) => (
-                    <option key={farm.id} value={farm.id}>
-                      {farm.label}
-                    </option>
-                  ))}
-                </select>
-              </Field>
+              <div className="space-y-2 sm:col-span-2">
+                <label className="text-sm font-medium">
+                  {form.is_global ? t("form.farmOptional") : t("form.farmsRequired")}
+                </label>
+                {form.is_global ? (
+                  <div className="flex items-start gap-3 rounded-lg border border-sky-200/80 bg-sky-50/70 px-4 py-3 text-sm text-sky-900 dark:border-sky-500/20 dark:bg-sky-500/10 dark:text-sky-100">
+                    <Globe2 className="mt-0.5 h-4 w-4 shrink-0" />
+                    <div>
+                      <p className="font-medium">{t("form.allFarmsSelected")}</p>
+                      <p className="mt-1 text-xs text-sky-800/80 dark:text-sky-200/80">
+                        {t("form.allFarmsHint")}
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-xs text-muted-foreground">{t("form.farmsHint")}</p>
+                    <MultiSelect
+                      options={farmOptions}
+                      values={form.farm_ids}
+                      onChange={(next) => setForm((prev) => ({ ...prev, farm_ids: next }))}
+                      placeholder={t("form.selectFarms")}
+                      showFullSelectedLabels
+                      className={farmSelectTriggerClass}
+                      rightIcon={<ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />}
+                    />
+                    {form.farm_ids.length > 0 ? (
+                      <div className="flex flex-wrap gap-1.5 pt-1">
+                        {form.farm_ids.map((farmId) => {
+                          const label =
+                            farmOptions.find((farm) => farm.value === farmId)?.label ?? farmId;
+                          return (
+                            <span
+                              key={farmId}
+                              className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-800 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-100"
+                            >
+                              {label}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                  </>
+                )}
+              </div>
             </div>
+
+            {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
             <div className="flex justify-end gap-2">
               <button
@@ -342,6 +400,71 @@ export default function AdminZonesPage() {
         ) : null}
       </DashboardLayout>
     </RequireAuth>
+  );
+}
+
+function ScopeBadge({
+  row,
+  t,
+}: {
+  row: ZoneSetupRow;
+  t: ReturnType<typeof useTranslations<"AdminZoneSetup">>;
+}) {
+  if (row.is_global) {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-full bg-sky-100 px-2.5 py-0.5 text-xs font-medium text-sky-800 dark:bg-sky-500/15 dark:text-sky-200">
+        <Globe2 className="h-3 w-3" />
+        {t("scope.allFarms")}
+      </span>
+    );
+  }
+
+  const farmCount = resolveFarmIds(row).length || resolveFarmNames(row).length;
+  const label =
+    farmCount > 1
+      ? t("scope.multipleFarms", { count: farmCount })
+      : t("scope.singleFarm");
+
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-medium text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-200">
+      <MapPin className="h-3 w-3" />
+      {label}
+    </span>
+  );
+}
+
+function FarmCoverageCell({
+  row,
+  t,
+}: {
+  row: ZoneSetupRow;
+  t: ReturnType<typeof useTranslations<"AdminZoneSetup">>;
+}) {
+  if (row.is_global) {
+    return (
+      <div className="space-y-1">
+        <p className="font-medium text-foreground">{t("scope.allFarms")}</p>
+        <p className="text-xs text-muted-foreground">{t("table.allFarmsHint")}</p>
+      </div>
+    );
+  }
+
+  const farmNames = resolveFarmNames(row);
+  if (farmNames.length === 0) {
+    return <span className="text-muted-foreground">-</span>;
+  }
+
+  return (
+    <div className="flex max-w-md flex-wrap gap-1.5">
+      {farmNames.map((name) => (
+        <span
+          key={`${row.id}-${name}`}
+          className="inline-flex items-center rounded-full border border-border bg-background px-2.5 py-0.5 text-xs font-medium text-foreground shadow-sm"
+        >
+          {name}
+        </span>
+      ))}
+    </div>
   );
 }
 

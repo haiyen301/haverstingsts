@@ -39,9 +39,27 @@ function parseCsvParam(v: string | null): string[] {
     .filter(Boolean);
 }
 
-/** No `status` in URL → Flutter-style default; empty param → no status filter. */
+/** URL token meaning “no status filter” (all statuses). */
+const STATUS_FILTER_URL_ALL = "all";
+
+const DEFAULT_STATUS_FILTER_VALUES = ["Ongoing", "Future"] as const;
+
+function serializeStatusFilterToUrl(values: string[]): string {
+  if (values.length === 0) return STATUS_FILTER_URL_ALL;
+  return values.join(",");
+}
+
+/**
+ * - No `status` in URL → default Ongoing + Future (first visit).
+ * - `status=all` → all statuses (no server filter); MultiSelect shows placeholder.
+ * - `status=Done` / `status=Ongoing,Future` → explicit selection.
+ */
 function parseStatusFilterFromUrl(raw: string | null): string[] {
-  if (raw === null) return ["Ongoing", "Future"];
+  if (raw === null) return [...DEFAULT_STATUS_FILTER_VALUES];
+  const trimmed = raw.trim();
+  if (trimmed === "" || trimmed.toLowerCase() === STATUS_FILTER_URL_ALL) {
+    return [];
+  }
   return parseCsvParam(raw);
 }
 
@@ -115,6 +133,21 @@ function makeRowTableKey(row: Record<string, unknown>): string {
 
 const PROJECT_LIST_PAGE_SIZE = 40;
 
+const PROJECT_CARD_STATUS_FILTERS = [
+  "Ongoing",
+  "Future",
+  "Done",
+  "Warning",
+] as const;
+
+function isAllProjectStatusesSelected(values: string[]): boolean {
+  if (values.length === 0) return true;
+  const picked = new Set(
+    values.map((x) => normalizeProjectStatusLabel(x)).filter(Boolean),
+  );
+  return PROJECT_CARD_STATUS_FILTERS.every((s) => picked.has(s));
+}
+
 function mondayRowDedupeKey(row: MondayProjectServerRow): string {
   return makeRowTableKey(row as unknown as Record<string, unknown>);
 }
@@ -144,8 +177,6 @@ export default function ProjectListPage() {
   const user = useAuthUserStore((s) => s.user);
   const canCreateProjects = canAccessModule(user, "projects", "create");
   const canEditProjects = canAccessModule(user, "projects", "edit");
-  const canDeleteProjects = canAccessModule(user, "projects", "delete");
-  const canManageExistingProjects = canEditProjects || canDeleteProjects;
   const canImportProjects = canAccessModule(user, "projects", "import");
   const searchParamsKey = searchParams.toString();
   const [urlReady, setUrlReady] = useState(false);
@@ -178,6 +209,8 @@ export default function ProjectListPage() {
   const fetchAllHarvestingReferenceData = useHarvestingDataStore(
     (s) => s.fetchAllHarvestingReferenceData,
   );
+  const referenceBootstrapDone = useHarvestingDataStore((s) => s.bootstrapDone);
+  const referenceLoading = useHarvestingDataStore((s) => s.loading);
 
   useEffect(() => {
     const parsed = new URLSearchParams(searchParamsKey);
@@ -203,7 +236,7 @@ export default function ProjectListPage() {
       params.set("farm", harvestListFarmFilter.trim());
     if (grassFilterIds.length) params.set("grass", grassFilterIds.join(","));
     if (projectFilterIds.length) params.set("project", projectFilterIds.join(","));
-    params.set("status", statusFilterValues.join(","));
+    params.set("status", serializeStatusFilterToUrl(statusFilterValues));
     const qs = params.toString();
     return qs ? `${pathname}?${qs}` : pathname;
   }, [
@@ -218,6 +251,7 @@ export default function ProjectListPage() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
+  const [totalRecords, setTotalRecords] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<MondayProjectServerRow[]>([]);
   const [manualReloadSeq, setManualReloadSeq] = useState(() => (refreshParam ? 1 : 0));
@@ -275,7 +309,7 @@ export default function ProjectListPage() {
       params.set("farm", harvestListFarmFilter.trim());
     if (grassFilterIds.length) params.set("grass", grassFilterIds.join(","));
     if (projectFilterIds.length) params.set("project", projectFilterIds.join(","));
-    params.set("status", statusFilterValues.join(","));
+    params.set("status", serializeStatusFilterToUrl(statusFilterValues));
     const qs = params.toString();
     if (urlSearchParamsEquivalent(qs, searchParamsKey)) return;
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
@@ -292,14 +326,13 @@ export default function ProjectListPage() {
     urlReady,
   ]);
 
-  const buildStatusQuery = useCallback(
-    () =>
-      statusFilterValues
-        .map((x) => normalizeProjectStatusLabel(x))
-        .filter(Boolean)
-        .join(","),
-    [statusFilterValues],
-  );
+  const buildStatusQuery = useCallback(() => {
+    if (isAllProjectStatusesSelected(statusFilterValues)) return "";
+    return statusFilterValues
+      .map((x) => normalizeProjectStatusLabel(x))
+      .filter(Boolean)
+      .join(",");
+  }, [statusFilterValues]);
 
   useEffect(() => {
     let cancelled = false;
@@ -310,6 +343,7 @@ export default function ProjectListPage() {
         setLoading(true);
         setError(null);
         setRows([]);
+        setTotalRecords(null);
         setHasMore(true);
         const statusQuery = buildStatusQuery();
         const res = await fetchMondayProjectRowsFromServer({
@@ -324,9 +358,15 @@ export default function ProjectListPage() {
         });
         if (cancelled) return;
         const list = res.rows as MondayProjectServerRow[];
+        const total = res.totalRecords;
         setRows(list);
+        setTotalRecords(total);
         pageLoadedRef.current = 1;
-        setHasMore(list.length >= PROJECT_LIST_PAGE_SIZE);
+        setHasMore(
+          total != null
+            ? list.length < total
+            : list.length >= PROJECT_LIST_PAGE_SIZE,
+        );
       } catch (e) {
         if (cancelled) return;
         setRows([]);
@@ -369,9 +409,20 @@ export default function ProjectListPage() {
               setHasMore(false);
               return;
             }
-            setRows((prev) => mergeMondayRowsUnique(prev, list));
+            const total = res.totalRecords;
+            if (total != null) {
+              setTotalRecords(total);
+            }
+            setRows((prev) => {
+              const merged = mergeMondayRowsUnique(prev, list);
+              setHasMore(
+                total != null
+                  ? merged.length < total
+                  : list.length >= PROJECT_LIST_PAGE_SIZE,
+              );
+              return merged;
+            });
             pageLoadedRef.current = nextPage;
-            setHasMore(list.length >= PROJECT_LIST_PAGE_SIZE);
           })
           .catch(() => {
             /* keep hasMore; user can scroll again to retry */
@@ -617,11 +668,18 @@ export default function ProjectListPage() {
     return list;
   }, [farmsRef]);
 
+  /** Total from `sts_projects` via `/api/projects` (catalog), not Monday list rows / load-more. */
+  const catalogProjectTotal = useMemo(() => {
+    return toRecArray(projectsRef).filter((r) => String(r.id ?? "").trim() !== "")
+      .length;
+  }, [projectsRef]);
+
   const projectCountLabel = useMemo(() => {
-    const n = projects.length;
-    if (n >= 100) return t("projectsFoundPlus", { count: formatNumber(n) });
-    return t("projectsFound", { count: n });
-  }, [projects.length, t]);
+    return t("projectsFound", { count: catalogProjectTotal });
+  }, [catalogProjectTotal, t]);
+
+  const countHeaderLoading =
+    (!referenceBootstrapDone && referenceLoading) || loading;
 
   const filterTriggerIcon = (
     <>
@@ -644,7 +702,7 @@ export default function ProjectListPage() {
                 {t("title")}
               </h1>
               <p className="flex items-center gap-2 text-sm text-muted-foreground">
-                {loading ? (
+                {countHeaderLoading ? (
                   <>
                     <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" />
                     <span>{t("loading")}</span>
@@ -774,8 +832,8 @@ export default function ProjectListPage() {
                       const key = String(id ?? "").trim();
                       return key ? keyAreaNameMap.get(key) : undefined;
                     }}
-                    showEditAction={canManageExistingProjects}
-                    onEditProject={() => {
+                    showEditAction={canEditProjects}
+                    onViewProject={() => {
                       const args = buildMondayEditArgs(
                         data as unknown as Record<string, unknown>,
                         rowData,
@@ -787,6 +845,15 @@ export default function ProjectListPage() {
                       ).trim();
                       router.push(
                         `/projects/detail?rowId=${encodeURIComponent(args.rowId ?? "")}&tableId=${encodeURIComponent(args.tableId ?? "")}&projectId=${encodeURIComponent(projectId)}&returnTo=${encodeURIComponent(returnTo)}`,
+                      );
+                    }}
+                    onEditProject={() => {
+                      const args = buildMondayEditArgs(
+                        data as unknown as Record<string, unknown>,
+                        rowData,
+                      );
+                      router.push(
+                        `/projects/new?rowId=${encodeURIComponent(args.rowId ?? "")}&tableId=${encodeURIComponent(args.tableId ?? "")}&returnTo=${encodeURIComponent(returnTo)}`,
                       );
                     }}
                   />

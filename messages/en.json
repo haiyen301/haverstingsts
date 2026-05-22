@@ -644,6 +644,9 @@
     "grassType": "Grass Type",
     "keyArea": "Key Area",
     "selectKeyArea": "Select key area",
+    "keyAreasSelectedCount": "{count} selected",
+    "keyAreasSelectedMore": "+{count} more",
+    "keyAreasManySelectedHint": "Search below to uncheck.",
     "selectCountry": "Select country",
     "selectPersonInCharge": "Select person in charge",
     "selectGrass": "Select grass",
@@ -728,6 +731,7 @@
     "grassesDetails": "Grasses Details",
     "harvestHistory": "Harvest History",
     "harvestHistoryRecordCount": "{count} record(s)",
+    "loadingMoreHarvest": "Loading more harvest records…",
     "missingRowId": "Missing project row id.",
     "cannotFindDetail": "Cannot find project detail.",
     "loadError": "Failed to load project detail.",
@@ -1093,7 +1097,7 @@
   },
   "AdminZoneSetup": {
     "title": "Zone Setup",
-    "description": "Create and maintain the zone list for all farms or for one specific farm. These saved zone names feed harvest forms and zone configuration.",
+    "description": "Create and maintain zone names for all farms or for selected farms. These saved zone names feed harvest forms and zone configuration.",
     "loading": "Loading zones...",
     "addZone": "Add Zone",
     "editZone": "Edit Zone",
@@ -1105,27 +1109,35 @@
     "deleteConfirm": "Delete zone",
     "table": {
       "scope": "Scope",
-      "farm": "Farm",
+      "farm": "Farms",
       "zoneName": "Zone Name",
       "createdBy": "Created By",
       "updatedAt": "Updated At",
-      "actions": "Actions"
+      "actions": "Actions",
+      "allFarmsHint": "Available across every farm in the system."
     },
     "scope": {
       "allFarms": "All farms",
-      "singleFarm": "Specific farm"
+      "singleFarm": "Single farm",
+      "selectedFarms": "Selected farms",
+      "multipleFarms": "{count} farms"
     },
     "form": {
       "scopeRequired": "Scope *",
       "applyToAllFarms": "Apply this zone to all farms",
       "farmRequired": "Farm *",
+      "farmsRequired": "Farms *",
+      "farmOptional": "Farms",
       "allFarmsSelected": "This zone applies to all farms",
+      "allFarmsHint": "No farm selection is needed. The zone will appear in every farm's harvest and configuration lists.",
       "selectFarm": "Select farm",
+      "selectFarms": "Select one or more farms…",
+      "farmsHint": "Choose every farm where this zone name should be available.",
       "zoneNameRequired": "Zone name *",
       "zoneNamePlaceholder": "Enter zone name"
     },
     "errors": {
-      "required": "Zone name is required, and farm is required unless this zone applies to all farms."
+      "required": "Zone name is required, and at least one farm must be selected unless this zone applies to all farms."
     }
   },
   "AdminZones": {
@@ -1563,8 +1575,10 @@
       "edit": "edit",
       "create": "create",
       "delete": "delete",
-      "import": "import"
+      "import": "import",
+      "view_all_data": "view all data"
     },
+    "viewAllDataRequiresShow": "Requires Show on the same module.",
     "modules": {
       "my_alerts": "My Alerts",
       "projects": "Projects",
@@ -1572,14 +1586,14 @@
       "inventory": "Inventory",
       "harvest_schedule": "Harvest Schedule",
       "harvests": "Harvests",
-      "admin_people": "People",
-      "admin_project_types": "Project Types",
-      "admin_architects": "Architects",
-      "admin_zones": "Zones",
-      "admin_regrowth": "Regrowth",
-      "admin_grasses": "Grass types",
-      "admin_key_areas": "Key Areas",
-      "admin_countries": "Countries",
+      "admin_people": "Admin — People",
+      "admin_project_types": "Admin — Project Types",
+      "admin_architects": "Admin — Architects",
+      "admin_zones": "Admin — Zones",
+      "admin_regrowth": "Admin — Regrowth",
+      "admin_grasses": "Admin — Grass types",
+      "admin_key_areas": "Admin — Key Areas",
+      "admin_countries": "Admin — Countries",
       "dashboard": "Dashboard"
     }
   },
