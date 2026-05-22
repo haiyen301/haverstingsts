@@ -17,7 +17,9 @@ export interface ProjectListItemProps {
   getProductNameById?: (productId?: string) => string | undefined;
   getKeyAreaNameById?: (keyAreaId?: string | number) => string | undefined;
   getUserAvatarById?: (userId?: string) => string | undefined;
-  /** Clone of Flutter onEditProject args in monday_screen.dart */
+  /** Opens project detail (card click). */
+  onViewProject?: (args: MondayProjectEditArgs) => void;
+  /** Clone of Flutter onEditProject args in monday_screen.dart (pencil icon). */
   onEditProject?: (args: MondayProjectEditArgs) => void;
   /** Controls visibility of the top-right edit/manage affordance. */
   showEditAction?: boolean;

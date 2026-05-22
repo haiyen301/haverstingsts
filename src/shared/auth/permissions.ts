@@ -16,6 +16,7 @@ export const APP_PERMISSION_ACTIONS = [
   "edit",
   "delete",
   "import",
+  "view_all_data",
 ] as const;
 
 export const APP_PERMISSION_MODULES = [
@@ -108,6 +109,26 @@ export function canAccessModule(
   action: PermissionAction = "show",
 ): boolean {
   return hasModulePermission(moduleName, user, action);
+}
+
+/**
+ * Full data visibility for a module (no farm_id / created_by scoping on the server).
+ * Requires Show on the same module. Super admin always returns true.
+ */
+export function canViewAllModuleData(
+  user: SessionUser | PermissionMap | null | undefined,
+  moduleName: PermissionModule,
+): boolean {
+  if (!hasModulePermission(moduleName, user, "show")) return false;
+  if (isSuperAdmin(user)) return true;
+  const permissions = asPermissionMap(user);
+  if (
+    moduleName === "projects" &&
+    toTruthyPermission(permissions.can_manage_all_projects)
+  ) {
+    return true;
+  }
+  return hasModulePermission(moduleName, user, "view_all_data");
 }
 
 export function buildAclSnapshotFromProfile(profile: unknown): PermissionAclSnapshot {

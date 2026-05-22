@@ -644,6 +644,9 @@
     "grassType": "Loại cỏ",
     "keyArea": "Khu vực chính",
     "selectKeyArea": "Chọn khu vực chính",
+    "keyAreasSelectedCount": "Đã chọn {count}",
+    "keyAreasSelectedMore": "+{count} nữa",
+    "keyAreasManySelectedHint": "Tìm kiếm bên dưới để bỏ chọn.",
     "selectCountry": "Chọn quốc gia",
     "selectPersonInCharge": "Chọn người phụ trách",
     "selectGrass": "Chọn loại cỏ",
@@ -728,6 +731,7 @@
     "grassesDetails": "Chi tiết loại cỏ",
     "harvestHistory": "Lịch sử thu hoạch",
     "harvestHistoryRecordCount": "{count} bản ghi",
+    "loadingMoreHarvest": "Đang tải thêm lịch sử thu hoạch…",
     "missingRowId": "Thiếu row id của dự án.",
     "cannotFindDetail": "Không tìm thấy chi tiết dự án.",
     "loadError": "Không tải được chi tiết dự án.",
@@ -1092,7 +1096,7 @@
   },
   "AdminZoneSetup": {
     "title": "Thiết lập khu vực",
-    "description": "Tạo và quản lý danh sách khu vực cho tất cả nông trại hoặc cho từng nông trại cụ thể. Danh sách này được dùng ở form thu hoạch và phần cấu hình khu vực.",
+    "description": "Tạo và quản lý tên khu vực cho tất cả nông trại hoặc cho các nông trại được chọn. Danh sách này được dùng ở form thu hoạch và phần cấu hình khu vực.",
     "loading": "Đang tải danh sách khu vực...",
     "addZone": "Thêm khu vực",
     "editZone": "Sửa khu vực",
@@ -1107,23 +1111,31 @@
       "zoneName": "Tên khu vực",
       "createdBy": "Tạo bởi",
       "updatedAt": "Cập nhật lúc",
-      "actions": "Thao tác"
+      "actions": "Thao tác",
+      "allFarmsHint": "Khả dụng trên mọi nông trại trong hệ thống."
     },
     "scope": {
       "allFarms": "Tất cả nông trại",
-      "singleFarm": "Riêng từng nông trại"
+      "singleFarm": "Một nông trại",
+      "selectedFarms": "Nông trại được chọn",
+      "multipleFarms": "{count} nông trại"
     },
     "form": {
       "scopeRequired": "Phạm vi *",
       "applyToAllFarms": "Áp dụng khu vực này cho tất cả nông trại",
       "farmRequired": "Nông trại *",
+      "farmsRequired": "Nông trại *",
+      "farmOptional": "Nông trại",
       "allFarmsSelected": "Khu vực này áp dụng cho tất cả nông trại",
+      "allFarmsHint": "Không cần chọn nông trại. Khu vực sẽ xuất hiện trong danh sách thu hoạch và cấu hình của mọi nông trại.",
       "selectFarm": "Chọn nông trại",
+      "selectFarms": "Chọn một hoặc nhiều nông trại…",
+      "farmsHint": "Chọn các nông trại mà tên khu vực này sẽ khả dụng.",
       "zoneNameRequired": "Tên khu vực *",
       "zoneNamePlaceholder": "Nhập tên khu vực"
     },
     "errors": {
-      "required": "Vui lòng nhập tên khu vực và chọn nông trại nếu khu vực này không áp dụng cho tất cả nông trại."
+      "required": "Vui lòng nhập tên khu vực và chọn ít nhất một nông trại nếu khu vực này không áp dụng cho tất cả nông trại."
     }
   },
   "AdminZones": {
@@ -1561,8 +1573,10 @@
       "edit": "sửa",
       "create": "tạo",
       "delete": "xóa",
-      "import": "nhập"
+      "import": "nhập",
+      "view_all_data": "xem tất cả dữ liệu"
     },
+    "viewAllDataRequiresShow": "Cần bật quyền Xem trên cùng module.",
     "modules": {
       "my_alerts": "Cảnh báo của tôi",
       "projects": "Dự án",
@@ -1570,14 +1584,14 @@
       "inventory": "Tồn kho",
       "harvest_schedule": "Lịch thu hoạch",
       "harvests": "Thu hoạch",
-      "admin_people": "Nhân sự",
-      "admin_project_types": "Loại dự án",
-      "admin_architects": "Kiến trúc sư",
-      "admin_zones": "Cấu hình khu vực",
-      "admin_regrowth": "Tái sinh",
-      "admin_grasses": "Loại cỏ",
-      "admin_key_areas": "Khu vực chính",
-      "admin_countries": "Quốc gia",
+      "admin_people": "Admin — Nhân sự",
+      "admin_project_types": "Admin — Loại dự án",
+      "admin_architects": "Admin — Kiến trúc sư",
+      "admin_zones": "Admin — Cấu hình khu vực",
+      "admin_regrowth": "Admin — Tái sinh",
+      "admin_grasses": "Admin — Loại cỏ",
+      "admin_key_areas": "Admin — Khu vực chính",
+      "admin_countries": "Admin — Quốc gia",
       "dashboard": "Bảng điều khiển"
     }
   },

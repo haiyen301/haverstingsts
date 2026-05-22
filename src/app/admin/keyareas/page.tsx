@@ -14,8 +14,10 @@ import { useTranslations } from "next-intl";
 import RequireAuth from "@/features/auth/RequireAuth";
 import {
   fetchKeyAreas,
+  keyAreaListInAlphaOrder,
   removeKeyArea,
   saveKeyArea,
+  sortKeyAreaRows,
   type KeyAreaRow,
 } from "@/features/admin/api/adminApi";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
@@ -40,14 +42,6 @@ function emptyForm(): FormState {
   return { title: "" };
 }
 
-function sortKeyAreaRows(list: KeyAreaRow[]): KeyAreaRow[] {
-  return [...list].sort(
-    (a, b) =>
-      Number(a.sort_order ?? 0) - Number(b.sort_order ?? 0) ||
-      String(a.title ?? "").localeCompare(String(b.title ?? "")),
-  );
-}
-
 function withSortOrders(list: KeyAreaRow[]): KeyAreaRow[] {
   return list.map((row, index) => ({
     ...row,
@@ -69,7 +63,7 @@ function reorderKeyAreaList(
   if (fromIndex < insert) insert -= 1;
   const [removed] = next.splice(fromIndex, 1);
   next.splice(insert, 0, removed);
-  return withSortOrders(next);
+  return next;
 }
 
 function DropInsertionLine({ colSpan }: { colSpan: number }) {
@@ -118,10 +112,11 @@ export default function AdminKeyAreasPage() {
   }, [loadRows]);
 
   const persistSortOrder = useCallback(
-    async (ordered: KeyAreaRow[]) => {
+    async (ordered: KeyAreaRow[], previousRows?: KeyAreaRow[]) => {
+      const baseline = previousRows ?? ordered;
       const withOrder = withSortOrders(ordered);
       const prevById = new Map(
-        ordered.map((r) => [Number(r.id), Number(r.sort_order ?? 0)]),
+        baseline.map((r) => [Number(r.id), Number(r.sort_order ?? 0)]),
       );
       const changed = withOrder.filter(
         (row) => prevById.get(Number(row.id)) !== Number(row.sort_order ?? 0),
@@ -174,32 +169,39 @@ export default function AdminKeyAreasPage() {
       setError(t("errors.titleRequired"));
       return;
     }
-    const maxSort = rows.reduce(
-      (max, r) => Math.max(max, Number(r.sort_order ?? 0)),
-      0,
-    );
+    const existing = form.id
+      ? rows.find((r) => Number(r.id) === Number(form.id))
+      : undefined;
+    const titleChanged =
+      !!existing &&
+      String(existing.title ?? "").trim().toLowerCase() !== title.toLowerCase();
+
     try {
       setSaving(true);
       setError(null);
-      const existing = form.id
-        ? rows.find((r) => Number(r.id) === Number(form.id))
-        : undefined;
+      const previousRows = rows;
       const saved = await saveKeyArea({
         id: form.id,
         title,
-        sort_order: form.id
-          ? Number(existing?.sort_order ?? 0)
-          : maxSort + 10,
+        sort_order: Number(existing?.sort_order ?? 0),
       });
-      setRows((prev) => {
-        const idx = prev.findIndex((r) => Number(r.id) === Number(saved.id));
-        if (idx < 0) {
-          return sortKeyAreaRows([...prev, saved]);
-        }
-        const next = [...prev];
-        next[idx] = { ...saved, sort_order: prev[idx]?.sort_order ?? saved.sort_order };
-        return sortKeyAreaRows(next);
-      });
+
+      if (!form.id || titleChanged) {
+        const merged = form.id
+          ? rows.map((r) => (Number(r.id) === Number(saved.id) ? saved : r))
+          : [...rows, saved];
+        const ordered = keyAreaListInAlphaOrder(merged, saved);
+        setRows(withSortOrders(ordered));
+        await persistSortOrder(ordered, previousRows);
+      } else {
+        const next = rows.map((r) =>
+          Number(r.id) === Number(saved.id)
+            ? { ...saved, sort_order: r.sort_order }
+            : r,
+        );
+        setRows(sortKeyAreaRows(next));
+      }
+
       setOpen(false);
       setForm(emptyForm());
     } catch (e) {
@@ -218,7 +220,7 @@ export default function AdminKeyAreasPage() {
       setError(null);
       await removeKeyArea(id);
       const remaining = rows.filter((r) => Number(r.id) !== id);
-      await persistSortOrder(remaining);
+      await persistSortOrder(remaining, rows);
     } catch (e) {
       setError(e instanceof Error ? e.message : t("errors.delete"));
     } finally {
@@ -277,8 +279,8 @@ export default function AdminKeyAreasPage() {
 
       const reordered = reorderKeyAreaList(rows, sourceId, insertAt);
       if (reordered === rows) return;
-      setRows(reordered);
-      void persistSortOrder(reordered);
+      setRows(withSortOrders(reordered));
+      void persistSortOrder(reordered, rows);
     },
     [dragRowId, persistSortOrder, rows, setDropSlot],
   );

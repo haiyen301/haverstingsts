@@ -7,6 +7,8 @@ import type { BuildProjectDataOptions } from "@/entities/projects";
 import { uploadMondayProjectImageFromCard } from "@/entities/projects";
 import {
   buildProjectDataFromServerRow,
+  formatGrassQuantityProgressLabel,
+  formatGrassRequiredQuantityLabel,
   resolveReactHarvestingImageUrl,
 } from "../lib/buildProjectCardData";
 import {
@@ -96,6 +98,7 @@ export function ProjectListItem({
   getProductNameById,
   getKeyAreaNameById,
   getUserAvatarById,
+  onViewProject,
   onEditProject,
   showEditAction,
 }: ProjectListItemProps) {
@@ -151,8 +154,8 @@ export function ProjectListItem({
   const typeTag = String(data.tags[0] ?? "").trim();
   const extraTags = data.tags.slice(1).filter(Boolean);
   const estimateLabel = String(data.endDate || data.estimatedStartDate || "").trim();
-  const canOpenDetail = Boolean(serverRow && onEditProject);
-  const canShowEditAction = canOpenDetail && (showEditAction ?? true);
+  const canOpenDetail = Boolean(serverRow && (onViewProject || onEditProject));
+  const canShowEditAction = Boolean(serverRow && onEditProject && (showEditAction ?? true));
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [pendingImageFile, setPendingImageFile] = useState<File | null>(null);
   const [pendingImagePreviewUrl, setPendingImagePreviewUrl] = useState<string>("");
@@ -217,13 +220,25 @@ export function ProjectListItem({
     }
   };
 
+  const buildEditArgs = () => ({
+    rowId,
+    tableId,
+    rowData: { ...(serverRow as Record<string, unknown>) },
+  });
+
+  const handleViewDetail = () => {
+    if (!serverRow) return;
+    const args = buildEditArgs();
+    if (onViewProject) {
+      onViewProject(args);
+      return;
+    }
+    onEditProject?.(args);
+  };
+
   const handleEdit = () => {
     if (!serverRow || !onEditProject) return;
-    onEditProject({
-      rowId,
-      tableId,
-      rowData: { ...(serverRow as Record<string, unknown>) },
-    });
+    onEditProject(buildEditArgs());
   };
   return (
     <div className="relative h-full">
@@ -232,8 +247,8 @@ export function ProjectListItem({
           type="button"
           data-no-card-click="true"
           className="absolute top-3 right-3 z-10 inline-flex h-8 w-8 items-center justify-center rounded-md border border-border bg-card/90 text-muted-foreground backdrop-blur transition-colors hover:border-primary/40 hover:text-primary"
-          aria-label={tProject("projectDetails")}
-          title={tProject("projectDetails")}
+          aria-label={tBase("ProjectDetail.editProject")}
+          title={tBase("ProjectDetail.editProject")}
           onClick={(e) => {
             e.stopPropagation();
             handleEdit();
@@ -260,13 +275,13 @@ export function ProjectListItem({
             role={canOpenDetail ? "button" : undefined}
             tabIndex={canOpenDetail ? 0 : undefined}
             aria-label={canOpenDetail ? `${tProject("projectDetails")}: ${data.name}` : undefined}
-            onClick={canOpenDetail ? handleEdit : undefined}
+            onClick={canOpenDetail ? handleViewDetail : undefined}
             onKeyDown={
               canOpenDetail
                 ? (e) => {
                     if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault();
-                      handleEdit();
+                      handleViewDetail();
                     }
                   }
                 : undefined
@@ -374,16 +389,17 @@ export function ProjectListItem({
                 const linePct =
                   req > 0 ? Math.round((Math.min(del, req) / req) * 100) : 0;
                 const uom = String(item.uom ?? "").trim();
-                const uomSuffix = uom ? `\u00a0${uom}` : "";
                 return (
                   <div key={idx} className="text-xs">
                     <div className="mb-1 flex justify-between gap-2">
-                      <span className="min-w-0 truncate font-medium text-foreground">{item.name}</span>
-                      <span className="shrink-0 text-muted-foreground">
-                        {del.toLocaleString()}
-                        {" / "}
-                        {req.toLocaleString()}
-                        {uomSuffix} — {linePct}%
+                      <div className="min-w-0">
+                        <span className="block truncate font-medium text-foreground">{item.name}</span>
+                        {/* <span className="block tabular-nums text-muted-foreground">
+                          {formatGrassRequiredQuantityLabel(req, uom)}
+                        </span> */}
+                      </div>
+                      <span className="shrink-0 text-right tabular-nums text-muted-foreground">
+                        {formatGrassQuantityProgressLabel(del, req, uom, linePct)}
                       </span>
                     </div>
                     <HarvestProgress value={linePct} className="h-1.5" />

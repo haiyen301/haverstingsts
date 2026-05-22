@@ -25,6 +25,34 @@ function nullableQtyColumnPresent(v: unknown): boolean {
   return v != null && v !== "";
 }
 
+/** Display label for requirement UOM (Kg / M2). */
+export function formatRequirementUomDisplay(raw: string | undefined): string {
+  const n = String(raw ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/²|³/g, (ch) => (ch === "²" ? "2" : "3"));
+  if (n === "m2" || n === "sqm") return "M2";
+  if (n === "kg") return "Kg";
+  return String(raw ?? "").trim();
+}
+
+/**
+ * Resolve UOM for display when API omits `uom` but `quantity_kg` / `quantity_m2` are set.
+ */
+export function inferRequirementUom(
+  r: Pick<QuantityRequiredProject, "uom" | "quantity_m2" | "quantity_kg">,
+): string {
+  const fromField = formatRequirementUomDisplay(r.uom);
+  if (fromField) return fromField;
+  const kgP = nullableQtyColumnPresent(r.quantity_kg);
+  const m2P = nullableQtyColumnPresent(r.quantity_m2);
+  if (m2P && !kgP) return "M2";
+  if (kgP && !m2P) return "Kg";
+  if (m2P) return "M2";
+  if (kgP) return "Kg";
+  return "";
+}
+
 /**
  * @param uomBranchSource — requirement line `uom` from JSON, or form-selected UOM (see `effectiveRequiredQuantityForFormUom`).
  */

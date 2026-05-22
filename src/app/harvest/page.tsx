@@ -22,7 +22,7 @@ import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 import RequireAuth from "@/features/auth/RequireAuth";
 import { useSyncedFarmMultiSelect } from "@/shared/hooks/useSyncedFarmMultiSelect";
 import { stsProxyGetHarvestingIndex } from "@/shared/api/stsProxyClient";
-import { canAccessModule } from "@/shared/auth/permissions";
+import { canAccessModule, canViewAllModuleData } from "@/shared/auth/permissions";
 import { useAuthUserStore } from "@/shared/store/authUserStore";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import {
@@ -526,8 +526,12 @@ export default function HarvestListPage() {
   const canDeleteHarvest = canAccessModule(user, "harvests", "delete");
   const canManageExistingHarvest = canEditHarvest || canDeleteHarvest;
   const canImportHarvest = canAccessModule(user, "harvests", "import");
+  const canViewAllHarvestData = canViewAllModuleData(user, "harvests");
   const userId = user?.id;
-  const farmUserMeta = useMemo(() => farmUserMetaForHarvestApi(user), [user]);
+  const farmUserMeta = useMemo(
+    () => (canViewAllHarvestData ? undefined : farmUserMetaForHarvestApi(user)),
+    [user, canViewAllHarvestData],
+  );
   const farms = useHarvestingDataStore((s) => s.farms);
   const projects = useHarvestingDataStore((s) => s.projects);
   const grasses = useHarvestingDataStore((s) => s.grasses);

@@ -644,6 +644,9 @@
     "grassType": "ประเภทหญ้า",
     "keyArea": "พื้นที่หลัก",
     "selectKeyArea": "เลือกพื้นที่หลัก",
+    "keyAreasSelectedCount": "เลือกแล้ว {count}",
+    "keyAreasSelectedMore": "+{count} อื่นๆ",
+    "keyAreasManySelectedHint": "ค้นหาด้านล่างเพื่อยกเลิกการเลือก",
     "selectCountry": "เลือกประเทศ",
     "selectPersonInCharge": "เลือกผู้รับผิดชอบ",
     "selectGrass": "เลือกประเภทหญ้า",
@@ -728,6 +731,7 @@
     "grassesDetails": "รายละเอียดหญ้า",
     "harvestHistory": "ประวัติการเก็บเกี่ยว",
     "harvestHistoryRecordCount": "{count} รายการ",
+    "loadingMoreHarvest": "กำลังโหลดประวัติการเก็บเกี่ยวเพิ่มเติม…",
     "missingRowId": "ไม่พบรหัสแถวโครงการ",
     "cannotFindDetail": "ไม่พบรายละเอียดโครงการ",
     "loadError": "โหลดรายละเอียดโครงการไม่สำเร็จ",
@@ -1092,7 +1096,7 @@
   },
   "AdminZoneSetup": {
     "title": "ตั้งค่าโซน",
-    "description": "สร้างและจัดการรายชื่อโซนสำหรับทุกฟาร์มหรือเฉพาะบางฟาร์ม รายชื่อนี้จะถูกใช้ในฟอร์มเก็บเกี่ยวและหน้าตั้งค่าโซน",
+    "description": "สร้างและจัดการชื่อโซนสำหรับทุกฟาร์มหรือฟาร์มที่เลือก รายชื่อนี้จะถูกใช้ในฟอร์มเก็บเกี่ยวและหน้าตั้งค่าโซน",
     "loading": "กำลังโหลดโซน...",
     "addZone": "เพิ่มโซน",
     "editZone": "แก้ไขโซน",
@@ -1108,23 +1112,31 @@
       "zoneName": "ชื่อโซน",
       "createdBy": "สร้างโดย",
       "updatedAt": "อัปเดตเมื่อ",
-      "actions": "การทำงาน"
+      "actions": "การทำงาน",
+      "allFarmsHint": "ใช้ได้กับทุกฟาร์มในระบบ"
     },
     "scope": {
       "allFarms": "ทุกฟาร์ม",
-      "singleFarm": "เฉพาะฟาร์ม"
+      "singleFarm": "ฟาร์มเดียว",
+      "selectedFarms": "ฟาร์มที่เลือก",
+      "multipleFarms": "{count} ฟาร์ม"
     },
     "form": {
       "scopeRequired": "ขอบเขต *",
       "applyToAllFarms": "ใช้โซนนี้กับทุกฟาร์ม",
       "farmRequired": "ฟาร์ม *",
+      "farmsRequired": "ฟาร์ม *",
+      "farmOptional": "ฟาร์ม",
       "allFarmsSelected": "โซนนี้ใช้กับทุกฟาร์ม",
+      "allFarmsHint": "ไม่ต้องเลือกฟาร์ม โซนนี้จะแสดงในรายการเก็บเกี่ยวและการตั้งค่าของทุกฟาร์ม",
       "selectFarm": "เลือกฟาร์ม",
+      "selectFarms": "เลือกหนึ่งฟาร์มหรือหลายฟาร์ม…",
+      "farmsHint": "เลือกฟาร์มที่ต้องการให้ใช้ชื่อโซนนี้ได้",
       "zoneNameRequired": "ชื่อโซน *",
       "zoneNamePlaceholder": "กรอกชื่อโซน"
     },
     "errors": {
-      "required": "กรุณากรอกชื่อโซน และเลือกฟาร์มหากโซนนี้ไม่ได้ใช้กับทุกฟาร์ม"
+      "required": "กรุณากรอกชื่อโซน และเลือกอย่างน้อยหนึ่งฟาร์มหากโซนนี้ไม่ได้ใช้กับทุกฟาร์ม"
     }
   },
   "AdminZones": {
@@ -1562,8 +1574,10 @@
       "edit": "แก้ไข",
       "create": "สร้าง",
       "delete": "ลบ",
-      "import": "นำเข้า"
+      "import": "นำเข้า",
+      "view_all_data": "ดูข้อมูลทั้งหมด"
     },
+    "viewAllDataRequiresShow": "ต้องเปิดสิทธิ์ ดู ในโมดูลเดียวกัน",
     "modules": {
       "my_alerts": "การแจ้งเตือนของฉัน",
       "projects": "โครงการ",
@@ -1571,14 +1585,14 @@
       "inventory": "สินค้าคงคลัง",
       "harvest_schedule": "ตารางเก็บเกี่ยว",
       "harvests": "การเก็บเกี่ยว",
-      "admin_people": "บุคลากร",
-      "admin_project_types": "ประเภทโครงการ",
-      "admin_architects": "สถาปนิก",
-      "admin_zones": "โซน",
-      "admin_regrowth": "การฟื้นตัว",
-      "admin_grasses": "ประเภทหญ้า",
-      "admin_key_areas": "พื้นที่หลัก",
-      "admin_countries": "ประเทศ",
+      "admin_people": "Admin — บุคลากร",
+      "admin_project_types": "Admin — ประเภทโครงการ",
+      "admin_architects": "Admin — สถาปนิก",
+      "admin_zones": "Admin — โซน",
+      "admin_regrowth": "Admin — การฟื้นตัว",
+      "admin_grasses": "Admin — ประเภทหญ้า",
+      "admin_key_areas": "Admin — พื้นที่หลัก",
+      "admin_countries": "Admin — ประเทศ",
       "dashboard": "แดชบอร์ด"
     }
   },
