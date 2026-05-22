@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import { DashboardAccessDebug } from "@/app/dashboard/DashboardAccessDebug";
 import { getModuleAccess } from "@/shared/server/accessGuard";
 import { BlankPage } from "@/shared/ui/BlankPage";
 
