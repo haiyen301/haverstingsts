@@ -24,6 +24,9 @@
     "country": "Country",
     "company": "Company"
   },
+  "DeploymentBanner": {
+    "testServerMessage": "This is the TEST server"
+  },
   "AppHeader": {
     "alertsBell": "My Alerts",
     "alertsBellUnread": "My Alerts, {count} unread",
@@ -1164,10 +1167,41 @@
       "farm": "Farm",
       "grassType": "Grass Type",
       "zone": "Zone",
+      "effectiveFrom": "From",
+      "effectiveTo": "To",
+      "openEnded": "Open-ended",
+      "inventoryWindow": "Inventory (forecast)",
       "size": "Area (m²)",
       "yield": "Yield (kg/m²)",
       "totalKg": "Max inventory (kg)",
       "actions": "Actions"
+    },
+    "filters": {
+      "dateRangeSection": "Setup period",
+      "dateRangeHint": "Filter zone setups by validity window. Days with an active setup are marked on the calendar.",
+      "dateRangePlaceholder": "From — To",
+      "selectingEndHint": "Select end date",
+      "dateRangeAll": "No date filter — all setup periods included.",
+      "dateRangeActive": "Showing setups overlapping {from} → {to}",
+      "clearDates": "Clear dates",
+      "calendarLegend": "Day has zone setup",
+      "inventoryFullLegend": "Full stock (at max)",
+      "inventoryLimitedLegend": "Limited / below max",
+      "rowCount": "{count} of {total} zones"
+    },
+    "inventory": {
+      "selectFarmGrassHint": "Select a farm and grass type to see full vs limited inventory windows (from regrowth forecast, same as Forecasting).",
+      "panelTitle": "Inventory date windows (forecast)",
+      "panelHint": "Derived from harvest + regrowth, same logic as the Forecasting chart. Green = full (≥ max), amber = limited.",
+      "statusFull": "Full",
+      "statusLimited": "Limit",
+      "windowRange": "{from} → {to}",
+      "windowFromOpen": "{from} → (open)",
+      "kgSummary": "{available} / {max} kg",
+      "loading": "Computing inventory from harvest data…",
+      "loadingShort": "Computing…",
+      "empty": "No inventory windows in the current horizon.",
+      "noForecast": "No forecast"
     },
     "form": {
       "farmRequired": "Farm *",
@@ -1179,10 +1213,24 @@
       "sizeRequired": "Size (m2) *",
       "yieldRequired": "Yield (kg/m2) *",
       "datePlanted": "Date Planted",
-      "maxInventoryComputed": "Saved max inventory (table “Max inventory (kg)” column) = Size × Yield → {kg} kg with current values."
+      "effectiveFrom": "Setup From",
+      "effectiveTo": "Setup To",
+      "datePlaceholder": "dd/M/yyyy",
+      "effectiveWindowHint": "Optional setup period. Leave both blank for a default zone config (unique by farm + grass + zone). Setup To blank = open-ended.",
+      "maxInventoryComputed": "Saved max inventory (table “Max inventory (kg)” column) = Size × Yield → {kg} kg with current values.",
+      "zoneDetailsSection": "Zone details",
+      "capacitySection": "Area & yield",
+      "maxInventoryPreview": "Max inventory (preview)",
+      "maxInventoryFormula": "Size × Yield",
+      "calendarSelectIdentityHint": "Select farm, grass type, and zone to see existing setup dates on the calendar.",
+      "calendarDisabledHint": "Dates with an existing setup (dimmed) cannot be selected."
     },
     "errors": {
-      "required": "Farm, grass, zone, size, and yield are required."
+      "required": "Farm, grass, zone, size, and yield are required.",
+      "dateRange": "Setup To must be on or after Setup From.",
+      "effectiveFromRequiredWhenToSet": "Setup From is required when Setup To is set.",
+      "duplicate": "A zone setup with the same farm, grass type, zone, and date range already exists.",
+      "duplicateNoDates": "A zone setup without dates already exists for this farm, grass type, and zone."
     }
   },
   "AdminCountries": {
@@ -1411,6 +1459,8 @@
       "manualOverrideTooltipHint": "In the stacked chart tooltip, a Manual badge means the current Available value is using an override, while System shows the original calculated value.",
       "maxCapacity": "Max Capacity",
       "maxCapacityHidden": "Max capacity band is hidden because total capacity is much larger than current available inventory.",
+      "overlimit": "Overlimit",
+      "overlimitTotal": "Overlimit (total)",
       "projectedByGrass": "Projected Available Inventory by Grass Type",
       "projectedByFarm": "Projected Available Inventory by Farm — {grass}",
       "stackedHint": "Stacked and colored per grass type to show each variety contribution.",
@@ -1459,7 +1509,11 @@
       "regrowthTooltipNozoneIntoM2Equiv": " (~{m2} m²)",
       "regrowthTooltipCapacity": "Capacity: {kg} kg",
       "mergedHarvestPlans": "{count} harvest plans merged for this regrowth day",
-      "nonzonPoolBadge": "{noZone} +{kg} kg"
+      "nonzonPoolBadge": "{noZone} +{kg} kg",
+      "zoneSetupPeriod": "Setup {from} → {to} · {max} kg",
+      "zoneSetupPeriodOpen": "Setup {from} → (open) · {max} kg",
+      "zoneSetupDefault": "Default · {max} kg",
+      "zoneSetupNotSet": "No zone config"
     },
     "reference": {
       "title": "Regrowth Reference",
@@ -1640,9 +1694,11 @@
     "saveUpdates": "Save Updates",
     "byGrassTitle": "Inventory by Grass Type",
     "byGrassSubtitle": "Farm contribution per grass - balance (kg)",
-    "companyTotal": "Company total: {kg}k kg",
+    "companyTotal": "Company total: {kg} kg",
     "emptyInventory": "No inventory recorded yet.",
     "pieTooltip": "{kg} kg ({pct}%)",
+    "pieTooltipOverlimit": "+{kg} kg overlimit ({pct}%)",
+    "pieOverlimitSlice": "{farm} · overlimit",
     "drillTitle": "{farm} - Stock by Grass Type",
     "close": "Close",
     "drillThGrass": "Grass Type",
@@ -1661,7 +1717,11 @@
     "thSizeM2Short": "Size (m2)",
     "thMaxKg": "Max (kg)",
     "thBalanceKg": "Balance (kg)",
-    "thLevel": "Level"
+    "thLevel": "Level",
+    "overlimitLabel": "overlimit",
+    "overlimitTotal": "Total overlimit: {kg} kg",
+    "overlimitZoneLabel": "Overlimit",
+    "overlimitKg": "Overlimit (kg)"
   },
   "AdminFormCatalog": {
     "architectTitle": "Architects",

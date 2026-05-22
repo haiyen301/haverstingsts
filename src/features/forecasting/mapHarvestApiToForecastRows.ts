@@ -1,5 +1,6 @@
 import { parseISO } from "date-fns";
 
+import { fetchMondayProjectRowsFromServer } from "@/entities/projects";
 import { effectiveHarvestDateYmd } from "@/shared/lib/harvestPlanDates";
 import { stsProxyGetHarvestingIndex } from "@/shared/api/stsProxyClient";
 import { normalizeHarvestTypeStorageKey } from "@/shared/lib/harvestType";
@@ -18,6 +19,10 @@ import {
 import type { ZoneConfigurationRow } from "@/features/admin/api/adminApi";
 
 import type { ForecastHarvestRow } from "./forecastingTypes";
+import {
+  buildRequirementFarmByProjectProduct,
+  enrichHarvestRowsWithResolvedFarm,
+} from "./resolveHarvestPlanFarm";
 
 /** Plan có cột zone (không trống) xử lý trước để phần no-zone spread thấy headroom đã bị plan có zone chiếm. */
 function compareRawHarvestPlansForNoZoneSpread(
@@ -158,6 +163,10 @@ export async function fetchHarvestRowsForForecasting(params: {
   country_id?: string;
   perPage?: number;
   maxPages?: number;
+  /** STS farm reference rows for resolving `farm_name` after grass-requirement fallback. */
+  farms?: unknown[];
+  /** When false, skip reading farm from project grass requirements. Default: true. */
+  resolveFarmFromGrassRequirements?: boolean;
 }): Promise<{ rows: Record<string, unknown>[]; error?: string }> {
   const perPage = params.perPage ?? 200;
   const maxPages = params.maxPages ?? 50;
@@ -194,7 +203,37 @@ export async function fetchHarvestRowsForForecasting(params: {
     }
   }
 
-  return { rows: out };
+  const resolveFarm = params.resolveFarmFromGrassRequirements !== false;
+  const needsGrassFarmFallback =
+    resolveFarm &&
+    out.some(
+      (r) =>
+        harvestPlanScalarFromRaw(r.farm_id) <= 0 &&
+        String(r.project_id ?? "").trim() !== "",
+    );
+
+  if (!needsGrassFarmFallback) {
+    return { rows: out };
+  }
+
+  try {
+    const projectRes = await fetchMondayProjectRowsFromServer({ page: 1, perPage: 500 });
+    const requirementFarmByProjectProduct = buildRequirementFarmByProjectProduct(
+      projectRes.rows,
+    );
+    if (requirementFarmByProjectProduct.size === 0) {
+      return { rows: out };
+    }
+    return {
+      rows: enrichHarvestRowsWithResolvedFarm(
+        out,
+        requirementFarmByProjectProduct,
+        params.farms ?? [],
+      ),
+    };
+  } catch {
+    return { rows: out };
+  }
 }
 
 export function rowsToMockHarvestRows(

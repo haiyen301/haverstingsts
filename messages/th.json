@@ -24,6 +24,9 @@
     "country": "ประเทศ",
     "company": "บริษัท"
   },
+  "DeploymentBanner": {
+    "testServerMessage": "นี่คือเซิร์ฟเวอร์ TEST"
+  },
   "AppHeader": {
     "alertsBell": "การแจ้งเตือนของฉัน",
     "alertsBellUnread": "การแจ้งเตือนของฉัน ยังไม่อ่าน {count} รายการ",
@@ -1163,10 +1166,41 @@
       "farm": "Farm",
       "grassType": "Grass Type",
       "zone": "Zone",
+      "effectiveFrom": "จากวันที่",
+      "effectiveTo": "ถึงวันที่",
+      "openEnded": "ไม่กำหนดวันสิ้นสุด",
+      "inventoryWindow": "สต็อก (พยากรณ์)",
       "size": "Area (m²)",
       "yield": "Yield (kg/m²)",
       "totalKg": "Max inventory (kg)",
       "actions": "Actions"
+    },
+    "filters": {
+      "dateRangeSection": "ช่วงเวลา setup",
+      "dateRangeHint": "กรองการตั้งค่าโซนตามช่วงที่มีผล วันที่มี setup จะถูกทำเครื่องหมายบนปฏิทิน",
+      "dateRangePlaceholder": "จากวันที่ — ถึงวันที่",
+      "selectingEndHint": "เลือกวันที่สิ้นสุด",
+      "dateRangeAll": "ไม่กรองวันที่ — แสดงทุกช่วง setup",
+      "dateRangeActive": "แสดง setup ที่ทับช่วง {from} → {to}",
+      "clearDates": "ล้างตัวกรองวันที่",
+      "calendarLegend": "วันที่มีการตั้งค่าโซน",
+      "inventoryFullLegend": "สต็อกเต็ม (ถึง max)",
+      "inventoryLimitedLegend": "Limit / ยังไม่เต็ม",
+      "rowCount": "{count} จาก {total} โซน"
+    },
+    "inventory": {
+      "selectFarmGrassHint": "เลือกฟาร์มและประเภทหญ้าเพื่อดูช่วงวันที่สต็อกเต็ม / limit (คำนวณจาก regrowth เหมือน Forecasting)",
+      "panelTitle": "ช่วงวันที่สต็อก (พยากรณ์)",
+      "panelHint": "จาก harvest + regrowth เหมือนกราฟ Forecasting เขียว = เต็ม (≥ max) เหลือง = limit",
+      "statusFull": "เต็ม",
+      "statusLimited": "Limit",
+      "windowRange": "{from} → {to}",
+      "windowFromOpen": "{from} → (เปิด)",
+      "kgSummary": "{available} / {max} kg",
+      "loading": "กำลังคำนวณสต็อกจาก harvest…",
+      "loadingShort": "กำลังคำนวณ…",
+      "empty": "ไม่มีช่วงสต็อกใน horizon ปัจจุบัน",
+      "noForecast": "ไม่มีพยากรณ์"
     },
     "form": {
       "farmRequired": "Farm *",
@@ -1178,10 +1212,24 @@
       "sizeRequired": "Size (m2) *",
       "yieldRequired": "Yield (kg/m2) *",
       "datePlanted": "Date Planted",
-      "maxInventoryComputed": "Max inventory saved (table column “Max inventory (kg)”) = Size × Yield → {kg} kg with current values."
+      "effectiveFrom": "Setup จากวันที่",
+      "effectiveTo": "Setup ถึงวันที่",
+      "datePlaceholder": "dd/M/yyyy",
+      "effectiveWindowHint": "Optional setup period. Leave both blank for a default zone config (unique by farm + grass + zone). Setup To blank = open-ended.",
+      "maxInventoryComputed": "Max inventory saved (table column “Max inventory (kg)”) = Size × Yield → {kg} kg with current values.",
+      "zoneDetailsSection": "Zone details",
+      "capacitySection": "Area & yield",
+      "maxInventoryPreview": "Max inventory (preview)",
+      "maxInventoryFormula": "Size × Yield",
+      "calendarSelectIdentityHint": "Select farm, grass type, and zone to see existing setup dates on the calendar.",
+      "calendarDisabledHint": "Dates with an existing setup (dimmed) cannot be selected."
     },
     "errors": {
-      "required": "Farm, grass, zone, size, and yield are required."
+      "required": "Farm, grass, zone, size, and yield are required.",
+      "dateRange": "วันที่ “ถึง” ต้องไม่ก่อนวันที่ “จาก”",
+      "effectiveFromRequiredWhenToSet": "ต้องเลือกวันที่เริ่มเมื่อตั้งวันที่สิ้นสุด",
+      "duplicate": "มีการตั้งค่าโซนซ้ำสำหรับ farm, ประเภทหญ้า, โซน และช่วงวันที่เดียวกันแล้ว",
+      "duplicateNoDates": "มีการตั้งค่าโซน (ไม่มีวันที่) สำหรับ farm, ประเภทหญ้า และโซนเดียวกันแล้ว"
     }
   },
   "AdminCountries": {
@@ -1410,6 +1458,8 @@
       "manualOverrideTooltipHint": "ใน tooltip ของกราฟแบบซ้อน ป้าย Manual หมายถึงค่า Available ปัจจุบันกำลังใช้ค่า override ส่วน System คือค่าที่ระบบคำนวณไว้เดิมเพื่อใช้อ้างอิง",
       "maxCapacity": "ความจุสูงสุด",
       "maxCapacityHidden": "ซ่อนแถบความจุสูงสุด เพราะความจุรวมสูงกว่าสินค้าคงคลังที่พร้อมใช้ในปัจจุบันมาก",
+      "overlimit": "เกินขีดจำกัด",
+      "overlimitTotal": "เกินขีดจำกัด (รวม)",
       "projectedByGrass": "สินค้าคงคลังคาดการณ์ตามชนิดหญ้า",
       "projectedByFarm": "สินค้าคงคลังคาดการณ์ตามฟาร์ม — {grass}",
       "stackedHint": "แสดงแบบซ้อนและแยกสีตามชนิดหญ้าเพื่อดูสัดส่วนของแต่ละชนิด",
@@ -1458,7 +1508,11 @@
       "regrowthTooltipNozoneIntoM2Equiv": " (~{m2} m²)",
       "regrowthTooltipCapacity": "Capacity: {kg} kg",
       "mergedHarvestPlans": "รวม {count} แผนเก็บเกี่ยวสำหรับวันฟื้นตัวนี้",
-      "nonzonPoolBadge": "{noZone} +{kg} kg"
+      "nonzonPoolBadge": "{noZone} +{kg} kg",
+      "zoneSetupPeriod": "Setup {from} → {to} · {max} kg",
+      "zoneSetupPeriodOpen": "Setup {from} → (เปิด) · {max} kg",
+      "zoneSetupDefault": "ค่าเริ่มต้น · {max} kg",
+      "zoneSetupNotSet": "ยังไม่ตั้งค่า zone"
     },
     "reference": {
       "title": "ข้อมูลอ้างอิงการฟื้นตัว",
@@ -1639,9 +1693,11 @@
     "saveUpdates": "บันทึกการอัปเดต",
     "byGrassTitle": "สินค้าคงคลังตามประเภทหญ้า",
     "byGrassSubtitle": "ส่วนร่วมของฟาร์มต่อหญ้า — ยอด (kg)",
-    "companyTotal": "รวมทั้งบริษัท: {kg}k kg",
+    "companyTotal": "รวมทั้งบริษัท: {kg} kg",
     "emptyInventory": "ยังไม่มีข้อมูลสินค้าคงคลัง",
     "pieTooltip": "{kg} kg ({pct}%)",
+    "pieTooltipOverlimit": "+{kg} kg เกินขีดจำกัด ({pct}%)",
+    "pieOverlimitSlice": "{farm} · เกินขีดจำกัด",
     "drillTitle": "{farm} — สต็อกตามประเภทหญ้า",
     "close": "ปิด",
     "drillThGrass": "ประเภทหญ้า",
@@ -1660,7 +1716,11 @@
     "thSizeM2Short": "ขนาด (m2)",
     "thMaxKg": "สูงสุด (kg)",
     "thBalanceKg": "ยอด (kg)",
-    "thLevel": "ระดับ"
+    "thLevel": "ระดับ",
+    "overlimitLabel": "เกินขีดจำกัด",
+    "overlimitTotal": "เกินขีดจำกัดรวม: {kg} kg",
+    "overlimitZoneLabel": "เกินขีดจำกัด",
+    "overlimitKg": "เกินขีดจำกัด (kg)"
   },
   "AdminFormCatalog": {
     "architectTitle": "สถาปนิก",

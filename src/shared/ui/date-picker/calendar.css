@@ -1,0 +1,135 @@
+/* STS calendar — commercial day-picker styling (react-day-picker v9) */
+
+.sts-calendar.rdp-root {
+  --rdp-accent-color: hsl(var(--primary));
+  --rdp-accent-background-color: hsl(var(--primary) / 0.1);
+  --rdp-outside-opacity: 1;
+  --rdp-disabled-opacity: 1;
+  --rdp-day_button-border-radius: 0.375rem;
+  --rdp-selected-border: 2px solid hsl(var(--primary));
+}
+
+.sts-calendar .rdp-selected {
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+.sts-calendar .rdp-day_button {
+  position: relative;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: hsl(var(--foreground));
+  transition:
+    background-color 150ms ease,
+    color 150ms ease,
+    box-shadow 150ms ease,
+    border-color 150ms ease;
+}
+
+/* In-month days — dark and easy to scan */
+.sts-calendar
+  .rdp-day:not(.rdp-outside):not(.rdp-selected):not(.rdp-disabled):not(.rdp-range_start):not(.rdp-range_end)
+  .rdp-day_button {
+  color: hsl(var(--foreground));
+  font-weight: 600;
+}
+
+.sts-calendar .rdp-day:not(.rdp-selected):not(.rdp-disabled):not(.rdp-range_start):not(.rdp-range_end)
+  .rdp-day_button:hover {
+  background-color: hsl(var(--muted));
+}
+
+/*
+ * Outside-month days (Apr/Jun cells while viewing May):
+ * lighter gray, normal weight — clearly NOT the same as disabled/setup dates.
+ */
+.sts-calendar
+  .rdp-outside:not(.rdp-selected):not(.rdp-range_start):not(.rdp-range_end):not(.rdp-disabled)
+  .rdp-day_button {
+  color: hsl(var(--muted-foreground));
+  font-weight: 400;
+  opacity: 1;
+}
+
+.sts-calendar .rdp-outside.rdp-selected,
+.sts-calendar .rdp-outside.rdp-range_start,
+.sts-calendar .rdp-outside.rdp-range_end {
+  opacity: 1;
+}
+
+/* Single-day selection — always high contrast, including outside-month cells */
+.sts-calendar .rdp-selected:not(.rdp-range_start):not(.rdp-range_end):not(.rdp-range_middle)
+  .rdp-day_button {
+  background-color: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  font-weight: 600;
+  border-color: hsl(var(--primary));
+  box-shadow: 0 1px 3px hsl(var(--primary) / 0.28);
+}
+
+.sts-calendar .rdp-today:not(.rdp-selected):not(.rdp-range_start):not(.rdp-range_end) .rdp-day_button {
+  color: hsl(var(--primary));
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1.5px hsl(var(--primary) / 0.45);
+}
+
+.sts-calendar .rdp-disabled:not(.rdp-selected):not(.rdp-range_start):not(.rdp-range_end) .rdp-day_button {
+  color: hsl(var(--muted-foreground) / 0.42);
+  font-weight: 400;
+  text-decoration: line-through;
+  text-decoration-color: hsl(var(--muted-foreground) / 0.5);
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
+/* Disabled outside-month: strikethrough + fade — distinct from plain outside-month gray */
+.sts-calendar
+  .rdp-outside.rdp-disabled:not(.rdp-selected):not(.rdp-range_start):not(.rdp-range_end)
+  .rdp-day_button {
+  color: hsl(var(--muted-foreground) / 0.38);
+}
+
+.sts-calendar
+  .rdp-disabled:not(.rdp-selected):not(.rdp-range_start):not(.rdp-range_end)
+  .rdp-day_button:hover {
+  background: transparent;
+}
+
+/* Range selection (DateRangePicker) */
+.sts-calendar .rdp-range_start .rdp-day_button,
+.sts-calendar .rdp-range_end .rdp-day_button {
+  background-color: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  font-weight: 600;
+  border-color: hsl(var(--primary));
+}
+
+.sts-calendar .rdp-range_middle .rdp-day_button {
+  background-color: hsl(var(--primary) / 0.12);
+  color: hsl(var(--primary));
+  border-radius: 0;
+}
+
+/* Existing setup / marked days */
+.sts-calendar .sts-calendar-day-marked .rdp-day_button::after {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  bottom: 3px;
+  left: 50%;
+  width: 5px;
+  height: 5px;
+  transform: translateX(-50%);
+  border-radius: 9999px;
+  background-color: hsl(var(--success));
+}
+
+.sts-calendar .rdp-selected.sts-calendar-day-marked .rdp-day_button::after,
+.sts-calendar .rdp-range_start.sts-calendar-day-marked .rdp-day_button::after,
+.sts-calendar .rdp-range_end.sts-calendar-day-marked .rdp-day_button::after {
+  background-color: hsl(var(--primary-foreground));
+}
+
+.sts-calendar .rdp-disabled.sts-calendar-day-marked .rdp-day_button::after {
+  background-color: hsl(var(--success));
+}

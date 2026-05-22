@@ -24,6 +24,9 @@
     "country": "Quốc gia",
     "company": "Công ty"
   },
+  "DeploymentBanner": {
+    "testServerMessage": "Đây là server TEST"
+  },
   "AppHeader": {
     "alertsBell": "Cảnh báo của tôi",
     "alertsBellUnread": "Cảnh báo của tôi, {count} chưa đọc",
@@ -1162,10 +1165,41 @@
       "farm": "Nông trại",
       "grassType": "Loại cỏ",
       "zone": "Khu vực",
+      "effectiveFrom": "Từ ngày",
+      "effectiveTo": "Đến ngày",
+      "openEnded": "Không giới hạn",
+      "inventoryWindow": "Tồn kho (dự báo)",
       "size": "Diện tích (m²)",
       "yield": "Năng suất (kg/m²)",
       "totalKg": "Tồn tối đa (kg)",
       "actions": "Thao tác"
+    },
+    "filters": {
+      "dateRangeSection": "Khoảng thời gian setup",
+      "dateRangeHint": "Lọc cấu hình khu vực theo khoảng hiệu lực. Ngày đã có setup được đánh dấu trên lịch.",
+      "dateRangePlaceholder": "Từ ngày — Đến ngày",
+      "selectingEndHint": "Chọn ngày kết thúc",
+      "dateRangeAll": "Không lọc ngày — hiển thị mọi khoảng setup.",
+      "dateRangeActive": "Đang xem setup giao {from} → {to}",
+      "clearDates": "Xóa lọc ngày",
+      "calendarLegend": "Ngày có cấu hình zone",
+      "inventoryFullLegend": "Đủ kho (đạt max)",
+      "inventoryLimitedLegend": "Limit / chưa đủ kho",
+      "rowCount": "{count} / {total} khu vực"
+    },
+    "inventory": {
+      "selectFarmGrassHint": "Chọn nông trại và loại cỏ để xem khoảng ngày đủ kho / limit (tính từ dự báo regrowth giống Forecasting).",
+      "panelTitle": "Khoảng ngày tồn kho (dự báo)",
+      "panelHint": "Tính từ harvest + regrowth, giống biểu đồ Forecasting. Xanh = đủ kho (≥ max), vàng = limit / chưa đủ.",
+      "statusFull": "Đủ kho",
+      "statusLimited": "Limit",
+      "windowRange": "{from} → {to}",
+      "windowFromOpen": "{from} → (mở)",
+      "kgSummary": "{available} / {max} kg",
+      "loading": "Đang tính tồn kho từ harvest…",
+      "loadingShort": "Đang tính…",
+      "empty": "Không có khoảng tồn kho trong horizon hiện tại.",
+      "noForecast": "Không có dự báo"
     },
     "form": {
       "farmRequired": "Nông trại *",
@@ -1177,10 +1211,24 @@
       "sizeRequired": "Diện tích (m2) *",
       "yieldRequired": "Năng suất (kg/m2) *",
       "datePlanted": "Ngày trồng",
-      "maxInventoryComputed": "Tồn tối đa lưu trên server (cột “Tồn tối đa (kg)” ở bảng) = Diện tích × Năng suất → hiện tại ≈ {kg} kg."
+      "effectiveFrom": "Setup từ ngày",
+      "effectiveTo": "Setup đến ngày",
+      "datePlaceholder": "dd/M/yyyy",
+      "effectiveWindowHint": "Khoảng setup tùy chọn. Để trống cả hai = cấu hình mặc định (unique theo farm + loại cỏ + zone). Để trống “Đến ngày” = không giới hạn.",
+      "maxInventoryComputed": "Tồn tối đa lưu trên server (cột “Tồn tối đa (kg)” ở bảng) = Diện tích × Năng suất → hiện tại ≈ {kg} kg.",
+      "zoneDetailsSection": "Thông tin khu vực",
+      "capacitySection": "Diện tích & năng suất",
+      "maxInventoryPreview": "Tồn tối đa (xem trước)",
+      "maxInventoryFormula": "Diện tích × Năng suất",
+      "calendarSelectIdentityHint": "Chọn nông trại, loại cỏ và khu vực để xem ngày đã có setup trên lịch.",
+      "calendarDisabledHint": "Ngày đã có setup (mờ) không thể chọn."
     },
     "errors": {
-      "required": "Vui lòng chọn farm, loại cỏ, khu vực và nhập diện tích, năng suất hợp lệ."
+      "required": "Vui lòng chọn farm, loại cỏ, khu vực và nhập diện tích, năng suất hợp lệ.",
+      "dateRange": "Ngày “Đến” phải sau hoặc bằng ngày “Từ”.",
+      "effectiveFromRequiredWhenToSet": "Phải chọn ngày “Từ” khi đã chọn ngày “Đến”.",
+      "duplicate": "Đã tồn tại cấu hình zone với cùng nông trại, loại cỏ, khu vực và khoảng ngày.",
+      "duplicateNoDates": "Đã tồn tại cấu hình zone (không có ngày) với cùng nông trại, loại cỏ và khu vực."
     }
   },
   "AdminCountries": {
@@ -1409,6 +1457,8 @@
       "manualOverrideTooltipHint": "Trong tooltip của biểu đồ chồng, badge Manual nghĩa là giá trị Available hiện tại đang dùng số override, còn System là số tính gốc để tham chiếu.",
       "maxCapacity": "Công suất tối đa",
       "maxCapacityHidden": "Dải công suất tối đa đang ẩn vì tổng công suất lớn hơn rất nhiều so với tồn kho khả dụng hiện tại.",
+      "overlimit": "Vượt giới hạn",
+      "overlimitTotal": "Vượt giới hạn (tổng)",
       "projectedByGrass": "Tồn kho khả dụng dự kiến theo loại cỏ",
       "projectedByFarm": "Tồn kho khả dụng dự kiến theo trang trại — {grass}",
       "stackedHint": "Biểu đồ chồng và tô màu theo loại cỏ để thể hiện đóng góp của từng loại.",
@@ -1457,7 +1507,11 @@
       "regrowthTooltipNozoneIntoM2Equiv": " (~{m2} m²)",
       "regrowthTooltipCapacity": "Capacity: {kg} kg",
       "mergedHarvestPlans": "{count} kế hoạch thu hoạch gộp cho ngày tái sinh này",
-      "nonzonPoolBadge": "{noZone} +{kg} kg"
+      "nonzonPoolBadge": "{noZone} +{kg} kg",
+      "zoneSetupPeriod": "Setup {from} → {to} · {max} kg",
+      "zoneSetupPeriodOpen": "Setup {from} → (mở) · {max} kg",
+      "zoneSetupDefault": "Mặc định · {max} kg",
+      "zoneSetupNotSet": "Chưa set zone config"
     },
     "reference": {
       "title": "Tham chiếu tái sinh",
@@ -1638,9 +1692,11 @@
     "saveUpdates": "Lưu cập nhật",
     "byGrassTitle": "Tồn kho theo loại cỏ",
     "byGrassSubtitle": "Đóng góp theo trang trại — số dư (kg)",
-    "companyTotal": "Tổng công ty: {kg}k kg",
+    "companyTotal": "Tổng công ty: {kg} kg",
     "emptyInventory": "Chưa có bản ghi tồn kho.",
     "pieTooltip": "{kg} kg ({pct}%)",
+    "pieTooltipOverlimit": "+{kg} kg vượt giới hạn ({pct}%)",
+    "pieOverlimitSlice": "{farm} · vượt giới hạn",
     "drillTitle": "{farm} — Tồn theo loại cỏ",
     "close": "Đóng",
     "drillThGrass": "Loại cỏ",
@@ -1659,7 +1715,11 @@
     "thSizeM2Short": "Diện tích (m2)",
     "thMaxKg": "Tối đa (kg)",
     "thBalanceKg": "Số dư (kg)",
-    "thLevel": "Mức"
+    "thLevel": "Mức",
+    "overlimitLabel": "vượt giới hạn",
+    "overlimitTotal": "Tổng vượt giới hạn: {kg} kg",
+    "overlimitZoneLabel": "Vượt giới hạn",
+    "overlimitKg": "Vượt giới hạn (kg)"
   },
   "AdminFormCatalog": {
     "architectTitle": "Kiến trúc sư",

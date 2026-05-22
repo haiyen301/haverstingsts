@@ -6,6 +6,7 @@ import { getLocale, getMessages } from "next-intl/server";
 import { ThemeProvider } from "@/shared/theme/ThemeProvider";
 import { AppToasts } from "@/shared/ui/AppToasts";
 import { MaintenanceGate } from "@/widgets/system/MaintenanceGate";
+import { TestServerBanner } from "@/widgets/system/TestServerBanner";
 import "./globals.css";
 
 const plusJakartaSans = Plus_Jakarta_Sans({
@@ -59,6 +60,7 @@ export default async function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: themeBootScript }} />
         <NextIntlClientProvider locale={locale} messages={messages}>
           <ThemeProvider>
+            <TestServerBanner />
             <Suspense fallback={null}>
               <MaintenanceGate />
             </Suspense>

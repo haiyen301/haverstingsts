@@ -87,6 +87,10 @@ export type ZoneConfigurationRow = {
   inventory_kg_per_m2: string | number;
   max_inventory_kg: string | number;
   date_planted?: string | null;
+  /** Inclusive start of zone setup validity (yyyy-MM-dd). */
+  effective_from?: string | null;
+  /** Inclusive end of zone setup validity; null = open-ended. */
+  effective_to?: string | null;
 };
 
 export type ZoneConfigurationSavePayload = {
@@ -101,6 +105,8 @@ export type ZoneConfigurationSavePayload = {
   inventory_kg_per_m2: number;
   max_inventory_kg?: number;
   date_planted?: string | null;
+  effective_from?: string | null;
+  effective_to?: string | null;
   status?: string;
 };
 

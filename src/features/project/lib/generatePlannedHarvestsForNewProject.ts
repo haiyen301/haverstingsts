@@ -14,6 +14,8 @@ export type GrassRequirementForHarvestPlan = {
   /** Project form: "Kg" | "M2" */
   uom: string;
   amountRequired: number;
+  /** Optional farm from project grass requirements (`quantity_required_sprig_sod.farm_id`). */
+  farmId?: string;
 };
 
 export type PlannedHarvestSeed = {
@@ -22,6 +24,7 @@ export type PlannedHarvestSeed = {
   uom: "Kg" | "M2";
   harvestType: "sprig" | "sod";
   estimatedHarvestDate: string;
+  farmId?: string;
 };
 
 type HarvestKind = "SPRIG" | "SOD";
@@ -73,6 +76,7 @@ type NormalisedReq = {
   kind: HarvestKind;
   totalKg: number;
   totalAreaM2: number;
+  farmId: string;
 };
 
 function normaliseRequirements(
@@ -94,6 +98,7 @@ function normaliseRequirements(
         kind,
         totalKg,
         totalAreaM2,
+        farmId: String(r.farmId ?? "").trim(),
       };
     });
 }
@@ -218,6 +223,7 @@ export function generatePlannedHarvestsForNewProject(opts: {
       uom,
       harvestType: req.kind === "SPRIG" ? "sprig" : "sod",
       estimatedHarvestDate: isoYmd(date),
+      farmId: req.farmId || undefined,
     });
   };
 
@@ -264,7 +270,7 @@ export function isProjectPaceForHarvestPlan(
 
 /**
  * Creates harvesting plan rows via the same API as `harvest/new` (`flutter_add_new_sub_row`).
- * Farm is intentionally left empty (optional at project-create time).
+ * Uses grass-requirement farm when set; otherwise farm stays empty until first harvest entry.
  */
 export async function persistPlannedHarvestSeedsForProject(params: {
   projectId: string;
@@ -287,7 +293,7 @@ export async function persistPlannedHarvestSeedsForProject(params: {
         {
           projectId: params.projectId,
           productId: row.productId,
-          farmId: "",
+          farmId: row.farmId?.trim() || "",
           zone: "",
           quantity: row.quantity,
           uom: row.uom,
