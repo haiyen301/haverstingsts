@@ -1767,9 +1767,7 @@ export default function ProjectInputPage() {
                             row.grass.trim() ? t("selectKeyArea") : t("selectGrassFirst")
                           }
                           selectionSummary="compact"
-                          compactNameThreshold={6}
-                          compactBadgeNamePreview={3}
-                          maxSelectedChipsPreview={6}
+                    
                           formatSelectedCount={(count) =>
                             t("keyAreasSelectedCount", { count })
                           }
