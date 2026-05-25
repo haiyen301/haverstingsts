@@ -5,7 +5,7 @@ import { format, isValid, parse, parseISO } from "date-fns";
 import { CalendarIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import { Calendar } from "./calendar";
+import { CALENDAR_MARKED_DAY_CLASS, Calendar } from "./calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "./popover";
 
 type DatePickerProps = {
@@ -21,6 +21,10 @@ type DatePickerProps = {
    * (see `markedDateModifierClassName`) in the popover month grid.
    */
   markedDatesYmd?: string[];
+  /** Predicate highlight — takes precedence over `markedDatesYmd` when provided. */
+  isMarkedDate?: (date: Date) => boolean;
+  /** When true, matching days cannot be selected from the calendar or typed in. */
+  isDisabledDate?: (date: Date) => boolean;
   /** Tailwind / utility classes for days listed in `markedDatesYmd`. */
   markedDateModifierClassName?: string;
 };
@@ -34,7 +38,9 @@ export function DatePicker({
   hasError,
   onBlur,
   markedDatesYmd,
-  markedDateModifierClassName = "relative font-semibold after:pointer-events-none after:absolute after:bottom-1 after:left-1/2 after:h-1.5 after:w-1.5 after:-translate-x-1/2 after:rounded-full after:bg-amber-500",
+  isMarkedDate,
+  isDisabledDate,
+  markedDateModifierClassName = CALENDAR_MARKED_DAY_CLASS,
 }: DatePickerProps) {
   const [open, setOpen] = useState(false);
 
@@ -66,18 +72,25 @@ export function DatePicker({
     return out;
   }, [markedDatesYmd]);
 
-  const calendarModifiers = useMemo(
-    () => (markedLocalDates.length > 0 ? { hasMarkedBalance: markedLocalDates } : undefined),
-    [markedLocalDates],
-  );
+  const calendarModifiers = useMemo(() => {
+    if (isMarkedDate) return { hasMarkedBalance: isMarkedDate };
+    if (markedLocalDates.length > 0) return { hasMarkedBalance: markedLocalDates };
+    return undefined;
+  }, [isMarkedDate, markedLocalDates]);
 
   const calendarModifiersClassNames = useMemo(
     () =>
-      markedLocalDates.length > 0 && markedDateModifierClassName
+      (isMarkedDate || markedLocalDates.length > 0) && markedDateModifierClassName
         ? { hasMarkedBalance: markedDateModifierClassName }
         : undefined,
-    [markedDateModifierClassName, markedLocalDates.length],
+    [isMarkedDate, markedDateModifierClassName, markedLocalDates.length],
   );
+
+  const calendarDisabled = useMemo(() => {
+    if (disabled) return true;
+    if (isDisabledDate) return isDisabledDate;
+    return undefined;
+  }, [disabled, isDisabledDate]);
 
   const commitManualDateInput = () => {
     const raw = inputValue.trim();
@@ -108,6 +121,13 @@ export function DatePicker({
       parsedDate.getFullYear() === year;
 
     if (!isStrictlyValid) {
+      setInputValue("");
+      onChange("");
+      onBlur?.();
+      return;
+    }
+
+    if (isDisabledDate?.(parsedDate)) {
       setInputValue("");
       onChange("");
       onBlur?.();
@@ -163,7 +183,7 @@ export function DatePicker({
           </button>
         </PopoverTrigger>
       </div>
-      <PopoverContent className="w-auto p-0" align="start">
+      <PopoverContent className="w-auto overflow-hidden p-0 shadow-lg" align="start">
         <Calendar
           mode="single"
           selected={selectedDate}
@@ -172,10 +192,11 @@ export function DatePicker({
           startMonth={startMonth}
           endMonth={endMonth}
           onSelect={(date) => {
+            if (date && isDisabledDate?.(date)) return;
             onChange(date ? format(date, "yyyy-MM-dd") : "");
             setOpen(false);
           }}
-          disabled={disabled}
+          disabled={calendarDisabled}
           initialFocus
           modifiers={calendarModifiers}
           modifiersClassNames={calendarModifiersClassNames}

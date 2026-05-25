@@ -30,13 +30,13 @@ import {
   type RegrowthReferenceConfig,
 } from "@/features/forecasting/forecastingRegrowth";
 import {
-  buildZoneConfigurationCapacityMap,
-  computeCappedAvailableByZoneAtDate,
-  computeZoneCapacityMap,
+  computeAllocatedAvailableByZoneAtDate,
+} from "@/features/forecasting/forecastAvailableAtDate";
+import {
   forecastLogicalPlanRowId,
   forecastZoneKeyFromRow,
   getRegrowthDateFromHarvest,
-  mergeZoneCapacityMaps,
+  mergeZoneCapacityMapsAtDate,
   sumConfiguredZoneCapKgForFarmProduct,
 } from "@/features/forecasting/inventoryRegrowthCalculator";
 import { applyInventoryAvailableOverridesToZoneMap } from "@/features/forecasting/inventoryAvailableOverrides";
@@ -54,6 +54,10 @@ import {
   fetchZoneConfigurations,
   type ZoneConfigurationRow,
 } from "@/features/admin/api/adminApi";
+import {
+  buildRegrowthZoneSetupBadges,
+  type RegrowthZoneSetupBadge,
+} from "@/features/forecasting/regrowthZoneConfigPeriod";
 import { pickGrassCatalogRows, zoneIdToLabelResolved } from "@/shared/lib/harvestReferenceData";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { useInventoryAvailableOverrideStore } from "@/shared/store/inventoryAvailableOverrideStore";
@@ -70,10 +74,14 @@ type ForecastPoint = {
   date: string;
   available: number;
   calculatedAvailable: number;
+  overlimit: number;
   regrowing: number;
   max: number;
   overrideCount: number;
 };
+
+const OVERLIMIT_SERIES_KEY = "__overlimit__";
+const OVERLIMIT_SERIES_COLOR = "hsl(0, 72%, 48%)";
 
 type SeriesPoint = {
   date: string;
@@ -86,6 +94,10 @@ function seriesSystemKey(key: string): string {
 
 function seriesOverrideCountKey(key: string): string {
   return `__override_count__${key}`;
+}
+
+function seriesOverlimitKey(key: string): string {
+  return `__overlimit__${key}`;
 }
 
 const DEBUG_UPCOMING_FILTER = false;
@@ -668,6 +680,63 @@ function formatDayMonth(ymd: string): string {
   return `${dd}/${mm}`;
 }
 
+function RegrowthZoneSetupBadges({
+  badges,
+  zoneLabelFn,
+  t,
+}: {
+  badges: RegrowthZoneSetupBadge[];
+  zoneLabelFn: (zone: string) => string;
+  t: (key: string, values?: TranslationValues) => string;
+}) {
+  if (badges.length === 0) return null;
+  const showZoneName = badges.length > 1;
+
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+      {badges.map((b) => {
+        const isPeriod = b.kind === "period";
+        const isDefault = b.kind === "default";
+        const rangeLabel = isPeriod
+          ? b.effectiveTo
+            ? t("events.zoneSetupPeriod", {
+                from: formatDayMonth(b.effectiveFrom ?? ""),
+                to: formatDayMonth(b.effectiveTo),
+                max: b.maxKg.toLocaleString(),
+              })
+            : b.effectiveFrom
+              ? t("events.zoneSetupPeriodOpen", {
+                  from: formatDayMonth(b.effectiveFrom),
+                  max: b.maxKg.toLocaleString(),
+                })
+              : t("events.zoneSetupDefault", { max: b.maxKg.toLocaleString() })
+          : isDefault
+            ? t("events.zoneSetupDefault", { max: b.maxKg.toLocaleString() })
+            : t("events.zoneSetupNotSet");
+
+        return (
+          <span
+            key={`${b.zone}-${b.kind}-${b.effectiveFrom ?? ""}-${b.effectiveTo ?? ""}`}
+            className={cn(
+              "inline-flex max-w-full flex-wrap items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium",
+              isPeriod
+                ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                : isDefault
+                  ? "border-slate-200 bg-slate-50 text-slate-700"
+                  : "border-amber-200 bg-amber-50 text-amber-800",
+            )}
+          >
+            {showZoneName ? (
+              <span className="font-semibold">{zoneLabelFn(b.zone)}</span>
+            ) : null}
+            <span className="font-normal tabular-nums">{rangeLabel}</span>
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 function formatDateLong(ymd: string): string {
   const d = parseYmdLocal(ymd);
   if (!d) return ymd;
@@ -699,6 +768,7 @@ function formatSprigRangeForReference(
 export function InventoryForecast() {
   const t = useTranslations("ForecastInventory");
   const farmZones = useHarvestingDataStore((s) => s.farmZones);
+  const farmsRaw = useHarvestingDataStore((s) => s.farms);
   const grasses = useHarvestingDataStore((s) => s.grasses);
   const fetchAllHarvestingReferenceData = useHarvestingDataStore(
     (s) => s.fetchAllHarvestingReferenceData,
@@ -794,6 +864,7 @@ export function InventoryForecast() {
           actual_harvest_date_to: to,
           perPage: 500,
           maxPages: 400,
+          farms: farmsRaw,
         }),
         fetchZoneConfigurations(),
       ]);
@@ -810,7 +881,7 @@ export function InventoryForecast() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [farmsRaw]);
 
   useEffect(() => {
     let alive = true;
@@ -882,20 +953,19 @@ export function InventoryForecast() {
     ],
   );
 
-  const zoneCapacityByKey = useMemo(
+  const zoneCapacityByKeyToday = useMemo(
     () =>
-      mergeZoneCapacityMaps(
-        computeZoneCapacityMap(filteredRows),
-        zoneConfigSnapshot.length > 0
-          ? buildZoneConfigurationCapacityMap(zoneConfigSnapshot)
-          : new Map(),
+      mergeZoneCapacityMapsAtDate(
+        filteredRows,
+        zoneConfigSnapshot,
+        getForecastToday(),
       ),
     [filteredRows, zoneConfigSnapshot],
   );
 
-  const totalMax = useMemo(
-    () => Array.from(zoneCapacityByKey.values()).reduce((s, n) => s + n, 0),
-    [zoneCapacityByKey],
+  const totalMaxToday = useMemo(
+    () => Array.from(zoneCapacityByKeyToday.values()).reduce((s, n) => s + n, 0),
+    [zoneCapacityByKeyToday],
   );
 
   const zoneSeriesMeta = useMemo(() => {
@@ -941,6 +1011,25 @@ export function InventoryForecast() {
     return selectedGrassIds.join(", ");
   }, [selectedGrassIds, selectedGrassIdSet, grassFilterOptions]);
 
+  const productGrassMeta = useMemo(() => {
+    const out = new Map<number, string>();
+    for (const r of filteredRows) {
+      if (r.productId > 0 && r.grassType && !out.has(r.productId)) {
+        out.set(r.productId, r.grassType);
+      }
+    }
+    return out;
+  }, [filteredRows]);
+
+  const farmProductFarmMeta = useMemo(() => {
+    const out = new Map<string, string>();
+    for (const r of filteredRows) {
+      const k = `${r.farmId}|${r.productId}`;
+      if (!out.has(k) && r.farm) out.set(k, r.farm);
+    }
+    return out;
+  }, [filteredRows]);
+
   const forecastData = useMemo<ForecastPoint[]>(() => {
     const today = getForecastToday();
     const weeks: ForecastPoint[] = [];
@@ -949,11 +1038,19 @@ export function InventoryForecast() {
     for (let w = 0; w < totalWeeks; w++) {
       const forecastDate = addDays(today, w * 7);
       const dateStr = ymdFromDate(forecastDate);
-      const calculatedByZone = computeCappedAvailableByZoneAtDate(
+      const zoneCapacityByKey = mergeZoneCapacityMapsAtDate(
+        filteredRows,
+        zoneConfigSnapshot,
+        forecastDate,
+      );
+      const totalMax = Array.from(zoneCapacityByKey.values()).reduce((s, n) => s + n, 0);
+      const calculated = computeAllocatedAvailableByZoneAtDate(
         filteredRows,
         regrowthConfig,
         forecastDate,
+        zoneConfigSnapshot,
       );
+      const calculatedByZone = calculated.availableByZone;
       const { adjustedByZone, appliedByZone } = applyInventoryAvailableOverridesToZoneMap({
         availableByZone: calculatedByZone,
         maxByZone: zoneCapacityByKey,
@@ -969,16 +1066,26 @@ export function InventoryForecast() {
         date: dateStr,
         available: Math.max(0, Math.round(totalAvailable)),
         calculatedAvailable: Math.max(0, Math.round(totalCalculated)),
+        overlimit: Math.max(0, Math.round(calculated.overlimitKg)),
         regrowing: Math.max(0, Math.round(totalRegrowing)),
         max: Math.max(0, Math.round(totalMax)),
         overrideCount: appliedByZone.size,
       });
     }
     return weeks;
-  }, [filteredRows, forecastMonths, overridesByZone, regrowthConfig, totalMax, zoneCapacityByKey]);
+  }, [filteredRows, forecastMonths, overridesByZone, regrowthConfig, zoneConfigSnapshot]);
 
   const maxAvailableForChart = useMemo(
-    () => forecastData.reduce((m, p) => Math.max(m, p.available), 0),
+    () =>
+      forecastData.reduce(
+        (m, p) => Math.max(m, p.available + p.overlimit),
+        0,
+      ),
+    [forecastData],
+  );
+
+  const hasOverlimitInForecast = useMemo(
+    () => forecastData.some((point) => point.overlimit > 0),
     [forecastData],
   );
 
@@ -989,8 +1096,8 @@ export function InventoryForecast() {
   }, [maxAvailableForChart]);
 
   const showMaxCapacityBand = useMemo(
-    () => totalMax > 0 && totalMax <= yAxisMaxForAvailable * 5,
-    [totalMax, yAxisMaxForAvailable],
+    () => totalMaxToday > 0 && totalMaxToday <= yAxisMaxForAvailable * 5,
+    [totalMaxToday, yAxisMaxForAvailable],
   );
 
   const hasManualOverridesInForecast = useMemo(
@@ -1036,11 +1143,18 @@ export function InventoryForecast() {
     for (let w = 0; w < totalWeeks; w++) {
       const forecastDate = addDays(today, w * 7);
       const row: SeriesPoint = { date: ymdFromDate(forecastDate) };
-      const calculatedByZone = computeCappedAvailableByZoneAtDate(
+      const zoneCapacityByKey = mergeZoneCapacityMapsAtDate(
+        filteredRows,
+        zoneConfigSnapshot,
+        forecastDate,
+      );
+      const calculated = computeAllocatedAvailableByZoneAtDate(
         filteredRows,
         regrowthConfig,
         forecastDate,
+        zoneConfigSnapshot,
       );
+      const calculatedByZone = calculated.availableByZone;
       const { adjustedByZone, appliedByZone } = applyInventoryAvailableOverridesToZoneMap({
         availableByZone: calculatedByZone,
         maxByZone: zoneCapacityByKey,
@@ -1056,13 +1170,24 @@ export function InventoryForecast() {
         if (!seriesKey) continue;
         row[seriesKey] = Number(row[seriesKey] ?? 0) + available;
       }
-      for (const [zoneKey, calculated] of calculatedByZone) {
+      for (const [zoneKey, calculatedAvailable] of calculatedByZone) {
         const seriesKey =
           breakdownMode === "farm"
             ? zoneFarmMeta.get(zoneKey)
             : zoneSeriesMeta.get(zoneKey);
         if (!seriesKey) continue;
-        row[seriesSystemKey(seriesKey)] = Number(row[seriesSystemKey(seriesKey)] ?? 0) + calculated;
+        row[seriesSystemKey(seriesKey)] =
+          Number(row[seriesSystemKey(seriesKey)] ?? 0) + calculatedAvailable;
+      }
+      for (const [fpKey, overflowKg] of calculated.overlimitByFarmProduct) {
+        const seriesKey =
+          breakdownMode === "farm"
+            ? farmProductFarmMeta.get(fpKey)
+            : productGrassMeta.get(Number(fpKey.split("|")[1] ?? 0));
+        if (!seriesKey) continue;
+        row[OVERLIMIT_SERIES_KEY] = Number(row[OVERLIMIT_SERIES_KEY] ?? 0) + overflowKg;
+        row[seriesOverlimitKey(seriesKey)] =
+          Number(row[seriesOverlimitKey(seriesKey)] ?? 0) + overflowKg;
       }
       for (const [zoneKey] of appliedByZone) {
         const seriesKey =
@@ -1076,11 +1201,19 @@ export function InventoryForecast() {
       for (const key of seriesKeys) {
         row[key] = Math.max(0, Math.round(Number(row[key] ?? 0)));
         row[seriesSystemKey(key)] = Math.max(0, Math.round(Number(row[seriesSystemKey(key)] ?? 0)));
+        row[seriesOverlimitKey(key)] = Math.max(
+          0,
+          Math.round(Number(row[seriesOverlimitKey(key)] ?? 0)),
+        );
         row[seriesOverrideCountKey(key)] = Math.max(
           0,
           Math.round(Number(row[seriesOverrideCountKey(key)] ?? 0)),
         );
       }
+      row[OVERLIMIT_SERIES_KEY] = Math.max(
+        0,
+        Math.round(Number(row[OVERLIMIT_SERIES_KEY] ?? 0)),
+      );
 
       points.push(row);
     }
@@ -1092,11 +1225,19 @@ export function InventoryForecast() {
     overridesByZone,
     seriesKeys,
     regrowthConfig,
-    zoneCapacityByKey,
+    zoneConfigSnapshot,
     zoneSeriesMeta,
     zoneFarmMeta,
     breakdownMode,
+    productGrassMeta,
+    farmProductFarmMeta,
   ]);
+
+  const hasOverlimitInSeriesForecast = useMemo(
+    () =>
+      forecastBySeries.some((point) => Number(point[OVERLIMIT_SERIES_KEY] ?? 0) > 0),
+    [forecastBySeries],
+  );
 
   const hasManualOverridesInSeriesForecast = useMemo(
     () =>
@@ -1274,7 +1415,6 @@ export function InventoryForecast() {
 
   const regrowthEvents = useMemo(() => {
     const today = getForecastToday();
-    const maxByZone = computeZoneCapacityMap(filteredRows);
     const candidates = filteredRows
       .map((h) => {
         const regrowDateObj = getRegrowthDateFromHarvest(h, regrowthConfig);
@@ -1365,6 +1505,11 @@ export function InventoryForecast() {
     const mergedRegrowthList = [...groups.values()]
       .map((frags) => {
         const first = frags[0]!;
+        const maxByZone = mergeZoneCapacityMapsAtDate(
+          filteredRows,
+          zoneConfigSnapshot,
+          first.date,
+        );
         const alloc = computeRegrowthAllocationForFarmProductDate({
           farmId: first.farmId,
           productId: first.productId,
@@ -1413,6 +1558,17 @@ export function InventoryForecast() {
           alloc.overflowUncreditedKg > 0 ||
           alloc.zoneBreakdowns.some((z) => z.zoneOverflowKg > 0);
 
+        const zoneSetupBadges = buildRegrowthZoneSetupBadges(zoneConfigSnapshot, {
+          farmId: first.farmId,
+          productId: first.productId,
+          regrowthYmd: first.date,
+          fragments: frags.map((f) => ({
+            zoneKey: f.zoneKey,
+            zoneLabel: f.zoneLabel,
+          })),
+          zoneBreakdowns: alloc.zoneBreakdowns,
+        });
+
         return {
           ...alloc,
           harvestDate,
@@ -1432,6 +1588,7 @@ export function InventoryForecast() {
           primaryDisplayKg: alloc.totalCreditedMappedKg,
           overflowBeyondCapKg: alloc.overflowUncreditedKg,
           zoneSlotLabels,
+          zoneSetupBadges,
           regrowthTooltipZoneSource: aggregateHarvestByZoneForRegrowthYmd(
             filteredRows,
             regrowthConfig,
@@ -1594,6 +1751,14 @@ export function InventoryForecast() {
                           {point.available.toLocaleString()} kg
                         </span>
                       </div>
+                      {point.overlimit > 0 ? (
+                        <div className="flex items-center justify-between gap-4 text-red-700">
+                          <span>{t("charts.overlimit")}</span>
+                          <span className="font-medium">
+                            +{point.overlimit.toLocaleString()} kg
+                          </span>
+                        </div>
+                      ) : null}
                       {point.overrideCount > 0 ? (
                         <>
                           <div className="flex items-center justify-between gap-4">
@@ -1645,11 +1810,23 @@ export function InventoryForecast() {
             <Area
               type="monotone"
               dataKey="available"
+              stackId="inventory"
               stroke="hsl(152,55%,36%)"
               fill="hsl(152,55%,36%)"
               fillOpacity={0.2}
               strokeWidth={2}
             />
+            {hasOverlimitInForecast ? (
+              <Area
+                type="monotone"
+                dataKey="overlimit"
+                stackId="inventory"
+                stroke={OVERLIMIT_SERIES_COLOR}
+                fill={OVERLIMIT_SERIES_COLOR}
+                fillOpacity={0.35}
+                strokeWidth={2}
+              />
+            ) : null}
             {forecastData.map((point) =>
               point.overrideCount > 0 ? (
                 <ReferenceDot
@@ -1702,6 +1879,15 @@ export function InventoryForecast() {
                 <span className="text-[11px] text-muted-foreground">{k}</span>
               </div>
             ))}
+            {hasOverlimitInSeriesForecast ? (
+              <div className="flex items-center gap-1.5">
+                <span
+                  className="h-3 w-3 rounded-sm"
+                  style={{ backgroundColor: OVERLIMIT_SERIES_COLOR }}
+                />
+                <span className="text-[11px] text-muted-foreground">{t("charts.overlimit")}</span>
+              </div>
+            ) : null}
           </div>
         </div>
         <p className="mb-4 text-xs text-muted-foreground">
@@ -1727,6 +1913,8 @@ export function InventoryForecast() {
                         const balance = Number(point[key] ?? 0);
                         const system = Number(point[seriesSystemKey(key)] ?? balance);
                         const overrideCount = Number(point[seriesOverrideCountKey(key)] ?? 0);
+                        const overlimit = Number(point[seriesOverlimitKey(key)] ?? 0);
+                        if (balance <= 0 && overlimit <= 0) return null;
                         return (
                           <div key={key}>
                             <div className="flex items-center justify-between gap-4">
@@ -1746,6 +1934,11 @@ export function InventoryForecast() {
                                 {balance.toLocaleString()} kg
                               </span>
                             </div>
+                            {overlimit > 0 ? (
+                              <div className="mt-1 pl-4 text-[11px] text-red-700">
+                                {t("charts.overlimit")}: +{overlimit.toLocaleString()} kg
+                              </div>
+                            ) : null}
                             {overrideCount > 0 ? (
                               <div className="mt-1 pl-4 text-[11px] text-muted-foreground">
                                 {t("charts.calculatedReference")} {system.toLocaleString()} kg ·{" "}
@@ -1755,6 +1948,14 @@ export function InventoryForecast() {
                           </div>
                         );
                       })}
+                      {Number(point[OVERLIMIT_SERIES_KEY] ?? 0) > 0 ? (
+                        <div className="flex items-center justify-between gap-4 border-t border-border pt-2 text-red-700">
+                          <span>{t("charts.overlimitTotal")}</span>
+                          <span className="font-medium">
+                            +{Number(point[OVERLIMIT_SERIES_KEY]).toLocaleString()} kg
+                          </span>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 );
@@ -1772,6 +1973,17 @@ export function InventoryForecast() {
                 strokeWidth={1.5}
               />
             ))}
+            {hasOverlimitInSeriesForecast ? (
+              <Area
+                type="monotone"
+                dataKey={OVERLIMIT_SERIES_KEY}
+                stackId="1"
+                stroke={OVERLIMIT_SERIES_COLOR}
+                fill={OVERLIMIT_SERIES_COLOR}
+                fillOpacity={0.5}
+                strokeWidth={1.5}
+              />
+            ) : null}
           </AreaChart>
         </ResponsiveContainer>
         {hasManualOverridesInSeriesForecast ? (
@@ -1884,6 +2096,11 @@ export function InventoryForecast() {
                       {t("events.mergedHarvestPlans", { count: ev.planIds.length })}
                     </p>
                   ) : null}
+                  <RegrowthZoneSetupBadges
+                    badges={ev.zoneSetupBadges ?? []}
+                    zoneLabelFn={zoneLabel}
+                    t={t}
+                  />
                 </div>
                 <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
                   {ev.type}

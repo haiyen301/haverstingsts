@@ -14,6 +14,111 @@ function normalizeYmd(value: string): string {
   return value.trim().slice(0, 10);
 }
 
+export function ymdFromDateLocal(date: Date): string {
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+export function zoneConfigYmdSlice(value: string | null | undefined): string {
+  return String(value ?? "").trim().slice(0, 10);
+}
+
+/** True when the row defines an explicit validity window (either boundary set). */
+export function zoneConfigHasPeriod(input: {
+  effective_from?: string | null;
+  effective_to?: string | null;
+}): boolean {
+  return Boolean(zoneConfigYmdSlice(input.effective_from) || zoneConfigYmdSlice(input.effective_to));
+}
+
+/** Period rows only: inclusive yyyy-MM-dd window. Always-on rows (no dates) return false here. */
+export function zoneConfigCoversYmd(row: ZoneConfigurationRow, ymd: string): boolean {
+  const from = zoneConfigYmdSlice(row.effective_from);
+  const to = zoneConfigYmdSlice(row.effective_to);
+  if (!from && !to) return false;
+  if (from && ymd < from) return false;
+  if (to && ymd > to) return false;
+  return true;
+}
+
+/** Active at `ymd`: always-on configs apply throughout; period configs only inside their window. */
+export function zoneConfigIsActiveAtYmd(row: ZoneConfigurationRow, ymd: string): boolean {
+  if (!zoneConfigHasPeriod(row)) return true;
+  return zoneConfigCoversYmd(row, ymd);
+}
+
+export function zoneConfigIsActiveAtDate(row: ZoneConfigurationRow, date: Date): boolean {
+  return zoneConfigIsActiveAtYmd(row, ymdFromDateLocal(date));
+}
+
+export function zoneConfigurationMaxKg(row: ZoneConfigurationRow): number {
+  const sizeM2 = toNum(row.size_m2);
+  const inventoryKgPerM2 = toNum(row.inventory_kg_per_m2);
+  const maxKgRaw = toNum(row.max_inventory_kg);
+  return maxKgRaw > 0 ? maxKgRaw : sizeM2 * inventoryKgPerM2;
+}
+
+function normalizeZoneForConfigMatch(zone: string): string {
+  return String(zone ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/_/g, "-")
+    .replace(/\s+/g, " ");
+}
+
+function zoneConfigBucketKey(zone: string): string {
+  const normalized = normalizeZoneForConfigMatch(zone);
+  if (
+    !normalized ||
+    normalized === "nozone" ||
+    normalized === "no-zone" ||
+    normalized === "no zone"
+  ) {
+    return "nozone";
+  }
+  return normalized;
+}
+
+function zoneConfigsMatchingIdentity(
+  zoneConfigs: ZoneConfigurationRow[],
+  params: { farmId?: number; zone: string; productId?: number },
+): ZoneConfigurationRow[] {
+  const z = zoneConfigBucketKey(params.zone);
+  const farm = Number.isFinite(params.farmId ?? NaN) ? Number(params.farmId) : undefined;
+  const productIdNorm = Number.isFinite(params.productId ?? NaN) ? Number(params.productId) : undefined;
+  if (productIdNorm === undefined) return [];
+
+  return zoneConfigs.filter((row) => {
+    if (Number(row.grass_id) !== productIdNorm) return false;
+    if (zoneConfigBucketKey(String(row.zone ?? "")) !== z) return false;
+    if (farm !== undefined && Number(row.farm_id) !== farm) return false;
+    return true;
+  });
+}
+
+/**
+ * Resolve the zone setup that applies on `ymd`.
+ * Period-specific rows win over always-on rows; overlapping periods prefer the latest `effective_from`.
+ */
+export function findActiveZoneConfiguration(
+  zoneConfigs: ZoneConfigurationRow[],
+  params: { farmId?: number; zone: string; productId?: number; ymd: string },
+): ZoneConfigurationRow | null {
+  const matches = zoneConfigsMatchingIdentity(zoneConfigs, params);
+  if (matches.length === 0) return null;
+
+  const periodMatches = matches
+    .filter((row) => zoneConfigHasPeriod(row) && zoneConfigCoversYmd(row, params.ymd))
+    .sort((a, b) =>
+      zoneConfigYmdSlice(b.effective_from).localeCompare(zoneConfigYmdSlice(a.effective_from)),
+    );
+  if (periodMatches.length > 0) return periodMatches[0] ?? null;
+
+  return matches.find((row) => !zoneConfigHasPeriod(row)) ?? null;
+}
+
 function parseYmdLocal(ymd: string): Date | null {
   const m = ymd.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!m) return null;
@@ -77,20 +182,41 @@ export function computeZoneCapacityMap(rows: ForecastHarvestRow[]): Map<string, 
   return byZone;
 }
 
+/** Max kg per zone from active `sts_zone_configurations` at `asOf` (same keys as harvest rows). */
+export function buildZoneConfigurationCapacityMapAtDate(
+  rows: ZoneConfigurationRow[],
+  asOf: Date | string,
+): Map<string, number> {
+  const ymd = typeof asOf === "string" ? normalizeYmd(asOf) : ymdFromDateLocal(asOf);
+  const out = new Map<string, number>();
+  const seenKeys = new Set<string>();
+
+  for (const row of rows) {
+    if (!zoneConfigIsActiveAtYmd(row, ymd)) continue;
+    const key = forecastZoneKeyFromParts(row.farm_id, String(row.zone ?? ""), row.grass_id);
+    if (seenKeys.has(key)) continue;
+
+    const active = findActiveZoneConfiguration(rows, {
+      farmId: Number(row.farm_id),
+      zone: String(row.zone ?? ""),
+      productId: Number(row.grass_id),
+      ymd,
+    });
+    if (!active) continue;
+
+    seenKeys.add(key);
+    const maxKg = zoneConfigurationMaxKg(active);
+    if (maxKg > 0) out.set(key, maxKg);
+  }
+
+  return out;
+}
+
 /** Max kg per zone from `sts_zone_configurations` (same keys as harvest / manual balance rows). */
 export function buildZoneConfigurationCapacityMap(
   rows: ZoneConfigurationRow[],
 ): Map<string, number> {
-  const out = new Map<string, number>();
-  for (const row of rows) {
-    const sizeM2 = toNum(row.size_m2);
-    const inventoryKgPerM2 = toNum(row.inventory_kg_per_m2);
-    const maxKgRaw = toNum(row.max_inventory_kg);
-    const maxKg = maxKgRaw > 0 ? maxKgRaw : sizeM2 * inventoryKgPerM2;
-    const key = forecastZoneKeyFromParts(row.farm_id, String(row.zone ?? ""), row.grass_id);
-    out.set(key, Math.max(out.get(key) ?? 0, maxKg));
-  }
-  return out;
+  return buildZoneConfigurationCapacityMapAtDate(rows, new Date());
 }
 
 /** Harvest-derived caps merged with zone configuration caps (used by inventory + forecasting). */
@@ -127,27 +253,16 @@ export function sumConfiguredZoneCapKgForFarmProduct(
   return sum;
 }
 
-export function computeCappedAvailableByZoneAtDate(
+
+export function mergeZoneCapacityMapsAtDate(
   rows: ForecastHarvestRow[],
-  regrowthConfig: RegrowthReferenceConfig,
-  forecastDate: Date,
+  zoneConfigs: ZoneConfigurationRow[],
+  asOf: Date | string,
 ): Map<string, number> {
-  const rawByZone = new Map<string, number>();
-  const maxByZone = computeZoneCapacityMap(rows);
-
-  for (const h of rows) {
-    const regrowDate = getRegrowthDateFromHarvest(h, regrowthConfig);
-    if (!regrowDate || regrowDate > forecastDate) continue;
-    const key = forecastZoneKeyFromRow(h);
-    rawByZone.set(key, (rawByZone.get(key) ?? 0) + rowInventoryKg(h));
-  }
-
-  const out = new Map<string, number>();
-  for (const [key, raw] of rawByZone) {
-    const max = maxByZone.get(key) ?? 0;
-    out.set(key, max > 0 ? Math.min(raw, max) : Math.max(0, raw));
-  }
-  return out;
+  return mergeZoneCapacityMaps(
+    computeZoneCapacityMap(rows),
+    zoneConfigs.length > 0 ? buildZoneConfigurationCapacityMapAtDate(zoneConfigs, asOf) : new Map(),
+  );
 }
 
 /**

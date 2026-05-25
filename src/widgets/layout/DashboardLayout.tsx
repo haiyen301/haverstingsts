@@ -14,6 +14,7 @@ import {
   Calendar,
   ChevronDown,
   Cog,
+  FileSpreadsheet,
   FolderKanban,
   Fuel,
   Gauge,
@@ -42,6 +43,7 @@ import { ALERTS_UPDATED_EVENT } from "@/features/alerts/alertClientEvents";
 import { useSyncedFarmMultiSelect } from "@/shared/hooks/useSyncedFarmMultiSelect";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
 import { ALERT_FEED_SETTINGS_ALLOWED_USER_IDS } from "@/shared/auth/alertFeedSettingsAccess";
+import { INVENTORY_IMPORT_ALLOWED_USER_IDS, userIdMayAccessInventoryImport } from "@/shared/auth/inventoryImportAccess";
 import { MAINTENANCE_BYPASS_USER_IDS } from "@/shared/auth/maintenanceAccess";
 import {
   canAccessModule,
@@ -71,6 +73,8 @@ type SidebarNavItemModel = {
   tabs?: SidebarNavItemTabModel[];
   badge?: number;
   disabled?: boolean;
+  /** If set, item is shown only when `user.id` is in this list (in addition to `module` checks). */
+  restrictToUserIds?: readonly number[];
   /** When omitted, defaults to path-aware matching via `pathname`. */
   isActive?: (pathname: string) => boolean;
 };
@@ -231,6 +235,13 @@ export function DashboardLayout({ children, hideAppNav = false }: DashboardLayou
             icon: Gauge,
             label: tn("inventory"),
             module: "inventory",
+          },
+          {
+            key: "inventory-import",
+            path: "/inventory-import",
+            icon: FileSpreadsheet,
+            label: t("Nav.inventoryImport"),
+            restrictToUserIds: [...INVENTORY_IMPORT_ALLOWED_USER_IDS],
           },
         ],
       },
@@ -440,6 +451,12 @@ export function DashboardLayout({ children, hideAppNav = false }: DashboardLayou
       .map((section) => {
         const items = section.items
           .map((item) => {
+            if (item.restrictToUserIds?.length) {
+              const uid = Number(user?.id);
+              if (!Number.isInteger(uid) || !item.restrictToUserIds.includes(uid)) {
+                return null;
+              }
+            }
             const tabs = (item.tabs ?? []).filter((tab) => {
               if (tab.restrictToUserIds?.length) {
                 const uid = Number(user?.id);
@@ -921,7 +938,10 @@ export function DashboardLayout({ children, hideAppNav = false }: DashboardLayou
       </div>
 
       {!hideAppNav ? (
-        <MobileBottomNav showInventoryImport={false} user={user} />
+        <MobileBottomNav
+          showInventoryImport={userIdMayAccessInventoryImport(Number(user?.id))}
+          user={user}
+        />
       ) : null}
     </div>
   );

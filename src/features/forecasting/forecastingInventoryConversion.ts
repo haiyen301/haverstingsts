@@ -1,4 +1,8 @@
 import type { ZoneConfigurationRow } from "@/features/admin/api/adminApi";
+import {
+  findActiveZoneConfiguration,
+  ymdFromDateLocal,
+} from "@/features/forecasting/inventoryRegrowthCalculator";
 import type { ForecastHarvestRow } from "./forecastingTypes";
 
 export const DEFAULT_FALLBACK_INVENTORY_KG_PER_M2 = 1;
@@ -201,36 +205,19 @@ function findBestZoneConfigMatch(params: {
   farmId?: number;
   zone: string;
   productId?: number;
+  asOfYmd?: string;
 }): ZoneConfigurationRow | null {
-  const { zoneConfigs, farmId, zone, productId } = params;
-  const z = forecastZoneBucketKey(normalizeZone(zone));
-  const farm = Number.isFinite(farmId ?? NaN) ? Number(farmId) : undefined;
+  const { zoneConfigs, farmId, zone, productId, asOfYmd } = params;
   const productIdNorm = Number.isFinite(productId ?? NaN) ? Number(productId) : undefined;
+  if (productIdNorm === undefined) return null;
 
-  if (productIdNorm === undefined) {
-    return null;
-  }
-
-  // Ưu tiên match farm_id + zone + grass_id (zone / no-zone alias gom cùng bucket key).
-  if (farm !== undefined) {
-    const exactByFarm = zoneConfigs.find(
-      (r) =>
-        Number(r.grass_id) === productIdNorm &&
-        forecastZoneBucketKey(normalizeZone(String(r.zone ?? ""))) === z &&
-        Number(r.farm_id) === farm,
-    );
-    if (exactByFarm) return exactByFarm;
-  }
-
-  // Fallback: zone + grass_id
-  const byZoneGrassId = zoneConfigs.find(
-    (r) =>
-      Number(r.grass_id) === productIdNorm &&
-      forecastZoneBucketKey(normalizeZone(String(r.zone ?? ""))) === z,
-  );
-  if (byZoneGrassId) return byZoneGrassId;
-
-  return null;
+  const ymd = asOfYmd?.trim().slice(0, 10) || ymdFromDateLocal(new Date());
+  return findActiveZoneConfiguration(zoneConfigs, {
+    farmId,
+    zone,
+    productId: productIdNorm,
+    ymd,
+  });
 }
 
 /** Synthetic zone for harvest rows without a usable zone or unallocated no-zone remainder. */
@@ -486,8 +473,10 @@ export function distributePlanRowToZoneFragments(params: {
 export function applyLatestZoneMaxKgToForecastRows(
   rows: ForecastHarvestRow[],
   zoneConfigs: ZoneConfigurationRow[],
+  asOfYmd?: string,
 ): ForecastHarvestRow[] {
   if (!zoneConfigs?.length) return rows;
+  const ymd = asOfYmd?.trim().slice(0, 10) || ymdFromDateLocal(new Date());
   return rows.map((row) => {
     const zoneStr = String(row.zone ?? "").trim();
     if (!zoneStr || isForecastNoZoneBucketKey(normalizeZone(zoneStr))) {
@@ -498,6 +487,7 @@ export function applyLatestZoneMaxKgToForecastRows(
       farmId: row.farmId,
       zone: zoneStr,
       productId: row.productId,
+      asOfYmd: ymd,
     });
     if (!cfg) return row;
     const maxKg = normalizeMaxInventoryKg(toNumber(cfg.max_inventory_kg));

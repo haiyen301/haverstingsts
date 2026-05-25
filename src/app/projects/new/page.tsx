@@ -1043,6 +1043,7 @@ export default function ProjectInputPage() {
               productId: r.grass.trim(),
               uom: r.type,
               amountRequired: Number.parseFloat(r.required) || 0,
+              farmId: r.farmId.trim(),
             }));
           const seeds = generatePlannedHarvestsForNewProject({
             pace: paceKey,
