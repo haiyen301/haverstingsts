@@ -1676,6 +1676,7 @@
     "updateDate": "Update Date",
     "loadingSavedBalances": "Loading saved balances from the server…",
     "calendarMarkedDatesHint": "Amber dot under a day: this farm has at least one saved manual balance on that date.",
+    "futureUpdateDateHint": "This date is in the future. The inventory table below only shows manual balances on or before today. Use today’s date to update current balances.",
     "thGrassType": "Grass Type",
     "thZone": "Zone",
     "thZoneSize": "Zone Size (m²)",

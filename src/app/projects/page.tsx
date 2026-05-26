@@ -20,7 +20,9 @@ import {
 import {
   ProjectListItem,
   buildMondayEditArgs,
+  fetchAllHarvestPlanIndexRows,
   mergeMondayDisplayData,
+  mergeProjectSubitemsWithHarvestPlan,
 } from "@/features/project";
 import { parseJsonMaybe } from "@/shared/lib/parseJsonMaybe";
 import { resolveStaffAvatarImageUrl } from "@/features/project/lib/staffAvatarUrl";
@@ -254,6 +256,9 @@ export default function ProjectListPage() {
   const [totalRecords, setTotalRecords] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [rows, setRows] = useState<MondayProjectServerRow[]>([]);
+  const [harvestPlanRows, setHarvestPlanRows] = useState<Array<Record<string, unknown>>>(
+    [],
+  );
   const [manualReloadSeq, setManualReloadSeq] = useState(() => (refreshParam ? 1 : 0));
   const [keyAreaCatalogRows, setKeyAreaCatalogRows] = useState<KeyAreaRow[]>([]);
   const pageLoadedRef = useRef(0);
@@ -382,6 +387,28 @@ export default function ProjectListPage() {
   }, [debouncedSearch, statusFilterValues, buildStatusQuery, manualReloadSeq]);
 
   useEffect(() => {
+    let cancelled = false;
+    void fetchAllHarvestPlanIndexRows()
+      .then((planRows) => {
+        if (!cancelled) setHarvestPlanRows(planRows);
+      })
+      .catch(() => {
+        if (!cancelled) setHarvestPlanRows([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [manualReloadSeq]);
+
+  const rowsWithHarvestPlan = useMemo(() => {
+    if (harvestPlanRows.length === 0) return rows;
+    return mergeProjectSubitemsWithHarvestPlan(
+      rows as unknown as Array<Record<string, unknown>>,
+      harvestPlanRows,
+    ) as MondayProjectServerRow[];
+  }, [harvestPlanRows, rows]);
+
+  useEffect(() => {
     const el = loadMoreSentinelRef.current;
     if (!el || loading || !hasMore) return;
 
@@ -481,10 +508,10 @@ export default function ProjectListPage() {
         }
       }
     }
-    const mergedRows = rows.map((data) => {
+    const mergedRows = rowsWithHarvestPlan.map((data) => {
       const rowId = String(data.row_id ?? data.id ?? "").trim();
       const rowData =
-        rows.find((row) => {
+        rowsWithHarvestPlan.find((row) => {
           const candidateRowId = String(row.row_id ?? row.id ?? "").trim();
           if (candidateRowId !== rowId) return false;
           const dataTableId = String(data.table_id ?? "").trim();
@@ -533,7 +560,7 @@ export default function ProjectListPage() {
         projectFilterIds.includes(String(rec.project_id ?? "").trim());
       return visibleByServerRow && countryOk && farmOk && grassOk && projectOk;
     });
-  }, [rows, countryFilterIds, farmFilterIds, grassFilterIds, projectFilterIds]);
+  }, [rowsWithHarvestPlan, countryFilterIds, farmFilterIds, grassFilterIds, projectFilterIds]);
 
   const projectTitleMap = useMemo(() => {
     const map = new Map<string, string>();

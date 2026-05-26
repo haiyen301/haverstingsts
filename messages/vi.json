@@ -1674,6 +1674,7 @@
     "updateDate": "Ngày cập nhật",
     "loadingSavedBalances": "Đang tải số dư đã lưu từ máy chủ…",
     "calendarMarkedDatesHint": "Chấm vàng dưới ngày: trang trại này có ít nhất một số dư thủ công đã lưu vào ngày đó.",
+    "futureUpdateDateHint": "Ngày này ở tương lai. Bảng tồn kho bên dưới chỉ hiển thị số dư thủ công có ngày ≤ hôm nay. Chọn ngày hôm nay để cập nhật số dư hiện tại.",
     "thGrassType": "Loại cỏ",
     "thZone": "Khu vực",
     "thZoneSize": "Diện tích khu vực (m²)",
