@@ -115,6 +115,13 @@ export function harvestApiRowToForecastRow(
   const harvestedAreaM2 = harvestQuantityCellPresent(raw.harvested_area)
     ? Math.max(0, harvestPlanScalarFromRaw(raw.harvested_area))
     : 0;
+  const kgPerM2Raw = Number(raw.kg_per_m2);
+  const kgPerM2 =
+    Number.isFinite(kgPerM2Raw) && kgPerM2Raw > 0
+      ? kgPerM2Raw
+      : harvestedAreaM2 > 0
+        ? quantity / harvestedAreaM2
+        : 0;
 
   const readyDateYmd =
     computeReadyDateYmdFromPlanRow(raw, harvestDateYmd) ?? harvestDateYmd;
@@ -142,6 +149,7 @@ export function harvestApiRowToForecastRow(
     readyDate: readyDateYmd,
     quantity,
     harvestedAreaM2,
+    kgPerM2,
     isReady,
     daysUntilReady,
     uom: resolvePlanRowUom(raw),

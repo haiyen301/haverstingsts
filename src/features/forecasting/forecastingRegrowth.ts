@@ -1,5 +1,6 @@
 import type { RegrowthRuleRow } from "@/features/admin/api/adminApi";
 import type { ForecastHarvestRow } from "@/features/forecasting/forecastingTypes";
+import { safeDivideStrictPhp } from "@/shared/lib/grassRegrowthPhp";
 
 export type SprigBandConfig = {
   id: string;
@@ -42,6 +43,23 @@ export const DEFAULT_REGROWTH_REFERENCE_CONFIG: RegrowthReferenceConfig = {
   overrideRecoveryDays: 120,
   sprigBands: DEFAULT_BANDS,
 };
+
+/** Matches loveable_harvest `computeRegrowthDays(cfg, harvestType, kgPerM2)`. */
+export type ScenarioHarvestType = "SOD" | "SPRIG" | "SOD_FOR_SPRIG";
+
+export function computeRegrowthDaysFromConfig(
+  cfg: RegrowthReferenceConfig,
+  harvestType: ScenarioHarvestType,
+  kgPerM2: number,
+): number {
+  if (harvestType === "SOD") return cfg.sodDays;
+  if (harvestType === "SOD_FOR_SPRIG") return cfg.sodForSprigDays;
+  const sorted = [...cfg.sprigBands].sort((a, b) => a.maxKgPerM2 - b.maxKgPerM2);
+  for (const band of sorted) {
+    if (kgPerM2 <= band.maxKgPerM2) return band.regrowthDays;
+  }
+  return sorted[sorted.length - 1]?.regrowthDays ?? 90;
+}
 
 export function parseMaxKgPerM2FromApi(
   raw: string | number | null | undefined,
@@ -106,6 +124,20 @@ export function regrowthReferenceFromRuleRows(
   };
 }
 
+/**
+ * kg/m² cho bảng regrowth SPRIG — khớp harvest list & PHP `safeDivideStrict`:
+ * ưu tiên `kgPerM2` từ plan/API; không thì `quantity ÷ harvestedAreaM2`; mẫu 0 → 0 (không fallback 1).
+ */
+export function harvestDensityKgPerM2ForRegrowth(row: {
+  quantity: number;
+  harvestedAreaM2: number;
+  kgPerM2?: number;
+}): number {
+  const fromApi = row.kgPerM2;
+  if (fromApi != null && Number.isFinite(fromApi) && fromApi > 0) return fromApi;
+  return safeDivideStrictPhp(row.quantity, row.harvestedAreaM2);
+}
+
 export function isKgUom(uom?: string): boolean {
   const u = String(uom ?? "")
     .toLowerCase()
@@ -122,8 +154,7 @@ function sprigBandRegrowthDays(
   cfg: RegrowthReferenceConfig,
   row: ForecastHarvestRow,
 ): number {
-  const kgPerM2 =
-    row.harvestedAreaM2 > 0 ? row.quantity / row.harvestedAreaM2 : 1;
+  const kgPerM2 = harvestDensityKgPerM2ForRegrowth(row);
   const sorted = [...cfg.sprigBands];
   for (const band of sorted) {
     const threshold = Number.isFinite(band.thresholdKgPerM2)

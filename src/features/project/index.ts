@@ -16,5 +16,9 @@ export {
   extractProjectImageFileNamesFromRow,
   findFirstFileNameFromAny,
 } from "./lib/projectImageHelpers";
+export {
+  mergeProjectSubitemsWithHarvestPlan,
+  fetchAllHarvestPlanIndexRows,
+} from "./lib/mergeProjectSubitemsWithHarvestPlan";
 export type { ProjectListItemProps } from "./model/projectListProps";
 export { ProjectListItem } from "./ui/ProjectListItem";

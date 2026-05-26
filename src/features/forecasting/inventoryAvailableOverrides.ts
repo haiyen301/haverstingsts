@@ -74,6 +74,8 @@ export function applyInventoryAvailableOverrideToZone(params: {
   asOf: Date;
   override: InventoryAvailableOverrideEntry | null | undefined;
   overrideRecoveryDays: number;
+  /** When false, use the saved manual kg as-is on/after the override date (inventory status table). */
+  applyRecovery?: boolean;
 }): AppliedInventoryAvailableOverride | null {
   const { asOf, maxKg, override } = params;
   if (!override) return null;
@@ -90,12 +92,13 @@ export function applyInventoryAvailableOverrideToZone(params: {
   const savedCalculatedKg = clampKg(override.calculatedKg, maxKg);
   const savedOverrideKg = clampNonNegativeKg(override.availableKg);
   const savedDeltaKg = savedOverrideKg - savedCalculatedKg;
+  const applyRecovery = params.applyRecovery !== false;
 
   let recoveryProgress = 0;
   let remainingDeltaKg = savedDeltaKg;
   let effectiveKg = savedOverrideKg;
 
-  if (asOfMs !== overrideMs) {
+  if (applyRecovery && asOfMs !== overrideMs) {
     const recoveryDays = Math.max(0, Number(params.overrideRecoveryDays) || 0);
     if (recoveryDays <= 0) {
       recoveryProgress = 1;
@@ -125,6 +128,8 @@ export function applyInventoryAvailableOverridesToZoneMap(params: {
   overridesByZone: Record<string, InventoryAvailableOverrideEntry>;
   asOf: Date;
   overrideRecoveryDays: number;
+  /** When false, inventory status uses saved manual kg without fading back to calculated. */
+  applyRecovery?: boolean;
 }): {
   adjustedByZone: Map<string, number>;
   appliedByZone: Map<string, AppliedInventoryAvailableOverride>;
@@ -147,6 +152,7 @@ export function applyInventoryAvailableOverridesToZoneMap(params: {
       asOf: params.asOf,
       override,
       overrideRecoveryDays: params.overrideRecoveryDays,
+      applyRecovery: params.applyRecovery,
     });
     if (!applied) continue;
     adjustedByZone.set(zoneKey, applied.effectiveKg);

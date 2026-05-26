@@ -14,6 +14,8 @@ export type ForecastHarvestRow = {
   quantity: number;
   /** Harvested area (m²) from plan — sprig kg/m² bands */
   harvestedAreaM2: number;
+  /** Density from plan/API (`kg_per_m2`); else derived as quantity ÷ harvestedAreaM2 */
+  kgPerM2?: number;
   isReady: boolean;
   daysUntilReady: number;
   /** Kg / M2 từ plan — để nhãn biểu đồ */

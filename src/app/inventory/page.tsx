@@ -180,7 +180,7 @@ function buildInventoryRowsFromHarvestOnly(
     const currentKgRaw = Math.round(adjustedByZone.get(key) ?? calculatedKgRaw);
     const calculatedKg = maxKg > 0 ? Math.min(maxKg, Math.max(0, calculatedKgRaw)) : Math.max(0, calculatedKgRaw);
     const currentKg = Math.max(0, currentKgRaw);
-    const pct = maxKg > 0 ? Math.min(100, Math.round((currentKg / maxKg) * 100)) : 0;
+    const pct = maxKg > 0 ? Math.round((currentKg / maxKg) * 100) : 0;
     const applied = appliedByZone.get(key) ?? null;
     return {
       key: `harvest:${key}:${i}`,
@@ -217,8 +217,8 @@ function mapZoneToInventoryRow(
   const calculatedAvailable = calculatedByZone.get(key) ?? 0;
   const adjustedAvailable = adjustedByZone.get(key) ?? calculatedAvailable;
   const calculatedKg = Math.round(Math.min(maxKg, Math.max(0, calculatedAvailable)));
-  const currentKg = Math.round(Math.min(maxKg, Math.max(0, adjustedAvailable)));
-  const pct = maxKg > 0 ? Math.min(100, Math.round((currentKg / maxKg) * 100)) : 0;
+  const currentKg = Math.round(Math.max(0, adjustedAvailable));
+  const pct = maxKg > 0 ? Math.round((currentKg / maxKg) * 100) : 0;
   const applied = appliedByZone.get(key) ?? null;
   return {
     key: String(row.id),
@@ -328,8 +328,17 @@ function buildInventoryRowsAtDate(params: {
   zoneConfigurations: ZoneConfigurationRow[];
   regrowthConfig: RegrowthReferenceConfig;
   overridesByZone: Record<string, InventoryAvailableOverrideEntry>;
+  /** Inventory status table: false. Forecasting charts: true (default). */
+  applyOverrideRecovery?: boolean;
 }): InventoryBuildResult {
-  const { asOf, forecastRows, zoneConfigurations, regrowthConfig, overridesByZone } = params;
+  const {
+    asOf,
+    forecastRows,
+    zoneConfigurations,
+    regrowthConfig,
+    overridesByZone,
+    applyOverrideRecovery = true,
+  } = params;
   const asOfYmd = ymdFromDate(asOf);
   const forecastRowsWithLiveCaps = applyLatestZoneMaxKgToForecastRows(
     forecastRows,
@@ -354,6 +363,7 @@ function buildInventoryRowsAtDate(params: {
     overridesByZone,
     asOf,
     overrideRecoveryDays: regrowthConfig.overrideRecoveryDays,
+    applyRecovery: applyOverrideRecovery,
   });
 
   const rows =
@@ -503,6 +513,7 @@ export default function InventoryPage() {
       zoneConfigurations,
       regrowthConfig,
       overridesByZone,
+      applyOverrideRecovery: false,
     });
   }, [forecastRows, overridesByZone, regrowthConfig, zoneConfigurations]);
 
@@ -514,6 +525,7 @@ export default function InventoryPage() {
       zoneConfigurations,
       regrowthConfig,
       overridesByZone,
+      applyOverrideRecovery: false,
     });
   }, [forecastRows, overridesByZone, regrowthConfig, updateDate, zoneConfigurations]);
 
@@ -628,6 +640,11 @@ export default function InventoryPage() {
     return Array.from(days).sort();
   }, [overridesByZone, farmZoneKeySet, selectedFarm]);
 
+  const isUpdateDateInFuture = useMemo(() => {
+    const todayYmd = ymdFromDate(startOfLocalDay(new Date()));
+    return updateDate.trim().slice(0, 10) > todayYmd;
+  }, [updateDate]);
+
   const activeOverrideCount = useMemo(
     () => rowsWithFarmLabels.filter((r) => r.isManualOverrideActive).length,
     [rowsWithFarmLabels],
@@ -658,7 +675,6 @@ export default function InventoryPage() {
       if (!raw) continue;
       const availableKg = parseBalanceInput(raw);
       if (!Number.isFinite(availableKg) || availableKg < 0) continue;
-      const cappedKg = row.maxKg > 0 ? Math.min(availableKg, row.maxKg) : availableKg;
       updates.push({
         id:
           overridesByZone[inventoryBalanceOverrideStorageKey(row.forecastZoneKey, updateDate)]?.id ?? 0,
@@ -669,7 +685,7 @@ export default function InventoryPage() {
         farmName: row.farmName,
         turfgrass: row.turfgrass,
         zone: row.zone,
-        availableKg: cappedKg,
+        availableKg,
         calculatedKg: row.calculatedKg,
         date: updateDate,
         updatedAt: new Date().toISOString(),
@@ -848,6 +864,11 @@ export default function InventoryPage() {
                       {selectedFarm ? (
                         <p className="text-[11px] text-muted-foreground">
                           {t("calendarMarkedDatesHint")}
+                        </p>
+                      ) : null}
+                      {isUpdateDateInFuture ? (
+                        <p className="text-[11px] font-medium text-amber-800">
+                          {t("futureUpdateDateHint")}
                         </p>
                       ) : null}
                     </label>

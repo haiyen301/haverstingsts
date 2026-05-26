@@ -8,7 +8,7 @@ import {
   type FormEvent,
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, ChevronDown, MoreVertical, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, ChevronDown, Plus, Trash2 } from "lucide-react";
 
 import RequireAuth from "@/features/auth/RequireAuth";
 import { canAccessModule } from "@/shared/auth/permissions";
@@ -253,7 +253,6 @@ export default function ProjectInputPage() {
   const [grassValidationError, setGrassValidationError] = useState<string | null>(null);
   /** From loaded row / API (`react_get_harvesting_table`); fallback `Harvesting` for delete. */
   const [editTableName, setEditTableName] = useState("");
-  const [deleteMenuOpen, setDeleteMenuOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [projectTypeCatalogRows, setProjectTypeCatalogRows] = useState<ProjectFormCatalogRow[]>([]);
@@ -1138,15 +1137,6 @@ export default function ProjectInputPage() {
     }
   };
 
-  const showDeleteMenu = () => setDeleteMenuOpen(true);
-
-  const closeDeleteMenu = () => setDeleteMenuOpen(false);
-
-  const onPickDeleteFromSheet = () => {
-    closeDeleteMenu();
-    setConfirmDeleteOpen(true);
-  };
-
   const onConfirmDeleteProject = async () => {
     if (!canDeleteProject) {
       setError("You do not have permission to delete this project.");
@@ -1230,11 +1220,12 @@ export default function ProjectInputPage() {
               {canDeleteProject ? (
                 <button
                   type="button"
-                  onClick={showDeleteMenu}
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-md border border-border bg-card text-muted-foreground hover:bg-card hover:text-muted-foreground"
-                  aria-label={t("moreActions")}
+                  onClick={() => setConfirmDeleteOpen(true)}
+                  className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-border bg-card px-3 text-sm font-medium text-red-600 transition-colors hover:bg-red-50"
+                  aria-label={tCommon("delete")}
                 >
-                  <MoreVertical className="h-5 w-5" strokeWidth={2.25} />
+                  <Trash2 className="h-4 w-4" strokeWidth={2.25} />
+                  {tCommon("delete")}
                 </button>
               ) : null}
             </div>
@@ -1893,40 +1884,6 @@ export default function ProjectInputPage() {
           </div>
         </div>
         )}
-
-        {deleteMenuOpen ? (
-          <>
-            <button
-              type="button"
-              className="fixed inset-0 z-[60] bg-black/40"
-              aria-label={t("closeMenuAria")}
-              onClick={closeDeleteMenu}
-            />
-            <div
-              className="fixed inset-x-0 bottom-0 z-[61] mx-auto max-w-md rounded-t-2xl border border-gray-200 bg-white shadow-lg"
-              role="dialog"
-              aria-label={t("actionsTitle")}
-            >
-              <div className="py-2">
-                <button
-                  type="button"
-                  className="flex w-full items-center gap-3 px-4 py-3 text-left text-red-600 hover:bg-red-50"
-                  onClick={onPickDeleteFromSheet}
-                >
-                  <Trash2 className="h-5 w-5 shrink-0" />
-                  <span className="font-medium">{tCommon("delete")}</span>
-                </button>
-                <button
-                  type="button"
-                  className="flex w-full items-center gap-3 px-4 py-3 text-left text-gray-800 hover:bg-gray-50"
-                  onClick={closeDeleteMenu}
-                >
-                  <span className="pl-8 font-medium">{tCommon("cancel")}</span>
-                </button>
-              </div>
-            </div>
-          </>
-        ) : null}
 
         {confirmDeleteOpen ? (
           <div

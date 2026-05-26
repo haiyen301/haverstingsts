@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { AlertCircle, ArrowLeft, Camera, MoreVertical, Trash2 } from "lucide-react";
+import { AlertCircle, ArrowLeft, Camera, Trash2 } from "lucide-react";
 
 import RequireAuth from "@/features/auth/RequireAuth";
 import { canAccessModule } from "@/shared/auth/permissions";
@@ -81,6 +81,96 @@ function withRefreshQueryParam(target: string, key = "refresh"): string {
   params.set(key, String(Date.now()));
   const nextQuery = params.toString();
   return `${pathname}${nextQuery ? `?${nextQuery}` : ""}${hash ? `#${hash}` : ""}`;
+}
+
+function parseProjectDetailQueryParam(
+  detailHref: string,
+  key: "projectId" | "returnTo",
+): string {
+  if (!detailHref.startsWith("/projects/detail")) return "";
+  try {
+    const url = new URL(detailHref, "http://local");
+    if (key === "projectId") {
+      return (
+        url.searchParams.get("projectId")?.trim() ||
+        url.searchParams.get("id")?.trim() ||
+        ""
+      );
+    }
+    return url.searchParams.get("returnTo")?.trim() ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function findProjectReferenceRow(
+  projectId: string,
+  projects: unknown[],
+  dynamicProjectRows: DynamicProjectRow[],
+): Record<string, unknown> | undefined {
+  const normalized = projectId.trim();
+  if (!normalized) return undefined;
+
+  for (const item of projects) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Record<string, unknown>;
+    const rowProjectId = String(row.project_id ?? "").trim();
+    const rowInternalId = String(row.id ?? "").trim();
+    if (rowProjectId === normalized || rowInternalId === normalized) return row;
+  }
+
+  for (const dyn of dynamicProjectRows) {
+    if (!dyn || typeof dyn !== "object") continue;
+    const row = dyn as Record<string, unknown>;
+    const mondayRowId = String(row.id_row ?? row.row_id ?? "").trim();
+    const tableId = String(row.table_id ?? "").trim();
+    if (mondayRowId || tableId) {
+      return {
+        project_id: normalized,
+        row_id: mondayRowId,
+        table_id: tableId,
+      };
+    }
+  }
+
+  return undefined;
+}
+
+/** Build a project detail URL that matches `projects/detail` lookup (project_id + Monday row_id). */
+function buildProjectDetailHrefForProjectId(
+  projectId: string,
+  projects: unknown[],
+  dynamicProjectRows: DynamicProjectRow[],
+  nestedReturnTo?: string,
+): string | null {
+  const normalizedProjectId = projectId.trim();
+  if (!normalizedProjectId) return null;
+
+  const ref = findProjectReferenceRow(
+    normalizedProjectId,
+    projects,
+    dynamicProjectRows,
+  );
+  const params = new URLSearchParams();
+  params.set(
+    "projectId",
+    String(ref?.project_id ?? normalizedProjectId).trim(),
+  );
+
+  const mondayRowId = String(ref?.row_id ?? "").trim();
+  const tableIdVal = String(ref?.table_id ?? "").trim();
+  if (mondayRowId) params.set("rowId", mondayRowId);
+  if (tableIdVal) params.set("tableId", tableIdVal);
+
+  const safeReturnTo = nestedReturnTo?.trim();
+  if (
+    safeReturnTo &&
+    (safeReturnTo.startsWith("/projects") || safeReturnTo.startsWith("/harvest"))
+  ) {
+    params.set("returnTo", safeReturnTo);
+  }
+
+  return `/projects/detail?${params.toString()}`;
 }
 
 const SHIPPING_NOTE_SPLIT = "\n\n--- Shipping / dispatch ---\n\n";
@@ -882,7 +972,6 @@ function HarvestInputPageInner() {
   const [harvestDateTouched, setHarvestDateTouched] = useState(false);
   /** Mirrors HarvestForm “Use date range” for estimated start/end inputs. */
   const [useEstimatedDateRange, setUseEstimatedDateRange] = useState(false);
-  const [deleteMenuOpen, setDeleteMenuOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -1117,17 +1206,34 @@ function HarvestInputPageInner() {
     };
   }, [accessDenied, editId, initialProjectId]);
 
-  const showDeleteMenu = () => {
-    if (!canDeleteCurrentHarvest) return;
-    setDeleteMenuOpen(true);
-  };
+  const getPostDeleteRedirectTarget = useCallback(() => {
+    const nestedReturnTo = returnTarget.startsWith("/projects/detail")
+      ? parseProjectDetailQueryParam(returnTarget, "returnTo")
+      : returnTarget.startsWith("/harvest") || returnTarget.startsWith("/projects")
+        ? returnTarget
+        : "";
 
-  const closeDeleteMenu = () => setDeleteMenuOpen(false);
+    const projectId =
+      formData.project.trim() ||
+      initialProjectId ||
+      parseProjectDetailQueryParam(returnTarget, "projectId");
 
-  const onPickDeleteFromSheet = () => {
-    closeDeleteMenu();
-    setConfirmDeleteOpen(true);
-  };
+    const detailHref = buildProjectDetailHrefForProjectId(
+      projectId,
+      projects,
+      dynamicProjectRows,
+      nestedReturnTo || undefined,
+    );
+    if (detailHref) return detailHref;
+
+    return "/harvest";
+  }, [
+    returnTarget,
+    formData.project,
+    initialProjectId,
+    projects,
+    dynamicProjectRows,
+  ]);
 
   const onConfirmDeleteHarvest = async () => {
     if (!canDeleteCurrentHarvest) {
@@ -1150,8 +1256,7 @@ function HarvestInputPageInner() {
         type: "sub",
       });
       setConfirmDeleteOpen(false);
-      // After delete, never send the user back to detail — the row no longer exists.
-      router.push(withRefreshQueryParam("/harvest"));
+      router.push(withRefreshQueryParam(getPostDeleteRedirectTarget()));
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : "Delete harvest failed.");
     } finally {
@@ -1692,11 +1797,12 @@ function HarvestInputPageInner() {
                   {canDeleteCurrentHarvest ? (
                     <button
                       type="button"
-                      onClick={showDeleteMenu}
-                      className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground hover:bg-muted/80"
-                      aria-label="More actions"
+                      onClick={() => setConfirmDeleteOpen(true)}
+                      className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-border bg-card px-3 text-sm font-medium text-red-600 transition-colors hover:bg-red-50"
+                      aria-label={t("deleteHarvestAria")}
                     >
-                      <MoreVertical className="h-5 w-5" strokeWidth={2.25} />
+                      <Trash2 className="h-4 w-4" strokeWidth={2.25} />
+                      {tCommon("delete")}
                     </button>
                   ) : null}
                 </div>
@@ -2704,40 +2810,6 @@ function HarvestInputPageInner() {
           </div>
         )}
       </DashboardLayout>
-
-      {canDeleteCurrentHarvest && deleteMenuOpen ? (
-        <>
-          <button
-            type="button"
-            className="fixed inset-0 z-60 bg-black/40"
-            aria-label="Close actions menu"
-            onClick={closeDeleteMenu}
-          />
-          <div
-            className="fixed inset-x-0 bottom-0 z-61 mx-auto max-w-md rounded-t-2xl border border-gray-200 bg-white shadow-lg"
-            role="dialog"
-            aria-label="Actions"
-          >
-            <div className="py-2">
-              <button
-                type="button"
-                className="flex w-full items-center gap-3 px-4 py-3 text-left text-red-600 hover:bg-red-50"
-                onClick={onPickDeleteFromSheet}
-              >
-                <Trash2 className="h-5 w-5 shrink-0" />
-                <span className="font-medium">{tCommon("delete")}</span>
-              </button>
-              <button
-                type="button"
-                className="flex w-full items-center gap-3 px-4 py-3 text-left text-gray-800 hover:bg-gray-50"
-                onClick={closeDeleteMenu}
-              >
-                <span className="pl-8 font-medium">{tCommon("cancel")}</span>
-              </button>
-            </div>
-          </div>
-        </>
-      ) : null}
 
       {canDeleteCurrentHarvest && confirmDeleteOpen ? (
         <div
