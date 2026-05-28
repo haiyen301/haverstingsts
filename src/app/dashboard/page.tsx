@@ -105,19 +105,6 @@ const FARM_STACKED_HARVEST_COLORS = {
 
 type FarmStackHarvestKey = keyof typeof FARM_STACKED_HARVEST_COLORS;
 
-/**
- * Numeric `ref_hrv_qty_sprig` (`sts_project_harvesting_plan`) on subitem; > 0 counts.
- * Monday payload alone often omits it — dashboard merges harvesting-index rows like the project list.
- */
-function parseRefHrvQtySprigNumber(rec: Record<string, unknown>): number {
-  const raw = rec.ref_hrv_qty_sprig ?? rec.refHrvQtySprig;
-  if (typeof raw === "number") return Number.isFinite(raw) && raw > 0 ? raw : 0;
-  const s = String(raw ?? "").trim();
-  if (!s || s === "null" || s === "undefined") return 0;
-  const n = Number(s.replace(/,/g, ""));
-  return Number.isFinite(n) && n > 0 ? n : 0;
-}
-
 /** Merge harvesting-plan rows into each project `subitems` by `project_id` / `id` (parity with Projects page). */
 function mergeDashboardSubitemsWithHarvestPlan(
   projectRows: Array<Record<string, unknown>>,
@@ -155,8 +142,6 @@ function mergeDashboardSubitemsWithHarvestPlan(
 }
 
 function harvestTypeStackKey(rec: Record<string, unknown>): FarmStackHarvestKey {
-  if (parseRefHrvQtySprigNumber(rec) > 0) return "SOD_FOR_SPRIG";
-
   const raw = String(
     rec.load_type ?? rec.select_harvest_type ?? rec.selectHarvestType ?? "",
   ).trim();
@@ -1089,13 +1074,12 @@ export default function DashboardPage() {
         if (!Number.isFinite(qtyParsed)) continue;
         const uom = String(item.uom ?? "").trim().toLowerCase();
         const hk = harvestTypeStackKey(item as Record<string, unknown>);
-        const refSprigKg = parseRefHrvQtySprigNumber(item as Record<string, unknown>);
-        /** Sprig kg slice: same logic as deliveryGrassTypePeriodBreakdown — Sod→Sprig can be m² + ref kg only */
         const lineKg =
           uom === "kg" && Number.isFinite(qtyParsed) && qtyParsed > 0 ? qtyParsed : 0;
         let contribKgPie = 0;
         if (hk === "SOD_FOR_SPRIG") {
-          contribKgPie = lineKg > 0 ? lineKg : refSprigKg;
+          contribKgPie =
+            Number.isFinite(qtyParsed) && qtyParsed > 0 ? qtyParsed : 0;
         } else if (lineKg > 0) {
           contribKgPie = lineKg;
         }
@@ -1170,7 +1154,7 @@ export default function DashboardPage() {
 
   /**
    * Stacked bar per farm — SOD totals **m²**, SPRIG and Sod→Sprig totals **kg**:
-   * Sod→Sprig uses **`ref_hrv_qty_sprig`** (planned sprig kg tied to sod m²); falls back to line kg only if needed.
+   * Sod→Sprig uses plan **`quantity`** for kg stack totals.
    */
   const farmQtyDeliveredByHarvestTypeBarData = useMemo(() => {
     let farms = farmFilters;
@@ -1225,7 +1209,6 @@ export default function DashboardPage() {
             ? qtyParsed
             : 0;
 
-        const refSprigKg = parseRefHrvQtySprigNumber(rec);
         const hk = harvestTypeStackKey(rec);
 
         if (hk === "SOD") {
@@ -1238,7 +1221,7 @@ export default function DashboardPage() {
         }
         if (hk === "SOD_FOR_SPRIG") {
           const sodForSprigKg =
-            refSprigKg > 0 ? refSprigKg : lineKg > 0 ? lineKg : 0;
+            Number.isFinite(qtyParsed) && qtyParsed > 0 ? qtyParsed : 0;
           if (sodForSprigKg > 0) bucket.SOD_FOR_SPRIG += sodForSprigKg;
         }
       }
@@ -1333,10 +1316,10 @@ export default function DashboardPage() {
         const hk = harvestTypeStackKey(rec);
         const lineKgRaw =
           uom === "kg" && Number.isFinite(qtyParsed) && qtyParsed > 0 ? qtyParsed : 0;
-        const refSprigKg = parseRefHrvQtySprigNumber(rec);
         let sprigDisplayKg = 0;
         if (hk === "SOD_FOR_SPRIG") {
-          sprigDisplayKg = lineKgRaw > 0 ? lineKgRaw : refSprigKg;
+          sprigDisplayKg =
+            Number.isFinite(qtyParsed) && qtyParsed > 0 ? qtyParsed : 0;
         } else {
           sprigDisplayKg = lineKgRaw;
         }
@@ -1483,11 +1466,11 @@ export default function DashboardPage() {
         if (wantSprig) {
           const lineKg =
             uom === "kg" && Number.isFinite(qtyParsed) && qtyParsed > 0 ? qtyParsed : 0;
-          const refSprigKg = parseRefHrvQtySprigNumber(rec);
           const hk = harvestTypeStackKey(rec);
           let contrib = 0;
           if (hk === "SOD_FOR_SPRIG") {
-            contrib = lineKg > 0 ? lineKg : refSprigKg;
+            contrib =
+              Number.isFinite(qtyParsed) && qtyParsed > 0 ? qtyParsed : 0;
           } else if (lineKg > 0) {
             contrib = lineKg;
           } else {
@@ -1579,11 +1562,11 @@ export default function DashboardPage() {
         if (wantSprig) {
           const lineKg =
             uom === "kg" && Number.isFinite(qtyParsed) && qtyParsed > 0 ? qtyParsed : 0;
-          const refSprigKg = parseRefHrvQtySprigNumber(itemRec);
           const hk = harvestTypeStackKey(itemRec);
           let contribKg = 0;
           if (hk === "SOD_FOR_SPRIG") {
-            contribKg = lineKg > 0 ? lineKg : refSprigKg;
+            contribKg =
+              Number.isFinite(qtyParsed) && qtyParsed > 0 ? qtyParsed : 0;
           } else if (lineKg > 0) {
             contribKg = lineKg;
           } else {
@@ -1691,11 +1674,11 @@ export default function DashboardPage() {
         if (wantSprig) {
           const lineKg =
             uom === "kg" && Number.isFinite(qtyParsed) && qtyParsed > 0 ? qtyParsed : 0;
-          const refSprigKg = parseRefHrvQtySprigNumber(itemRec);
           const hk = harvestTypeStackKey(itemRec);
           let add = 0;
           if (hk === "SOD_FOR_SPRIG") {
-            add = lineKg > 0 ? lineKg : refSprigKg;
+            add =
+              Number.isFinite(qtyParsed) && qtyParsed > 0 ? qtyParsed : 0;
           } else if (lineKg > 0) {
             add = lineKg;
           }

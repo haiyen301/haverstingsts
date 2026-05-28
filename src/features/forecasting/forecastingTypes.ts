@@ -23,7 +23,7 @@ export type ForecastHarvestRow = {
   /**
    * Kg dùng trừ tồn / chart:
    * - Sod / M²: convert từ `harvested_area` × zone kg/m².
-   * - Sod → Sprig: `ref_hrv_qty_sprig` (không nhân m² × tỷ lệ).
+   * - Sod → Sprig: plan `quantity` (không nhân m² × tỷ lệ).
    * - Sprig / Kg: từ `quantity` (kg), có thể cap theo zone.
    */
   inventoryKg: number;

@@ -3,7 +3,6 @@ import {
   findActiveZoneConfiguration,
   ymdFromDateLocal,
 } from "@/features/forecasting/inventoryRegrowthCalculator";
-import { parseRefHrvQtySprig } from "@/features/project/lib/subitemDeliveredQuantity";
 import { normalizeHarvestTypeStorageKey } from "@/shared/lib/harvestType";
 import type { ForecastHarvestRow } from "./forecastingTypes";
 
@@ -126,29 +125,19 @@ function planRowHarvestTypeKeyFromRaw(
   return candidates.map((v) => normalizeHarvestTypeStorageKey(v)).find(Boolean) ?? null;
 }
 
-/** Sod → Sprig plan (load type hoặc legacy: ref sprig kg + UOM m²). */
+/** Sod → Sprig plan (`load_type` / `harvest_type` = sod_to_sprig). */
 export function planRowIsSodToSprig(rawPlanRow: Record<string, unknown>): boolean {
-  if (planRowHarvestTypeKeyFromRaw(rawPlanRow) === "sod_to_sprig") return true;
-  return (
-    parseRefHrvQtySprig(rawPlanRow) > 0 &&
-    planRowUsesHarvestedAreaForMagnitude(rawPlanRow)
-  );
+  return planRowHarvestTypeKeyFromRaw(rawPlanRow) === "sod_to_sprig";
 }
 
 /**
- * Kg sprig cho Sod → Sprig: `ref_hrv_qty_sprig` (không nhân harvested_area × kg/m²).
- * Fallback: cột `quantity` khi UOM là kg.
+ * Kg sprig cho Sod → Sprig: cột `quantity` (không nhân harvested_area × kg/m²).
  */
 export function harvestPlanSprigKgFromRaw(
   rawPlanRow: Record<string, unknown>,
 ): number {
   if (!planRowIsSodToSprig(rawPlanRow)) return 0;
-  const refKg = parseRefHrvQtySprig(rawPlanRow);
-  if (refKg > 0) return refKg;
-  if (isKgUom(resolvePlanRowUomFromRaw(rawPlanRow))) {
-    return harvestPlanQuantityFromRaw(rawPlanRow);
-  }
-  return 0;
+  return harvestPlanQuantityFromRaw(rawPlanRow);
 }
 
 function planRowHasNoHarvestZone(rawPlanRow: Record<string, unknown>): boolean {
@@ -248,7 +237,7 @@ function resolveInventoryKgPerM2ForPlanRow(params: {
 
 /**
  * Kg dùng trừ tồn / forecast (trước cap `max_inventory_kg`).
- * Sod → Sprig: `ref_hrv_qty_sprig`; Sod/M²: harvested_area × kg/m²; Sprig/Kg: quantity.
+ * Sod → Sprig: plan `quantity`; Sod/M²: harvested_area × kg/m²; Sprig/Kg: quantity.
  */
 export function harvestPlanInventoryKgFromRaw(
   rawPlanRow: Record<string, unknown>,
@@ -376,7 +365,7 @@ export function harvestPlanM2MagnitudeFromRaw(
     : 0;
 }
 
-/** kg gom theo tháng — Sprig / UOM Kg / Sod→Sprig (`ref_hrv_qty_sprig`). */
+/** kg gom theo tháng — Sprig / UOM Kg / Sod→Sprig (plan `quantity`). */
 export function harvestPlanKgMagnitudeFromRaw(
   rawPlanRow: Record<string, unknown>,
 ): number {

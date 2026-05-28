@@ -246,6 +246,11 @@
     "loginFailedCheckCredentials": "Login failed. Please check credentials.",
     "loginTokenMissing": "Login succeeded but token is missing.",
     "loginFailedGeneric": "Login failed.",
+    "loginDebugTitle": "Debug details",
+    "loginDebugHint": "Copy this block when reporting the issue. HTTP 404 + HTML usually means port/host is not stsrenew Next.js (run npm run dev in stsrenew).",
+    "loginDebugApiMissing": "API route missing on this host (debug)",
+    "loginDebugSessionProbe": "GET /api/authentication/session (on page load)",
+    "loginDebugLoginPost": "POST /api/authentication/login (last attempt)",
     "registerValidationFirstLastName": "Please enter first and last name.",
     "registerValidationEmail": "Please enter email.",
     "registerValidationPassword": "Please enter password.",
@@ -913,6 +918,7 @@
     "validationSelectZone": "Please select zone.",
     "validationSelectFarm": "Please select farm.",
     "datePairRequiredError": "Estimated harvest date is required when Actual harvest date is empty.",
+    "actualRequiredWhenDownstreamDates": "Harvest Start Date (actual) is required when Harvest End Date, Port Arrival Date, or Delivery Date is set.",
     "photoSlotPayment": "Payment",
     "photoSlotShipping": "Shipping",
     "photoSlotThermostat": "Thermostat",
@@ -1475,7 +1481,10 @@
       "empty": "No upcoming harvests in this horizon for the current filters.",
       "scheduled": "Scheduled",
       "summaryKg": "{quantity} kg",
-      "multiZoneZones": "{count} zones"
+      "multiZoneZones": "{count} zones",
+      "m2ConversionTooltipAria": "m² to kg conversion (hover)",
+      "m2ConversionTooltipTitle": "m² → kg conversion",
+      "m2ConversionTooltipLine": "{zone}: {m2} m² × {rate} kg/m² = {kg} kg"
     },
     "events": {
       "title": "Upcoming Regrowth Events",

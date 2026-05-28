@@ -71,15 +71,7 @@ function harvestLineTypeKey(s: Record<string, unknown>): string {
 }
 
 export function isSodToSprigHarvestLine(s: Record<string, unknown>): boolean {
-  if (harvestLineTypeKey(s) === "sod_to_sprig") return true;
-  // Rows saved with m² sod qty + ref sprig kg but missing/legacy load_type.
-  if (
-    parseRefHrvQtySprig(s) > 0 &&
-    normalizeUomForHarvestMatch(s.uom) === "m2"
-  ) {
-    return true;
-  }
-  return false;
+  return harvestLineTypeKey(s) === "sod_to_sprig";
 }
 
 /** Requirement line UOM → kg / m2 for progress matching (sprig lines are kg). */
@@ -98,7 +90,7 @@ function countsTowardDeliveredProgress(
   if (
     requiredUomNorm === "kg" &&
     isSodToSprigHarvestLine(s) &&
-    parseRefHrvQtySprig(s) > 0 &&
+    parseNumber(s.quantity) > 0 &&
     isValidActualHarvestDate(s.actual_harvest_date)
   ) {
     return true;
@@ -106,39 +98,15 @@ function countsTowardDeliveredProgress(
   return false;
 }
 
-/** `sts_project_harvesting_plan.ref_hrv_qty_sprig` — sprig kg yield for Sod → Sprig lines. */
-export function parseRefHrvQtySprig(s: Record<string, unknown>): number {
-  const raw = s.ref_hrv_qty_sprig ?? s.refHrvQtySprig;
-  if (typeof raw === "number") return Number.isFinite(raw) && raw > 0 ? raw : 0;
-  const text = String(raw ?? "").trim();
-  if (!text || text === "null" || text === "undefined") return 0;
-  const n = Number(text.replace(/,/g, ""));
-  return Number.isFinite(n) && n > 0 ? n : 0;
-}
-
 /**
  * Delivered qty counted toward one requirement line (delivery date required).
- * Sod → Sprig: kg requirements use `ref_hrv_qty_sprig`; m² requirements use sod `quantity`.
+ * Sod → Sprig: kg and m² requirements both use plan `quantity`.
  */
 export function deliveredQtyForRequirementLine(
   s: Record<string, unknown>,
   requiredUomNorm: string,
 ): number {
   if (!countsTowardDeliveredProgress(s, requiredUomNorm)) return 0;
-
-  const isSodSprig = isSodToSprigHarvestLine(s);
-  if (isSodSprig && requiredUomNorm === "kg") {
-    const refKg = parseRefHrvQtySprig(s);
-    if (refKg > 0) return refKg;
-    if (normalizeUomForHarvestMatch(s.uom) === "kg") {
-      return parseNumber(s.quantity);
-    }
-    return 0;
-  }
-
-  if (isSodSprig && requiredUomNorm === "m2") {
-    return parseNumber(s.quantity);
-  }
 
   return parseNumber(s.quantity);
 }
@@ -157,8 +125,7 @@ function subitemMatchesRequirementForDelivery(
   if (allowBlankSubitemUom && subUom === "") return true;
 
   if (requiredUomNorm === "kg" && isSodToSprigHarvestLine(s)) {
-    const refKg = parseRefHrvQtySprig(s);
-    return refKg > 0 || subUom === "kg";
+    return parseNumber(s.quantity) > 0 || subUom === "kg";
   }
 
   if (requiredUomNorm === "m2" && isSodToSprigHarvestLine(s)) {
