@@ -297,7 +297,6 @@ type HarvestRow = {
   quantityValue: number;
   limitStatus: "limit" | "overLimit" | null;
   remainingQuantityDisplay: string | null;
-  refQtyDisplay: string | null;
   /** `harvested_area` formatted when UOM is Kg (reference quantity + Kg). */
   harvestedAreaDisplay: string | null;
   /** `harvested_area` / quantity when UOM is M2 (Harvested area + m²). */
@@ -395,14 +394,13 @@ function mapHarvestRecordToHarvestRow(
   const uomRaw = String(r.uom ?? "").trim();
   const uomLower = uomRaw.toLowerCase();
   const ha = parseNumber(r.harvested_area);
-  const refHarvestQty = parseNumber(r.ref_hrv_qty_sprig);
   const qty = parseNumber(r.quantity);
   const harvestTypeKey =
     normalizeHarvestTypeStorageKey(r.harvest_type ?? r.load_type ?? "") ||
     normalizeHarvestTypeStorageKey(r.harvestType ?? "");
   const isSodToSprig = harvestTypeKey === "sod_to_sprig";
-  const displayQty = isSodToSprig ? refHarvestQty : qty;
-  const displayUom = isSodToSprig ? "Kg" : uomRaw;
+  const displayQty = qty;
+  const displayUom = uomRaw;
   const productId = String(r.product_id ?? "").trim();
   const uomKey = isSodToSprig ? "kg" : normalizeUomKey(uomRaw);
   const remainingMapKey = `${productId}::${uomKey}`;
@@ -414,8 +412,6 @@ function mapHarvestRecordToHarvestRow(
       : null;
   const harvestedAreaDisplay =
     uomLower === "kg" && ha > 0 ? ha.toLocaleString() : null;
-  const refQtyDisplay =
-    refHarvestQty > 0 ? refHarvestQty.toLocaleString() : null;
   const harvestedAreaM2Display =
     uomLower === "m2" && (ha > 0 || (!isSodToSprig && qty > 0))
       ? (ha > 0 ? ha : qty).toLocaleString()
@@ -471,7 +467,6 @@ function mapHarvestRecordToHarvestRow(
     quantityValue: displayQty,
     limitStatus: harvestLimitStatusFromDescription(r.description),
     remainingQuantityDisplay,
-    refQtyDisplay,
     harvestedAreaDisplay,
     harvestedAreaM2Display,
     estimatedDate: formatDateDisplay(r.estimated_harvest_date, ctx.locale),
@@ -1796,14 +1791,6 @@ export default function ProjectDetailPage() {
                       <span className="mt-1 ml-[110px] block text-xs text-gray-500">
                         {t("Remqty")} {h.remainingQuantityDisplay ? h.remainingQuantityDisplay : "-"}
                       </span>
-                    </p>
-                    <p>
-                      <span className="inline-block w-[110px] text-gray-500 align-top">
-                        {tForm("referenceHarvestQuantity")}{" "}
-                      </span>
-                      {h.refQtyDisplay
-                        ? h.refQtyDisplay + tForm("referenceHarvestUnit")
-                        : "-"}
                     </p>
                     <p>
                       <span className="inline-block w-[110px] text-gray-500 align-top">

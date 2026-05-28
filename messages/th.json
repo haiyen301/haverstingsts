@@ -246,6 +246,11 @@
     "loginFailedCheckCredentials": "เข้าสู่ระบบไม่สำเร็จ กรุณาตรวจสอบข้อมูลเข้าสู่ระบบ",
     "loginTokenMissing": "เข้าสู่ระบบสำเร็จแต่ไม่พบโทเค็น",
     "loginFailedGeneric": "เข้าสู่ระบบไม่สำเร็จ",
+    "loginDebugTitle": "รายละเอียด debug",
+    "loginDebugHint": "คัดลอกบล็อกนี้เมื่อรายงานปัญหา HTTP 404 + HTML มักหมายความว่า port/host ไม่ใช่ stsrenew Next.js (รัน npm run dev ใน stsrenew)",
+    "loginDebugApiMissing": "ไม่พบ API route บน host นี้ (debug)",
+    "loginDebugSessionProbe": "GET /api/authentication/session (เมื่อโหลดหน้า)",
+    "loginDebugLoginPost": "POST /api/authentication/login (ครั้งล่าสุด)",
     "registerValidationFirstLastName": "กรุณากรอกชื่อและนามสกุล",
     "registerValidationEmail": "กรุณากรอกอีเมล",
     "registerValidationPassword": "กรุณากรอกรหัสผ่าน",
@@ -914,6 +919,7 @@
     "validationSelectZone": "กรุณาเลือกโซน",
     "validationSelectFarm": "กรุณาเลือกฟาร์ม",
     "datePairRequiredError": "หากไม่กรอกวันที่เก็บเกี่ยวจริง จำเป็นต้องกรอกวันที่เก็บเกี่ยวโดยประมาณ",
+    "actualRequiredWhenDownstreamDates": "ต้องกรอกวันที่เริ่มเก็บเกี่ยว (จริง) เมื่อกรอกวันที่สิ้นสุดเก็บเกี่ยว วันที่ถึงท่าเรือ หรือวันที่ส่งมอบแล้ว",
     "photoSlotPayment": "การชำระเงิน",
     "photoSlotShipping": "เอกสารขนส่ง",
     "photoSlotThermostat": "เทอร์โมสแตต",
@@ -1474,7 +1480,10 @@
       "empty": "ไม่มีการเก็บเกี่ยวที่กำลังจะมาถึงในช่วงเวลานี้ตามตัวกรองปัจจุบัน",
       "scheduled": "กำหนดการแล้ว",
       "summaryKg": "{quantity} kg",
-      "multiZoneZones": "{count} โซน"
+      "multiZoneZones": "{count} โซน",
+      "m2ConversionTooltipAria": "การแปลง m² เป็น kg (hover)",
+      "m2ConversionTooltipTitle": "แปลง m² → kg",
+      "m2ConversionTooltipLine": "{zone}: {m2} m² × {rate} kg/m² = {kg} kg"
     },
     "events": {
       "title": "เหตุการณ์ฟื้นตัวที่กำลังจะมาถึง",

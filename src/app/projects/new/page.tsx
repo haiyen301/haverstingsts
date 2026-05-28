@@ -620,21 +620,18 @@ export default function ProjectInputPage() {
 
   const isGrassItemComplete = (g: GrassRow) =>
     g.grass.trim().length > 0 &&
-    g.keyAreaIds.length > 0 &&
     g.required.trim().length > 0 &&
     g.type.trim().length > 0;
 
   const hasInvalidGrassItem = grassRows.some((g) => {
     const touched =
       g.grass.trim().length > 0 ||
-      g.keyAreaIds.length > 0 ||
       g.type.trim().length > 0 ||
       g.required.trim().length > 0;
     if (!touched) return false;
     const requiredQty = Number.parseFloat(g.required);
     return (
       !g.grass.trim() ||
-      g.keyAreaIds.length === 0 ||
       !g.type.trim() ||
       !g.required.trim() ||
       !Number.isFinite(requiredQty) ||
@@ -1765,7 +1762,9 @@ export default function ProjectInputPage() {
                             )
                           }
                           placeholder={
-                            row.grass.trim() ? t("selectKeyArea") : t("selectGrassFirst")
+                            row.grass.trim()
+                              ? t("farmOptional")
+                              : t("selectGrassFirst")
                           }
                           selectionSummary="compact"
                     

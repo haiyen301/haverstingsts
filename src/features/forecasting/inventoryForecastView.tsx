@@ -194,14 +194,235 @@ function forecastDisplayKgFromRow(row: ForecastHarvestRow): number {
   return forecastHarvestRowInventoryKg(row);
 }
 
-/** Display kg used in forecast; append source m² when the plan UOM was converted from m². */
-function formatForecastKgWithOptionalM2(kg: number, sourceM2?: number): string {
-  const kgStr = `${Math.round(kg).toLocaleString()} kg`;
+function ForecastKgQuantityLabel({
+  sign,
+  kg,
+  sourceM2,
+  className,
+}: {
+  sign: "+" | "-";
+  kg: number;
+  sourceM2?: number;
+  className?: string;
+}) {
   const m2 = sourceM2 ?? 0;
-  if (m2 > 0) {
-    return `${kgStr} (${m2.toLocaleString()} m²)`;
+  return (
+    <span className={cn("tabular-nums", className)}>
+      {sign}
+      {Math.round(kg).toLocaleString()} kg
+      {m2 > 0 ? ` (${m2.toLocaleString()} m²)` : ""}
+    </span>
+  );
+}
+
+type ForecastM2ConversionLine = {
+  zoneKey: string;
+  zoneLabel: string;
+  m2: number;
+  kgPerM2: number;
+};
+
+function formatKgPerM2Rate(rate: number): string {
+  if (!Number.isFinite(rate) || rate <= 0) return "0";
+  const rounded = Math.round(rate * 100) / 100;
+  return rounded.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
+function resolveRowInventoryKgPerM2(
+  row: ForecastHarvestRow,
+  kgPerM2ByZone: Record<string, number>,
+): number {
+  const zoneKey = zoneNormKeyForHarvestZoneTooltip(String(row.zone ?? ""));
+  const fromConfig = kgPerM2ByZone[zoneKey];
+  if (fromConfig != null && fromConfig > 0) return fromConfig;
+  if (zoneKey === FORECAST_NOZONE_ZONE || !String(row.zone ?? "").trim()) {
+    const zone1 =
+      kgPerM2ByZone["1"] ??
+      kgPerM2ByZone["zone-1"] ??
+      kgPerM2ByZone["zone 1"] ??
+      0;
+    if (zone1 > 0) return zone1;
   }
-  return kgStr;
+  const m2 = forecastHarvestRowEffectiveM2(row);
+  const kg = forecastHarvestRowInventoryKg(row);
+  if (m2 > 0 && kg > 0) return kg / m2;
+  return 0;
+}
+
+function forecastHarvestRowM2ConversionLine(
+  row: ForecastHarvestRow,
+  kgPerM2ByZone: Record<string, number>,
+  zoneLabelFn: (z: string) => string,
+  noZoneLabel: string,
+): ForecastM2ConversionLine | null {
+  const m2Raw = forecastHarvestRowEffectiveM2(row);
+  if (m2Raw <= 0) return null;
+  const kg = forecastHarvestRowInventoryKg(row);
+  if (kg <= 0) return null;
+
+  const zoneRaw = String(row.zone ?? "").trim();
+  const zoneKey = zoneNormKeyForHarvestZoneTooltip(zoneRaw);
+  const kgPerM2 = resolveRowInventoryKgPerM2(row, kgPerM2ByZone);
+  if (kgPerM2 <= 0) return null;
+
+  const m2 =
+    row.inventoryKgFromNozoneSpread && row.inventoryKgFromNozoneSpread > 0
+      ? kg / kgPerM2
+      : m2Raw;
+
+  const zoneLabel =
+    zoneKey === FORECAST_NOZONE_ZONE || !zoneRaw ? noZoneLabel : zoneLabelFn(zoneRaw);
+
+  return { zoneKey, zoneLabel, m2, kgPerM2 };
+}
+
+function mergeM2ConversionLines(
+  lines: (ForecastM2ConversionLine | null | undefined)[],
+): ForecastM2ConversionLine[] {
+  const map = new Map<string, ForecastM2ConversionLine>();
+  for (const line of lines) {
+    if (!line) continue;
+    const prev = map.get(line.zoneKey);
+    if (!prev) {
+      map.set(line.zoneKey, { ...line });
+    } else {
+      prev.m2 += line.m2;
+    }
+  }
+  return Array.from(map.values()).sort((a, b) => a.zoneLabel.localeCompare(b.zoneLabel));
+}
+
+function buildM2ConversionLinesFromZoneSource(
+  zoneSource: Record<string, { m2: number; nativeKg: number }>,
+  kgPerM2ByZone: Record<string, number>,
+  zoneLabelFn: (z: string) => string,
+  noZoneLabel: string,
+): ForecastM2ConversionLine[] {
+  const lines: ForecastM2ConversionLine[] = [];
+  for (const [zoneKey, src] of Object.entries(zoneSource)) {
+    if (src.m2 <= 0 && src.nativeKg <= 0) continue;
+    let kgPerM2 = kgPerM2ByZone[zoneKey] ?? 0;
+    if (kgPerM2 <= 0 && zoneKey === FORECAST_NOZONE_ZONE) {
+      kgPerM2 =
+        kgPerM2ByZone["1"] ??
+        kgPerM2ByZone["zone-1"] ??
+        kgPerM2ByZone["zone 1"] ??
+        0;
+    }
+    if (kgPerM2 <= 0 && src.nativeKg > 0 && src.m2 > 0) {
+      kgPerM2 = src.nativeKg / src.m2;
+    }
+    if (kgPerM2 <= 0) continue;
+    const m2 = src.m2 > 0 ? src.m2 : src.nativeKg / kgPerM2;
+    const zoneLabel =
+      zoneKey === FORECAST_NOZONE_ZONE ? noZoneLabel : zoneLabelFn(zoneKey);
+    lines.push({ zoneKey, zoneLabel, m2, kgPerM2 });
+  }
+  return lines.sort((a, b) => a.zoneLabel.localeCompare(b.zoneLabel));
+}
+
+function ForecastM2ConversionHelp({
+  lines,
+  t,
+}: {
+  lines: ForecastM2ConversionLine[];
+  t: (key: string, values?: TranslationValues) => string;
+}) {
+  const [open, setOpen] = useState(false);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearCloseTimer = () => {
+    if (closeTimerRef.current != null) {
+      clearTimeout(closeTimerRef.current);
+      closeTimerRef.current = null;
+    }
+  };
+
+  const scheduleClose = () => {
+    clearCloseTimer();
+    closeTimerRef.current = setTimeout(() => setOpen(false), 160);
+  };
+
+  const openPanel = () => {
+    clearCloseTimer();
+    setOpen(true);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current != null) {
+        clearTimeout(closeTimerRef.current);
+        closeTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  if (lines.length === 0) return null;
+
+  const tooltipBody = (
+    <>
+      <p className="font-medium text-foreground">{t("upcoming.m2ConversionTooltipTitle")}</p>
+      {lines.map((line) => (
+        <p key={line.zoneKey} className="text-muted-foreground">
+          {t("upcoming.m2ConversionTooltipLine", {
+            zone: line.zoneLabel,
+            m2: line.m2.toLocaleString(undefined, { maximumFractionDigits: 2 }),
+            rate: formatKgPerM2Rate(line.kgPerM2),
+            kg: Math.round(line.m2 * line.kgPerM2).toLocaleString(),
+          })}
+        </p>
+      ))}
+    </>
+  );
+
+  return (
+    <Popover
+      modal={false}
+      open={open}
+      onOpenChange={(next) => {
+        if (next) openPanel();
+        else {
+          clearCloseTimer();
+          setOpen(false);
+        }
+      }}
+    >
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            "inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full border border-border/70 bg-muted/30 text-muted-foreground shadow-sm transition-colors",
+            "hover:border-border hover:bg-muted/60 hover:text-foreground",
+            open && "border-primary/35 bg-primary/5 text-foreground",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1",
+          )}
+          aria-label={t("upcoming.m2ConversionTooltipAria")}
+          aria-expanded={open}
+          onMouseEnter={openPanel}
+          onMouseLeave={scheduleClose}
+          onFocus={openPanel}
+          onBlur={scheduleClose}
+        >
+          <HelpCircle className="h-3 w-3" strokeWidth={2} />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        role="tooltip"
+        side="top"
+        align="end"
+        sideOffset={6}
+        collisionPadding={12}
+        onOpenAutoFocus={(e) => e.preventDefault()}
+        onMouseEnter={openPanel}
+        onMouseLeave={scheduleClose}
+        className={cn(
+          "z-110 w-[min(18rem,calc(100vw-2rem))] max-h-[min(70vh,22rem)] space-y-1 overflow-y-auto border-border bg-card p-2.5 text-left text-[11px] leading-snug text-card-foreground shadow-lg",
+        )}
+      >
+        {tooltipBody}
+      </PopoverContent>
+    </Popover>
+  );
 }
 
 function sumRegrowthTooltipSourceM2(
@@ -1337,7 +1558,19 @@ export function InventoryForecast() {
         }
         return inRange;
       })
-      .map((h) => ({
+      .map((h) => {
+        const kgPerM2ByZone = kgPerM2ByNormalizedZoneForFarmProduct(
+          zoneConfigSnapshot,
+          h.farmId,
+          h.productId,
+        );
+        const m2ConversionLine = forecastHarvestRowM2ConversionLine(
+          h,
+          kgPerM2ByZone,
+          zoneLabel,
+          t("events.noZoneName"),
+        );
+        return {
         planId: forecastLogicalPlanRowId(h.id),
         id: h.id,
         date: normalizeYmd(h.harvestDate),
@@ -1348,11 +1581,13 @@ export function InventoryForecast() {
         customer: h.customer ?? "",
         qty: forecastDisplayKgFromRow(h),
         sourceM2: forecastSourceM2FromRow(h),
+        m2ConversionLine,
         uom: "kg",
         inventoryIsCapped: h.inventoryIsCapped,
         harvestType: h.harvestType,
         type: harvestTypeLabel(h.harvestType, t),
-      }))
+      };
+      })
       .sort((a, b) => a.date.localeCompare(b.date));
 
     const upcomingByPlan = new Map<
@@ -1369,6 +1604,7 @@ export function InventoryForecast() {
         customer: string;
         qty: number;
         sourceM2: number;
+        m2ConversionLines: ForecastM2ConversionLine[];
         uom: string;
         inventoryIsCapped: boolean;
         harvestType: (typeof filteredRows)[number]["harvestType"];
@@ -1398,6 +1634,7 @@ export function InventoryForecast() {
           customer: row.customer,
           qty: row.qty,
           sourceM2: row.sourceM2,
+          m2ConversionLines: row.m2ConversionLine ? [row.m2ConversionLine] : [],
           uom: row.uom,
           inventoryIsCapped: row.inventoryIsCapped,
           harvestType: row.harvestType,
@@ -1406,6 +1643,7 @@ export function InventoryForecast() {
       } else {
         prev.qty += row.qty;
         prev.sourceM2 += row.sourceM2;
+        if (row.m2ConversionLine) prev.m2ConversionLines.push(row.m2ConversionLine);
         prev.inventoryIsCapped = prev.inventoryIsCapped || row.inventoryIsCapped;
         const z = row.zone.trim();
         if (z) {
@@ -1436,6 +1674,7 @@ export function InventoryForecast() {
           customer: agg.customer,
           qty: agg.qty,
           sourceM2: agg.sourceM2,
+          m2ConversionLines: mergeM2ConversionLines(agg.m2ConversionLines),
           uom: agg.uom,
           inventoryIsCapped: agg.inventoryIsCapped,
           harvestType: agg.harvestType,
@@ -1465,7 +1704,7 @@ export function InventoryForecast() {
       // );
     }
     return mergedUpcoming;
-  }, [filteredRows, forecastMonths, t, zoneLabel]);
+  }, [filteredRows, forecastMonths, t, zoneLabel, zoneConfigSnapshot]);
 
   const upcomingTotalsSummary = useMemo(() => {
     const kgSum = upcomingHarvests.reduce((sum, h) => sum + h.qty, 0);
@@ -1638,6 +1877,12 @@ export function InventoryForecast() {
           first.date,
         );
 
+        const regrowthTooltipKgPerM2ByZone = kgPerM2ByNormalizedZoneForFarmProduct(
+          zoneConfigSnapshot,
+          first.farmId,
+          first.productId,
+        );
+
         return {
           ...alloc,
           harvestDate,
@@ -1660,10 +1905,12 @@ export function InventoryForecast() {
           zoneSetupBadges,
           regrowthTooltipZoneSource,
           sourceM2: sumRegrowthTooltipSourceM2(regrowthTooltipZoneSource),
-          regrowthTooltipKgPerM2ByZone: kgPerM2ByNormalizedZoneForFarmProduct(
-            zoneConfigSnapshot,
-            first.farmId,
-            first.productId,
+          regrowthTooltipKgPerM2ByZone,
+          m2ConversionLines: buildM2ConversionLinesFromZoneSource(
+            regrowthTooltipZoneSource,
+            regrowthTooltipKgPerM2ByZone,
+            zoneLabel,
+            t("events.noZoneName"),
           ),
         };
       })
@@ -2053,8 +2300,16 @@ export function InventoryForecast() {
                     {t("badges.max")}
                   </span>
                 ) : null}
-                <span className="min-w-22 shrink-0 text-right text-sm font-medium text-destructive">
-                  -{formatForecastKgWithOptionalM2(h.qty, h.sourceM2)}
+                <span className="inline-flex shrink-0 items-center gap-1 text-right text-sm font-medium">
+                  {h.sourceM2 > 0 && h.m2ConversionLines.length > 0 ? (
+                    <ForecastM2ConversionHelp lines={h.m2ConversionLines} t={t} />
+                  ) : null}
+                  <ForecastKgQuantityLabel
+                    sign="-"
+                    kg={h.qty}
+                    sourceM2={h.sourceM2}
+                    className="text-destructive"
+                  />
                 </span>
               </div>
             ))}
@@ -2138,8 +2393,15 @@ export function InventoryForecast() {
                     <RegrowthOverflowHelp ev={ev} zoneLabelFn={zoneLabel} t={t} />
                   </span>
                 ) : null}
-                <span className="min-w-22 shrink-0 text-right text-sm font-medium">
-                  +{formatForecastKgWithOptionalM2(ev.primaryDisplayKg, ev.sourceM2)}
+                <span className="inline-flex shrink-0 items-center gap-1 text-right text-sm font-medium">
+                  {ev.sourceM2 > 0 && ev.m2ConversionLines.length > 0 ? (
+                    <ForecastM2ConversionHelp lines={ev.m2ConversionLines} t={t} />
+                  ) : null}
+                  <ForecastKgQuantityLabel
+                    sign="+"
+                    kg={ev.primaryDisplayKg}
+                    sourceM2={ev.sourceM2}
+                  />
                 </span>
               </div>
               );

@@ -246,6 +246,11 @@
     "loginFailedCheckCredentials": "Đăng nhập thất bại. Vui lòng kiểm tra thông tin đăng nhập.",
     "loginTokenMissing": "Đăng nhập thành công nhưng thiếu token.",
     "loginFailedGeneric": "Đăng nhập thất bại.",
+    "loginDebugTitle": "Chi tiết debug",
+    "loginDebugHint": "Copy khối này khi báo lỗi. HTTP 404 + HTML thường là port/host không phải stsrenew Next.js (chạy npm run dev trong thư mục stsrenew).",
+    "loginDebugApiMissing": "Không tìm thấy API route trên host này (debug)",
+    "loginDebugSessionProbe": "GET /api/authentication/session (khi mở trang)",
+    "loginDebugLoginPost": "POST /api/authentication/login (lần thử gần nhất)",
     "registerValidationFirstLastName": "Vui lòng nhập họ và tên.",
     "registerValidationEmail": "Vui lòng nhập email.",
     "registerValidationPassword": "Vui lòng nhập mật khẩu.",
@@ -914,6 +919,7 @@
     "validationSelectZone": "Vui lòng chọn khu vực.",
     "validationSelectFarm": "Vui lòng chọn nông trại.",
     "datePairRequiredError": "Ngày thu hoạch dự kiến là bắt buộc khi ngày thu hoạch thực tế để trống.",
+    "actualRequiredWhenDownstreamDates": "Ngày bắt đầu thu hoạch (thực tế) là bắt buộc khi đã nhập Ngày kết thúc thu hoạch, Ngày cập cảng hoặc Ngày giao hàng.",
     "photoSlotPayment": "Thanh toán",
     "photoSlotShipping": "Phiếu giao hàng",
     "photoSlotThermostat": "Nhiệt kế",
@@ -1473,7 +1479,10 @@
       "empty": "Không có đợt thu hoạch sắp tới trong khung thời gian và bộ lọc hiện tại.",
       "scheduled": "Đã lên lịch",
       "summaryKg": "{quantity} kg",
-      "multiZoneZones": "{count} khu vực"
+      "multiZoneZones": "{count} khu vực",
+      "m2ConversionTooltipAria": "Quy đổi m² sang kg (hover)",
+      "m2ConversionTooltipTitle": "Quy đổi m² → kg",
+      "m2ConversionTooltipLine": "{zone}: {m2} m² × {rate} kg/m² = {kg} kg"
     },
     "events": {
       "title": "Các mốc tái sinh sắp tới",

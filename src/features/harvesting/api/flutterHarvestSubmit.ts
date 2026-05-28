@@ -52,8 +52,6 @@ export type FlutterNewHarvestInput = {
    * Required when Actual Harvest Date is set (Sod, Sod -> Sprig, or Sprig/Kg).
    */
   harvestedArea?: string;
-  /** Maps to `ref_hrv_qty_sprig` in `project_harvesting_plan`. */
-  refHrvQtySprig?: string;
   /** Maps to `created_by` in `project_harvesting_plan` (set on create). */
   createdBy?: string;
 };
@@ -101,9 +99,6 @@ function buildRecordsJson(
     payment_id: input.paymentId?.trim() || null,
     harvested_area: input.harvestedArea?.trim()
       ? stripCommas(input.harvestedArea)
-      : null,
-    ref_hrv_qty_sprig: input.refHrvQtySprig?.trim()
-      ? stripCommas(input.refHrvQtySprig)
       : null,
     license_plate: input.licensePlate.trim() || null,
     created_by: input.createdBy?.trim() || null,

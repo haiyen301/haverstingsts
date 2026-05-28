@@ -219,10 +219,9 @@ export default function HarvestDetailPage() {
       normalizeHarvestTypeStorageKey(row.harvestType ?? "");
     const isSodToSprig = harvestTypeKey === "sod_to_sprig";
     const quantityRaw = parseApiNumber(row.quantity);
-    const refSprigQty = parseApiNumber(row.ref_hrv_qty_sprig ?? row.refHrvQtySprig);
-    const qty = isSodToSprig ? refSprigQty : quantityRaw;
+    const qty = quantityRaw;
     const uomRaw = String(row.uom ?? "").trim();
-    const uom = isSodToSprig ? "Kg" : uomRaw || "KG";
+    const uom = uomRaw || "KG";
     const area = parseApiNumber(row.harvested_area);
     const kgPerM2Raw = parseApiNumber(row.kg_per_m2);
     const kgPerM2 =

@@ -34,6 +34,7 @@ function stripTokenFromLoginJson(data: unknown): unknown {
 }
 
 export async function POST(req: Request) {
+  try {
   const upstreamUrls = getStsApiUrlCandidates(STS_LOGIN_PATHS.login);
   if (!upstreamUrls.length) {
     return NextResponse.json(
@@ -153,5 +154,16 @@ export async function POST(req: Request) {
   }
 
   return NextResponse.json(data, { status: upstreamRes.status });
+  } catch (err) {
+    console.error("[api/authentication/login]", err);
+    return NextResponse.json(
+      {
+        success: false,
+        message:
+          err instanceof Error ? err.message : "Login handler failed unexpectedly.",
+      },
+      { status: 500 },
+    );
+  }
 }
 
