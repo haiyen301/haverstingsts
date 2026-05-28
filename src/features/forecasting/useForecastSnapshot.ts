@@ -1,11 +1,13 @@
 "use client";
 
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 
+import { getForecastToday } from "@/features/forecasting/forecastDateUtils";
+import { ensureForecastDataLoaded } from "@/features/forecasting/forecastDataLoader";
+import { buildForecastRowsFromHarvestRaw } from "@/features/forecasting/mapHarvestApiToForecastRows";
 import {
   DEFAULT_REGROWTH_REFERENCE_CONFIG,
 } from "@/features/forecasting/forecastingRegrowth";
-import { ensureForecastDataLoaded } from "@/features/forecasting/forecastDataLoader";
 import {
   type ForecastCacheScope,
   useForecastDataStore,
@@ -23,7 +25,8 @@ const ALL_SCOPES = new Set<ForecastCacheScope>([
 export function useForecastSnapshot(options?: { enabled?: boolean }) {
   const enabled = options?.enabled ?? true;
 
-  const forecastRows = useForecastDataStore((s) => s.forecastRows);
+  const harvestRowsRaw = useForecastDataStore((s) => s.harvestRowsRaw);
+  const forecastRowsCached = useForecastDataStore((s) => s.forecastRows);
   const zoneConfigs = useForecastDataStore((s) => s.zoneConfigs);
   const regrowthConfig = useForecastDataStore((s) => s.regrowthConfig);
   const harvestError = useForecastDataStore((s) => s.harvestError);
@@ -58,8 +61,20 @@ export function useForecastSnapshot(options?: { enabled?: boolean }) {
 
   const combinedError = error ?? harvestError ?? null;
 
+  /** Always remap from raw plans so charts / lists use latest m²→kg rules (Sod quantity, zone 1). */
+  const forecastRows = useMemo(() => {
+    if (harvestRowsRaw?.length) {
+      return buildForecastRowsFromHarvestRaw(
+        harvestRowsRaw,
+        zoneConfigs,
+        getForecastToday(),
+      );
+    }
+    return forecastRowsCached ?? [];
+  }, [harvestRowsRaw, zoneConfigs, forecastRowsCached]);
+
   return {
-    forecastRows: forecastRows ?? [],
+    forecastRows,
     zoneConfigs: zoneConfigs ?? [],
     regrowthConfig: regrowthConfig ?? DEFAULT_REGROWTH_REFERENCE_CONFIG,
     overridesByZone,

@@ -3,8 +3,8 @@ import {
   fetchZoneConfigurations,
 } from "@/features/admin/api/adminApi";
 import {
+  buildForecastRowsFromHarvestRaw,
   fetchHarvestRowsForForecasting,
-  rowsToMockHarvestRows,
 } from "@/features/forecasting/mapHarvestApiToForecastRows";
 import {
   resolveRegrowthReferenceConfigFromRules,
@@ -80,7 +80,7 @@ async function loadHarvest(token: number): Promise<void> {
   const store = useForecastDataStore.getState();
   const zoneConfigs = store.zoneConfigs ?? [];
   const today = getForecastToday();
-  const forecastRows = rowsToMockHarvestRows(res.rows, today, zoneConfigs);
+  const forecastRows = buildForecastRowsFromHarvestRaw(res.rows, zoneConfigs, today);
 
   store.setHarvestData({
     harvestRowsRaw: res.rows,
@@ -99,11 +99,10 @@ async function loadHarvest(token: number): Promise<void> {
 /** Re-map forecast rows when zones arrive after harvest (or zones refresh). */
 function remapForecastRowsIfNeeded(): void {
   const store = useForecastDataStore.getState();
-  const { harvestRowsRaw, zoneConfigs, forecastRows: prev } = store;
-  if (!harvestRowsRaw || !zoneConfigs) return;
+  const { harvestRowsRaw, zoneConfigs } = store;
+  if (!harvestRowsRaw?.length || !zoneConfigs?.length) return;
   const today = getForecastToday();
-  const mapped = rowsToMockHarvestRows(harvestRowsRaw, today, zoneConfigs);
-  if (prev && prev.length === mapped.length) return;
+  const mapped = buildForecastRowsFromHarvestRaw(harvestRowsRaw, zoneConfigs, today);
   store.setHarvestData({
     harvestRowsRaw,
     harvestError: store.harvestError,
