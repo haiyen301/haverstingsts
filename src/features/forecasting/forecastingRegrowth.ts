@@ -183,21 +183,30 @@ function sprigBandRegrowthDays(
 }
 
 /**
- * Aligns with Desktop `computeRegrowthDays` + stsrenew UOM rules:
- * - UOM kg → sprig bands by kg/m² (quantity / harvested area).
- * - UOM M2 (or non-kg) → sod vs sod-for-sprig days from harvest classification.
+ * Regrowth days for Inventory and Forecasting (shared pipeline).
+ *
+ * @see doc/inventory_forecasting_module.md — section `compute_regrowth_days_for_harvest`
+ *
+ * - load type sprig → Sprig Density Bands (kg/m²)
+ * - load type sod to sprig → Sod for Sprig Regrowth days (even when UOM is kg)
+ * - load type sod → Sod Regrowth days
+ * - legacy rows without harvestType: kg UOM → sprig bands, otherwise sod days
  */
 export function computeRegrowthDaysForHarvest(
   cfg: RegrowthReferenceConfig,
   row: ForecastHarvestRow,
 ): number {
-
-  // Rule: SPRIG OR UOM kg => choose by sprig kg/m² bands.
-  if (isKgUom(row.uom) || row.harvestType === "sprig") {
+  if (row.harvestType === "sprig") {
     return sprigBandRegrowthDays(cfg, row);
   }
   if (row.harvestType === "sod_for_sprig") {
     return cfg.sodForSprigDays;
+  }
+  if (row.harvestType === "sod") {
+    return cfg.sodDays;
+  }
+  if (isKgUom(row.uom)) {
+    return sprigBandRegrowthDays(cfg, row);
   }
   return cfg.sodDays;
 }

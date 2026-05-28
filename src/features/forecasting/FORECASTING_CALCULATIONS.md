@@ -430,17 +430,17 @@ key = breakdownMode === "farm" ? zone.farmName : zone.turfgrass
 row[key] += round(available)
 ```
 
-### 6.3. Diem khac voi chart tong
+### 6.3. Dong bo voi chart tong
 
-`forecastByGrass` khong xu ly manual override.
-
-No luon dung cong thuc:
+Chart breakdown doc du lieu tu `computeInventoryStyleFarmGrassDailySeriesWithBreakdown.byFarmProduct`.
+Moi farm+grass dung cung rolling pool nhu chart tong (scoped theo group):
 
 ```txt
-available = max(0, zone.maxInventoryKg - depleted)
+available_fp = max(0, previous_fp + regrowth_fp - harvest_fp)
 ```
 
-Trong khi `Projected Available Inventory` co nhanh override voi `override.updatedKg`.
+Khi filter mot farm + mot grass, chart by-farm phai trung chart tong.
+Manual override: ngay co balance, series farm lay tong zone display (override) trong group do.
 
 ## 7. Upcoming Harvests Driving the Forecast
 

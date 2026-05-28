@@ -774,6 +774,7 @@ export function computeInventoryStyleFarmGrassDailySeriesWithBreakdown(
   const days: RollingDailyAvailableDay[] = [];
   const byFarmProduct = new Map<string, Map<string, RollingDailyAvailableDay>>();
   const zonePrev = new Map<string, number>();
+  const fpLastAvailableKg = new Map<string, number>();
   let lastAvailableKg = 0;
 
   const rowsWithCapsByYmd = new Map<string, ForecastHarvestRow[]>();
@@ -832,7 +833,8 @@ export function computeInventoryStyleFarmGrassDailySeriesWithBreakdown(
     let regrowthKg = 0;
     let harvestKg = 0;
     let hasExactOverrideToday = false;
-    const fpAvailableToday = new Map<string, number>();
+    const fpOverrideDisplayKg = new Map<string, number>();
+    const fpHasExactOverride = new Set<string>();
 
     for (const zoneKey of zoneKeys) {
       const maxKg = maxByZone.get(zoneKey) ?? 0;
@@ -873,8 +875,61 @@ export function computeInventoryStyleFarmGrassDailySeriesWithBreakdown(
       }
 
       const fpKey = farmProductKeyFromZoneKey(zoneKey);
-      if (fpKey != null) {
-        fpAvailableToday.set(fpKey, (fpAvailableToday.get(fpKey) ?? 0) + zoneDisplayKg);
+      if (fpKey != null && exactOverride) {
+        fpHasExactOverride.add(fpKey);
+        fpOverrideDisplayKg.set(
+          fpKey,
+          (fpOverrideDisplayKg.get(fpKey) ?? 0) + zoneDisplayKg,
+        );
+      }
+    }
+
+    const fpKeysToday = new Set<string>();
+    for (const zoneKey of zoneKeys) {
+      const fpKey = farmProductKeyFromZoneKey(zoneKey);
+      if (fpKey) fpKeysToday.add(fpKey);
+    }
+
+    const fpDaysToday = new Map<string, RollingDailyAvailableDay>();
+
+    for (const fpKey of fpKeysToday) {
+      const [farmIdStr, productIdStr] = fpKey.split("|");
+      const farmId = Number(farmIdStr);
+      const productId = Number(productIdStr);
+      if (!Number.isFinite(farmId) || !Number.isFinite(productId)) continue;
+
+      const fpRegrowthKg = sumZoneMapKgForFarmProduct(regrowthByZone, farmId, productId);
+      const fpHarvestKg = sumZoneMapKgForFarmProduct(harvestByZone, farmId, productId);
+      const fpCapKg = sumConfiguredZoneCapKgForFarmProduct(maxByZone, farmId, productId);
+      const fpHasOverride = fpHasExactOverride.has(fpKey);
+
+      let fpAvailableKg: number;
+      let fpPreviousKg: number;
+      if (fpHasOverride) {
+        fpAvailableKg = Math.max(0, fpOverrideDisplayKg.get(fpKey) ?? 0);
+        fpPreviousKg = fpLastAvailableKg.get(fpKey) ?? fpCapKg;
+      } else {
+        fpPreviousKg =
+          (fpLastAvailableKg.get(fpKey) ?? 0) > 0 || i > 0
+            ? (fpLastAvailableKg.get(fpKey) ?? 0)
+            : fpCapKg;
+        fpAvailableKg = Math.max(0, fpPreviousKg + fpRegrowthKg - fpHarvestKg);
+      }
+
+      fpLastAvailableKg.set(fpKey, fpAvailableKg);
+
+      if (date.getTime() >= start.getTime()) {
+        fpDaysToday.set(fpKey, {
+          date: dateStr,
+          previousAvailableKg: fpPreviousKg,
+          regrowthKg: fpRegrowthKg,
+          harvestKg: fpHarvestKg,
+          beforeHarvestKg: fpPreviousKg + fpRegrowthKg,
+          rawAvailableKg: fpAvailableKg,
+          capacityCapKg: fpCapKg,
+          availableKg: fpAvailableKg,
+          overlimitKg: 0,
+        });
       }
     }
 
@@ -904,19 +959,9 @@ export function computeInventoryStyleFarmGrassDailySeriesWithBreakdown(
       overlimitKg: 0,
     });
 
-    for (const [fpKey, value] of fpAvailableToday) {
+    for (const [fpKey, fpDay] of fpDaysToday) {
       const inner = byFarmProduct.get(fpKey) ?? new Map<string, RollingDailyAvailableDay>();
-      inner.set(dateStr, {
-        date: dateStr,
-        previousAvailableKg: 0,
-        regrowthKg: 0,
-        harvestKg: 0,
-        beforeHarvestKg: 0,
-        rawAvailableKg: value,
-        capacityCapKg: 0,
-        availableKg: value,
-        overlimitKg: 0,
-      });
+      inner.set(dateStr, fpDay);
       byFarmProduct.set(fpKey, inner);
     }
 

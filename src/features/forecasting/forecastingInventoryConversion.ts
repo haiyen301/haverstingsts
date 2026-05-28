@@ -3,6 +3,7 @@ import {
   findActiveZoneConfiguration,
   ymdFromDateLocal,
 } from "@/features/forecasting/inventoryRegrowthCalculator";
+import { parseRefHrvQtySprig } from "@/features/project/lib/subitemDeliveredQuantity";
 import { normalizeHarvestTypeStorageKey } from "@/shared/lib/harvestType";
 import type { ForecastHarvestRow } from "./forecastingTypes";
 
@@ -29,7 +30,6 @@ export function convertPlanRowQuantityToKgFromZones(params: {
 } {
   const { rawPlanRow, zoneConfigs } = params;
 
-  const rawQty = harvestPlanEffectiveMagnitudeFromRaw(rawPlanRow);
   const farmId = toNumber(rawPlanRow.farm_id);
   const productId = harvestPlanProductIdFromRaw(rawPlanRow);
   const zone = String(rawPlanRow.zone ?? "").trim();
@@ -45,53 +45,15 @@ export function convertPlanRowQuantityToKgFromZones(params: {
   const maxInventoryKgUsed = config
     ? normalizeMaxInventoryKg(toNumber(config.max_inventory_kg))
     : DEFAULT_FALLBACK_MAX_INVENTORY_KG;
-  const uom = resolvePlanRowUomFromRaw(rawPlanRow);
 
-  // Nếu đã là kg thì không cần convert.
-  if (isKgUom(uom)) {
-    return {
-      quantityKg: rawQty,
-      isCapped: false,
-      usedConfig: config,
-      maxInventoryKgUsed,
-    };
-  }
-
-  // Chỉ xử lý khi là m² / diện tích; uom khác thì trả nguyên.
-  if (!isM2Uom(uom)) {
-    return {
-      quantityKg: rawQty,
-      isCapped: false,
-      usedConfig: config,
-      maxInventoryKgUsed,
-    };
-  }
-  const inventoryKgPerM2Raw =
-    config != null
-      ? toNumber(config.inventory_kg_per_m2)
-      : DEFAULT_FALLBACK_INVENTORY_KG_PER_M2;
-  const maxInventoryKgRaw =
-    config != null
-      ? toNumber(config.max_inventory_kg)
-      : DEFAULT_FALLBACK_MAX_INVENTORY_KG; 
-
-  const inventoryKgPerM2 =
-    inventoryKgPerM2Raw > 0
-      ? inventoryKgPerM2Raw
-      : DEFAULT_FALLBACK_INVENTORY_KG_PER_M2;
-  const maxInventoryKg =
-    normalizeMaxInventoryKg(maxInventoryKgRaw);
-
-  // rawQty ở đây được hiểu là diện tích m² từ plan.
-  const requestedKg = rawQty * inventoryKgPerM2;
-  const maxKg = maxInventoryKg;
-  const finalKg = Math.min(requestedKg, maxKg);
+  const requestedKg = harvestPlanInventoryKgFromRaw(rawPlanRow, { zoneConfigs });
+  const finalKg = Math.min(requestedKg, maxInventoryKgUsed);
 
   return {
     quantityKg: finalKg,
-    isCapped: requestedKg > maxKg,
+    isCapped: requestedKg > maxInventoryKgUsed,
     usedConfig: config,
-    maxInventoryKgUsed: maxInventoryKg,
+    maxInventoryKgUsed,
   };
 }
 
@@ -164,6 +126,159 @@ function planRowHarvestTypeKeyFromRaw(
   return candidates.map((v) => normalizeHarvestTypeStorageKey(v)).find(Boolean) ?? null;
 }
 
+/** Sod → Sprig plan (load type hoặc legacy: ref sprig kg + UOM m²). */
+export function planRowIsSodToSprig(rawPlanRow: Record<string, unknown>): boolean {
+  if (planRowHarvestTypeKeyFromRaw(rawPlanRow) === "sod_to_sprig") return true;
+  return (
+    parseRefHrvQtySprig(rawPlanRow) > 0 &&
+    planRowUsesHarvestedAreaForMagnitude(rawPlanRow)
+  );
+}
+
+/**
+ * Kg sprig cho Sod → Sprig: `ref_hrv_qty_sprig` (không nhân harvested_area × kg/m²).
+ * Fallback: cột `quantity` khi UOM là kg.
+ */
+export function harvestPlanSprigKgFromRaw(
+  rawPlanRow: Record<string, unknown>,
+): number {
+  if (!planRowIsSodToSprig(rawPlanRow)) return 0;
+  const refKg = parseRefHrvQtySprig(rawPlanRow);
+  if (refKg > 0) return refKg;
+  if (isKgUom(resolvePlanRowUomFromRaw(rawPlanRow))) {
+    return harvestPlanQuantityFromRaw(rawPlanRow);
+  }
+  return 0;
+}
+
+function planRowHasNoHarvestZone(rawPlanRow: Record<string, unknown>): boolean {
+  const planZoneNorm = normalizeZone(String(rawPlanRow.zone ?? ""));
+  return !planZoneNorm || isForecastNoZoneBucketKey(planZoneNorm);
+}
+
+/**
+ * kg/m² from zone **1** when the harvest plan has no zone (not an average of all zones).
+ */
+export function resolveZone1InventoryKgPerM2(params: {
+  zoneConfigs: ZoneConfigurationRow[];
+  farmId: number;
+  productId: number;
+  buckets?: Map<string, ZoneBucket>;
+}): number | null {
+  const { zoneConfigs, farmId, productId, buckets } = params;
+  if (farmId <= 0 || productId <= 0) return null;
+
+  const bucketKg = (key: string): number | null => {
+    const b = buckets?.get(key);
+    return b && b.kgPerM2 > 0 ? b.kgPerM2 : null;
+  };
+
+  const direct =
+    bucketKg("1") ??
+    bucketKg("zone-1") ??
+    bucketKg("zone 1");
+  if (direct != null) return direct;
+
+  if (buckets) {
+    for (const [key, b] of buckets) {
+      if (isForecastNoZoneBucketKey(key)) continue;
+      if (zoneKeySortRankForDistribute(key) === 1 && b.kgPerM2 > 0) return b.kgPerM2;
+      const raw = normalizeZone(b.zoneRaw);
+      if (
+        (raw === "1" || raw === "zone 1" || raw === "z1") &&
+        b.kgPerM2 > 0
+      ) {
+        return b.kgPerM2;
+      }
+    }
+  }
+
+  for (const cfg of zoneConfigs) {
+    if (Number(cfg.farm_id) !== farmId || Number(cfg.grass_id) !== productId) continue;
+    const zoneRaw = String(cfg.zone ?? "").trim();
+    const norm = normalizeZone(zoneRaw);
+    if (isForecastNoZoneBucketKey(norm)) continue;
+    const key = forecastZoneBucketKey(norm);
+    if (zoneKeySortRankForDistribute(key) !== 1) continue;
+    const k = toNumber(cfg.inventory_kg_per_m2);
+    return k > 0 ? k : DEFAULT_FALLBACK_INVENTORY_KG_PER_M2;
+  }
+
+  return null;
+}
+
+function resolveInventoryKgPerM2ForPlanRow(params: {
+  rawPlanRow: Record<string, unknown>;
+  zoneConfigs: ZoneConfigurationRow[];
+  buckets?: Map<string, ZoneBucket>;
+}): number {
+  const { rawPlanRow, zoneConfigs, buckets } = params;
+  const planZoneNorm = normalizeZone(String(rawPlanRow.zone ?? ""));
+  const planBucketKey = planZoneNorm ? forecastZoneBucketKey(planZoneNorm) : "";
+  const farmId = toNumber(rawPlanRow.farm_id);
+  const productId = harvestPlanProductIdFromRaw(rawPlanRow);
+
+  if (planRowHasNoHarvestZone(rawPlanRow) && farmId > 0 && productId > 0) {
+    const zone1Kg = resolveZone1InventoryKgPerM2({
+      zoneConfigs,
+      farmId,
+      productId,
+      buckets,
+    });
+    if (zone1Kg != null && zone1Kg > 0) return zone1Kg;
+  }
+
+  if (planZoneNorm && planBucketKey && buckets?.has(planBucketKey)) {
+    const k = buckets.get(planBucketKey)!.kgPerM2;
+    return k > 0 ? k : DEFAULT_FALLBACK_INVENTORY_KG_PER_M2;
+  }
+
+  const match = findBestZoneConfigMatch({
+    zoneConfigs,
+    farmId,
+    zone: String(rawPlanRow.zone ?? ""),
+    productId,
+  });
+  if (match) {
+    const k = toNumber(match.inventory_kg_per_m2);
+    return k > 0 ? k : DEFAULT_FALLBACK_INVENTORY_KG_PER_M2;
+  }
+  return DEFAULT_FALLBACK_INVENTORY_KG_PER_M2;
+}
+
+/**
+ * Kg dùng trừ tồn / forecast (trước cap `max_inventory_kg`).
+ * Sod → Sprig: `ref_hrv_qty_sprig`; Sod/M²: harvested_area × kg/m²; Sprig/Kg: quantity.
+ */
+export function harvestPlanInventoryKgFromRaw(
+  rawPlanRow: Record<string, unknown>,
+  options: {
+    zoneConfigs?: ZoneConfigurationRow[];
+    buckets?: Map<string, ZoneBucket>;
+  } = {},
+): number {
+  const sodSprigKg = harvestPlanSprigKgFromRaw(rawPlanRow);
+  if (planRowIsSodToSprig(rawPlanRow)) {
+    return Math.max(0, sodSprigKg);
+  }
+
+  const uom = resolvePlanRowUomFromRaw(rawPlanRow);
+  const rawQty = harvestPlanEffectiveMagnitudeFromRaw(rawPlanRow);
+
+  /** Sod / M² plans: always m² × zone kg/m² (even when UOM column is blank or non-m²). */
+  if (planRowUsesHarvestedAreaForMagnitude(rawPlanRow)) {
+    const kgPerM2 = resolveInventoryKgPerM2ForPlanRow({
+      rawPlanRow,
+      zoneConfigs: options.zoneConfigs ?? [],
+      buckets: options.buckets,
+    });
+    return Math.max(0, rawQty * kgPerM2);
+  }
+
+  if (isKgUom(uom)) return Math.max(0, rawQty);
+  return Math.max(0, rawQty);
+}
+
 /** Sod / Sod -> Sprig / M² plans use `harvested_area` for inventory & regrowth magnitude (not `quantity`). */
 export function planRowUsesHarvestedAreaForMagnitude(
   rawPlanRow: Record<string, unknown>,
@@ -176,8 +291,22 @@ export function planRowUsesHarvestedAreaForMagnitude(
 export function harvestPlanHarvestedAreaFromRaw(
   rawPlanRow: Record<string, unknown>,
 ): number {
-  if (harvestQuantityCellPresent(rawPlanRow.harvested_area)) {
-    return Math.max(0, harvestPlanScalarFromRaw(rawPlanRow.harvested_area));
+  const fromHarvestedArea = harvestQuantityCellPresent(rawPlanRow.harvested_area)
+    ? harvestPlanScalarFromRaw(rawPlanRow.harvested_area)
+    : 0;
+  if (fromHarvestedArea > 0) return fromHarvestedArea;
+
+  /** Sod: `harvested_area` trống → dùng `quantity` (m²) làm diện tích thu hoạch. */
+  if (planRowHarvestTypeKeyFromRaw(rawPlanRow) === "sod") {
+    return Math.max(0, harvestPlanQuantityFromRaw(rawPlanRow));
+  }
+
+  if (harvestQuantityCellPresent(rawPlanRow.quantity_m2)) {
+    return Math.max(0, harvestPlanScalarFromRaw(rawPlanRow.quantity_m2));
+  }
+  const uom = resolvePlanRowUomFromRaw(rawPlanRow);
+  if (isM2Uom(uom) && harvestQuantityCellPresent(rawPlanRow.quantity)) {
+    return Math.max(0, harvestPlanScalarFromRaw(rawPlanRow.quantity));
   }
   return 0;
 }
@@ -221,11 +350,13 @@ export function forecastHarvestRowPlanQuantityKg(row: ForecastHarvestRow): numbe
 }
 
 /**
- * Kg dùng trừ tồn / biểu đồ: ưu tiên `inventoryKg` đã convert;
- * Sprig fallback sang `quantity` (kg). Sod/M² không fallback quantity (vì đó là m²).
+ * Kg dùng trừ tồn / biểu đồ / daily calendar: ưu tiên `inventoryKg` đã convert.
+ * Sprig fallback `quantity` (kg). Sod / Sod→Sprig không dùng `quantity` làm kg (đó là m²).
  */
 export function forecastHarvestRowInventoryKg(row: ForecastHarvestRow): number {
-  if (Number.isFinite(row.inventoryKg)) return row.inventoryKg;
+  const stored = Number.isFinite(row.inventoryKg) ? row.inventoryKg : 0;
+  if (stored > 0) return stored;
+  if (forecastHarvestRowUsesHarvestedAreaForMagnitude(row)) return 0;
   return forecastHarvestRowPlanQuantityKg(row);
 }
 
@@ -245,10 +376,12 @@ export function harvestPlanM2MagnitudeFromRaw(
     : 0;
 }
 
-/** kg gom theo tháng — Sprig / UOM Kg. */
+/** kg gom theo tháng — Sprig / UOM Kg / Sod→Sprig (`ref_hrv_qty_sprig`). */
 export function harvestPlanKgMagnitudeFromRaw(
   rawPlanRow: Record<string, unknown>,
 ): number {
+  const sodSprigKg = harvestPlanSprigKgFromRaw(rawPlanRow);
+  if (planRowIsSodToSprig(rawPlanRow) && sodSprigKg > 0) return sodSprigKg;
   return planRowUsesPlanQuantityForMagnitude(rawPlanRow)
     ? harvestPlanQuantityFromRaw(rawPlanRow)
     : 0;
@@ -423,45 +556,17 @@ export function distributePlanRowToZoneFragments(params: {
   const { rawPlanRow, zoneConfigs, priorUsedKgByZoneBucket } = params;
   const farmId = toNumber(rawPlanRow.farm_id);
   const productId = harvestPlanProductIdFromRaw(rawPlanRow);
-  const rawQty = harvestPlanEffectiveMagnitudeFromRaw(rawPlanRow);
   const planZoneNorm = normalizeZone(String(rawPlanRow.zone ?? ""));
-
-  const uom = resolvePlanRowUomFromRaw(rawPlanRow);
 
   const buckets =
     farmId > 0 && productId > 0
       ? aggregateBucketsForFarmGrass(zoneConfigs, farmId, productId)
       : new Map<string, ZoneBucket>();
 
-  let requestedKg = 0;
-  if (isKgUom(uom)) {
-    requestedKg = rawQty;
-  } else if (isM2Uom(uom)) {
-    let kgPerM2 = DEFAULT_FALLBACK_INVENTORY_KG_PER_M2;
-    const planBucketKey = planZoneNorm ? forecastZoneBucketKey(planZoneNorm) : "";
-    if (planZoneNorm && planBucketKey && buckets.has(planBucketKey)) {
-      kgPerM2 = buckets.get(planBucketKey)!.kgPerM2;
-    } else if (buckets.size > 0) {
-      let s = 0;
-      for (const b of buckets.values()) s += b.kgPerM2;
-      kgPerM2 = s / buckets.size;
-    } else {
-      const match = findBestZoneConfigMatch({
-        zoneConfigs,
-        farmId,
-        zone: String(rawPlanRow.zone ?? ""),
-        productId,
-      });
-      if (match) {
-        const k = toNumber(match.inventory_kg_per_m2);
-        kgPerM2 = k > 0 ? k : DEFAULT_FALLBACK_INVENTORY_KG_PER_M2;
-      }
-    }
-    requestedKg = rawQty * kgPerM2;
-  } else {
-    requestedKg = rawQty;
-  }
-  requestedKg = Math.max(0, requestedKg);
+  const requestedKg = harvestPlanInventoryKgFromRaw(rawPlanRow, {
+    zoneConfigs,
+    buckets,
+  });
 
   if (planZoneNorm) {
     const planBucketKey = forecastZoneBucketKey(planZoneNorm);

@@ -15,6 +15,7 @@ import {
   harvestPlanProductIdFromRaw,
   harvestPlanQuantityFromRaw,
   harvestPlanScalarFromRaw,
+  harvestPlanSprigKgFromRaw,
   resolvePlanRowUomFromRaw,
   type ZoneInventoryFragment,
 } from "@/features/forecasting/forecastingInventoryConversion";
@@ -101,7 +102,11 @@ export function harvestApiRowToForecastRow(
   const customer = String(raw.customer_name ?? raw.customer ?? "").trim();
   const harvestType = detectHarvestType(raw);
   const uom = resolvePlanRowUom(raw);
-  const quantityKgForDensity = harvestPlanQuantityFromRaw(raw);
+  const sodSprigKg = harvestPlanSprigKgFromRaw(raw);
+  const quantityKgForDensity =
+    harvestType === "sod_for_sprig" && sodSprigKg > 0
+      ? sodSprigKg
+      : harvestPlanQuantityFromRaw(raw);
   const harvestedAreaM2 = harvestPlanHarvestedAreaFromRaw(raw);
   const quantity = harvestPlanEffectiveMagnitudeFromRaw(raw);
   const kgPerM2Raw = Number(raw.kg_per_m2);
@@ -324,7 +329,7 @@ export function rowsToMockHarvestRows(
         rawPlanRow: r,
         zoneConfigs: [],
       });
-      m.inventoryKg = Number.isFinite(quantityKg) ? quantityKg : m.quantity;
+      m.inventoryKg = Number.isFinite(quantityKg) ? Math.max(0, quantityKg) : 0;
       m.inventoryIsCapped = !!isCapped;
       m.zoneMaxInventoryKg = Number.isFinite(maxInventoryKgUsed)
         ? maxInventoryKgUsed
@@ -333,4 +338,14 @@ export function rowsToMockHarvestRows(
     }
   }
   return list;
+}
+
+/** Single entry to map API plans → forecast rows (m²→kg, zone 1 default, Sod quantity fallback). */
+export function buildForecastRowsFromHarvestRaw(
+  harvestRowsRaw: Record<string, unknown>[] | null | undefined,
+  zoneConfigs: ZoneConfigurationRow[] | null | undefined,
+  today = new Date(),
+): ForecastHarvestRow[] {
+  if (!harvestRowsRaw?.length) return [];
+  return rowsToMockHarvestRows(harvestRowsRaw, today, zoneConfigs ?? []);
 }
