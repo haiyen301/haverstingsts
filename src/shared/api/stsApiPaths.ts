@@ -18,7 +18,10 @@ export const STS_API_PATHS = {
   staffSave: "/api/base/react_save_staff",
   staffDelete: "/api/base/react_delete_staff",
   farms: "/api/farms",
+  /** Role-scoped list (`Projects::index` → `filterVisibleProjectsForUser`). */
   projects: "/api/projects",
+  /** All active projects (`deleted = 0`), no role filter — `Projects::react_get_all_projects`. */
+  projectsAll: "/api/projects/react_get_all_projects",
   countries: "/api/countries",
   countriesSave: "/api/countries/save",
   products: "/api/items",

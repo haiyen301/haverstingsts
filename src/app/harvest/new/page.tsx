@@ -5,6 +5,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type FormEvent,
   type ReactNode,
@@ -35,8 +36,11 @@ import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { useAuthUserStore } from "@/shared/store/authUserStore";
 import {
   filterFarmZoneRowsByFarmId,
+  findProjectRowBySelectId,
   mapRowsToSelectOptions,
   parseFarmZoneEntries,
+  projectSelectIdFromRow,
+  resolveDefaultFarmSelectId,
   zoneIdToLabel,
 } from "@/shared/lib/harvestReferenceData";
 import {
@@ -872,7 +876,8 @@ function HarvestInputPageInner() {
   const canSubmitHarvest = editId ? canEditHarvest : canCreateHarvest;
   const canDeleteCurrentHarvest = Boolean(editId) && canDeleteHarvest;
   const farms = useHarvestingDataStore((s) => s.farms);
-  const projects = useHarvestingDataStore((s) => s.projects);
+  const staffs = useHarvestingDataStore((s) => s.staffs);
+  const allProjects = useHarvestingDataStore((s) => s.allProjects);
   const products = useHarvestingDataStore((s) => s.products);
   const farmZones = useHarvestingDataStore((s) => s.farmZones);
   const refLoading = useHarvestingDataStore((s) => s.loading);
@@ -891,16 +896,37 @@ function HarvestInputPageInner() {
   }, [accessDenied, fetchAllHarvestingReferenceData]);
 
   const projectOptions = useMemo(
-    () => mapRowsToSelectOptions(projects as unknown[], "title"),
-    [projects],
+    () => mapRowsToSelectOptions(allProjects as unknown[], "title"),
+    [allProjects],
   );
   const farmOptions = useMemo(
     () => mapRowsToSelectOptions(farms as unknown[], "name"),
     [farms],
   );
+
+  const farmUserMetaRaw = useMemo(() => {
+    const fromUser = String(user?.farm_user_id ?? user?.farmUserId ?? "").trim();
+    if (fromUser) return fromUser;
+    const uid = user?.id != null ? String(user.id).trim() : "";
+    if (!uid) return "";
+    for (const item of staffs) {
+      if (!item || typeof item !== "object") continue;
+      const row = item as Record<string, unknown>;
+      if (String(row.id ?? "").trim() !== uid) continue;
+      return String(row.farm_user_id ?? row.farmUserId ?? "").trim();
+    }
+    return "";
+  }, [staffs, user]);
+
+  const defaultFarmId = useMemo(
+    () => resolveDefaultFarmSelectId(farmOptions, farmUserMetaRaw),
+    [farmOptions, farmUserMetaRaw],
+  );
+
+  const defaultFarmAppliedRef = useRef(false);
   const customerOptions = useMemo(() => {
     const m = new Map<string, string>();
-    for (const item of projects) {
+    for (const item of allProjects) {
       if (!item || typeof item !== "object") continue;
       const row = item as Record<string, unknown>;
       const cid = String(row.odoo_customer_id ?? "").trim();
@@ -910,7 +936,7 @@ function HarvestInputPageInner() {
       if (!m.has(cid)) m.set(cid, label);
     }
     return Array.from(m.entries()).map(([id, label]) => ({ id, label }));
-  }, [projects]);
+  }, [allProjects]);
 
   const productNameById = useMemo(() => {
     const m = new Map<string, string>();
@@ -926,6 +952,15 @@ function HarvestInputPageInner() {
   }, [products]);
 
   const [formData, setFormData] = useState(emptyForm);
+
+  useEffect(() => {
+    if (!bootstrapDone || !formData.project.trim()) return;
+    const row = findProjectRowBySelectId(allProjects, formData.project);
+    if (!row) return;
+    const resolvedProjectId = projectSelectIdFromRow(row);
+    if (!resolvedProjectId || resolvedProjectId === formData.project) return;
+    setFormData((prev) => ({ ...prev, project: resolvedProjectId }));
+  }, [allProjects, bootstrapDone, formData.project]);
 
   const grassRowsForSelect = useMemo(() => {
     const ymds = [
@@ -1087,11 +1122,7 @@ function HarvestInputPageInner() {
     const cid = formData.customerId.trim();
     if (!cid) return projectOptions;
     const filtered = projectOptions.filter((o) => {
-      const pr = projects.find((x) => {
-        if (!x || typeof x !== "object") return false;
-        const row = x as Record<string, unknown>;
-        return String(row.id ?? "").trim() === o.id;
-      }) as Record<string, unknown> | undefined;
+      const pr = findProjectRowBySelectId(allProjects, o.id);
       if (!pr) return false;
       return String(pr.odoo_customer_id ?? "").trim() === cid;
     });
@@ -1111,7 +1142,7 @@ function HarvestInputPageInner() {
       return filtered;
     }
     return [selectedFromAll, ...filtered];
-  }, [formData.customerId, formData.project, projectOptions, projects]);
+  }, [formData.customerId, formData.project, projectOptions, allProjects]);
 
   const validationMessages: HarvestValidationMessages = {
     selectProject: t("validationSelectProject"),
@@ -1216,6 +1247,23 @@ function HarvestInputPageInner() {
     };
   }, [accessDenied, editId, initialProjectId]);
 
+  useEffect(() => {
+    defaultFarmAppliedRef.current = false;
+  }, [editId, initialProjectId]);
+
+  useEffect(() => {
+    if (accessDenied || editId || !bootstrapDone || !defaultFarmId || !editLoaded) return;
+    if (defaultFarmAppliedRef.current) return;
+    setFormData((prev) => {
+      if (prev.farm.trim()) {
+        defaultFarmAppliedRef.current = true;
+        return prev;
+      }
+      defaultFarmAppliedRef.current = true;
+      return { ...prev, farm: defaultFarmId, zone: "" };
+    });
+  }, [accessDenied, bootstrapDone, defaultFarmId, editId, editLoaded]);
+
   const getPostDeleteRedirectTarget = useCallback(() => {
     const nestedReturnTo = returnTarget.startsWith("/projects/detail")
       ? parseProjectDetailQueryParam(returnTarget, "returnTo")
@@ -1230,7 +1278,7 @@ function HarvestInputPageInner() {
 
     const detailHref = buildProjectDetailHrefForProjectId(
       projectId,
-      projects,
+      allProjects,
       dynamicProjectRows,
       nestedReturnTo || undefined,
     );
@@ -1241,7 +1289,7 @@ function HarvestInputPageInner() {
     returnTarget,
     formData.project,
     initialProjectId,
-    projects,
+    allProjects,
     dynamicProjectRows,
   ]);
 
@@ -1349,15 +1397,10 @@ function HarvestInputPageInner() {
       return parseRequirements(dynamicRow.quantity_required_sprig_sod, productNameById);
     }
 
-    const selected = projects.find((x) => {
-      if (!x || typeof x !== "object") return false;
-      const row = x as Record<string, unknown>;
-      return String(row.id ?? "").trim() === formData.project;
-    });
-    if (!selected || typeof selected !== "object") return [] as QuantityRequirement[];
-    const row = selected as Record<string, unknown>;
-    return parseRequirements(row.quantity_required_sprig_sod, productNameById);
-  }, [dynamicProjectRows, formData.project, productNameById, projects]);
+    const selected = findProjectRowBySelectId(allProjects, formData.project);
+    if (!selected) return [] as QuantityRequirement[];
+    return parseRequirements(selected.quantity_required_sprig_sod, productNameById);
+  }, [dynamicProjectRows, formData.project, productNameById, allProjects]);
 
   const grassRowsForSelectByProject = useMemo(
     () =>
@@ -1581,11 +1624,10 @@ function HarvestInputPageInner() {
           : normalizedFormData.quantity;
       const haStripped = normalizedFormData.harvestedArea.replace(/,/g, "").trim();
       const harvestedAreaPayload = haStripped || undefined;
-      const selectedProjectRow = projects.find((x) => {
-        if (!x || typeof x !== "object") return false;
-        const row = x as Record<string, unknown>;
-        return String(row.id ?? "").trim() === formData.project.trim();
-      }) as Record<string, unknown> | undefined;
+      const selectedProjectRow = findProjectRowBySelectId(
+        allProjects,
+        formData.project.trim(),
+      );
       const customerFromProject = String(
         selectedProjectRow?.odoo_customer_id ?? "",
       ).trim();
@@ -1943,11 +1985,7 @@ function HarvestInputPageInner() {
                           values={formData.project ? [formData.project] : []}
                           onChange={(nextValues) => {
                             const project = nextValues[0] ?? "";
-                            const pr = projects.find((x) => {
-                              if (!x || typeof x !== "object") return false;
-                              const row = x as Record<string, unknown>;
-                              return String(row.id ?? "").trim() === project;
-                            }) as Record<string, unknown> | undefined;
+                            const pr = findProjectRowBySelectId(allProjects, project);
                             const cid = String(pr?.odoo_customer_id ?? "").trim();
                             const projectChanged = project !== formData.project;
                             setFormData({

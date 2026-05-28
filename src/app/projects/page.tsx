@@ -485,7 +485,7 @@ export default function ProjectListPage() {
 
   useEffect(() => {
     let cancelled = false;
-    void fetchAllHarvestPlanIndexRows()
+    void fetchAllHarvestPlanIndexRows({ userId: user?.id })
       .then((planRows) => {
         if (!cancelled) setHarvestPlanRows(planRows);
       })
@@ -495,7 +495,7 @@ export default function ProjectListPage() {
     return () => {
       cancelled = true;
     };
-  }, [manualReloadSeq]);
+  }, [manualReloadSeq, user?.id]);
 
   const rowsWithHarvestPlan = useMemo(() => {
     if (harvestPlanRows.length === 0) return rows;

@@ -778,6 +778,8 @@
     "Remqty": "Rem. Qty:",
     "deleteHarvestAria": "Delete harvest",
     "deleteHarvestUnavailable": "This harvest cannot be deleted from here (missing table id).",
+    "deleteHarvestNotOwner": "You can only delete harvest records you created.",
+    "harvestManageNotAllowed": "You can view this record but cannot edit or delete it under harvest permission rules.",
     "confirmDeleteHarvestTitle": "Delete harvest?",
     "confirmDeleteHarvestMessage": "Are you sure you want to delete this harvest record?",
     "deleteHarvestMissingIds": "Cannot delete: missing row or table id.",

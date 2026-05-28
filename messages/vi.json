@@ -778,6 +778,8 @@
     "harvestedAreaUnitM2": "m²",
     "deleteHarvestAria": "Xóa phiếu thu hoạch",
     "deleteHarvestUnavailable": "Không thể xóa bản ghi này từ đây (thiếu id bảng).",
+    "deleteHarvestNotOwner": "Chỉ được xóa bản ghi thu hoạch do chính bạn tạo.",
+    "harvestManageNotAllowed": "Bạn có thể xem bản ghi này nhưng không được phép sửa hoặc xóa theo quy tắc phân quyền thu hoạch.",
     "confirmDeleteHarvestTitle": "Xóa phiếu thu hoạch?",
     "confirmDeleteHarvestMessage": "Bạn có chắc muốn xóa bản ghi thu hoạch này?",
     "deleteHarvestMissingIds": "Không xóa được: thiếu id dòng hoặc id bảng.",

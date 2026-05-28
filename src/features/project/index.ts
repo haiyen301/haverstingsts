@@ -19,6 +19,8 @@ export {
 export {
   mergeProjectSubitemsWithHarvestPlan,
   fetchAllHarvestPlanIndexRows,
+  fetchAllHarvestPlanPagesForProjectProgress,
+  HARVEST_PROJECT_PROGRESS_SCOPE,
 } from "./lib/mergeProjectSubitemsWithHarvestPlan";
 export type { ProjectListItemProps } from "./model/projectListProps";
 export { ProjectListItem } from "./ui/ProjectListItem";

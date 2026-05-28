@@ -21,30 +21,42 @@ import {
 
 import RequireAuth from "@/features/auth/RequireAuth";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
-import { canAccessModule } from "@/shared/auth/permissions";
+import {
+  canAccessModule,
+  canViewAllModuleData,
+} from "@/shared/auth/permissions";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { useAuthUserStore } from "@/shared/store/authUserStore";
+import type { MondayProjectServerRow } from "@/entities/projects";
 import {
-  fetchMondayProjectRowsFromServer,
-  type MondayProjectServerRow,
-} from "@/entities/projects";
-import { deleteMondayParentOrSubItem } from "@/entities/projects/api/projectsApi";
+  deleteMondayParentOrSubItem,
+  fetchProjectDynamicFieldsByProjectId,
+} from "@/entities/projects/api/projectsApi";
 import { stsProxyGetHarvestingIndex } from "@/shared/api/stsProxyClient";
 import {
   HARVEST_ATTACHMENT_SOURCES,
   getAttachmentUrls,
-  getFirstAttachmentUrlFromSubitems,
 } from "@/shared/lib/harvestAttachmentImages";
 import { formatDateDisplay, isValidDate } from "@/shared/lib/format/date";
 import {
   farmNameByIdFromRows,
+  findProjectRowBySelectId,
   harvestRecordZoneStoredValue,
   keyAreaIdOrKeyToLabel,
   type FarmZoneReferenceRow,
   zoneIdToLabel,
 } from "@/shared/lib/harvestReferenceData";
-import { parseJsonMaybe, parseSubitems } from "@/shared/lib/parseJsonMaybe";
+import { parseJsonMaybe } from "@/shared/lib/parseJsonMaybe";
 import { calculateDeliveredQuantityDeliveryOnly } from "@/features/project/lib/subitemDeliveredQuantity";
+import {
+  buildHarvestPlanVisibilityCtx,
+  canUserManageHarvestPlanRecord,
+  filterHarvestHistoryForProjectDetail,
+  PROJECT_DETAIL_HARVEST_HISTORY_DISPLAY_MODE,
+} from "@/features/harvesting/lib/harvestPlanVisibility";
+import {
+  HARVEST_PROJECT_PROGRESS_SCOPE,
+} from "@/features/project/lib/mergeProjectSubitemsWithHarvestPlan";
 import { effectiveRequiredQuantityFromRecord } from "@/features/project/lib/effectiveRequirementQuantity";
 import { useLocale } from "next-intl";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
@@ -67,6 +79,11 @@ import "swiper/css/free-mode";
 import "@fancyapps/ui/dist/fancybox/fancybox.css";
 
 const HARVEST_HISTORY_PER_PAGE = 30;
+
+type ProjectDetailHarvestScope = {
+  userId?: string | number;
+  farmUserMeta?: string;
+};
 
 function mergeHarvestPlanRows(
   prev: Array<Record<string, unknown>>,
@@ -94,26 +111,25 @@ function harvestPlanHasMoreFromResponse(
   return lastPageRowCount >= HARVEST_HISTORY_PER_PAGE;
 }
 
-function buildProjectDetailHarvestApiParams(
+/** Harvest history on project detail: all plan rows for the project; edit/delete gated client-side. */
+function buildProjectDetailHarvestHistoryApiParams(
   projectId: string,
   page: number,
-  canShowProjects: boolean,
+  scope: ProjectDetailHarvestScope,
 ): Record<string, string | number | undefined> {
-  const base: Record<string, string | number | undefined> = {
+  return {
     project_id: projectId,
     per_page: HARVEST_HISTORY_PER_PAGE,
     page,
+    user_id: scope.userId,
+    project_progress_scope: HARVEST_PROJECT_PROGRESS_SCOPE,
+    view_all_data_module: "harvests",
   };
-  if (canShowProjects) {
-    base.project_detail_scope = 1;
-    base.view_all_data_module = "projects";
-  }
-  return base;
 }
 
-async function fetchAllHarvestPlanPagesForProject(
+async function fetchAllHarvestPlanPagesForProjectDetailHistory(
   projectId: string,
-  canShowProjects: boolean,
+  scope: ProjectDetailHarvestScope,
 ): Promise<{
   planRows: Array<Record<string, unknown>>;
   totalRecords: number | null;
@@ -125,7 +141,7 @@ async function fetchAllHarvestPlanPagesForProject(
 
   for (;;) {
     const h = await stsProxyGetHarvestingIndex(
-      buildProjectDetailHarvestApiParams(projectId, page, canShowProjects),
+      buildProjectDetailHarvestHistoryApiParams(projectId, page, scope),
     );
     const pageRows = h.rows.filter(
       (x): x is Record<string, unknown> => !!x && typeof x === "object",
@@ -149,6 +165,76 @@ async function fetchAllHarvestPlanPagesForProject(
   }
 
   return { planRows: allRows, totalRecords };
+}
+
+/** Merge `sts_projects` catalog row + dynamic-table fields (requirements, contacts, edit ids). */
+function mergeProjectDetailFromServer(
+  projectId: string,
+  catalogRow: Record<string, unknown> | undefined,
+  dynamicRow: Record<string, unknown> | undefined,
+): MondayProjectServerRow {
+  const rowId = String(
+    dynamicRow?.id_row ?? dynamicRow?.row_id ?? catalogRow?.row_id ?? catalogRow?.id ?? "",
+  ).trim();
+  return {
+    ...(catalogRow ?? {}),
+    ...(dynamicRow ?? {}),
+    project_id: projectId,
+    row_id: rowId || undefined,
+    id: (rowId || catalogRow?.id) as string | number | undefined,
+    table_id: (dynamicRow?.table_id ?? catalogRow?.table_id) as
+      | string
+      | number
+      | undefined,
+    table_name:
+      String(dynamicRow?.table_name ?? catalogRow?.table_name ?? "Harvesting").trim() ||
+      "Harvesting",
+    title: String(
+      catalogRow?.title ??
+        catalogRow?.name ??
+        dynamicRow?.title ??
+        dynamicRow?.name ??
+        "",
+    ).trim() || undefined,
+    quantity_required_sprig_sod:
+      dynamicRow?.quantity_required_sprig_sod ??
+      catalogRow?.quantity_required_sprig_sod,
+  };
+}
+
+function pickDynamicRowForProject(
+  rows: Array<Record<string, unknown>>,
+  preferredRowId: string,
+  preferredTableId: string,
+): Record<string, unknown> | undefined {
+  if (rows.length === 0) return undefined;
+  const rowId = preferredRowId.trim();
+  const tableId = preferredTableId.trim();
+  if (rowId) {
+    const byRow = rows.find((r) => {
+      const id = String(r.id_row ?? r.row_id ?? "").trim();
+      if (id !== rowId) return false;
+      if (!tableId) return true;
+      return String(r.table_id ?? "").trim() === tableId;
+    });
+    if (byRow) return byRow;
+  }
+  if (tableId) {
+    const byTable = rows.find((r) => String(r.table_id ?? "").trim() === tableId);
+    if (byTable) return byTable;
+  }
+  return rows[0];
+}
+
+function harvestPlanRowsForProject(
+  planRows: Array<Record<string, unknown>>,
+  projectId: string,
+): Array<Record<string, unknown>> {
+  const normalizedProjectId = projectId.trim();
+  if (!normalizedProjectId) return planRows;
+  return planRows.filter(
+    (row) => String(row.project_id ?? "").trim() === normalizedProjectId,
+  );
 }
 
 type GrassRow = {
@@ -222,6 +308,8 @@ type HarvestRow = {
   doSoNumber: string;
   truckNote: string;
   attachments: Array<{ label: string; url: string }>;
+  /** Per-record edit/delete (see `PROJECT_DETAIL_HARVEST_HISTORY_DISPLAY_MODE`). */
+  canManageHarvest: boolean;
 };
 
 function parseNumber(v: unknown): number {
@@ -251,18 +339,18 @@ type HarvestMapCtx = {
   unitByProductUom: Map<string, string>;
   productMap: Map<string, string>;
   locale: string;
-  /** Subitem rows may omit `table_id`; use parent project row as fallback. */
+  /** Harvest delete/edit parity when API rows omit Monday table ids. */
   defaultTableId?: string;
   defaultTableName?: string;
+  harvestVisibilityCtx: ReturnType<typeof buildHarvestPlanVisibilityCtx>;
 };
 
-/** Raw harvest lines + requirement maps; rows are remapped when locale or reference data changes. */
+/** Raw harvest plan rows + requirement maps; remapped when locale or reference data changes. */
 type HarvestSourceBundle = {
   planRows: Record<string, unknown>[];
-  projectSubitems: Record<string, unknown>[];
   projectId: string;
-  fallbackTableId: string;
-  fallbackTableName: string;
+  defaultTableId: string;
+  defaultTableName: string;
   remainingByProductUom: [string, number][];
   unitByProductUom: [string, string][];
 };
@@ -288,9 +376,7 @@ function harvestLineStatusLabel(
 }
 
 /**
- * Map one harvesting-plan row OR one dynamic-table subitem to UI row.
- * `react_get_harvesting_table` embeds harvest-like lines in `subitems`; `GET /api/harvesting`
- * reads `project_harvesting_plan`. When the latter has no rows, we still show subitems.
+ * Map one `sts_project_harvesting_plan` API row to UI row.
  */
 function mapHarvestRecordToHarvestRow(
   r: Record<string, unknown>,
@@ -302,10 +388,7 @@ function mapHarvestRecordToHarvestRow(
   const attachments: Array<{ label: string; url: string }> = HARVEST_ATTACHMENT_SOURCES.map(
     (src) => ({
       label: src.label,
-      url:
-        getAttachmentUrls(r[src.field])[0] ??
-        getFirstAttachmentUrlFromSubitems(r.subitems, src.field) ??
-        "",
+      url: getAttachmentUrls(r[src.field])[0] ?? "",
     }),
   );
 
@@ -321,7 +404,7 @@ function mapHarvestRecordToHarvestRow(
   const displayQty = isSodToSprig ? refHarvestQty : qty;
   const displayUom = isSodToSprig ? "Kg" : uomRaw;
   const productId = String(r.product_id ?? "").trim();
-  const uomKey = normalizeUomKey(uomRaw);
+  const uomKey = isSodToSprig ? "kg" : normalizeUomKey(uomRaw);
   const remainingMapKey = `${productId}::${uomKey}`;
   const remainingQty = ctx.remainingByProductUom.get(remainingMapKey);
   const remainingUnit = ctx.unitByProductUom.get(remainingMapKey) ?? uomRaw;
@@ -397,6 +480,7 @@ function mapHarvestRecordToHarvestRow(
     doSoNumber: String(r.do_so_number ?? "").trim() || "-",
     truckNote: String(r.truck_note ?? "").trim() || "-",
     attachments,
+    canManageHarvest: canUserManageHarvestPlanRecord(r, ctx.harvestVisibilityCtx),
   };
 }
 
@@ -417,44 +501,6 @@ function safeProjectsListHref(raw: string | null | undefined): string {
     return fallback;
   }
   return s;
-}
-
-function subitemLooksLikeHarvestLine(sub: Record<string, unknown>): boolean {
-  const actual = String(sub.actual_harvest_date ?? "").trim();
-  const delivery = String(sub.delivery_harvest_date ?? "").trim();
-  const est = String(sub.estimated_harvest_date ?? "").trim();
-  const qty = parseNumber(sub.quantity);
-  return (
-    isValidDate(actual) ||
-    isValidDate(delivery) ||
-    isValidDate(est) ||
-    qty > 0
-  );
-}
-
-function buildDeliveredQuantitySourceRows(
-  projectSubitems: Array<Record<string, unknown>>,
-  planRows: Array<Record<string, unknown>>,
-  projectId: string,
-): Array<Record<string, unknown>> {
-  const normalizedProjectId = projectId.trim();
-  const fromPlan = planRows.filter((row) => {
-    const pid = String(row.project_id ?? "").trim();
-    return !normalizedProjectId || pid === normalizedProjectId;
-  });
-  const planIds = new Set(
-    fromPlan
-      .map((row) => String(row.id ?? "").trim())
-      .filter(Boolean),
-  );
-  const fromSubitemsOnly = projectSubitems.filter((sub) => {
-    const pid = String(sub.project_id ?? "").trim();
-    if (pid && normalizedProjectId && pid !== normalizedProjectId) return false;
-    const sid = String(sub.id ?? "").trim();
-    if (sid && planIds.has(sid)) return false;
-    return subitemLooksLikeHarvestLine(sub);
-  });
-  return [...fromPlan, ...fromSubitemsOnly];
 }
 
 function normalizeDateFilterInput(v: string): string {
@@ -545,11 +591,15 @@ export default function ProjectDetailPage() {
   const canEditProjects = canAccessModule(user, "projects", "edit");
   const canDeleteProjects = canAccessModule(user, "projects", "delete");
   const canManageProject = canEditProjects || canDeleteProjects;
-  const canShowProjects = canAccessModule(user, "projects", "show");
   const canCreateHarvest = canAccessModule(user, "harvests", "create");
   const canEditHarvest = canAccessModule(user, "harvests", "edit");
   const canDeleteHarvest = canAccessModule(user, "harvests", "delete");
-  const canManageExistingHarvest = canEditHarvest || canDeleteHarvest;
+  const canViewAllHarvestData = canViewAllModuleData(user, "harvests");
+  const userId = user?.id;
+  const harvestHistoryScope = useMemo(
+    (): ProjectDetailHarvestScope => ({ userId }),
+    [userId],
+  );
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const rowId = searchParams.get("rowId")?.trim() ?? "";
@@ -577,6 +627,16 @@ export default function ProjectDetailPage() {
   const farmsForHarvest = useHarvestingDataStore((s) => s.farms);
   const fetchAllHarvestingReferenceData = useHarvestingDataStore(
     (s) => s.fetchAllHarvestingReferenceData,
+  );
+
+  const harvestVisibilityCtx = useMemo(
+    () =>
+      buildHarvestPlanVisibilityCtx(
+        user,
+        canViewAllHarvestData,
+        staffsRef as unknown[],
+      ),
+    [user, canViewAllHarvestData, staffsRef],
   );
 
   const locale = useLocale();
@@ -679,32 +739,23 @@ export default function ProjectDetailPage() {
     if (!harvestSource) return [];
     const remainingByProductUom = new Map(harvestSource.remainingByProductUom);
     const unitByProductUom = new Map(harvestSource.unitByProductUom);
-    const mapCtxBase: HarvestMapCtx = {
+    const mapCtx: HarvestMapCtx = {
       farmZones: farmZonesForHarvest,
       farms: farmsForHarvest,
       remainingByProductUom,
       unitByProductUom,
       productMap,
       locale,
-      defaultTableId: harvestSource.fallbackTableId,
-      defaultTableName: harvestSource.fallbackTableName,
+      defaultTableId: harvestSource.defaultTableId,
+      defaultTableName: harvestSource.defaultTableName,
+      harvestVisibilityCtx,
     };
-    const fromPlan = harvestSource.planRows
-      .filter((x) => String(x.project_id ?? "").trim() === harvestSource.projectId)
-      .map((r) => mapHarvestRecordToHarvestRow(r, mapCtxBase));
-    const planIds = new Set(fromPlan.map((x) => x.id).filter((id) => id !== ""));
-    const mapCtxSub: HarvestMapCtx = { ...mapCtxBase };
-    const fromSubitemsOnly = harvestSource.projectSubitems
-      .filter((sub) => {
-        const subProjectId = String(sub.project_id ?? "").trim();
-        if (subProjectId && subProjectId !== harvestSource.projectId) return false;
-        const sid = String(sub.id ?? "").trim();
-        if (sid && planIds.has(sid)) return false;
-        return subitemLooksLikeHarvestLine(sub);
-      })
-      .map((sub) => mapHarvestRecordToHarvestRow(sub, mapCtxSub));
-    return [...fromPlan, ...fromSubitemsOnly];
-  }, [harvestSource, locale, productMap, farmZonesForHarvest, farmsForHarvest]);
+    return filterHarvestHistoryForProjectDetail(
+      harvestPlanRowsForProject(harvestSource.planRows, harvestSource.projectId),
+      harvestVisibilityCtx,
+      PROJECT_DETAIL_HARVEST_HISTORY_DISPLAY_MODE,
+    ).map((r) => mapHarvestRecordToHarvestRow(r, mapCtx));
+  }, [harvestSource, locale, productMap, farmZonesForHarvest, farmsForHarvest, harvestVisibilityCtx]);
 
   const loadMoreHarvestPlan = useCallback(async () => {
     const projectId = String(harvestSource?.projectId ?? "").trim();
@@ -714,7 +765,7 @@ export default function ProjectDetailPage() {
     const nextPage = harvestPlanPageRef.current + 1;
     try {
       const h = await stsProxyGetHarvestingIndex(
-        buildProjectDetailHarvestApiParams(projectId, nextPage, canShowProjects),
+        buildProjectDetailHarvestHistoryApiParams(projectId, nextPage, harvestHistoryScope),
       );
       const pageRows = h.rows.filter(
         (x): x is Record<string, unknown> => !!x && typeof x === "object",
@@ -747,7 +798,7 @@ export default function ProjectDetailPage() {
       harvestLoadMoreLockRef.current = false;
       setHarvestPlanLoadingMore(false);
     }
-  }, [canShowProjects, harvestSource?.projectId]);
+  }, [harvestHistoryScope, harvestSource?.projectId]);
 
   useEffect(() => {
     const el = harvestLoadMoreSentinelRef.current;
@@ -784,102 +835,101 @@ export default function ProjectDetailPage() {
         setHarvestPlanHasMore(false);
         setHarvestPlanTotalRecords(null);
         setHarvestPlanLoadingMore(false);
-        const normalizedTableId = tableId.trim();
-        const normalizedProjectId = projectIdFromQuery.trim();
-        if (!rowId && !normalizedProjectId) {
-          setHarvestSource(null);
-          setError(t("cannotFindDetail"));
-          return;
-        }
-        const res = await fetchMondayProjectRowsFromServer({ page: 1, perPage: 300 });
-        if (!mounted) return;
-        const matchesProject = (r: MondayProjectServerRow): boolean => {
-          if (rowId) {
-            const rowIdMatches =
-              String(r.row_id ?? "").trim() === rowId ||
-              String(r.id ?? "").trim() === rowId;
-            if (!rowIdMatches) return false;
-          } else {
-            const candidateProjectId = String(r.project_id ?? r.id ?? "").trim();
-            if (!candidateProjectId || candidateProjectId !== normalizedProjectId) {
-              return false;
-            }
-          }
-          if (!normalizedTableId) return true;
-          if (String(r.table_id ?? "").trim() !== normalizedTableId) return false;
-          if (!normalizedProjectId) return true;
-          return String(r.project_id ?? "").trim() === normalizedProjectId;
-        };
-        const row = res.rows.find(matchesProject) ?? null;
-        if (!row) {
-          setHarvestSource(null);
-          setError(t("cannotFindDetail"));
-          return;
-        }
-        const projectId = String(projectIdFromQuery || row.project_id || "").trim();
-        if (projectId) {
-          const requirementRows = parseRequirements(row.quantity_required_sprig_sod);
-          const projectSubitems = parseSubitems(row.subitems);
-          const { planRows, totalRecords } = await fetchAllHarvestPlanPagesForProject(
-            projectId,
-            canShowProjects,
-          );
-          if (!mounted) return;
-          harvestPlanPageRef.current = Math.max(
-            1,
-            Math.ceil(planRows.length / HARVEST_HISTORY_PER_PAGE),
-          );
-          setHarvestPlanTotalRecords(totalRecords);
-          setHarvestPlanHasMore(false);
-          setProjectRow(row);
-          const deliveredRows = buildDeliveredQuantitySourceRows(
-            projectSubitems,
-            planRows,
-            projectId,
-          );
-          setDeliveredQuantityRows(deliveredRows);
-          const remainingByProductUom = new Map<string, number>();
-          const unitByProductUom = new Map<string, string>();
-          for (const req of requirementRows) {
-            const productId = String(req.product_id ?? "").trim();
-            if (!productId) continue;
-            const reqUomRaw = String(req.uom ?? "").trim();
-            const reqUomKey = normalizeUomKey(reqUomRaw);
-            const required = effectiveRequiredQuantityFromRecord(req as Record<string, unknown>);
-            const delivered = calculateDeliveredQuantityDeliveryOnly(
-              deliveredRows,
-              productId,
-              reqUomRaw,
-              projectId,
-            );
-            const remaining = Math.max(0, required - delivered);
-            const mapKey = `${productId}::${reqUomKey}`;
-            remainingByProductUom.set(mapKey, remaining);
-            unitByProductUom.set(mapKey, reqUomRaw || "-");
-          }
 
-          const fallbackTableId = String(row.table_id ?? tableId ?? "").trim();
-          const fallbackTableName =
-            String(row.table_name ?? "Harvesting").trim() || "Harvesting";
-          setHarvestSource({
-            planRows,
-            projectSubitems,
-            projectId,
-            fallbackTableId,
-            fallbackTableName,
-            remainingByProductUom: [...remainingByProductUom.entries()],
-            unitByProductUom: [...unitByProductUom.entries()],
-          });
-        } else {
+        const normalizedProjectId = projectIdFromQuery.trim();
+        if (!normalizedProjectId) {
           setHarvestSource(null);
-          setProjectRow(row);
+          setProjectRow(null);
+          setError(t("cannotFindDetail"));
+          return;
         }
+
+        await fetchAllHarvestingReferenceData();
+        if (!mounted) return;
+
+        const storeProjects = useHarvestingDataStore.getState();
+        const catalogRow =
+          findProjectRowBySelectId(storeProjects.allProjects, normalizedProjectId) ??
+          findProjectRowBySelectId(storeProjects.projects, normalizedProjectId);
+
+        const dynamicRows = await fetchProjectDynamicFieldsByProjectId(normalizedProjectId);
+        if (!mounted) return;
+
+        const dynamicRow = pickDynamicRowForProject(dynamicRows, rowId, tableId);
+        const row = mergeProjectDetailFromServer(
+          normalizedProjectId,
+          catalogRow,
+          dynamicRow,
+        );
+
+        if (!catalogRow && !dynamicRow) {
+          setHarvestSource(null);
+          setProjectRow(null);
+          setError(t("cannotFindDetail"));
+          return;
+        }
+
+        const historyHarvest = await fetchAllHarvestPlanPagesForProjectDetailHistory(
+          normalizedProjectId,
+          harvestHistoryScope,
+        );
+        const allPlanRows = harvestPlanRowsForProject(
+          historyHarvest.planRows,
+          normalizedProjectId,
+        );
+        const { totalRecords } = historyHarvest;
+        if (!mounted) return;
+
+        harvestPlanPageRef.current = Math.max(
+          1,
+          Math.ceil(allPlanRows.length / HARVEST_HISTORY_PER_PAGE),
+        );
+        setHarvestPlanTotalRecords(totalRecords);
+        setHarvestPlanHasMore(
+          harvestPlanHasMoreFromResponse(
+            allPlanRows.length,
+            allPlanRows.length,
+            totalRecords,
+          ),
+        );
+        setProjectRow(row);
+
+        setDeliveredQuantityRows(allPlanRows);
+
+        const requirementRows = parseRequirements(row.quantity_required_sprig_sod);
+        const remainingByProductUom = new Map<string, number>();
+        const unitByProductUom = new Map<string, string>();
+        for (const req of requirementRows) {
+          const productId = String(req.product_id ?? "").trim();
+          if (!productId) continue;
+          const reqUomRaw = String(req.uom ?? "").trim();
+          const reqUomKey = normalizeUomKey(reqUomRaw);
+          const required = effectiveRequiredQuantityFromRecord(req as Record<string, unknown>);
+          const delivered = calculateDeliveredQuantityDeliveryOnly(
+            allPlanRows,
+            productId,
+            reqUomRaw,
+            normalizedProjectId,
+          );
+          const remaining = Math.max(0, required - delivered);
+          const mapKey = `${productId}::${reqUomKey}`;
+          remainingByProductUom.set(mapKey, remaining);
+          unitByProductUom.set(mapKey, reqUomRaw || "-");
+        }
+
+        setHarvestSource({
+          planRows: allPlanRows,
+          projectId: normalizedProjectId,
+          defaultTableId: String(row.table_id ?? tableId ?? "").trim(),
+          defaultTableName: String(row.table_name ?? "Harvesting").trim() || "Harvesting",
+          remainingByProductUom: [...remainingByProductUom.entries()],
+          unitByProductUom: [...unitByProductUom.entries()],
+        });
       } catch (e) {
         if (!mounted) return;
         setHarvestSource(null);
-        setError(
-          e instanceof Error ? e.message : t("loadError"),
-        );
+        setProjectRow(null);
+        setError(e instanceof Error ? e.message : t("loadError"));
         setDeliveredQuantityRows([]);
       } finally {
         if (mounted) setLoading(false);
@@ -888,7 +938,7 @@ export default function ProjectDetailPage() {
     return () => {
       mounted = false;
     };
-  }, [canShowProjects, projectIdFromQuery, rowId, tableId]);
+  }, [fetchAllHarvestingReferenceData, harvestHistoryScope, projectIdFromQuery, rowId, tableId, t, userId]);
 
   useEffect(() => {
     Fancybox.bind(".harvest-fancybox-trigger", {
@@ -964,10 +1014,7 @@ export default function ProjectDetailPage() {
     if (!projectRow) return [];
     const harvestProjectId = String(projectRow.project_id ?? "").trim();
     const req = parseRequirements(projectRow.quantity_required_sprig_sod);
-    const sourceRows =
-      deliveredQuantityRows.length > 0
-        ? deliveredQuantityRows
-        : parseSubitems(projectRow.subitems);
+    const sourceRows = deliveredQuantityRows;
     return req.map((r, idx) => {
       const productId = String(r.product_id ?? "").trim();
       const uom =
@@ -1078,8 +1125,14 @@ export default function ProjectDetailPage() {
       normalizeDateFilterInput(harvestDateTo),
   );
 
+  const canEditHarvestRow = (h: HarvestRow) =>
+    canEditHarvest && h.canManageHarvest && Boolean(String(h.id ?? "").trim());
+
   const canDeleteHarvestRow = (h: HarvestRow) =>
-    canDeleteHarvest && Boolean(String(h.id ?? "").trim());
+    canDeleteHarvest &&
+    h.canManageHarvest &&
+    Boolean(String(h.id ?? "").trim()) &&
+    Boolean(String(h.tableId ?? "").trim());
 
   const onConfirmDeleteHarvestFromDetail = async () => {
     if (!canDeleteHarvest) {
@@ -1088,7 +1141,7 @@ export default function ProjectDetailPage() {
       return;
     }
     const target = harvestDeleteTarget;
-    if (!target?.id?.trim() || !target.tableId?.trim()) {
+    if (!target?.id?.trim() || !target.tableId?.trim() || !target.canManageHarvest) {
       setHarvestDeleteError(t("deleteHarvestMissingIds"));
       setHarvestDeleteTarget(null);
       return;
@@ -1110,9 +1163,6 @@ export default function ProjectDetailPage() {
           ...prev,
           planRows: prev.planRows.filter(
             (r) => String(r.id ?? "").trim() !== removedId,
-          ),
-          projectSubitems: prev.projectSubitems.filter(
-            (s) => String(s.id ?? "").trim() !== removedId,
           ),
         };
       });
@@ -1379,7 +1429,7 @@ export default function ProjectDetailPage() {
                     </h2>
                     <p className="mt-1.5 text-sm text-muted-foreground">
                       {t("harvestHistoryRecordCount", {
-                        count: harvestPlanTotalRecords ?? harvests.length,
+                        count: harvests.length,
                       })}
                     </p>
                   </div>
@@ -1569,7 +1619,7 @@ export default function ProjectDetailPage() {
                                 </td>
                                 <td className="py-2.5 text-right">
                                   <div className="flex items-center justify-end gap-1">
-                                    {canManageExistingHarvest ? (
+                                    {canEditHarvestRow(h) ? (
                                       <button
                                         type="button"
                                         onClick={(e) => {
@@ -1704,7 +1754,7 @@ export default function ProjectDetailPage() {
                     </span>
                   </div>
                   <div className="flex items-center gap-1">
-                    {canManageExistingHarvest ? (
+                    {canEditHarvestRow(h) ? (
                       <button
                         type="button"
                         onClick={() =>
@@ -1826,22 +1876,17 @@ export default function ProjectDetailPage() {
                       ))}
                     </Swiper>
                   </div>
-                  {canDeleteHarvest ? (
+                  {canDeleteHarvestRow(h) ? (
                     <div className="flex justify-end">
                       <button
                         type="button"
-                        disabled={!canDeleteHarvestRow(h)}
-                        title={
-                          canDeleteHarvestRow(h)
-                            ? t("deleteHarvestAria")
-                            : t("deleteHarvestUnavailable")
-                        }
+                        title={t("deleteHarvestAria")}
                         aria-label={t("deleteHarvestAria")}
                         onClick={() => {
                           setHarvestDeleteError(null);
                           setHarvestDeleteTarget(h);
                         }}
-                        className="flex gap-2 rounded-lg border p-2 text-gray-300 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40"
+                        className="flex gap-2 rounded-lg border p-2 text-gray-300 transition-colors hover:bg-red-50"
                       >
                         <Trash2 className="h-5 w-5" /> {tCommon("delete")}
                       </button>

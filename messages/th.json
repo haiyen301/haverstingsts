@@ -778,6 +778,8 @@
     "harvestedAreaUnitM2": "m²",
     "deleteHarvestAria": "ลบรายการเก็บเกี่ยว",
     "deleteHarvestUnavailable": "ลบรายการนี้จากที่นี่ไม่ได้ (ไม่พบรหัสตาราง)",
+    "deleteHarvestNotOwner": "ลบได้เฉพาะรายการที่คุณสร้างเท่านั้น",
+    "harvestManageNotAllowed": "ดูรายการนี้ได้ แต่ไม่มีสิทธิ์แก้ไขหรือลบตามกฎสิทธิ์การเก็บเกี่ยว",
     "confirmDeleteHarvestTitle": "ลบรายการเก็บเกี่ยว?",
     "confirmDeleteHarvestMessage": "ต้องการลบรายการเก็บเกี่ยวนี้หรือไม่?",
     "deleteHarvestMissingIds": "ลบไม่ได้: ไม่พบรหัสแถวหรือรหัสตาราง",

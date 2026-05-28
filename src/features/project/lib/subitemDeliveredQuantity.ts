@@ -1,4 +1,5 @@
 import type { QuantityRequiredProject, SubItem } from "@/entities/projects";
+import { normalizeHarvestTypeStorageKey } from "@/shared/lib/harvestType";
 import { effectiveRequiredQuantity } from "./effectiveRequirementQuantity";
 
 function parseNumber(v: unknown): number {
@@ -56,6 +57,117 @@ export function normalizeUomForHarvestMatch(uom: unknown): string {
     .replace(/\s+/g, "");
 }
 
+function harvestLineTypeKey(s: Record<string, unknown>): string {
+  return (
+    normalizeHarvestTypeStorageKey(
+      s.harvest_type ??
+        s.load_type ??
+        s.harvestType ??
+        s.select_harvest_type ??
+        s.selectHarvestType ??
+        "",
+    ) || ""
+  );
+}
+
+export function isSodToSprigHarvestLine(s: Record<string, unknown>): boolean {
+  if (harvestLineTypeKey(s) === "sod_to_sprig") return true;
+  // Rows saved with m² sod qty + ref sprig kg but missing/legacy load_type.
+  if (
+    parseRefHrvQtySprig(s) > 0 &&
+    normalizeUomForHarvestMatch(s.uom) === "m2"
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/** Requirement line UOM → kg / m2 for progress matching (sprig lines are kg). */
+export function normalizeRequirementUomForProgress(uom: unknown): string {
+  const n = normalizeUomForHarvestMatch(uom);
+  if (n === "kg" || n === "kgs" || n.includes("sprig")) return "kg";
+  if (n === "m2" || n === "sqm") return "m2";
+  return n;
+}
+
+function countsTowardDeliveredProgress(
+  s: Record<string, unknown>,
+  requiredUomNorm: string,
+): boolean {
+  if (isValidHarvestRelatedDate(s.delivery_harvest_date)) return true;
+  if (
+    requiredUomNorm === "kg" &&
+    isSodToSprigHarvestLine(s) &&
+    parseRefHrvQtySprig(s) > 0 &&
+    isValidActualHarvestDate(s.actual_harvest_date)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/** `sts_project_harvesting_plan.ref_hrv_qty_sprig` — sprig kg yield for Sod → Sprig lines. */
+export function parseRefHrvQtySprig(s: Record<string, unknown>): number {
+  const raw = s.ref_hrv_qty_sprig ?? s.refHrvQtySprig;
+  if (typeof raw === "number") return Number.isFinite(raw) && raw > 0 ? raw : 0;
+  const text = String(raw ?? "").trim();
+  if (!text || text === "null" || text === "undefined") return 0;
+  const n = Number(text.replace(/,/g, ""));
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/**
+ * Delivered qty counted toward one requirement line (delivery date required).
+ * Sod → Sprig: kg requirements use `ref_hrv_qty_sprig`; m² requirements use sod `quantity`.
+ */
+export function deliveredQtyForRequirementLine(
+  s: Record<string, unknown>,
+  requiredUomNorm: string,
+): number {
+  if (!countsTowardDeliveredProgress(s, requiredUomNorm)) return 0;
+
+  const isSodSprig = isSodToSprigHarvestLine(s);
+  if (isSodSprig && requiredUomNorm === "kg") {
+    const refKg = parseRefHrvQtySprig(s);
+    if (refKg > 0) return refKg;
+    if (normalizeUomForHarvestMatch(s.uom) === "kg") {
+      return parseNumber(s.quantity);
+    }
+    return 0;
+  }
+
+  if (isSodSprig && requiredUomNorm === "m2") {
+    return parseNumber(s.quantity);
+  }
+
+  return parseNumber(s.quantity);
+}
+
+function subitemMatchesRequirementForDelivery(
+  s: Record<string, unknown>,
+  requiredProductId: string,
+  requiredUomNorm: string,
+  allowBlankSubitemUom: boolean,
+): boolean {
+  if (String(s.product_id ?? "").trim() !== requiredProductId) return false;
+  if (!requiredUomNorm) return true;
+
+  const subUom = normalizeUomForHarvestMatch(s.uom);
+  if (subUom === requiredUomNorm) return true;
+  if (allowBlankSubitemUom && subUom === "") return true;
+
+  if (requiredUomNorm === "kg" && isSodToSprigHarvestLine(s)) {
+    const refKg = parseRefHrvQtySprig(s);
+    return refKg > 0 || subUom === "kg";
+  }
+
+  if (requiredUomNorm === "m2" && isSodToSprigHarvestLine(s)) {
+    return parseNumber(s.quantity) > 0;
+  }
+
+  return false;
+}
+
 /** Count quantity toward delivered only when `delivery_harvest_date` is valid. */
 export function getSubitemDeliveredQuantity(subitem: SubitemLike): number {
   const s = subitem as Record<string, unknown>;
@@ -89,9 +201,11 @@ export function calculateDeliveredQuantity(
   return total;
 }
 
-function subitemQtyIfDeliveredOnly(s: Record<string, unknown>): number {
-  if (!isValidHarvestRelatedDate(s.delivery_harvest_date)) return 0;
-  return parseNumber(s.quantity);
+function subitemQtyIfDeliveredOnly(
+  s: Record<string, unknown>,
+  requiredUomNorm = "",
+): number {
+  return deliveredQtyForRequirementLine(s, requiredUomNorm);
 }
 
 /**
@@ -104,17 +218,29 @@ export function calculateDeliveredQuantityDeliveryOnly(
   harvestProjectId?: string,
 ): number {
   if (!productId) return 0;
-  const uomNorm = normalizeUomForHarvestMatch(uom);
+  const uomNorm = normalizeRequirementUomForProgress(uom);
+  const lineCountByProductId: Record<string, number> = {};
+  for (const item of subitems) {
+    const pid = String((item as Record<string, unknown>).product_id ?? "").trim();
+    if (pid) lineCountByProductId[pid] = (lineCountByProductId[pid] ?? 0) + 1;
+  }
+  const allowBlankSubitemUom = (lineCountByProductId[productId] ?? 0) === 1;
+
   let total = 0;
   for (const item of subitems) {
     const s = item as Record<string, unknown>;
     if (!subitemBelongsToHarvestProject(s, harvestProjectId)) continue;
-    if (String(s.product_id ?? "").trim() !== productId) continue;
-    if (uomNorm) {
-      const su = normalizeUomForHarvestMatch(s.uom);
-      if (su !== uomNorm) continue;
+    if (
+      !subitemMatchesRequirementForDelivery(
+        s,
+        productId,
+        uomNorm,
+        allowBlankSubitemUom,
+      )
+    ) {
+      continue;
     }
-    total += subitemQtyIfDeliveredOnly(s);
+    total += subitemQtyIfDeliveredOnly(s, uomNorm);
   }
   return total;
 }
@@ -150,7 +276,7 @@ export function hasAnyActualHarvestMatchingRequirementLines(
     const pid = String(r.product_id ?? "").trim();
     if (!pid) continue;
     if (effectiveRequiredQuantity(r) <= 0) continue;
-    const requiredUomNorm = normalizeUomForHarvestMatch(r.uom);
+    const requiredUomNorm = normalizeRequirementUomForProgress(r.uom);
     const allowBlankSubitemUom = (lineCountByProductId[pid] ?? 0) === 1;
     for (const item of subitems) {
       const s = item as Record<string, unknown>;
@@ -180,12 +306,12 @@ export function hasAnyDeliveryHarvestMatchingRequirementLines(
     const pid = String(r.product_id ?? "").trim();
     if (!pid) continue;
     if (effectiveRequiredQuantity(r) <= 0) continue;
-    const requiredUomNorm = normalizeUomForHarvestMatch(r.uom);
+    const requiredUomNorm = normalizeRequirementUomForProgress(r.uom);
     const allowBlankSubitemUom = (lineCountByProductId[pid] ?? 0) === 1;
     for (const item of subitems) {
       const s = item as Record<string, unknown>;
       if (!subitemBelongsToHarvestProject(s, harvestProjectId)) continue;
-      if (!subitemMatchesRequirementHarvestLine(s, pid, requiredUomNorm, allowBlankSubitemUom)) continue;
+      if (!subitemMatchesRequirementForDelivery(s, pid, requiredUomNorm, allowBlankSubitemUom)) continue;
       if (isValidHarvestRelatedDate(s.delivery_harvest_date)) return true;
     }
   }
