@@ -1,0 +1,199 @@
+import {
+  fetchRegrowthRules,
+  fetchZoneConfigurations,
+} from "@/features/admin/api/adminApi";
+import {
+  fetchHarvestRowsForForecasting,
+  rowsToMockHarvestRows,
+} from "@/features/forecasting/mapHarvestApiToForecastRows";
+import {
+  resolveRegrowthReferenceConfigFromRules,
+} from "@/features/forecasting/forecastingRegrowth";
+import {
+  forecastHarvestDateRange,
+  getForecastToday,
+} from "@/features/forecasting/forecastDateUtils";
+import {
+  type ForecastCacheScope,
+  FORECAST_DATA_SCOPES,
+  forecastStoreHasCoreData,
+  useForecastDataStore,
+} from "@/shared/store/forecastDataStore";
+import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
+import { useInventoryAvailableOverrideStore } from "@/shared/store/inventoryAvailableOverrideStore";
+
+let loadToken = 0;
+
+export type EnsureLoadedOptions = {
+  scopes?: Set<ForecastCacheScope>;
+  force?: boolean;
+  showLoading?: boolean;
+};
+
+async function loadReference(force: boolean): Promise<void> {
+  await useHarvestingDataStore.getState().fetchAllHarvestingReferenceData(force);
+  useForecastDataStore.getState().markValid("reference");
+}
+
+async function loadZones(token: number): Promise<void> {
+  const rows = await fetchZoneConfigurations();
+  if (token !== loadToken) return;
+  const store = useForecastDataStore.getState();
+  store.setZoneConfigs(rows);
+  store.markValid("zones");
+}
+
+async function loadRules(token: number): Promise<void> {
+  try {
+    const rules = await fetchRegrowthRules();
+    if (token !== loadToken) return;
+    useForecastDataStore
+      .getState()
+      .setRegrowthConfig(resolveRegrowthReferenceConfigFromRules(rules));
+  } catch {
+    if (token !== loadToken) return;
+    useForecastDataStore
+      .getState()
+      .setRegrowthConfig(resolveRegrowthReferenceConfigFromRules([]));
+  }
+  useForecastDataStore.getState().markValid("rules");
+}
+
+async function loadOverrides(token: number): Promise<void> {
+  await useInventoryAvailableOverrideStore.getState().fetchOverrides();
+  if (token !== loadToken) return;
+  useForecastDataStore.getState().markValid("overrides");
+}
+
+async function loadHarvest(token: number): Promise<void> {
+  const { from, to } = forecastHarvestDateRange();
+  const farms = useHarvestingDataStore.getState().farms;
+  const res = await fetchHarvestRowsForForecasting({
+    actual_harvest_date_from: from,
+    actual_harvest_date_to: to,
+    perPage: 500,
+    maxPages: 400,
+    farms,
+  });
+  if (token !== loadToken) return;
+
+  const store = useForecastDataStore.getState();
+  const zoneConfigs = store.zoneConfigs ?? [];
+  const today = getForecastToday();
+  const forecastRows = rowsToMockHarvestRows(res.rows, today, zoneConfigs);
+
+  store.setHarvestData({
+    harvestRowsRaw: res.rows,
+    harvestError: res.error ?? null,
+    forecastRows,
+    harvestDateFrom: from,
+    harvestDateTo: to,
+  });
+  store.markValid("harvest");
+
+  if (res.error) {
+    store.setLoadState({ error: res.error });
+  }
+}
+
+/** Re-map forecast rows when zones arrive after harvest (or zones refresh). */
+function remapForecastRowsIfNeeded(): void {
+  const store = useForecastDataStore.getState();
+  const { harvestRowsRaw, zoneConfigs, forecastRows: prev } = store;
+  if (!harvestRowsRaw || !zoneConfigs) return;
+  const today = getForecastToday();
+  const mapped = rowsToMockHarvestRows(harvestRowsRaw, today, zoneConfigs);
+  if (prev && prev.length === mapped.length) return;
+  store.setHarvestData({
+    harvestRowsRaw,
+    harvestError: store.harvestError,
+    forecastRows: mapped,
+    harvestDateFrom: store.harvestDateFrom ?? forecastHarvestDateRange().from,
+    harvestDateTo: store.harvestDateTo ?? forecastHarvestDateRange().to,
+  });
+}
+
+export async function ensureForecastDataLoaded(
+  options: EnsureLoadedOptions = {},
+): Promise<void> {
+  const scopes =
+    options.scopes ??
+    new Set<ForecastCacheScope>([...FORECAST_DATA_SCOPES, "reference"]);
+  const force = options.force ?? false;
+  const showLoading = options.showLoading ?? true;
+
+  const store = useForecastDataStore.getState();
+  const needed = store.scopesNeedingFetch(scopes, force);
+  if (needed.size === 0) return;
+
+  const token = ++loadToken;
+  const hadSnapshot = store.hasSnapshot;
+
+  store.setLoadState({
+    isLoading: showLoading && !hadSnapshot,
+    isRefreshing: hadSnapshot,
+    error: null,
+  });
+
+  const futures: Promise<void>[] = [];
+
+  if (needed.has("reference")) {
+    futures.push(loadReference(true));
+  }
+  if (needed.has("zones")) {
+    futures.push(loadZones(token));
+  }
+  if (needed.has("harvest")) {
+    futures.push(loadHarvest(token));
+  }
+  if (needed.has("rules")) {
+    futures.push(loadRules(token));
+  }
+  if (needed.has("overrides")) {
+    futures.push(loadOverrides(token));
+  }
+
+  try {
+    await Promise.all(futures);
+
+    if (token !== loadToken) return;
+
+    if (needed.has("zones") || needed.has("harvest")) {
+      remapForecastRowsIfNeeded();
+    }
+
+    const next = useForecastDataStore.getState();
+    next.setLoadState({
+      isLoading: false,
+      isRefreshing: false,
+      hasSnapshot: forecastStoreHasCoreData() || next.forecastRows != null,
+    });
+  } catch (e) {
+    if (token !== loadToken) return;
+    useForecastDataStore.getState().setLoadState({
+      isLoading: false,
+      isRefreshing: false,
+      error: e instanceof Error ? e.message : "Failed to load forecast data",
+    });
+  }
+}
+
+/** Warm cache when idle (e.g. from dashboard). */
+export async function prefetchForecastDataIfIdle(): Promise<void> {
+  const store = useForecastDataStore.getState();
+  if (store.hasSnapshot && store.isFresh("harvest")) return;
+  await ensureForecastDataLoaded({
+    scopes: new Set([...FORECAST_DATA_SCOPES, "reference"]),
+    showLoading: false,
+  });
+}
+
+export async function reloadForecastFromCache(
+  scopes: Set<ForecastCacheScope>,
+  showLoading = false,
+): Promise<void> {
+  for (const scope of scopes) {
+    useForecastDataStore.getState().invalidate(scope);
+  }
+  await ensureForecastDataLoaded({ scopes, force: true, showLoading });
+}

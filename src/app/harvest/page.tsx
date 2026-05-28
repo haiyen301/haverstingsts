@@ -29,7 +29,10 @@ import {
   mapRowsToSelectOptions,
   zoneIdToLabel,
 } from "@/shared/lib/harvestReferenceData";
-import { harvestTypeDisplayLabel } from "@/shared/lib/harvestType";
+import {
+  harvestTypeDisplayLabel,
+  normalizeHarvestTypeStorageKey,
+} from "@/shared/lib/harvestType";
 import { formatNumber } from "@/shared/lib/format/number";
 import { MultiSelect } from "@/shared/ui/multi-select";
 import { SortableTh } from "@/components/ui/sortable-th";
@@ -468,14 +471,24 @@ type HarvestSortKey =
   | "qty"
   | "status";
 
+function parseRefHrvQtySprig(rec: Record<string, unknown>): number {
+  return parseApiNumber(rec.ref_hrv_qty_sprig ?? rec.refHrvQtySprig);
+}
+
 function normalizeHarvestRow(raw: unknown): HarvestListRow | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
   const id = r.id;
   if (id === undefined || id === null) return null;
   const dateStr = pickHarvestDisplayDate(r);
-  const qty = Number(r.quantity);
-  const q = Number.isFinite(qty) ? qty : 0;
+  const harvestTypeKey =
+    normalizeHarvestTypeStorageKey(r.harvest_type ?? r.load_type ?? "") ||
+    normalizeHarvestTypeStorageKey(r.harvestType ?? "");
+  const isSodToSprig = harvestTypeKey === "sod_to_sprig";
+  const quantityRaw = Number(r.quantity);
+  const quantity = Number.isFinite(quantityRaw) ? quantityRaw : 0;
+  const refSprigQty = parseRefHrvQtySprig(r);
+  const q = isSodToSprig ? refSprigQty : quantity;
   const harvestedAreaRaw = Number(r.harvested_area);
   const harvestedArea = Number.isFinite(harvestedAreaRaw) ? harvestedAreaRaw : 0;
   const kgPerM2Raw = Number(r.kg_per_m2);
@@ -486,6 +499,7 @@ function normalizeHarvestRow(raw: unknown): HarvestListRow | null {
         ? q / harvestedArea
         : 0;
   const uom = String(r.uom ?? "").trim();
+  const qtyUom = isSodToSprig ? "Kg" : uom;
   return {
     id: String(id),
     customer: String(r.customer_name ?? r.customer ?? ""),
@@ -510,7 +524,7 @@ function normalizeHarvestRow(raw: unknown): HarvestListRow | null {
     doSoNumber: String(r.do_so_number ?? ""),
     qty: q,
     status: deriveHarvestPortalStatus(r),
-    qtyLabel: uom ? `${q.toLocaleString()} ${uom}` : q.toLocaleString(),
+    qtyLabel: qtyUom ? `${q.toLocaleString()} ${qtyUom}` : q.toLocaleString(),
   };
 }
 

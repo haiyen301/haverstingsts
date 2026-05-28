@@ -11,6 +11,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, ChevronDown, Plus, Trash2 } from "lucide-react";
 
 import RequireAuth from "@/features/auth/RequireAuth";
+import {
+  onForecastMutations,
+  rowDataAffectsHarvest,
+} from "@/features/forecasting/forecastDataSync";
 import { canAccessModule } from "@/shared/auth/permissions";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { useAuthUserStore } from "@/shared/store/authUserStore";
@@ -1122,6 +1126,11 @@ export default function ProjectInputPage() {
       } catch {
         // Navigation still carries a refresh token so the list can re-fetch on return.
       }
+      const mutationScopes: Array<"reference" | "harvest"> = ["reference"];
+      if (rowData && typeof rowData === "object" && rowDataAffectsHarvest(rowData as Record<string, unknown>)) {
+        mutationScopes.push("harvest");
+      }
+      onForecastMutations(mutationScopes);
       const nextReturnTarget = returnTarget.startsWith("/projects")
         ? withRefreshQueryParam(returnTarget)
         : returnTarget;
@@ -1801,7 +1810,11 @@ export default function ProjectInputPage() {
                             <button
                               key={`${row.id}-${u}`}
                               type="button"
-                              onClick={() => updateGrassRow(row.id, "type", u)}
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => {
+                                if (row.type === u) return;
+                                updateGrassRow(row.id, "type", u);
+                              }}
                               className="relative w-max cursor-pointer text-left justify-self-start"
                             >
                               <span

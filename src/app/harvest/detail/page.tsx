@@ -26,7 +26,7 @@ import { stsProxyGetHarvestingIndex } from "@/shared/api/stsProxyClient";
 import { useAuthUserStore } from "@/shared/store/authUserStore";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { zoneIdToLabel } from "@/shared/lib/harvestReferenceData";
-import { harvestTypeDisplayLabel } from "@/shared/lib/harvestType";
+import { harvestTypeDisplayLabel, normalizeHarvestTypeStorageKey } from "@/shared/lib/harvestType";
 import { HARVEST_DOC_PHOTO_FIELDS } from "@/features/harvesting/api/flutterHarvestSubmit";
 import { parseHarvestDocImagesFromRow } from "@/features/harvesting/lib/parseHarvestDocImages";
 import { effectiveHarvestDateYmd, isValidHarvestDateString } from "@/shared/lib/harvestPlanDates";
@@ -34,6 +34,15 @@ import { computeReadyDateYmdFromPlanRow } from "@/features/forecasting/computeRe
 import { cn } from "@/lib/utils";
 
 type HarvestDetailRow = Record<string, unknown>;
+
+function parseApiNumber(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number(value.replace(/,/g, "").trim());
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return 0;
+}
 
 function isValidDateString(v: unknown): v is string {
   if (typeof v !== "string") return false;
@@ -201,10 +210,35 @@ export default function HarvestDetailPage() {
     };
   }, [row]);
 
-  const qty = Number(row?.quantity);
-  const qtySafe = Number.isFinite(qty) ? qty : 0;
+  const quantityDisplay = useMemo(() => {
+    if (!row) {
+      return { qty: 0, uom: "", isSodToSprig: false, kgPerM2: 0 };
+    }
+    const harvestTypeKey =
+      normalizeHarvestTypeStorageKey(row.harvest_type ?? row.load_type ?? "") ||
+      normalizeHarvestTypeStorageKey(row.harvestType ?? "");
+    const isSodToSprig = harvestTypeKey === "sod_to_sprig";
+    const quantityRaw = parseApiNumber(row.quantity);
+    const refSprigQty = parseApiNumber(row.ref_hrv_qty_sprig ?? row.refHrvQtySprig);
+    const qty = isSodToSprig ? refSprigQty : quantityRaw;
+    const uomRaw = String(row.uom ?? "").trim();
+    const uom = isSodToSprig ? "Kg" : uomRaw || "KG";
+    const area = parseApiNumber(row.harvested_area);
+    const kgPerM2Raw = parseApiNumber(row.kg_per_m2);
+    const kgPerM2 =
+      kgPerM2Raw > 0
+        ? kgPerM2Raw
+        : area > 0 && qty > 0 && (isSodToSprig || uomRaw.toLowerCase() === "kg")
+          ? qty / area
+          : 0;
+    return { qty, uom, isSodToSprig, kgPerM2 };
+  }, [row]);
+
+  const qtySafe = quantityDisplay.qty;
+  const qtyUom = quantityDisplay.uom;
   const area = Number(row?.harvested_area);
   const areaSafe = Number.isFinite(area) ? area : 0;
+  const kgPerM2 = quantityDisplay.kgPerM2;
   const harvestTypeLabel =
     harvestTypeDisplayLabel(row?.harvest_type ?? row?.load_type ?? "") || "—";
   const harvestTypeClass =
@@ -217,18 +251,21 @@ export default function HarvestDetailPage() {
           : "bg-muted text-muted-foreground";
   const uom = String(row?.uom ?? "").trim().toLowerCase();
   const uomTypeLabel =
-    uom === "kg"
-      ? "Sprig"
-      : uom === "m2" || uom === "m²"
-        ? "Sod"
-        : harvestTypeLabel;
+    quantityDisplay.isSodToSprig
+      ? "Sod -> Sprig"
+      : uom === "kg"
+        ? "Sprig"
+        : uom === "m2" || uom === "m²"
+          ? "Sod"
+          : harvestTypeLabel;
   const uomTypeClass =
-    uom === "kg"
-      ? "bg-accent/10 text-accent"
-      : uom === "m2" || uom === "m²"
-        ? "bg-primary/10 text-primary"
-        : harvestTypeClass;
-  const kgPerM2 = uom === "kg" && areaSafe > 0 ? qtySafe / areaSafe : 0;
+    quantityDisplay.isSodToSprig
+      ? "bg-info/10 text-info"
+      : uom === "kg"
+        ? "bg-accent/10 text-accent"
+        : uom === "m2" || uom === "m²"
+          ? "bg-primary/10 text-primary"
+          : harvestTypeClass;
 
   return (
     <RequireAuth>
@@ -286,7 +323,7 @@ export default function HarvestDetailPage() {
                       { label: t("harvestDate"), value: displayDate(row.actual_harvest_date), Icon: Calendar },
                       { label: t("deliveryDate"), value: displayDate(row.delivery_harvest_date), Icon: Truck },
                       { label: t("areaM2"), value: areaSafe > 0 ? areaSafe.toLocaleString() : "—", Icon: Ruler },
-                      { label: t("quantity"), value: `${qtySafe.toLocaleString()} ${String(row.uom ?? "").trim() || "KG"}`, Icon: Weight },
+                      { label: t("quantity"), value: `${qtySafe.toLocaleString()} ${qtyUom}`, Icon: Weight },
                       { label: t("density"), value: kgPerM2 > 0 ? `${kgPerM2.toFixed(1)} kg/m²` : "—", Icon: Weight },
                       { label: t("doSo"), value: String(row.do_so_number ?? "—"), Icon: FileText },
                       { label: t("truckNote"), value: String(row.truck_note ?? "—"), Icon: Truck },

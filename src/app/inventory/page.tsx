@@ -8,22 +8,16 @@ import { useTranslations } from "next-intl";
 
 import RequireAuth from "@/features/auth/RequireAuth";
 import {
-  fetchRegrowthRules,
-  fetchZoneConfigurations,
-  type RegrowthRuleRow,
-  type ZoneConfigurationRow,
-} from "@/features/admin/api/adminApi";
-import {
-  DEFAULT_REGROWTH_REFERENCE_CONFIG,
-  resolveRegrowthReferenceConfigFromRules,
-  type RegrowthReferenceConfig,
-} from "@/features/forecasting/forecastingRegrowth";
-import {
   applyInventoryAvailableOverridesToZoneMap,
   type AppliedInventoryAvailableOverride,
 } from "@/features/forecasting/inventoryAvailableOverrides";
 import { applyLatestZoneMaxKgToForecastRows } from "@/features/forecasting/forecastingInventoryConversion";
 import { computeAllocatedAvailableByZoneAtDate } from "@/features/forecasting/forecastAvailableAtDate";
+import { onForecastMutation } from "@/features/forecasting/forecastDataSync";
+import { useForecastSnapshot } from "@/features/forecasting/useForecastSnapshot";
+import type { ZoneConfigurationRow } from "@/features/admin/api/adminApi";
+import type { ForecastHarvestRow } from "@/features/forecasting/forecastingTypes";
+import type { RegrowthReferenceConfig } from "@/features/forecasting/forecastingRegrowth";
 import {
   computeZoneCapacityMap,
   findActiveZoneConfiguration,
@@ -32,11 +26,6 @@ import {
   mergeZoneCapacityMapsAtDate,
   zoneConfigurationMaxKg,
 } from "@/features/forecasting/inventoryRegrowthCalculator";
-import {
-  fetchHarvestRowsForForecasting,
-  rowsToMockHarvestRows,
-} from "@/features/forecasting/mapHarvestApiToForecastRows";
-import type { ForecastHarvestRow } from "@/features/forecasting/forecastingTypes";
 import { zoneIdToLabelResolved, pickGrassCatalogRows } from "@/shared/lib/harvestReferenceData";
 import { DatePicker } from "@/shared/ui/date-picker";
 import type { InventoryAvailableOverrideEntry } from "@/shared/store/inventoryAvailableOverrideStore";
@@ -395,13 +384,16 @@ function buildInventoryRowsAtDate(params: {
 export default function InventoryPage() {
   const t = useTranslations("InventoryBalance");
   const tForecast = useTranslations("ForecastInventory");
-  const [zoneConfigurations, setZoneConfigurations] = useState<ZoneConfigurationRow[]>([]);
-  const [forecastRows, setForecastRows] = useState<ForecastHarvestRow[]>([]);
-  const [regrowthConfig, setRegrowthConfig] = useState(
-    DEFAULT_REGROWTH_REFERENCE_CONFIG,
-  );
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const {
+    forecastRows,
+    zoneConfigs: zoneConfigurations,
+    regrowthConfig,
+    overridesByZone,
+    isLoading: loading,
+    isRefreshing,
+    hasSnapshot,
+    error,
+  } = useForecastSnapshot();
   const [filterGrass, setFilterGrass] = useState("");
   const [drillFarm, setDrillFarm] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -410,17 +402,11 @@ export default function InventoryPage() {
   const [updateDate, setUpdateDate] = useState(() => ymdFromDate(startOfLocalDay(new Date())));
   const [balanceUpdates, setBalanceUpdates] = useState<Record<string, string>>({});
 
-  const overridesByZone = useInventoryAvailableOverrideStore((s) => s.overridesByZone);
   const overridesLoading = useInventoryAvailableOverrideStore((s) => s.loading);
-  const fetchOverrides = useInventoryAvailableOverrideStore((s) => s.fetchOverrides);
   const upsertOverrides = useInventoryAvailableOverrideStore((s) => s.upsertOverrides);
   const removeOverride = useInventoryAvailableOverrideStore((s) => s.removeOverride);
-  const farmsRaw = useHarvestingDataStore((s) => s.farms);
   const farmZones = useHarvestingDataStore((s) => s.farmZones);
   const grasses = useHarvestingDataStore((s) => s.grasses);
-  const fetchAllHarvestingReferenceData = useHarvestingDataStore(
-    (s) => s.fetchAllHarvestingReferenceData,
-  );
   const {
     farmOptions,
     selectedFarmIds,
@@ -428,19 +414,6 @@ export default function InventoryPage() {
     setSelectedFarmIds,
     farmNameById,
   } = useSyncedFarmMultiSelect();
-
-  useEffect(() => {
-    void fetchAllHarvestingReferenceData();
-  }, [fetchAllHarvestingReferenceData]);
-
-  useEffect(() => {
-    const onVis = () => {
-      if (document.visibilityState !== "visible") return;
-      void fetchZoneConfigurations().then(setZoneConfigurations).catch(() => {});
-    };
-    document.addEventListener("visibilitychange", onVis);
-    return () => document.removeEventListener("visibilitychange", onVis);
-  }, []);
 
   const zoneLabel = (zoneId: string) =>
     zoneIdToLabelResolved(zoneId, farmZones, tForecast("events.noZoneName"));
@@ -451,53 +424,9 @@ export default function InventoryPage() {
   }, [error]);
 
   useEffect(() => {
-    let alive = true;
-    void (async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const today = startOfLocalDay(new Date());
-        const from = ymdFromDate(addMonths(today, -12));
-        const to = ymdFromDate(addMonths(today, 18));
-
-        const [zones, harvestRes, rules] = await Promise.all([
-          fetchZoneConfigurations(),
-          fetchHarvestRowsForForecasting({
-            actual_harvest_date_from: from,
-            actual_harvest_date_to: to,
-            perPage: 200,
-            maxPages: 50,
-            farms: farmsRaw,
-          }),
-          fetchRegrowthRules().catch(() => [] as RegrowthRuleRow[]),
-        ]);
-        if (!alive) return;
-
-        if (harvestRes.error) setError(harvestRes.error);
-
-        setZoneConfigurations(zones);
-        setForecastRows(rowsToMockHarvestRows(harvestRes.rows, today, zones));
-        setRegrowthConfig(resolveRegrowthReferenceConfigFromRules(rules));
-      } catch (e) {
-        if (!alive) return;
-        setError(e instanceof Error ? e.message : t("loadErrorGeneric"));
-      } finally {
-        if (alive) setLoading(false);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [farmsRaw]);
-
-  useEffect(() => {
-    void fetchOverrides();
-  }, [fetchOverrides]);
-
-  useEffect(() => {
     if (!updateOpen) return;
-    void fetchOverrides();
-  }, [updateOpen, fetchOverrides]);
+    void useInventoryAvailableOverrideStore.getState().fetchOverrides();
+  }, [updateOpen]);
 
   useEffect(() => {
     if (!notice) return;
@@ -699,7 +628,7 @@ export default function InventoryPage() {
 
     try {
       await upsertOverrides(updates);
-      await fetchOverrides();
+      onForecastMutation("overrides");
       setNotice(t("savedOverrides", {
         count: updates.length,
         farm: farmNameById.get(selectedFarm) ?? selectedFarm,
@@ -812,7 +741,12 @@ export default function InventoryPage() {
             </div>
           ) : null}
 
-          {loading ? <p className="text-sm text-gray-500">{t("loading")}</p> : null}
+          {loading && !hasSnapshot ? (
+            <p className="text-sm text-gray-500">{t("loading")}</p>
+          ) : null}
+          {isRefreshing ? (
+            <p className="text-xs text-gray-500">{t("loading")}</p>
+          ) : null}
           
           {updateOpen ? (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
@@ -941,6 +875,7 @@ export default function InventoryPage() {
                                               void (async () => {
                                                 try {
                                                   await removeOverride(existing);
+                                                  onForecastMutation("overrides");
                                                   setBalanceUpdates((prev) => {
                                                     const next = { ...prev };
                                                     delete next[row.key];

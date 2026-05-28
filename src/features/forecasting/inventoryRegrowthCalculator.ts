@@ -4,6 +4,7 @@ import {
 } from "@/features/forecasting/forecastingRegrowth";
 import type { ZoneConfigurationRow } from "@/features/admin/api/adminApi";
 import type { ForecastHarvestRow } from "@/features/forecasting/forecastingTypes";
+import { forecastHarvestRowInventoryKg } from "@/features/forecasting/forecastingInventoryConversion";
 
 function toNum(v: string | number | null | undefined): number {
   const n = Number(v ?? 0);
@@ -133,7 +134,7 @@ function addDays(date: Date, days: number): Date {
 }
 
 function rowInventoryKg(row: ForecastHarvestRow): number {
-  return Number.isFinite(row.inventoryKg) ? row.inventoryKg : row.quantity;
+  return forecastHarvestRowInventoryKg(row);
 }
 
 function rowZoneMaxKg(row: ForecastHarvestRow): number {

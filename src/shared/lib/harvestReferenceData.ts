@@ -33,6 +33,60 @@ export type KeyAreaReferenceRow = {
   sort_order?: number;
 };
 
+export function parseFarmIdsFromMeta(value: string | null | undefined): string[] {
+  const raw = String(value ?? "").trim();
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (Array.isArray(parsed)) {
+      return parsed
+        .map((x) => String(x).trim())
+        .filter((id) => id !== "" && id !== "0");
+    }
+  } catch {
+    /* fall through to comma-separated */
+  }
+  return raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0 && s !== "0");
+}
+
+/** First farm id from user meta that exists in the farm catalog (select value). */
+export function resolveDefaultFarmSelectId(
+  farmOptions: HarvestSelectOption[],
+  farmUserMeta: string | null | undefined,
+): string {
+  const ids = parseFarmIdsFromMeta(farmUserMeta);
+  if (ids.length === 0) return "";
+  const optionIds = new Set(farmOptions.map((o) => o.id));
+  for (const id of ids) {
+    if (optionIds.has(id)) return id;
+  }
+  return ids[0] ?? "";
+}
+
+/** Match project catalog row by internal `id` or business `project_id`. */
+export function findProjectRowBySelectId(
+  projects: unknown[],
+  selectId: string,
+): Record<string, unknown> | undefined {
+  const normalized = selectId.trim();
+  if (!normalized) return undefined;
+  for (const item of projects) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Record<string, unknown>;
+    const rowId = String(row.id ?? "").trim();
+    const rowProjectId = String(row.project_id ?? "").trim();
+    if (rowId === normalized || rowProjectId === normalized) return row;
+  }
+  return undefined;
+}
+
+export function projectSelectIdFromRow(row: Record<string, unknown>): string {
+  return String(row.id ?? row.project_id ?? "").trim();
+}
+
 export function mapRowsToSelectOptions(
   rows: unknown[],
   labelKey: "title" | "name",

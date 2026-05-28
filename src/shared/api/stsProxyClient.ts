@@ -124,6 +124,32 @@ export async function stsProxyGet<T = unknown>(upstreamApiPath: string): Promise
   return json.data as T;
 }
 
+/** GET with query string; failures do not clear session / redirect to login (bootstrap optional data). */
+export async function stsProxyGetWithParamsOptional<T = unknown>(
+  upstreamApiPath: string,
+  searchParams?: Record<string, string | number | undefined>,
+): Promise<T | null> {
+  if (typeof window === "undefined") {
+    throw new Error("stsProxyGetWithParamsOptional is client-only");
+  }
+  const url = buildStsProxyGetUrl(upstreamApiPath, searchParams);
+  const res = await fetch(url, {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+    },
+    credentials: SAME_ORIGIN,
+  });
+  let json: StsJsonResponse<T>;
+  try {
+    json = (await res.json()) as StsJsonResponse<T>;
+  } catch {
+    return null;
+  }
+  if (!json?.success) return null;
+  return (json.data ?? null) as T | null;
+}
+
 /** GET with query string on the upstream path (e.g. `admin=1`). */
 export async function stsProxyGetWithParams<T = unknown>(
   upstreamApiPath: string,

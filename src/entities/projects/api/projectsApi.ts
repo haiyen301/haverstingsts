@@ -190,6 +190,25 @@ export async function deleteMondayParentOrSubItem(payload: {
   });
 }
 
+/** Direct lookup by `project_id` in `sts_dynamic_table_data` (not full Monday table list). */
+export async function fetchProjectDynamicFieldsByProjectId(
+  projectId: string,
+): Promise<Array<Record<string, unknown>>> {
+  const normalized = projectId.trim();
+  if (!normalized) return [];
+  const rows = await stsProxyPostJson<unknown[]>(
+    STS_API_PATHS.mondayFindDynamicByField,
+    {
+      field_name: "project_id",
+      field_value: normalized,
+    },
+  );
+  if (!Array.isArray(rows)) return [];
+  return rows.filter(
+    (r): r is Record<string, unknown> => !!r && typeof r === "object",
+  );
+}
+
 export async function uploadMondayProjectImageFromCard(params: {
   rowId: string;
   tableId: string;

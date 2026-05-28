@@ -10,21 +10,20 @@ export type ForecastHarvestRow = {
   harvestType: "sod" | "sprig" | "sod_for_sprig";
   harvestDate: string;
   readyDate: string;
-  /** Số lượng từ plan, giữ nguyên UOM gốc (kg hoặc m², v.v.). */
+  /** Magnitude đã chuẩn hoá: Sod/Sod→Sprig/M² → m² từ `harvested_area`; Sprig/Kg → kg từ `quantity`. */
   quantity: number;
-  /** Harvested area (m²) from plan — sprig kg/m² bands */
+  /** `harvested_area` từ plan (m²). Sprig: mẫu số kg/m²; Sod/M²: nguồn magnitude. */
   harvestedAreaM2: number;
-  /** Density from plan/API (`kg_per_m2`); else derived as quantity ÷ harvestedAreaM2 */
+  /** Sprig: kg/m² từ API hoặc `quantity`÷`harvestedAreaM2`. Sod/M²: thường 0. */
   kgPerM2?: number;
   isReady: boolean;
   daysUntilReady: number;
   /** Kg / M2 từ plan — để nhãn biểu đồ */
   uom?: string;
   /**
-   * Lượng inventory đã chuẩn hoá theo kg để dùng cho forecasting:
-   * - Nếu UOM đã là kg → bằng `quantity`.
-   * - Nếu UOM là m² → convert theo Zone Configuration (inventory_kg_per_m2, max_inventory_kg).
-   * - Nếu không convert được → fallback = `quantity`.
+   * Kg dùng trừ tồn / chart:
+   * - Sod / M²: convert từ `harvested_area` × zone kg/m².
+   * - Sprig / Kg: từ `quantity` (kg), có thể cap theo zone.
    */
   inventoryKg: number;
   /** Đã bị cắt về max_inventory_kg khi convert từ m² → kg. */

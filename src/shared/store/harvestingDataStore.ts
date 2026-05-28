@@ -5,6 +5,7 @@ import {
   filterActiveCountryRows,
   filterGrassesBySalesWindow,
   filterGrassesBySalesWindowsOr,
+  findProjectRowBySelectId,
   grassRowsForHarvestGrassSelect,
   pickGrassCatalogRows,
   type PickGrassCatalogRowsArgs,
@@ -13,7 +14,7 @@ import {
   type FarmZoneReferenceRow,
   type KeyAreaReferenceRow,
 } from "@/shared/lib/harvestReferenceData";
-import { stsProxyGetWithParams } from "@/shared/api/stsProxyClient";
+import { stsProxyGetWithParams, stsProxyGetWithParamsOptional } from "@/shared/api/stsProxyClient";
 
 function asArray(v: unknown): unknown[] {
   if (Array.isArray(v)) return v;
@@ -43,11 +44,41 @@ function asArray(v: unknown): unknown[] {
   return [];
 }
 
+function upsertProjectInArray(prev: unknown[], project: unknown): unknown[] {
+  const p = project as Record<string, unknown>;
+  const id = String(p?.id ?? "").trim();
+  if (!id) return prev;
+  const next = [...prev];
+  const idx = next.findIndex((x) => {
+    if (!x || typeof x !== "object") return false;
+    const row = x as Record<string, unknown>;
+    return String(row.id ?? "").trim() === id;
+  });
+  if (idx >= 0) {
+    const cur = next[idx];
+    next[idx] =
+      cur && typeof cur === "object"
+        ? { ...(cur as Record<string, unknown>), ...p }
+        : project;
+  } else {
+    next.push(project);
+  }
+  return next;
+}
+
 const empty = {
   farmZones: [] as FarmZoneReferenceRow[],
   /** Key areas from admin `/api/keyareas` (id → title). */
   keyAreas: [] as KeyAreaReferenceRow[],
   farms: [] as unknown[],
+  /** All active projects (`deleted = 0`) — no role filter. */
+  allProjects: [] as unknown[],
+  /** Projects visible for the current user role (farm / plan / creator scope). */
+  roleVisibleProjects: [] as unknown[],
+  /**
+   * @deprecated Use `roleVisibleProjects` for scoped lists or `allProjects` for full catalog.
+   * Kept for existing screens that still read `projects`.
+   */
   projects: [] as unknown[],
   staffs: [] as unknown[],
   countries: [] as unknown[],
@@ -68,6 +99,11 @@ export type HarvestingDataState = {
   farmZones: FarmZoneReferenceRow[];
   keyAreas: KeyAreaReferenceRow[];
   farms: unknown[];
+  /** Full project catalog (`GET /api/projects/react_get_all_projects`). */
+  allProjects: unknown[];
+  /** Role-scoped projects (`GET /api/projects` → `filterVisibleProjectsForUser`). */
+  roleVisibleProjects: unknown[];
+  /** @deprecated Alias of `roleVisibleProjects`. */
   projects: unknown[];
   staffs: unknown[];
   countries: unknown[];
@@ -98,6 +134,9 @@ export type HarvestingDataState = {
   setFarmZones: (farmZones: FarmZoneReferenceRow[]) => void;
   setKeyAreas: (keyAreas: KeyAreaReferenceRow[]) => void;
   setFarms: (farms: unknown[]) => void;
+  setAllProjects: (allProjects: unknown[]) => void;
+  setRoleVisibleProjects: (roleVisibleProjects: unknown[]) => void;
+  /** @deprecated Use `setRoleVisibleProjects`. */
   setProjects: (projects: unknown[]) => void;
   setStaffs: (staffs: unknown[]) => void;
   setCountries: (countries: unknown[]) => void;
@@ -105,6 +144,8 @@ export type HarvestingDataState = {
   setGrasses: (grasses: unknown[]) => void;
   /** @deprecated Use `setGrasses`. */
   setProducts: (products: unknown[]) => void;
+  /** True when `projectId` is in the role-scoped project list. */
+  isProjectRoleVisible: (projectId: string) => boolean;
   /** Loads farm zones, staffs, farms, projects, countries, products (parallel). */
   fetchAllHarvestingReferenceData: (force?: boolean) => Promise<void>;
   /** Grass rows visible for a single calendar day (`YYYY-MM-DD`), using `sales_from` / `sales_to`. */
@@ -138,7 +179,10 @@ export const useHarvestingDataStore = create<HarvestingDataState>((set, get) => 
   setFarmZones: (farmZones) => set({ farmZones }),
   setKeyAreas: (keyAreas) => set({ keyAreas }),
   setFarms: (farms) => set({ farms }),
-  setProjects: (projects) => set({ projects }),
+  setAllProjects: (allProjects) => set({ allProjects }),
+  setRoleVisibleProjects: (roleVisibleProjects) =>
+    set({ roleVisibleProjects, projects: roleVisibleProjects }),
+  setProjects: (projects) => set({ projects, roleVisibleProjects: projects }),
   setStaffs: (staffs) => set({ staffs }),
   setCountries: (countries) => set({ countries }),
   setActiveCountries: (activeCountries) => set({ activeCountries }),
@@ -154,6 +198,12 @@ export const useHarvestingDataStore = create<HarvestingDataState>((set, get) => 
     set({ harvestListGrassFilter }),
   setHarvestListStatusFilter: (harvestListStatusFilter) =>
     set({ harvestListStatusFilter }),
+
+  isProjectRoleVisible: (projectId) => {
+    const normalized = projectId.trim();
+    if (!normalized) return false;
+    return Boolean(findProjectRowBySelectId(get().roleVisibleProjects, normalized));
+  },
 
   pickGrassesVisibleOnSalesDate: (refYmd) =>
     filterGrassesBySalesWindow(get().grasses, refYmd),
@@ -179,26 +229,22 @@ export const useHarvestingDataStore = create<HarvestingDataState>((set, get) => 
     pickGrassCatalogRows({ ...args, catalog: get().grasses }),
 
   upsertProjectInList: (project) => {
+    const allProjects = upsertProjectInArray(get().allProjects, project);
     const p = project as Record<string, unknown>;
     const id = String(p?.id ?? "").trim();
-    if (!id) return;
-    const prev = get().projects;
-    const next = [...prev];
-    const idx = next.findIndex((x) => {
+    const prevRoleVisible = get().roleVisibleProjects;
+    const roleIdx = prevRoleVisible.findIndex((x) => {
       if (!x || typeof x !== "object") return false;
       const row = x as Record<string, unknown>;
       return String(row.id ?? "").trim() === id;
     });
-    if (idx >= 0) {
-      const cur = next[idx];
-      next[idx] =
-        cur && typeof cur === "object"
-          ? { ...(cur as Record<string, unknown>), ...p }
-          : project;
-    } else {
-      next.push(project);
-    }
-    set({ projects: next });
+    const roleVisibleProjects =
+      roleIdx >= 0 ? upsertProjectInArray(prevRoleVisible, project) : prevRoleVisible;
+    set({
+      allProjects,
+      roleVisibleProjects,
+      projects: roleVisibleProjects,
+    });
   },
 
   fetchAllHarvestingReferenceData: async (force = false) => {
@@ -217,17 +263,18 @@ export const useHarvestingDataStore = create<HarvestingDataState>((set, get) => 
       ["keyAreas", STS_API_PATHS.keyareas, undefined],
       ["staffs", STS_API_PATHS.staffs, undefined],
       ["farms", STS_API_PATHS.farms, undefined],
-      ["projects", STS_API_PATHS.projects, undefined],
+      ["roleVisibleProjects", STS_API_PATHS.projects, undefined],
       ["countries", STS_API_PATHS.countries, undefined],
       ["activeCountries", STS_API_PATHS.countries, { active_only: 1 }],
       ["grasses", STS_API_PATHS.grasses, undefined],
       ["products", STS_API_PATHS.products, undefined],
     ] as const;
-    const settled = await Promise.allSettled(
-      entries.map(([, path, extra]) =>
+    const settled = await Promise.allSettled([
+      ...entries.map(([, path, extra]) =>
         stsProxyGetWithParams(path, { ...refParams, ...extra }),
       ),
-    );
+      stsProxyGetWithParamsOptional(STS_API_PATHS.projectsAll, refParams),
+    ]);
     const byKey = new Map<string, unknown>();
     const errors: string[] = [];
     entries.forEach(([key], idx) => {
@@ -239,12 +286,23 @@ export const useHarvestingDataStore = create<HarvestingDataState>((set, get) => 
         errors.push(`${key}: ${msg}`);
       }
     });
+    const allProjectsRs = settled[entries.length];
+    if (allProjectsRs?.status === "fulfilled" && allProjectsRs.value != null) {
+      byKey.set("allProjects", allProjectsRs.value);
+    } else if (allProjectsRs?.status === "rejected") {
+      const msg =
+        allProjectsRs.reason instanceof Error
+          ? allProjectsRs.reason.message
+          : String(allProjectsRs.reason);
+      errors.push(`allProjects: ${msg}`);
+    }
 
     const farmZones = byKey.get("farmZones");
     const keyAreasRaw = byKey.get("keyAreas");
     const staffs = byKey.get("staffs");
     const farms = byKey.get("farms");
-    const projects = byKey.get("projects");
+    const allProjects = byKey.get("allProjects");
+    const roleVisibleProjects = byKey.get("roleVisibleProjects");
     const countries = byKey.get("countries");
     const activeCountriesRaw = byKey.get("activeCountries");
     const grassesRaw = byKey.get("grasses");
@@ -256,13 +314,19 @@ export const useHarvestingDataStore = create<HarvestingDataState>((set, get) => 
       activeCountriesRaw !== undefined
         ? asArray(activeCountriesRaw)
         : filterActiveCountryRows(countriesArr);
+    const roleVisibleProjectsArr = asArray(roleVisibleProjects);
+    const allProjectsArr = asArray(allProjects);
+    const resolvedAllProjects =
+      allProjectsArr.length > 0 ? allProjectsArr : roleVisibleProjectsArr;
 
     set({
       farmZones: normalizeFarmZoneRows(farmZones),
       keyAreas: normalizeKeyAreaRows(keyAreasRaw),
       staffs: asArray(staffs),
       farms: asArray(farms),
-      projects: asArray(projects),
+      allProjects: resolvedAllProjects,
+      roleVisibleProjects: roleVisibleProjectsArr,
+      projects: roleVisibleProjectsArr,
       countries: countriesArr,
       activeCountries: activeCountriesArr,
       /** `sts_grasses` via `/api/grasses`; fall back to `/api/items` if grasses request failed or returned nothing. */

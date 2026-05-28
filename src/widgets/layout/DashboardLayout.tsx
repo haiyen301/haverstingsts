@@ -49,6 +49,7 @@ import {
   canAccessModule,
 } from "@/shared/auth/permissions";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
+import { prefetchForecastDataIfIdle } from "@/features/forecasting/forecastDataLoader";
 import { useAuthUserStore } from "@/shared/store/authUserStore";
 import { MobileBottomNav } from "@/widgets/layout/MobileBottomNav";
 import { SidebarProfile } from "@/widgets/layout/SidebarProfile";
@@ -132,6 +133,14 @@ export function DashboardLayout({ children, hideAppNav = false }: DashboardLayou
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (!mounted || !user) return;
+    const timer = window.setTimeout(() => {
+      void prefetchForecastDataIfIdle();
+    }, 2000);
+    return () => window.clearTimeout(timer);
+  }, [mounted, user]);
 
   const refreshAlertUnreadBadge = useCallback(async () => {
     if (!user || !canAccessModule(user, "my_alerts", "show")) {

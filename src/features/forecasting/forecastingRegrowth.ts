@@ -1,5 +1,10 @@
 import type { RegrowthRuleRow } from "@/features/admin/api/adminApi";
 import type { ForecastHarvestRow } from "@/features/forecasting/forecastingTypes";
+import {
+  forecastHarvestRowInventoryKg,
+  forecastHarvestRowPlanQuantityKg,
+  forecastHarvestRowUsesHarvestedAreaForMagnitude,
+} from "@/features/forecasting/forecastingInventoryConversion";
 import { safeDivideStrictPhp } from "@/shared/lib/grassRegrowthPhp";
 
 export type SprigBandConfig = {
@@ -126,16 +131,17 @@ export function regrowthReferenceFromRuleRows(
 
 /**
  * kg/m² cho bảng regrowth SPRIG — khớp harvest list & PHP `safeDivideStrict`:
- * ưu tiên `kgPerM2` từ plan/API; không thì `quantity ÷ harvestedAreaM2`; mẫu 0 → 0 (không fallback 1).
+ * ưu tiên `kgPerM2` từ plan/API; không thì **kg quantity ÷ harvestedAreaM2**.
+ * Sod / Sod→Sprig / M²: không dùng `row.quantity` (đó là m²) — trả 0 nếu thiếu kgPerM2.
  */
-export function harvestDensityKgPerM2ForRegrowth(row: {
-  quantity: number;
-  harvestedAreaM2: number;
-  kgPerM2?: number;
-}): number {
+export function harvestDensityKgPerM2ForRegrowth(row: ForecastHarvestRow): number {
   const fromApi = row.kgPerM2;
   if (fromApi != null && Number.isFinite(fromApi) && fromApi > 0) return fromApi;
-  return safeDivideStrictPhp(row.quantity, row.harvestedAreaM2);
+  if (forecastHarvestRowUsesHarvestedAreaForMagnitude(row)) return 0;
+  return safeDivideStrictPhp(
+    forecastHarvestRowPlanQuantityKg(row),
+    row.harvestedAreaM2,
+  );
 }
 
 export function isKgUom(uom?: string): boolean {

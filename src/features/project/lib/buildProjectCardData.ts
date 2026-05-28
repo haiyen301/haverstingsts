@@ -261,7 +261,7 @@ function computeMondayStatus(
     const delivered = calculateDeliveredQuantityDeliveryOnly(
       subitems,
       r.product_id,
-      r.uom,
+      inferRequirementUom(r) || String(r.uom ?? "").trim(),
       harvestProjectId,
     );
     if (delivered < requiredQty) {
@@ -305,7 +305,7 @@ function calculateProgress(
     const delivered = calculateDeliveredQuantityDeliveryOnly(
       subitems,
       r.product_id,
-      r.uom,
+      inferRequirementUom(r) || String(r.uom ?? "").trim(),
       harvestProjectId,
     );
     sumCompletion += Math.min(1, Math.max(0, delivered / required));
@@ -405,7 +405,7 @@ export function buildProjectDataFromServerRow(
     const deliveredQty = calculateDeliveredQuantityDeliveryOnly(
       subitems,
       r.product_id,
-      r.uom,
+      inferRequirementUom(r) || String(r.uom ?? "").trim(),
       projectId,
     );
     const remaining = Math.max(0, requiredQty - deliveredQty);
