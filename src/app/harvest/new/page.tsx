@@ -13,6 +13,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { AlertCircle, ArrowLeft, Camera, Trash2 } from "lucide-react";
 
 import RequireAuth from "@/features/auth/RequireAuth";
+import { onForecastMutation } from "@/features/forecasting/forecastDataSync";
 import { canAccessModule } from "@/shared/auth/permissions";
 import {
   HARVEST_DOC_PHOTO_FIELDS,
@@ -232,12 +233,13 @@ function applyHarvestTypeConstraint(
   harvestType: HarvestTypeStorageKey,
 ): HarvestFormState {
   const nextUom = requiredUomForHarvestType(harvestType);
+  if (prev.harvestType === harvestType && prev.uom === nextUom) {
+    return prev;
+  }
   return {
     ...prev,
     harvestType,
     uom: nextUom,
-    referenceHarvestQuantity: nextUom === "Kg" ? "" : prev.referenceHarvestQuantity,
-    harvestedArea: nextUom === "M2" ? "" : prev.harvestedArea,
   };
 }
 
@@ -252,6 +254,9 @@ function applyUomConstraint(
       : currentHarvestType === "sod_to_sprig"
         ? "sod_to_sprig"
         : "sod";
+  if (prev.uom === uom && prev.harvestType === nextHarvestType) {
+    return prev;
+  }
   return applyHarvestTypeConstraint({ ...prev, uom }, nextHarvestType);
 }
 
@@ -431,6 +436,11 @@ function normalizeNonNegativeInput(raw: string): string {
   return String(n);
 }
 
+/** Treat `0`, `0.000`, etc. as empty — harvested area has no value until > 0. */
+function formatHarvestedAreaForForm(raw: unknown): string {
+  return normalizeNonNegativeInput(String(raw ?? "").replace(/,/g, ""));
+}
+
 function normalizeMatchText(v: unknown): string {
   return String(v ?? "")
     .toLowerCase()
@@ -573,10 +583,8 @@ function applyRowToFormState(r: Record<string, unknown>): HarvestFormState {
   const uomStr = requiredUomForHarvestType(harvestType);
   const harvested = r.harvested_area;
   const referenceHarvestQty = r.ref_hrv_qty_sprig;
-  const harvestedStr = normalizeNonNegativeInput(String(harvested ?? ""));
-  const referenceHarvestQtyStr = normalizeNonNegativeInput(
-    String(referenceHarvestQty ?? ""),
-  );
+  const harvestedStr = formatHarvestedAreaForForm(harvested);
+  const referenceHarvestQtyStr = String(referenceHarvestQty ?? "").trim();
   const isKg = uomStr.toLowerCase() === "kg";
   const descParsed = parseDescriptionFromRow(String(r.description ?? ""));
   const estimatedDateEnd = getEstimatedDateEndFromRow(r, descParsed);
@@ -642,7 +650,7 @@ type HarvestValidationMessages = {
   selectHarvestType: string;
   enterQuantity: string;
   referenceHarvestQuantityRequired: string;
-  harvestedAreaKgRequired: string;
+  harvestedAreaRequired: string;
   selectZone: string;
   zoneRequiredWhenActual: string;
   selectFarm: string;
@@ -666,8 +674,10 @@ function getHarvestFieldErrors(
   ) {
     errors.harvestType = messages.selectHarvestType;
   }
-  if (!formData.quantity.trim() || parseNum(formData.quantity) <= 0) {
-    errors.quantity = messages.enterQuantity;
+  if (harvestType !== "sod_to_sprig") {
+    if (!formData.quantity.trim() || parseNum(formData.quantity) <= 0) {
+      errors.quantity = messages.enterQuantity;
+    }
   }
   if (harvestType === "sod_to_sprig") {
     const refQty = formData.referenceHarvestQuantity.trim();
@@ -680,11 +690,11 @@ function getHarvestFieldErrors(
     errors.zone = messages.zoneRequiredWhenActual;
   }
   if (!formData.farm.trim()) errors.farm = messages.selectFarm;
-  if (hasActual && uomLower === "kg") {
+  if (hasActual && (uomLower === "kg" || uomLower === "m2")) {
     const ha = formData.harvestedArea.trim();
     const n = parseNum(ha);
     if (!ha || n <= 0) {
-      errors.harvestedArea = messages.harvestedAreaKgRequired;
+      errors.harvestedArea = messages.harvestedAreaRequired;
     }
   }
   const dateErr = getHarvestDatePairError(
@@ -1109,7 +1119,7 @@ function HarvestInputPageInner() {
     selectHarvestType: t("validationSelectHarvestType"),
     enterQuantity: t("validationEnterQuantity"),
     referenceHarvestQuantityRequired: t("validationReferenceHarvestQuantityRequired"),
-    harvestedAreaKgRequired: t("validationHarvestedAreaKg"),
+    harvestedAreaRequired: t("validationHarvestedAreaRequired"),
     selectZone: t("validationSelectZone"),
     zoneRequiredWhenActual: t("zoneRequiredWhenActual"),
     selectFarm: t("validationSelectFarm"),
@@ -1493,7 +1503,10 @@ function HarvestInputPageInner() {
 
   useEffect(() => {
     if (!autoHarvestAreaInfo || harvestedAreaManual) return;
-    const nextHarvestedArea = autoHarvestAreaInfo.harvestedAreaM2.toFixed(2);
+    const nextHarvestedArea =
+      autoHarvestAreaInfo.harvestedAreaM2 > 0
+        ? autoHarvestAreaInfo.harvestedAreaM2.toFixed(2)
+        : "";
     setFormData((prev) => {
       if (prev.uom.trim().toLowerCase() !== "kg") return prev;
       if (prev.harvestedArea === nextHarvestedArea) return prev;
@@ -1517,7 +1530,16 @@ function HarvestInputPageInner() {
     }
     setSubmitError(null);
     setHarvestDateTouched(true);
-    const errors = getHarvestFieldErrors(formData, validationMessages);
+    const normalizedFormData: HarvestFormState = {
+      ...formData,
+      quantity: normalizeNonNegativeInput(formData.quantity),
+      referenceHarvestQuantity: normalizeNonNegativeInput(
+        formData.referenceHarvestQuantity,
+      ),
+      harvestedArea: formatHarvestedAreaForForm(formData.harvestedArea),
+    };
+    setFormData(normalizedFormData);
+    const errors = getHarvestFieldErrors(normalizedFormData, validationMessages);
     setFieldErrors(errors);
     const firstErrKey = firstHarvestFieldErrorKey(errors);
     const firstErr = firstHarvestFieldError(errors);
@@ -1547,13 +1569,18 @@ function HarvestInputPageInner() {
         ? { imagesRemoved, filesRemoved }
         : undefined;
 
-      const mainUom = formData.uom.trim().toLowerCase();
-      const referenceQtyStripped = formData.referenceHarvestQuantity
+      const harvestTypeSubmit =
+        normalizeHarvestTypeStorageKey(normalizedFormData.harvestType) ||
+        defaultHarvestTypeForUom(normalizedFormData.uom);
+      const referenceQtyStripped = normalizedFormData.referenceHarvestQuantity
         .replace(/,/g, "")
         .trim();
-      const haStripped = formData.harvestedArea.replace(/,/g, "").trim();
-      const harvestedAreaPayload =
-        mainUom === "m2" ? undefined : haStripped || undefined;
+      const quantitySubmit =
+        harvestTypeSubmit === "sod_to_sprig"
+          ? normalizedFormData.quantity.trim() || "0"
+          : normalizedFormData.quantity;
+      const haStripped = normalizedFormData.harvestedArea.replace(/,/g, "").trim();
+      const harvestedAreaPayload = haStripped || undefined;
       const selectedProjectRow = projects.find((x) => {
         if (!x || typeof x !== "object") return false;
         const row = x as Record<string, unknown>;
@@ -1578,11 +1605,9 @@ function HarvestInputPageInner() {
           productId: formData.grass,
           farmId: formData.farm,
           zone: formData.zone,
-          quantity: formData.quantity,
+          quantity: quantitySubmit,
           uom: formData.uom,
-          harvestType:
-            normalizeHarvestTypeStorageKey(formData.harvestType) ||
-            defaultHarvestTypeForUom(formData.uom),
+          harvestType: harvestTypeSubmit,
           estimatedHarvestDate: formData.estimatedDate,
           estimatedHarvestEndDate: useEstimatedDateRange
             ? formData.estimatedDateEnd
@@ -1615,8 +1640,14 @@ function HarvestInputPageInner() {
           ).trim() || formData.project.trim();
         const grassId = formData.grass.trim();
         const grassLabel = productNameById.get(grassId) || grassId;
-        const qtyDisplay = formData.quantity.trim();
-        const uomDisplay = formData.uom.trim();
+        const qtyDisplay =
+          harvestTypeSubmit === "sod_to_sprig"
+            ? referenceQtyStripped
+            : normalizedFormData.quantity.trim();
+        const uomDisplay =
+          harvestTypeSubmit === "sod_to_sprig"
+            ? t("referenceHarvestUnit")
+            : formData.uom.trim();
         const alertHref =
           newHarvestId.length > 0
             ? `/harvest/detail?id=${encodeURIComponent(newHarvestId)}&returnTo=${encodeURIComponent(returnTarget)}`
@@ -1633,6 +1664,7 @@ function HarvestInputPageInner() {
           sourceEntityId: newHarvestId || formData.project.trim(),
         });
       }
+      onForecastMutation("harvest");
       router.push(returnTarget);
     } catch (err) {
       const msg =
@@ -2004,9 +2036,13 @@ function HarvestInputPageInner() {
                                 (r) => r.productId === grass,
                               ) ?? null;
                             const nextUom = req ? defaultUomForRequirement(req) : formData.uom;
-                            setFormData((prev) =>
-                              applyUomConstraint({ ...prev, grass }, nextUom as "Kg" | "M2"),
-                            );
+                            setFormData((prev) => {
+                              if (prev.grass === grass) return prev;
+                              return applyUomConstraint(
+                                { ...prev, grass },
+                                nextUom as "Kg" | "M2",
+                              );
+                            });
                             setFieldErrors((prev) => ({ ...prev, grass: undefined }));
                           }}
                           className={`${harvestFieldClass} ${fieldErrors.grass ? "ring-2 ring-destructive" : ""}`}
@@ -2106,8 +2142,10 @@ function HarvestInputPageInner() {
                             <button
                               key={`harvest-type-${value}`}
                               type="button"
+                              onMouseDown={(e) => e.preventDefault()}
                               onClick={() => {
                                 if (formDisabled) return;
+                                if (formData.harvestType === value) return;
                                 setFormData((prev) =>
                                   applyHarvestTypeConstraint(
                                     prev,
@@ -2117,6 +2155,7 @@ function HarvestInputPageInner() {
                                 setFieldErrors((prev) => ({
                                   ...prev,
                                   harvestType: undefined,
+                                  quantity: undefined,
                                   referenceHarvestQuantity: undefined,
                                   harvestedArea: undefined,
                                 }));
@@ -2165,8 +2204,10 @@ function HarvestInputPageInner() {
                             <button
                               key={`harvest-uom-${u}`}
                               type="button"
+                              onMouseDown={(e) => e.preventDefault()}
                               onClick={() => {
                                 if (formDisabled) return;
+                                if (formData.uom === u) return;
                                 setHarvestedAreaManual(false);
                                 setFormData((prev) => applyUomConstraint(prev, u));
                                 setFieldErrors((prev) => ({
@@ -2199,50 +2240,48 @@ function HarvestInputPageInner() {
                     </div>
 
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-                    <div>
-                      <label className={harvestLabelClass} htmlFor="harvest-quantity">
-                        {tCommon("quantity")}
-                      </label>
-                      <input
-                        id="harvest-quantity"
-                        type="number"
-                        min={0}
-                        value={formData.quantity}
-                        onChange={(e) => {
-                          const nextValue = e.target.value;
-                          if (nextValue.trim().startsWith("-")) return;
-                          setFormData({ ...formData, quantity: nextValue });
-                          setFieldErrors((prev) => ({ ...prev, quantity: undefined }));
-                        }}
-                        onBlur={() => {
-                          setFormData((prev) => ({
-                            ...prev,
-                            quantity: normalizeNonNegativeInput(prev.quantity),
-                          }));
-                        }}
-                        className={`${harvestFieldClass} ${fieldErrors.quantity ? "ring-2 ring-destructive" : ""}`}
-                        placeholder={t("quantityPlaceholder")}
-                        disabled={formDisabled}
-                      />
-                      {requirementForGrass && remainingAfterEntered !== null ? (
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {t("remainingQuantityFmt", {
-                            grass: requirementForGrass.grassName,
-                            quantity: new Intl.NumberFormat().format(
-                              Math.round(remainingAfterEntered),
-                            ),
-                            unit: remainingDisplayUnit,
-                          })}
-                        </p>
-                      ) : null}
-                      {fieldErrors.quantity ? (
-                        <p className="mt-1.5 text-xs leading-snug text-destructive">
-                          {fieldErrors.quantity}
-                        </p>
-                      ) : null}
-                    </div>
+                    {normalizeHarvestTypeStorageKey(formData.harvestType) !==
+                    "sod_to_sprig" ? (
+                      <div>
+                        <label className={harvestLabelClass} htmlFor="harvest-quantity">
+                          {tCommon("quantity")}
+                        </label>
+                        <input
+                          id="harvest-quantity"
+                          type="number"
+                          min={0}
+                          value={formData.quantity}
+                          onChange={(e) => {
+                            const nextValue = e.target.value;
+                            if (nextValue.trim().startsWith("-")) return;
+                            setFormData((prev) => ({ ...prev, quantity: nextValue }));
+                            setFieldErrors((prev) => ({ ...prev, quantity: undefined }));
+                          }}
+                          className={`${harvestFieldClass} ${fieldErrors.quantity ? "ring-2 ring-destructive" : ""}`}
+                          placeholder={t("quantityPlaceholder")}
+                          disabled={formDisabled}
+                        />
+                        {requirementForGrass && remainingAfterEntered !== null ? (
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {t("remainingQuantityFmt", {
+                              grass: requirementForGrass.grassName,
+                              quantity: new Intl.NumberFormat().format(
+                                Math.round(remainingAfterEntered),
+                              ),
+                              unit: remainingDisplayUnit,
+                            })}
+                          </p>
+                        ) : null}
+                        {fieldErrors.quantity ? (
+                          <p className="mt-1.5 text-xs leading-snug text-destructive">
+                            {fieldErrors.quantity}
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
 
-                    {formData.uom.trim().toLowerCase() === "m2" ? (
+                    {normalizeHarvestTypeStorageKey(formData.harvestType) ===
+                    "sod_to_sprig" ? (
                       <div>
                         <label className={harvestLabelClass} htmlFor="harvest-reference-quantity">
                           {t("referenceHarvestQuantity")}{" "}
@@ -2260,21 +2299,13 @@ function HarvestInputPageInner() {
                             onChange={(e) => {
                               const nextValue = e.target.value;
                               if (nextValue.trim().startsWith("-")) return;
-                              setFormData({
-                                ...formData,
+                              setFormData((prev) => ({
+                                ...prev,
                                 referenceHarvestQuantity: nextValue,
-                              });
+                              }));
                               setFieldErrors((prev) => ({
                                 ...prev,
                                 referenceHarvestQuantity: undefined,
-                              }));
-                            }}
-                            onBlur={() => {
-                              setFormData((prev) => ({
-                                ...prev,
-                                referenceHarvestQuantity: normalizeNonNegativeInput(
-                                  prev.referenceHarvestQuantity,
-                                ),
                               }));
                             }}
                             className={`${harvestFieldClass} ${
@@ -2298,7 +2329,12 @@ function HarvestInputPageInner() {
                     ) : null}
                     <div>
                       <label className={harvestLabelClass} htmlFor="harvest-harvested-area">
-                        {t("harvestedArea")}
+                        {t("harvestedArea")}{" "}
+                        {formData.actualDate.trim() &&
+                        (formData.uom.trim().toLowerCase() === "m2" ||
+                          formData.uom.trim().toLowerCase() === "kg") ? (
+                          <span className="text-destructive">*</span>
+                        ) : null}
                       </label>
                       {formData.uom.trim().toLowerCase() === "m2" ? (
                         <>
@@ -2310,19 +2346,13 @@ function HarvestInputPageInner() {
                             onChange={(e) => {
                               const nextValue = e.target.value;
                               if (nextValue.trim().startsWith("-")) return;
-                              setFormData({
-                                ...formData,
+                              setFormData((prev) => ({
+                                ...prev,
                                 harvestedArea: nextValue,
-                              });
+                              }));
                               setFieldErrors((prev) => ({
                                 ...prev,
                                 harvestedArea: undefined,
-                              }));
-                            }}
-                            onBlur={() => {
-                              setFormData((prev) => ({
-                                ...prev,
-                                harvestedArea: normalizeNonNegativeInput(prev.harvestedArea),
                               }));
                             }}
                             className={`${harvestFieldClass} ${
@@ -2331,9 +2361,6 @@ function HarvestInputPageInner() {
                             placeholder={t("harvestedArea")}
                             disabled={formDisabled}
                           />
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            {t("harvestedAreaHintM2")}
-                          </p>
                           {fieldErrors.harvestedArea ? (
                             <p className="mt-1.5 text-xs leading-snug text-destructive">
                               {fieldErrors.harvestedArea}
@@ -2351,19 +2378,13 @@ function HarvestInputPageInner() {
                               const nextValue = e.target.value;
                               if (nextValue.trim().startsWith("-")) return;
                               setHarvestedAreaManual(true);
-                              setFormData({
-                                ...formData,
+                              setFormData((prev) => ({
+                                ...prev,
                                 harvestedArea: nextValue,
-                              });
+                              }));
                               setFieldErrors((prev) => ({
                                 ...prev,
                                 harvestedArea: undefined,
-                              }));
-                            }}
-                            onBlur={() => {
-                              setFormData((prev) => ({
-                                ...prev,
-                                harvestedArea: normalizeNonNegativeInput(prev.harvestedArea),
                               }));
                             }}
                             className={`${harvestFieldClass} ${fieldErrors.harvestedArea ? "ring-2 ring-destructive" : ""}`}

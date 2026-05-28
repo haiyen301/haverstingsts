@@ -3,6 +3,7 @@ import {
   findActiveZoneConfiguration,
   ymdFromDateLocal,
 } from "@/features/forecasting/inventoryRegrowthCalculator";
+import { normalizeHarvestTypeStorageKey } from "@/shared/lib/harvestType";
 import type { ForecastHarvestRow } from "./forecastingTypes";
 
 export const DEFAULT_FALLBACK_INVENTORY_KG_PER_M2 = 1;
@@ -28,7 +29,7 @@ export function convertPlanRowQuantityToKgFromZones(params: {
 } {
   const { rawPlanRow, zoneConfigs } = params;
 
-  const rawQty = harvestPlanQuantityFromRaw(rawPlanRow);
+  const rawQty = harvestPlanEffectiveMagnitudeFromRaw(rawPlanRow);
   const farmId = toNumber(rawPlanRow.farm_id);
   const productId = harvestPlanProductIdFromRaw(rawPlanRow);
   const zone = String(rawPlanRow.zone ?? "").trim();
@@ -44,15 +45,7 @@ export function convertPlanRowQuantityToKgFromZones(params: {
   const maxInventoryKgUsed = config
     ? normalizeMaxInventoryKg(toNumber(config.max_inventory_kg))
     : DEFAULT_FALLBACK_MAX_INVENTORY_KG;
-  const uom = String(
-    rawPlanRow.uom ??
-      rawPlanRow.UOM ??
-      rawPlanRow.unit ??
-      rawPlanRow.Unit ??
-      rawPlanRow.quantity_uom ??
-      rawPlanRow.quantityUom ??
-      "",
-  ).trim();
+  const uom = resolvePlanRowUomFromRaw(rawPlanRow);
 
   // Nếu đã là kg thì không cần convert.
   if (isKgUom(uom)) {
@@ -145,6 +138,120 @@ export function harvestPlanQuantityFromRaw(rawPlanRow: Record<string, unknown>):
     return harvestPlanScalarFromRaw(rawPlanRow.quantity_m2);
   }
   return 0;
+}
+
+export function resolvePlanRowUomFromRaw(rawPlanRow: Record<string, unknown>): string {
+  return String(
+    rawPlanRow.uom ??
+      rawPlanRow.UOM ??
+      rawPlanRow.unit ??
+      rawPlanRow.Unit ??
+      rawPlanRow.quantity_uom ??
+      rawPlanRow.quantityUom ??
+      "",
+  ).trim();
+}
+
+function planRowHarvestTypeKeyFromRaw(
+  rawPlanRow: Record<string, unknown>,
+): ReturnType<typeof normalizeHarvestTypeStorageKey> | null {
+  const candidates = [
+    rawPlanRow.harvest_type,
+    rawPlanRow.load_type,
+    rawPlanRow.turf_type,
+    rawPlanRow.type,
+  ];
+  return candidates.map((v) => normalizeHarvestTypeStorageKey(v)).find(Boolean) ?? null;
+}
+
+/** Sod / Sod -> Sprig / M² plans use `harvested_area` for inventory & regrowth magnitude (not `quantity`). */
+export function planRowUsesHarvestedAreaForMagnitude(
+  rawPlanRow: Record<string, unknown>,
+): boolean {
+  if (isM2Uom(resolvePlanRowUomFromRaw(rawPlanRow))) return true;
+  const harvestType = planRowHarvestTypeKeyFromRaw(rawPlanRow);
+  return harvestType === "sod" || harvestType === "sod_to_sprig";
+}
+
+export function harvestPlanHarvestedAreaFromRaw(
+  rawPlanRow: Record<string, unknown>,
+): number {
+  if (harvestQuantityCellPresent(rawPlanRow.harvested_area)) {
+    return Math.max(0, harvestPlanScalarFromRaw(rawPlanRow.harvested_area));
+  }
+  return 0;
+}
+
+/**
+ * Magnitude used for m²→kg conversion, zone spread, and M² regrowth totals.
+ * Sprig (Kg) keeps `quantity`; Sod / Sod -> Sprig / M² UOM use `harvested_area` only.
+ */
+export function harvestPlanEffectiveMagnitudeFromRaw(
+  rawPlanRow: Record<string, unknown>,
+): number {
+  if (planRowUsesHarvestedAreaForMagnitude(rawPlanRow)) {
+    return harvestPlanHarvestedAreaFromRaw(rawPlanRow);
+  }
+  return harvestPlanQuantityFromRaw(rawPlanRow);
+}
+
+export function forecastHarvestRowUsesHarvestedAreaForMagnitude(
+  row: ForecastHarvestRow,
+): boolean {
+  if (row.harvestType === "sod" || row.harvestType === "sod_for_sprig") return true;
+  return isM2Uom(String(row.uom ?? ""));
+}
+
+/** m² basis for display / tooltip when plan is Sod or M² UOM. */
+export function forecastHarvestRowEffectiveM2(row: ForecastHarvestRow): number {
+  if (!forecastHarvestRowUsesHarvestedAreaForMagnitude(row)) return 0;
+  if (Number.isFinite(row.harvestedAreaM2) && row.harvestedAreaM2 > 0) {
+    return row.harvestedAreaM2;
+  }
+  return Number.isFinite(row.quantity) && row.quantity > 0 ? row.quantity : 0;
+}
+
+/**
+ * Plan `quantity` (kg) — chỉ Sprig / UOM Kg.
+ * Sod / Sod→Sprig / M²: luôn 0 (không đọc cột quantity plan).
+ */
+export function forecastHarvestRowPlanQuantityKg(row: ForecastHarvestRow): number {
+  if (forecastHarvestRowUsesHarvestedAreaForMagnitude(row)) return 0;
+  return Number.isFinite(row.quantity) && row.quantity > 0 ? row.quantity : 0;
+}
+
+/**
+ * Kg dùng trừ tồn / biểu đồ: ưu tiên `inventoryKg` đã convert;
+ * Sprig fallback sang `quantity` (kg). Sod/M² không fallback quantity (vì đó là m²).
+ */
+export function forecastHarvestRowInventoryKg(row: ForecastHarvestRow): number {
+  if (Number.isFinite(row.inventoryKg)) return row.inventoryKg;
+  return forecastHarvestRowPlanQuantityKg(row);
+}
+
+/** Sprig / Kg → cột `quantity`; ngược lại → `harvested_area`. */
+export function planRowUsesPlanQuantityForMagnitude(
+  rawPlanRow: Record<string, unknown>,
+): boolean {
+  return !planRowUsesHarvestedAreaForMagnitude(rawPlanRow);
+}
+
+/** m² gom theo tháng / zone — Sod, Sod→Sprig, UOM M². */
+export function harvestPlanM2MagnitudeFromRaw(
+  rawPlanRow: Record<string, unknown>,
+): number {
+  return planRowUsesHarvestedAreaForMagnitude(rawPlanRow)
+    ? harvestPlanEffectiveMagnitudeFromRaw(rawPlanRow)
+    : 0;
+}
+
+/** kg gom theo tháng — Sprig / UOM Kg. */
+export function harvestPlanKgMagnitudeFromRaw(
+  rawPlanRow: Record<string, unknown>,
+): number {
+  return planRowUsesPlanQuantityForMagnitude(rawPlanRow)
+    ? harvestPlanQuantityFromRaw(rawPlanRow)
+    : 0;
 }
 
 /** Prefer `product_id`, then legacy / camelCase keys used by some clients. */
@@ -316,18 +423,10 @@ export function distributePlanRowToZoneFragments(params: {
   const { rawPlanRow, zoneConfigs, priorUsedKgByZoneBucket } = params;
   const farmId = toNumber(rawPlanRow.farm_id);
   const productId = harvestPlanProductIdFromRaw(rawPlanRow);
-  const rawQty = harvestPlanQuantityFromRaw(rawPlanRow);
+  const rawQty = harvestPlanEffectiveMagnitudeFromRaw(rawPlanRow);
   const planZoneNorm = normalizeZone(String(rawPlanRow.zone ?? ""));
 
-  const uom = String(
-    rawPlanRow.uom ??
-      rawPlanRow.UOM ??
-      rawPlanRow.unit ??
-      rawPlanRow.Unit ??
-      rawPlanRow.quantity_uom ??
-      rawPlanRow.quantityUom ??
-      "",
-  ).trim();
+  const uom = resolvePlanRowUomFromRaw(rawPlanRow);
 
   const buckets =
     farmId > 0 && productId > 0

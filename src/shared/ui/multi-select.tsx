@@ -128,7 +128,11 @@ export function MultiSelect({
   const normalizedKeyword = keyword.trim().toLowerCase();
   const filteredOptions = useMemo(() => {
     if (!normalizedKeyword) return options;
-    return options.filter((opt) => opt.label.toLowerCase().includes(normalizedKeyword));
+    return options.filter(
+      (opt) =>
+        opt.label.toLowerCase().includes(normalizedKeyword) ||
+        opt.value.toLowerCase().includes(normalizedKeyword),
+    );
   }, [options, normalizedKeyword]);
 
   const toggleValue = (value: string) => {

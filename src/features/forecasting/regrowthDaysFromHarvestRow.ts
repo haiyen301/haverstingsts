@@ -1,4 +1,10 @@
 import {
+  harvestPlanHarvestedAreaFromRaw,
+  harvestPlanKgMagnitudeFromRaw,
+  harvestPlanM2MagnitudeFromRaw,
+  harvestPlanQuantityFromRaw,
+} from "@/features/forecasting/forecastingInventoryConversion";
+import {
   addMonthsPhp,
   getDayRegrowthByKgPhp,
   safeDivideStrictPhp,
@@ -262,9 +268,8 @@ export function getRegrowthDaysFromHarvestPlanRow(
     return null;
   }
 
-  const quantity = Number(raw.quantity ?? 0);
-  const harvestedAreaM2 = Number(raw.harvested_area ?? 0);
-  const kgPerM2 = safeDivideStrictPhp(quantity, harvestedAreaM2);
+  const harvestedAreaM2 = harvestPlanHarvestedAreaFromRaw(raw);
+  const kgPerM2 = safeDivideStrictPhp(harvestPlanQuantityFromRaw(raw), harvestedAreaM2);
 
   return getDayRegrowthByKgPhp(kgPerM2);
 }
@@ -283,8 +288,8 @@ function computeKgRegrowthFromRaw(
   const lastInfo = lastDayOfMonthInfoFromActualHarvestDate(raw.actual_harvest_date);
   if (!lastInfo) return null;
 
-  const quantity = Number(raw.quantity ?? 0);
-  const harvestedAreaM2 = Number(raw.harvested_area ?? 0);
+  const quantity = harvestPlanQuantityFromRaw(raw);
+  const harvestedAreaM2 = harvestPlanHarvestedAreaFromRaw(raw);
   const kgPerM2 = safeDivideStrictPhp(quantity, harvestedAreaM2);
   const regrowthDays = getDayRegrowthByKgPhp(kgPerM2);
   const regrowthDate = addRegrowthDaysToActualHarvestDate(
@@ -335,9 +340,9 @@ function computeM2RegrowthFromRaw(
   const lastInfo = lastDayOfMonthInfoFromActualHarvestDate(raw.actual_harvest_date);
   if (!lastInfo) return null;
 
-  const quantity = Number(raw.quantity ?? 0);
-  const harvestedAreaM2 = Number(raw.harvested_area ?? 0);
-  const kgPerM2 = safeDivideStrictPhp(quantity, harvestedAreaM2);
+  const quantity = harvestPlanM2MagnitudeFromRaw(raw);
+  const harvestedAreaM2 = harvestPlanHarvestedAreaFromRaw(raw);
+  const kgPerM2 = 0;
   const regrowthDate = addRegrowthMonthsToActualHarvestDate(
     raw.actual_harvest_date,
     4,
@@ -462,10 +467,10 @@ export function mergeHarvestByActualMonth(
       harvestedM2: 0,
       items: [],
     };
-    const qty = Number(raw.quantity ?? 0);
-    const uom = String(raw.uom ?? "").trim().toUpperCase();
-    if (uom === "M2") cur.harvestedM2 += qty;
-    else cur.harvestedKg += qty;
+    const qtyM2 = harvestPlanM2MagnitudeFromRaw(raw);
+    const qtyKg = harvestPlanKgMagnitudeFromRaw(raw);
+    cur.harvestedM2 += qtyM2;
+    cur.harvestedKg += qtyKg;
     cur.items.push(raw);
     byMonth.set(monthKey, cur);
   }
@@ -647,10 +652,10 @@ export function computeMonthlyAvailabilityByProductFromRaw(
       const key = `${String(p.year).padStart(4, "0")}-${String(p.month).padStart(2, "0")}`;
       if (!key.startsWith(String(targetYear))) continue;
       const cur = harByMonth.get(key) ?? { kg: 0, m2: 0 };
-      const qty = Number(raw.quantity ?? 0);
-      const uom = String(raw.uom ?? "").trim().toUpperCase();
-      if (uom === "M2") cur.m2 += qty;
-      else cur.kg += qty;
+      const qtyM2 = harvestPlanM2MagnitudeFromRaw(raw);
+      const qtyKg = harvestPlanKgMagnitudeFromRaw(raw);
+      cur.m2 += qtyM2;
+      cur.kg += qtyKg;
       harByMonth.set(key, cur);
     }
 

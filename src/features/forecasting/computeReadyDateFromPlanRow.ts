@@ -1,4 +1,9 @@
 import {
+  harvestPlanHarvestedAreaFromRaw,
+  harvestPlanQuantityFromRaw,
+  planRowUsesHarvestedAreaForMagnitude,
+} from "@/features/forecasting/forecastingInventoryConversion";
+import {
   processRegrowthItemPhp,
   parseHarvestDateM2Php,
   parseHarvestDateKgLoosePhp,
@@ -49,9 +54,11 @@ export function computeReadyDateYmdFromPlanRow(
 
   const item: RegrowthDailyItemPhp = {
     date: dateNorm,
-    quantity: Number(raw.quantity ?? 0),
+    quantity: planRowUsesHarvestedAreaForMagnitude(raw)
+      ? harvestPlanHarvestedAreaFromRaw(raw)
+      : harvestPlanQuantityFromRaw(raw),
     has_actual_harvest_date: isValidHarvestDateString(raw.actual_harvest_date),
-    harvested_area: Number(raw.harvested_area ?? 0),
+    harvested_area: harvestPlanHarvestedAreaFromRaw(raw),
   };
 
   const startingOfRegowthKg: Record<string, number> = {};

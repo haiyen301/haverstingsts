@@ -49,8 +49,7 @@ export type FlutterNewHarvestInput = {
   paymentId?: string;
   /**
    * Maps to `harvested_area` (Flutter `harvestedAreaController`).
-   * - UOM M2: do not persist — ref harvest qty is `refHrvQtySprig` only.
-   * - UOM Kg: user-entered area; required when Actual Harvest Date is set.
+   * Required when Actual Harvest Date is set (Sod, Sod -> Sprig, or Sprig/Kg).
    */
   harvestedArea?: string;
   /** Maps to `ref_hrv_qty_sprig` in `project_harvesting_plan`. */
@@ -100,12 +99,9 @@ function buildRecordsJson(
     do_so_date: input.doSoDate?.trim() || null,
     do_so_number: input.doSoNumber.trim() || null,
     payment_id: input.paymentId?.trim() || null,
-    harvested_area:
-      input.uom.trim().toLowerCase() === "m2"
-        ? null
-        : input.harvestedArea?.trim()
-          ? stripCommas(input.harvestedArea)
-          : null,
+    harvested_area: input.harvestedArea?.trim()
+      ? stripCommas(input.harvestedArea)
+      : null,
     ref_hrv_qty_sprig: input.refHrvQtySprig?.trim()
       ? stripCommas(input.refHrvQtySprig)
       : null,

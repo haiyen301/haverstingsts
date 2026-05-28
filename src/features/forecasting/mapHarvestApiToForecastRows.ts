@@ -10,10 +10,12 @@ import {
   DEFAULT_FALLBACK_MAX_INVENTORY_KG,
   distributePlanRowToZoneFragments,
   forecastZoneBucketKey,
+  harvestPlanEffectiveMagnitudeFromRaw,
+  harvestPlanHarvestedAreaFromRaw,
   harvestPlanProductIdFromRaw,
   harvestPlanQuantityFromRaw,
   harvestPlanScalarFromRaw,
-  harvestQuantityCellPresent,
+  resolvePlanRowUomFromRaw,
   type ZoneInventoryFragment,
 } from "@/features/forecasting/forecastingInventoryConversion";
 import type { ZoneConfigurationRow } from "@/features/admin/api/adminApi";
@@ -53,20 +55,7 @@ function recordFragmentsOnUsedByFarmProduct(
 
 /** UOM as returned by plan / index JSON (`uom`, `unit`, camelCase variants). */
 export function resolvePlanRowUom(raw: Record<string, unknown>): string {
-  const keys = [
-    "uom",
-    "UOM",
-    "unit",
-    "Unit",
-    "quantity_uom",
-    "quantityUom",
-  ] as const;
-  for (const k of keys) {
-    const v = raw[k];
-    const s = String(v ?? "").trim();
-    if (s) return s;
-  }
-  return "";
+  return resolvePlanRowUomFromRaw(raw);
 }
 
 function detectHarvestType(
@@ -111,16 +100,16 @@ export function harvestApiRowToForecastRow(
   const project = String(raw.project_name ?? raw.project ?? "").trim();
   const customer = String(raw.customer_name ?? raw.customer ?? "").trim();
   const harvestType = detectHarvestType(raw);
-  const quantity = harvestPlanQuantityFromRaw(raw);
-  const harvestedAreaM2 = harvestQuantityCellPresent(raw.harvested_area)
-    ? Math.max(0, harvestPlanScalarFromRaw(raw.harvested_area))
-    : 0;
+  const uom = resolvePlanRowUom(raw);
+  const quantityKgForDensity = harvestPlanQuantityFromRaw(raw);
+  const harvestedAreaM2 = harvestPlanHarvestedAreaFromRaw(raw);
+  const quantity = harvestPlanEffectiveMagnitudeFromRaw(raw);
   const kgPerM2Raw = Number(raw.kg_per_m2);
   const kgPerM2 =
     Number.isFinite(kgPerM2Raw) && kgPerM2Raw > 0
       ? kgPerM2Raw
       : harvestedAreaM2 > 0
-        ? quantity / harvestedAreaM2
+        ? quantityKgForDensity / harvestedAreaM2
         : 0;
 
   const readyDateYmd =
@@ -165,6 +154,61 @@ export function harvestApiRowToForecastRow(
  * Lấy toàn bộ dòng harvesting trong khoảng ngày (CASE actual/estimated như PHP).
  * Gọi lặp `page` cho đến khi hết hoặc đạt `maxPages`.
  */
+/**
+ * Lấy toàn bộ dòng harvesting trong khoảng ngày (CASE actual/estimated như PHP).
+ * Page 1 trước; các trang còn lại fetch song song (concurrency 3).
+ */
+async function fetchHarvestPage(
+  page: number,
+  params: {
+    perPage: number;
+    actual_harvest_date_from: string;
+    actual_harvest_date_to: string;
+    country_id?: string;
+  },
+): Promise<{ rows: Record<string, unknown>[]; isLast: boolean }> {
+  const q: Record<string, string | number | undefined> = {
+    page,
+    per_page: params.perPage,
+    actual_harvest_date_from: params.actual_harvest_date_from,
+    actual_harvest_date_to: params.actual_harvest_date_to,
+    exclude_empty_zone: 0,
+    forecast_farm_scope: 1,
+  };
+  if (params.country_id) q.country_id = params.country_id;
+
+  const res = await stsProxyGetHarvestingIndex(q);
+  const batch = res.rows.filter(
+    (x): x is Record<string, unknown> =>
+      !!x && typeof x === "object" && !Array.isArray(x),
+  );
+  return { rows: batch, isLast: batch.length < params.perPage };
+}
+
+async function fetchHarvestPagesParallel(
+  startPage: number,
+  endPage: number,
+  params: {
+    perPage: number;
+    actual_harvest_date_from: string;
+    actual_harvest_date_to: string;
+    country_id?: string;
+  },
+  concurrency = 3,
+): Promise<Record<string, unknown>[]> {
+  const out: Record<string, unknown>[] = [];
+  for (let batchStart = startPage; batchStart <= endPage; batchStart += concurrency) {
+    const batchEnd = Math.min(batchStart + concurrency - 1, endPage);
+    const pages = Array.from({ length: batchEnd - batchStart + 1 }, (_, i) => batchStart + i);
+    const results = await Promise.all(pages.map((page) => fetchHarvestPage(page, params)));
+    for (const result of results) {
+      out.push(...result.rows);
+    }
+    if (results.some((r) => r.isLast)) break;
+  }
+  return out;
+}
+
 export async function fetchHarvestRowsForForecasting(params: {
   actual_harvest_date_from: string;
   actual_harvest_date_to: string;
@@ -178,69 +222,59 @@ export async function fetchHarvestRowsForForecasting(params: {
 }): Promise<{ rows: Record<string, unknown>[]; error?: string }> {
   const perPage = params.perPage ?? 200;
   const maxPages = params.maxPages ?? 50;
-  const out: Record<string, unknown>[] = [];
-
-  for (let page = 1; page <= maxPages; page++) {
-    try {
-      const q: Record<string, string | number | undefined> = {
-        page,
-        per_page: perPage,
-        actual_harvest_date_from: params.actual_harvest_date_from,
-        actual_harvest_date_to: params.actual_harvest_date_to,
-        /** Include plans with blank zone so we can allocate them across configured zones / `nozone`. */
-        exclude_empty_zone: 0,
-        /**
-         * STSPortal `Project_harvesting_plan_model::_build_created_by_scope_where`:
-         * all plans on farms assigned to the user (not only `created_by` = self), so regrowth totals
-         * match farm reality (e.g. multiple plan ids same day / grass).
-         */
-        forecast_farm_scope: 1,
-      };
-      if (params.country_id) q.country_id = params.country_id;
-
-      const res = await stsProxyGetHarvestingIndex(q);
-      const batch = res.rows.filter(
-        (x): x is Record<string, unknown> =>
-          !!x && typeof x === "object" && !Array.isArray(x),
-      );
-      out.push(...batch);
-      if (batch.length < perPage) break;
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Failed to load harvesting data";
-      return { rows: out, error: msg };
-    }
-  }
-
-  const resolveFarm = params.resolveFarmFromGrassRequirements !== false;
-  const needsGrassFarmFallback =
-    resolveFarm &&
-    out.some(
-      (r) =>
-        harvestPlanScalarFromRaw(r.farm_id) <= 0 &&
-        String(r.project_id ?? "").trim() !== "",
-    );
-
-  if (!needsGrassFarmFallback) {
-    return { rows: out };
-  }
 
   try {
-    const projectRes = await fetchMondayProjectRowsFromServer({ page: 1, perPage: 500 });
-    const requirementFarmByProjectProduct = buildRequirementFarmByProjectProduct(
-      projectRes.rows,
-    );
-    if (requirementFarmByProjectProduct.size === 0) {
+    const first = await fetchHarvestPage(1, {
+      perPage,
+      actual_harvest_date_from: params.actual_harvest_date_from,
+      actual_harvest_date_to: params.actual_harvest_date_to,
+      country_id: params.country_id,
+    });
+    const out = [...first.rows];
+    if (!first.isLast && maxPages > 1) {
+      const rest = await fetchHarvestPagesParallel(2, maxPages, {
+        perPage,
+        actual_harvest_date_from: params.actual_harvest_date_from,
+        actual_harvest_date_to: params.actual_harvest_date_to,
+        country_id: params.country_id,
+      });
+      out.push(...rest);
+    }
+
+    const resolveFarm = params.resolveFarmFromGrassRequirements !== false;
+    const needsGrassFarmFallback =
+      resolveFarm &&
+      out.some(
+        (r) =>
+          harvestPlanScalarFromRaw(r.farm_id) <= 0 &&
+          String(r.project_id ?? "").trim() !== "",
+      );
+
+    if (!needsGrassFarmFallback) {
       return { rows: out };
     }
-    return {
-      rows: enrichHarvestRowsWithResolvedFarm(
-        out,
-        requirementFarmByProjectProduct,
-        params.farms ?? [],
-      ),
-    };
-  } catch {
-    return { rows: out };
+
+    try {
+      const projectRes = await fetchMondayProjectRowsFromServer({ page: 1, perPage: 500 });
+      const requirementFarmByProjectProduct = buildRequirementFarmByProjectProduct(
+        projectRes.rows,
+      );
+      if (requirementFarmByProjectProduct.size === 0) {
+        return { rows: out };
+      }
+      return {
+        rows: enrichHarvestRowsWithResolvedFarm(
+          out,
+          requirementFarmByProjectProduct,
+          params.farms ?? [],
+        ),
+      };
+    } catch {
+      return { rows: out };
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Failed to load harvesting data";
+    return { rows: [], error: msg };
   }
 }
 

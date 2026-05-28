@@ -55,6 +55,7 @@ import {
   formatGrassRequirementDisplayName,
 } from "@/features/project/lib/buildProjectCardData";
 import { inferRequirementUom } from "@/features/project/lib/effectiveRequirementQuantity";
+import { normalizeHarvestTypeStorageKey } from "@/shared/lib/harvestType";
 import { cn } from "@/lib/utils";
 import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
 import { DatePicker } from "@/shared/ui/date-picker";
@@ -313,6 +314,12 @@ function mapHarvestRecordToHarvestRow(
   const ha = parseNumber(r.harvested_area);
   const refHarvestQty = parseNumber(r.ref_hrv_qty_sprig);
   const qty = parseNumber(r.quantity);
+  const harvestTypeKey =
+    normalizeHarvestTypeStorageKey(r.harvest_type ?? r.load_type ?? "") ||
+    normalizeHarvestTypeStorageKey(r.harvestType ?? "");
+  const isSodToSprig = harvestTypeKey === "sod_to_sprig";
+  const displayQty = isSodToSprig ? refHarvestQty : qty;
+  const displayUom = isSodToSprig ? "Kg" : uomRaw;
   const productId = String(r.product_id ?? "").trim();
   const uomKey = normalizeUomKey(uomRaw);
   const remainingMapKey = `${productId}::${uomKey}`;
@@ -327,7 +334,7 @@ function mapHarvestRecordToHarvestRow(
   const refQtyDisplay =
     refHarvestQty > 0 ? refHarvestQty.toLocaleString() : null;
   const harvestedAreaM2Display =
-    uomLower === "m2" && (ha > 0 || qty > 0)
+    uomLower === "m2" && (ha > 0 || (!isSodToSprig && qty > 0))
       ? (ha > 0 ? ha : qty).toLocaleString()
       : null;
 
@@ -374,8 +381,11 @@ function mapHarvestRecordToHarvestRow(
       const label = zoneIdToLabel(stored, ctx.farmZones);
       return label || stored || "-";
     })(),
-    quantity: `${qty.toLocaleString()} ${uomRaw}`.trim() || "-",
-    quantityValue: qty,
+    quantity:
+      displayQty > 0
+        ? `${displayQty.toLocaleString()} ${displayUom}`.trim()
+        : "-",
+    quantityValue: displayQty,
     limitStatus: harvestLimitStatusFromDescription(r.description),
     remainingQuantityDisplay,
     refQtyDisplay,

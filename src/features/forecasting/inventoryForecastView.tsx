@@ -1,10 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, startTransition } from "react";
 import { AlignLeft, ArrowDown, HelpCircle } from "lucide-react";
 import { useTranslations } from "next-intl";
 import type { TranslationValues } from "use-intl";
-import { usePathname } from "next/navigation";
 import {
   AreaChart,
   Area,
@@ -19,17 +18,13 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 import {
-  fetchHarvestRowsForForecasting,
-  rowsToMockHarvestRows,
-} from "@/features/forecasting/mapHarvestApiToForecastRows";
+  buildRegrowthZoneSetupBadges,
+  type RegrowthZoneSetupBadge,
+} from "@/features/forecasting/regrowthZoneConfigPeriod";
+import type { ZoneConfigurationRow } from "@/features/admin/api/adminApi";
 import type { ForecastHarvestRow } from "@/features/forecasting/forecastingTypes";
+import type { RegrowthReferenceConfig } from "@/features/forecasting/forecastingRegrowth";
 import {
-  DEFAULT_REGROWTH_REFERENCE_CONFIG,
-  resolveRegrowthReferenceConfigFromRules,
-  type RegrowthReferenceConfig,
-} from "@/features/forecasting/forecastingRegrowth";
-import {
-  computeInventoryStyleFarmGrassDailySeries,
   sumFarmProductCapacityCapsFromZoneConfigAtDate,
   type RollingDailyAvailableDay,
 } from "@/features/forecasting/forecastAvailableAtDate";
@@ -51,28 +46,24 @@ import {
 import {
   applyLatestZoneMaxKgToForecastRows,
   FORECAST_NOZONE_ZONE,
+  forecastHarvestRowEffectiveM2,
+  forecastHarvestRowInventoryKg,
   kgPerM2ByNormalizedZoneForFarmProduct,
 } from "@/features/forecasting/forecastingInventoryConversion";
 import {
   computeRegrowthAllocationForFarmProductDate,
   type ZoneRegrowthBreakdown,
 } from "@/features/forecasting/regrowthAllocation";
-import {
-  fetchRegrowthRules,
-  fetchZoneConfigurations,
-  type ZoneConfigurationRow,
-} from "@/features/admin/api/adminApi";
-import {
-  buildRegrowthZoneSetupBadges,
-  type RegrowthZoneSetupBadge,
-} from "@/features/forecasting/regrowthZoneConfigPeriod";
 import { pickGrassCatalogRows, zoneIdToLabelResolved } from "@/shared/lib/harvestReferenceData";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import {
   normalizeInventoryBalanceDateYmd,
-  useInventoryAvailableOverrideStore,
   type InventoryAvailableOverrideEntry,
 } from "@/shared/store/inventoryAvailableOverrideStore";
+import { useForecastSnapshot } from "@/features/forecasting/useForecastSnapshot";
+import { getForecastToday } from "@/features/forecasting/forecastDateUtils";
+import { useDebouncedValue } from "@/features/forecasting/useDebouncedValue";
+import { useForecastDailySeries } from "@/features/forecasting/useForecastCompute";
 import { MultiSelect } from "@/shared/ui/multi-select";
 import { cn } from "@/lib/utils";
 import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
@@ -196,13 +187,11 @@ function formatForecastQty(qty: number, uomRaw: string | undefined): string {
 }
 
 function forecastSourceM2FromRow(row: ForecastHarvestRow): number {
-  const u = forecastQtyUnit(row.uom);
-  if (u.kind !== "m2") return 0;
-  return Number.isFinite(row.quantity) && row.quantity > 0 ? row.quantity : 0;
+  return forecastHarvestRowEffectiveM2(row);
 }
 
 function forecastDisplayKgFromRow(row: ForecastHarvestRow): number {
-  return Number.isFinite(row.inventoryKg) ? row.inventoryKg : row.quantity;
+  return forecastHarvestRowInventoryKg(row);
 }
 
 /** Display kg used in forecast; append source m² when the plan UOM was converted from m². */
@@ -278,18 +267,12 @@ function aggregateHarvestByZoneForRegrowthYmd(
     const reg = getRegrowthDateFromHarvest(h, regrowthCfg);
     if (!reg || ymdFromDate(reg) !== regrowthYmd) continue;
     const k = zoneNormKeyForHarvestZoneTooltip(String(h.zone ?? ""));
-    const u = forecastQtyUnit(h.uom);
     const cur = out[k] ?? { m2: 0, nativeKg: 0 };
-    if (u.kind === "m2") {
-      cur.m2 += Number.isFinite(h.quantity) ? h.quantity : 0;
-      cur.nativeKg += Number.isFinite(h.inventoryKg) ? h.inventoryKg : 0;
-    } else {
-      cur.nativeKg += Number.isFinite(h.inventoryKg)
-        ? h.inventoryKg
-        : Number.isFinite(h.quantity)
-          ? h.quantity
-          : 0;
+    const sourceM2 = forecastHarvestRowEffectiveM2(h);
+    if (sourceM2 > 0) {
+      cur.m2 += sourceM2;
     }
+    cur.nativeKg += forecastHarvestRowInventoryKg(h);
     out[k] = cur;
   }
   return out;
@@ -717,13 +700,6 @@ function parseYmdLocal(ymd: string): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-const FORECAST_TODAY_FOR_TEST: string | null = null;
-
-function getForecastToday(): Date {
-  if (!FORECAST_TODAY_FOR_TEST) return startOfLocalDay(new Date());
-  return parseYmdLocal(FORECAST_TODAY_FOR_TEST) ?? startOfLocalDay(new Date());
-}
-
 function formatDayMonth(ymd: string): string {
   const d = parseYmdLocal(ymd);
   if (!d) return ymd;
@@ -820,15 +796,20 @@ function formatSprigRangeForReference(
 export function InventoryForecast() {
   const t = useTranslations("ForecastInventory");
   const farmZones = useHarvestingDataStore((s) => s.farmZones);
-  const farmsRaw = useHarvestingDataStore((s) => s.farms);
   const grasses = useHarvestingDataStore((s) => s.grasses);
-  const fetchAllHarvestingReferenceData = useHarvestingDataStore(
-    (s) => s.fetchAllHarvestingReferenceData,
-  );
   const harvestListGrassFilter = useHarvestingDataStore((s) => s.harvestListGrassFilter);
   const setHarvestListGrassFilter = useHarvestingDataStore((s) => s.setHarvestListGrassFilter);
-  const overridesByZone = useInventoryAvailableOverrideStore((s) => s.overridesByZone);
-  const fetchOverrides = useInventoryAvailableOverrideStore((s) => s.fetchOverrides);
+  const {
+    forecastRows: rows,
+    zoneConfigs: zoneConfigSnapshot,
+    regrowthConfig,
+    overridesByZone,
+    isLoading: loading,
+    isRefreshing,
+    isRecomputing,
+    hasSnapshot,
+    error,
+  } = useForecastSnapshot();
   const {
     selectedFarmIds,
     selectedFarmIdSet,
@@ -836,38 +817,44 @@ export function InventoryForecast() {
     farmOptions,
   } = useSyncedFarmMultiSelect();
   const [forecastMonths, setForecastMonths] = useState<number>(6);
-  const [rows, setRows] = useState<ForecastHarvestRow[]>([]);
-  const [zoneConfigSnapshot, setZoneConfigSnapshot] = useState<ZoneConfigurationRow[]>([]);
-  const [regrowthConfig, setRegrowthConfig] = useState<RegrowthReferenceConfig>(
-    DEFAULT_REGROWTH_REFERENCE_CONFIG,
+  const [showBreakdownChart, setShowBreakdownChart] = useState(false);
+  const debouncedFarmIds = useDebouncedValue(selectedFarmIds, 300);
+  const debouncedGrassIds = useDebouncedValue(
+    useMemo(() => parseCsvList(harvestListGrassFilter), [harvestListGrassFilter]),
+    300,
   );
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const debouncedFarmIdSet = useMemo(
+    () => new Set(debouncedFarmIds),
+    [debouncedFarmIds],
+  );
+  const debouncedGrassIdSet = useMemo(
+    () => new Set(debouncedGrassIds),
+    [debouncedGrassIds],
+  );
+
+  useEffect(() => {
+    if (!hasSnapshot) {
+      setShowBreakdownChart(false);
+      return;
+    }
+    const idle =
+      typeof requestIdleCallback === "function"
+        ? requestIdleCallback
+        : (cb: () => void) => window.setTimeout(cb, 0);
+    const cancel =
+      typeof cancelIdleCallback === "function"
+        ? cancelIdleCallback
+        : (id: number) => window.clearTimeout(id);
+    const id = idle(() => {
+      startTransition(() => setShowBreakdownChart(true));
+    });
+    return () => cancel(id as number);
+  }, [hasSnapshot, forecastMonths, debouncedFarmIds, debouncedGrassIds]);
+
   const zoneLabel = useCallback(
     (zoneId: string) => zoneIdToLabelResolved(zoneId, farmZones, t("events.noZoneName")),
     [farmZones, t],
   );
-  const pathname = usePathname();
-
-  useEffect(() => {
-    if (!pathname?.includes("forecasting")) return;
-    let cancelled = false;
-    void fetchZoneConfigurations().then((zc) => {
-      if (!cancelled) setZoneConfigSnapshot(zc);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [pathname]);
-
-  useEffect(() => {
-    const onVis = () => {
-      if (document.visibilityState !== "visible") return;
-      void fetchZoneConfigurations().then(setZoneConfigSnapshot).catch(() => {});
-    };
-    document.addEventListener("visibilitychange", onVis);
-    return () => document.removeEventListener("visibilitychange", onVis);
-  }, []);
 
   const selectedGrassIds = useMemo(
     () => parseCsvList(harvestListGrassFilter),
@@ -879,82 +866,6 @@ export function InventoryForecast() {
   );
   const setSelectedGrassIds = (ids: string[]) =>
     setHarvestListGrassFilter(toCsvList(ids));
-
-  useEffect(() => {
-    void fetchOverrides();
-  }, [fetchOverrides]);
-
-  useEffect(() => {
-    if (!pathname?.includes("forecasting")) return;
-    void fetchOverrides();
-  }, [pathname, fetchOverrides]);
-
-  useEffect(() => {
-    const onVis = () => {
-      if (document.visibilityState !== "visible") return;
-      if (!pathname?.includes("forecasting")) return;
-      void fetchOverrides();
-    };
-    document.addEventListener("visibilitychange", onVis);
-    return () => document.removeEventListener("visibilitychange", onVis);
-  }, [pathname, fetchOverrides]);
-
-  useEffect(() => {
-    let alive = true;
-
-    async function load() {
-      setLoading(true);
-      setError(null);
-
-      const today = getForecastToday();
-      const from = ymdFromDate(addMonths(today, -24));
-      const to = ymdFromDate(addMonths(today, 30));
-
-      const [res, zoneConfigs] = await Promise.all([
-        fetchHarvestRowsForForecasting({
-          actual_harvest_date_from: from,
-          actual_harvest_date_to: to,
-          perPage: 500,
-          maxPages: 400,
-          farms: farmsRaw,
-        }),
-        fetchZoneConfigurations(),
-      ]);
-
-      if (!alive) return;
-      const mapped = rowsToMockHarvestRows(res.rows, today, zoneConfigs);
-      setZoneConfigSnapshot(zoneConfigs);
-      setRows(mapped);
-      setError(res.error ?? null);
-      setLoading(false);
-    }
-
-    void load();
-    return () => {
-      alive = false;
-    };
-  }, [farmsRaw]);
-
-  useEffect(() => {
-    let alive = true;
-    void (async () => {
-      try {
-        const rules = await fetchRegrowthRules();
-        if (!alive) return;
-        setRegrowthConfig(resolveRegrowthReferenceConfigFromRules(rules));
-      } catch {
-        if (!alive) return;
-        setRegrowthConfig(resolveRegrowthReferenceConfigFromRules([]));
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    void fetchAllHarvestingReferenceData();
-  }, [fetchAllHarvestingReferenceData]);
 
   const farmFilterOptions = useMemo(
     () => farmOptions.map((o) => ({ value: o.id, label: o.label })),
@@ -992,26 +903,26 @@ export function InventoryForecast() {
       rowsWithLiveZoneCaps.filter((r) => {
         const farmIdStr = String(r.farmId);
         const productIdStr = String(r.productId);
-        if (selectedFarmIds.length > 0 && !selectedFarmIdSet.has(farmIdStr)) return false;
-        if (selectedGrassIds.length > 0 && !selectedGrassIdSet.has(productIdStr)) return false;
+        if (debouncedFarmIds.length > 0 && !debouncedFarmIdSet.has(farmIdStr)) return false;
+        if (debouncedGrassIds.length > 0 && !debouncedGrassIdSet.has(productIdStr)) return false;
         return true;
       }),
     [
       rowsWithLiveZoneCaps,
-      selectedFarmIds,
-      selectedFarmIdSet,
-      selectedGrassIds,
-      selectedGrassIdSet,
+      debouncedFarmIds,
+      debouncedFarmIdSet,
+      debouncedGrassIds,
+      debouncedGrassIdSet,
     ],
   );
 
   const farmProductFilter = useCallback(
     (farmId: number, productId: number) => {
-      if (selectedFarmIds.length > 0 && !selectedFarmIdSet.has(String(farmId))) return false;
-      if (selectedGrassIds.length > 0 && !selectedGrassIdSet.has(String(productId))) return false;
+      if (debouncedFarmIds.length > 0 && !debouncedFarmIdSet.has(String(farmId))) return false;
+      if (debouncedGrassIds.length > 0 && !debouncedGrassIdSet.has(String(productId))) return false;
       return true;
     },
-    [selectedFarmIds, selectedFarmIdSet, selectedGrassIds, selectedGrassIdSet],
+    [debouncedFarmIds, debouncedFarmIdSet, debouncedGrassIds, debouncedGrassIdSet],
   );
 
   const forecastHorizonEnd = useMemo(
@@ -1020,34 +931,31 @@ export function InventoryForecast() {
   );
 
   /** Same rolling daily basis as dev Daily harvest / available calendar. */
-  const rollingDailyAvailable = useMemo(
-    () =>
-      computeInventoryStyleFarmGrassDailySeries(
-        filteredRows,
-        zoneConfigSnapshot,
-        regrowthConfig,
-        overridesByZone,
-        getForecastToday(),
-        forecastHorizonEnd,
-        farmProductFilter,
-      ),
-    [
-      filteredRows,
-      zoneConfigSnapshot,
-      regrowthConfig,
-      overridesByZone,
-      forecastHorizonEnd,
-      farmProductFilter,
-    ],
-  );
+  const dailySeriesResult = useForecastDailySeries({
+    filteredRows,
+    zoneConfigs: zoneConfigSnapshot,
+    regrowthConfig,
+    overridesByZone,
+    forecastHorizonEnd,
+    debouncedFarmIds,
+    debouncedGrassIds,
+    enabled: hasSnapshot,
+  });
+
+  const rollingDailyAvailable = dailySeriesResult.aggregate;
 
   const rollingByDate = useMemo(
-    () => new Map(rollingDailyAvailable.map((day) => [day.date, day] as const)),
+    () =>
+      new Map<string, RollingDailyAvailableDay>(
+        rollingDailyAvailable.map((day: RollingDailyAvailableDay) => [day.date, day]),
+      ),
     [rollingDailyAvailable],
   );
 
+  const rollingDailyByFarmProduct = dailySeriesResult.byFarmProduct;
+
   const farmProductGroupKeys = useMemo(() => {
-    const keys = new Set<string>();
+    const keys = new Set<string>(rollingDailyByFarmProduct.keys());
     for (const row of filteredRows) {
       if (row.farmId <= 0 || row.productId <= 0) continue;
       if (!farmProductFilter(row.farmId, row.productId)) continue;
@@ -1065,36 +973,7 @@ export function InventoryForecast() {
       keys.add(`${farmId}|${productId}`);
     }
     return Array.from(keys).sort((a, b) => a.localeCompare(b));
-  }, [filteredRows, zoneConfigSnapshot, farmProductFilter]);
-
-  const rollingDailyByFarmProduct = useMemo(() => {
-    const today = getForecastToday();
-    const out = new Map<string, Map<string, RollingDailyAvailableDay>>();
-    for (const key of farmProductGroupKeys) {
-      const [farmIdStr, productIdStr] = key.split("|");
-      const farmId = Number(farmIdStr);
-      const productId = Number(productIdStr);
-      if (!Number.isFinite(farmId) || !Number.isFinite(productId)) continue;
-      const series = computeInventoryStyleFarmGrassDailySeries(
-        filteredRows,
-        zoneConfigSnapshot,
-        regrowthConfig,
-        overridesByZone,
-        today,
-        forecastHorizonEnd,
-        (f, p) => f === farmId && p === productId,
-      );
-      out.set(key, new Map(series.map((day) => [day.date, day] as const)));
-    }
-    return out;
-  }, [
-    farmProductGroupKeys,
-    filteredRows,
-    zoneConfigSnapshot,
-    regrowthConfig,
-    overridesByZone,
-    forecastHorizonEnd,
-  ]);
+  }, [rollingDailyByFarmProduct, filteredRows, zoneConfigSnapshot, farmProductFilter]);
 
   const totalMaxToday = useMemo(
     () =>
@@ -1898,8 +1777,14 @@ export function InventoryForecast() {
         </select>
       </div>
 
-      {loading ? (
+      {loading && !hasSnapshot ? (
         <div className="rounded-xl border border-border bg-card p-5 text-sm text-muted-foreground">
+          {t("loading")}
+        </div>
+      ) : null}
+
+      {isRefreshing ? (
+        <div className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
           {t("loading")}
         </div>
       ) : null}
@@ -1910,7 +1795,12 @@ export function InventoryForecast() {
         </div>
       ) : null}
 
-      <div className="rounded-xl border  border-border bg-card p-5">
+      {hasSnapshot ? (
+      <>
+      <div className="relative rounded-xl border  border-border bg-card p-5">
+        {isRecomputing ? (
+          <div className="pointer-events-none absolute inset-0 z-10 rounded-xl bg-background/30" />
+        ) : null}
         <h3 className="mb-4 text-sm font-semibold">{t("charts.projectedInventory")}</h3>
         <ResponsiveContainer width="100%" height={320}>
           <AreaChart data={forecastData}>
@@ -1996,6 +1886,7 @@ export function InventoryForecast() {
         ) : null}
       </div>
 
+      {showBreakdownChart ? (
       <div className="rounded-xl border  border-border bg-card p-5">
         <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-sm font-semibold">
@@ -2112,6 +2003,7 @@ export function InventoryForecast() {
           </p>
         ) : null}
       </div>
+      ) : null}
 
       <div className="rounded-xl border border-border bg-card p-5">
         <div className="mb-1 flex items-center justify-between">
@@ -2288,6 +2180,8 @@ export function InventoryForecast() {
           </div>
         </div>
       </div>
+      </>
+      ) : null}
     </div>
   );
 }

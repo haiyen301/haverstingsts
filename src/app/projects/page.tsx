@@ -24,7 +24,7 @@ import {
   mergeMondayDisplayData,
   mergeProjectSubitemsWithHarvestPlan,
 } from "@/features/project";
-import { parseJsonMaybe } from "@/shared/lib/parseJsonMaybe";
+import { parseJsonMaybe, parseQuantityRequiredRows } from "@/shared/lib/parseJsonMaybe";
 import { resolveStaffAvatarImageUrl } from "@/features/project/lib/staffAvatarUrl";
 import { cn } from "@/lib/utils";
 import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
@@ -96,6 +96,71 @@ function rowHasGrassProduct(row: MondayProjectServerRow, productId: string): boo
   });
 }
 
+function farmIdInQuantityRequiredRaw(raw: unknown, farmId: string): boolean {
+  const fid = String(farmId ?? "").trim();
+  if (!fid) return false;
+  return parseQuantityRequiredRows(raw).some(
+    (line) => String(line.farm_id ?? "").trim() === fid,
+  );
+}
+
+function quantityRequiredRawFromDynamicGroup(
+  grouped: Record<string, unknown>[],
+): unknown {
+  for (const rec of grouped) {
+    const fieldName = normalizeDynamicFieldName(rec.name);
+    if (fieldName === "quantity_required_sprig_sod") {
+      return rec.value ?? rec.quantity_required_sprig_sod;
+    }
+  }
+  for (const rec of grouped) {
+    if (rec.quantity_required_sprig_sod != null) {
+      return rec.quantity_required_sprig_sod;
+    }
+  }
+  return undefined;
+}
+
+function projectIdFromDynamicGroup(grouped: Record<string, unknown>[]): string {
+  for (const rec of grouped) {
+    const fieldName = normalizeDynamicFieldName(rec.name);
+    if (fieldName === "project_id") {
+      return normalizeDynamicFieldValue(rec.value ?? rec.project_id);
+    }
+  }
+  for (const rec of grouped) {
+    const pid = String(rec.project_id ?? "").trim();
+    if (pid) return pid;
+  }
+  return "";
+}
+
+/** project_id → `quantity_required_sprig_sod` value rows from sts_dynamic_table_data (id_row groups). */
+function buildQuantityRequiredByProjectId(
+  allRows: Record<string, unknown>[],
+): Map<string, unknown[]> {
+  const byRowTable = new Map<string, Record<string, unknown>[]>();
+  for (const row of allRows) {
+    const key = makeRowTableKey(row);
+    if (!key || key === "__") continue;
+    const list = byRowTable.get(key) ?? [];
+    list.push(row);
+    byRowTable.set(key, list);
+  }
+
+  const map = new Map<string, unknown[]>();
+  for (const grouped of byRowTable.values()) {
+    const projectId = projectIdFromDynamicGroup(grouped);
+    if (!projectId) continue;
+    const raw = quantityRequiredRawFromDynamicGroup(grouped);
+    if (raw == null) continue;
+    const list = map.get(projectId) ?? [];
+    list.push(raw);
+    map.set(projectId, list);
+  }
+  return map;
+}
+
 function rowHasFarmInSubitems(row: MondayProjectServerRow, farmId: string): boolean {
   const fid = String(farmId ?? "").trim();
   if (!fid) return false;
@@ -107,6 +172,38 @@ function rowHasFarmInSubitems(row: MondayProjectServerRow, farmId: string): bool
     const rec = item as Record<string, unknown>;
     return String(rec.farm_id ?? "").trim() === fid;
   });
+}
+
+/**
+ * Farm filter: quantity_required_sprig_sod (direct + dynamic table by project_id/id_row) first,
+ * then subitems farm_id fallback.
+ */
+function rowMatchesFarmFilter(
+  row: MondayProjectServerRow,
+  farmId: string,
+  qtyRequiredByProjectId: Map<string, unknown[]>,
+): boolean {
+  const fid = String(farmId ?? "").trim();
+  if (!fid) return false;
+
+  if (
+    farmIdInQuantityRequiredRaw(
+      (row as Record<string, unknown>).quantity_required_sprig_sod,
+      fid,
+    )
+  ) {
+    return true;
+  }
+
+  const projectId = String((row as Record<string, unknown>).project_id ?? "").trim();
+  if (projectId) {
+    const raws = qtyRequiredByProjectId.get(projectId);
+    if (raws?.some((raw) => farmIdInQuantityRequiredRaw(raw, fid))) {
+      return true;
+    }
+  }
+
+  return rowHasFarmInSubitems(row, fid);
 }
 
 function normalizeProjectStatusLabel(v: unknown): string {
@@ -474,6 +571,12 @@ export default function ProjectListPage() {
    */
   const projects = useMemo(() => {
     const allowedProjectIdsByCountry = new Set<string>();
+    const qtyRequiredByProjectId =
+      farmFilterIds.length > 0
+        ? buildQuantityRequiredByProjectId(
+            rowsWithHarvestPlan as unknown as Record<string, unknown>[],
+          )
+        : new Map<string, unknown[]>();
     if (countryFilterIds.length > 0) {
       // Fallback resolver for dynamic-table style rows:
       // 1) find records where name=country_id and value in selected filters
@@ -550,7 +653,7 @@ export default function ProjectListPage() {
       const farmOk =
         farmFilterIds.length === 0 ||
         farmFilterIds.some((id) =>
-          rowHasFarmInSubitems(data as MondayProjectServerRow, id),
+          rowMatchesFarmFilter(data as MondayProjectServerRow, id, qtyRequiredByProjectId),
         );
       const grassOk =
         grassFilterIds.length === 0 ||
