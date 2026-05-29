@@ -33,16 +33,18 @@ export type FlutterNewHarvestInput = {
   estimatedHarvestDate: string;
   estimatedHarvestEndDate?: string;
   actualHarvestDate: string;
+  actualHarvestEndDate?: string;
   deliveryHarvestDate: string;
   doSoNumber: string;
   truckNote: string;
+  shippingDispatchDetails?: string;
+  generalNote?: string;
   licensePlate: string;
   country?: string;
   assignedTo?: string;
   status?: string;
   statusId?: string;
   name?: string;
-  description?: string;
   customerId?: string;
   shipmentRequiredDate?: string;
   doSoDate?: string;
@@ -76,9 +78,9 @@ function buildRecordsJson(
     id: input.id ?? "0",
     project_id: input.projectId,
     name: input.name ?? "",
-    description: (input.description ?? "").trim() || null,
     estimated_harvest_date: input.estimatedHarvestDate.trim() || null,
     estimated_harvest_end_date: input.estimatedHarvestEndDate?.trim() || null,
+    actual_harvest_end_date: input.actualHarvestEndDate?.trim() || null,
     product_id: input.productId,
     farm_id: input.farmId,
     zone: input.zone,
@@ -89,6 +91,8 @@ function buildRecordsJson(
     delivery_harvest_date: input.deliveryHarvestDate.trim() || null,
     shipment_required_date: input.shipmentRequiredDate?.trim() || null,
     truck_note: input.truckNote.trim() || null,
+    shipping_dispatch_details: input.shippingDispatchDetails?.trim() || null,
+    general_note: input.generalNote?.trim() || null,
     load_type: input.harvestType.trim() || null,
     country: (input.country ?? "").trim(),
     status: (input.status ?? "").trim(),

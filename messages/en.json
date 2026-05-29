@@ -175,6 +175,7 @@
       "estimated_harvest_date": "Estimated harvest date",
       "estimated_harvest_end_date": "Estimated harvest end date",
       "actual_harvest_date": "Actual harvest date",
+      "actual_harvest_end_date": "Harvest end date",
       "delivery_harvest_date": "Delivery date",
       "available_kg": "Available (kg)",
       "calculated_kg": "Calculated (kg)",
@@ -183,6 +184,8 @@
       "zone_configuration_id": "Zone configuration",
       "odoo_customer_id": "Odoo customer",
       "truck_note": "Truck note",
+      "shipping_dispatch_details": "Shipping / dispatch details",
+      "general_note": "Note",
       "load_type": "Load type"
     },
     "errors": {
@@ -584,6 +587,7 @@
     "type": "Type",
     "estDate": "Est. Date",
     "harvestDate": "Harvest Date",
+    "harvestEndDate": "Harvest End Date",
     "deliveryDate": "Delivery Date",
     "areaM2": "Area (m²)",
     "quantity": "Quantity",
@@ -592,6 +596,7 @@
     "doSo": "DO/SO #",
     "truckNote": "Truck Note",
     "generalNote": "General Note",
+    "shippingDispatchDetails": "Shipping / Dispatch Details",
     "harvestDetails": "Harvest Details",
     "regrowthStatus": "Regrowth Status",
     "basedOnEstimatedDate": "based on estimated date",

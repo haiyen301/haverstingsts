@@ -66,6 +66,13 @@ import {
 import { CheckBadge } from "@/shared/ui/check-badge";
 import { Checkbox } from "@/shared/ui/checkbox";
 import { peelHarvestDuplicateDraftRow } from "@/features/harvesting/lib/harvestDuplicateDraft";
+import {
+  getActualHarvestEndDateFromRow,
+  getEstimatedDateEndFromRow,
+  getGeneralNoteFromRow,
+  getShippingDispatchDetailsFromRow,
+  getTruckNoteFromRow,
+} from "@/shared/lib/harvestPlanExtendedFields";
 
 const DOC_PHOTO_SLOTS: HarvestDocPhotoField[] = [
   "payment_img",
@@ -178,8 +185,6 @@ function buildProjectDetailHrefForProjectId(
   return `/projects/detail?${params.toString()}`;
 }
 
-const SHIPPING_NOTE_SPLIT = "\n\n--- Shipping / dispatch ---\n\n";
-
 const emptyForm = {
   /** Matches `customer_id` on plan row when available from projects (`odoo_customer_id`). */
   customerId: "",
@@ -193,10 +198,10 @@ const emptyForm = {
   farm: "",
   project: "",
   estimatedDate: "",
-  /** Stored in `estimated_harvest_end_date`; keeps description fallback for older rows. */
+  /** Maps to `estimated_harvest_end_date`. */
   estimatedDateEnd: "",
   actualDate: "",
-  /** Stored inside `description` when API has no dedicated column. */
+  /** Maps to `actual_harvest_end_date`. */
   actualHarvestEndDate: "",
   deliveryDate: "",
   /** Maps to `shipment_required_date` (Port arrival). */
@@ -204,9 +209,9 @@ const emptyForm = {
   doSoNumber: "",
   doSoDate: "",
   truckNote: "",
-  /** Appended to `truck_note` on save (HarvestForm “Shipping / Dispatch Details”). */
+  /** Maps to `shipping_dispatch_details`. */
   shippingDispatchDetails: "",
-  /** Maps to `description`. */
+  /** Maps to `general_note`. */
   generalNote: "",
   licensePlate: "",
 };
@@ -273,84 +278,34 @@ function harvestTypeAllowedForUom(
   return true;
 }
 
-type ParsedHarvestDescription = {
-  generalNote: string;
-  estimatedDateEnd: string;
-  actualHarvestEndDate: string;
-  useEstimatedDateRange: boolean;
-};
-
-function parseDescriptionFromRow(description: string): ParsedHarvestDescription {
-  const raw = String(description ?? "").trim();
-  if (!raw) {
-    return {
-      generalNote: "",
-      estimatedDateEnd: "",
-      actualHarvestEndDate: "",
-      useEstimatedDateRange: false,
-    };
-  }
-  let estimatedDateEnd = "";
-  let actualHarvestEndDate = "";
-  const body: string[] = [];
-  for (const block of raw.split(/\n\n+/)) {
-    const mEst = block.match(/^Estimated harvest end:\s*(\d{4}-\d{2}-\d{2})\s*$/i);
-    const mAct = block.match(/^Harvest end:\s*(\d{4}-\d{2}-\d{2})\s*$/i);
-    if (mEst) {
-      estimatedDateEnd = mEst[1];
-      continue;
-    }
-    if (mAct) {
-      actualHarvestEndDate = mAct[1];
-      continue;
-    }
-    body.push(block);
-  }
+function applyRowToFormState(r: Record<string, unknown>): HarvestFormState {
+  const rawUom = String(r.uom ?? "M2").trim() || "M2";
+  const harvestType = resolvedHarvestTypeForForm(String(r.load_type ?? ""), rawUom);
+  const uomStr = requiredUomForHarvestType(harvestType);
+  const harvested = r.harvested_area;
+  const harvestedStr = formatHarvestedAreaForForm(harvested);
   return {
-    generalNote: body.join("\n\n").trim(),
-    estimatedDateEnd,
-    actualHarvestEndDate,
-    useEstimatedDateRange: Boolean(estimatedDateEnd),
-  };
-}
-
-function getEstimatedDateEndFromRow(
-  row: Record<string, unknown>,
-  descParsed?: ParsedHarvestDescription,
-): string {
-  const parsed = descParsed ?? parseDescriptionFromRow(String(row.description ?? ""));
-  return toDateInput(row.estimated_harvest_end_date) || parsed.estimatedDateEnd;
-}
-
-function buildDescriptionForSubmit(
-  form: HarvestFormState,
-  useEstimatedRange: boolean,
-): string {
-  const parts: string[] = [];
-  if (useEstimatedRange && form.estimatedDateEnd.trim()) {
-    parts.push(`Estimated harvest end: ${form.estimatedDateEnd.trim()}`);
-  }
-  if (form.actualHarvestEndDate.trim()) {
-    parts.push(`Harvest end: ${form.actualHarvestEndDate.trim()}`);
-  }
-  if (form.generalNote.trim()) {
-    parts.push(form.generalNote.trim());
-  }
-  return parts.join("\n\n");
-}
-
-function splitTruckNoteFromRow(raw: string): {
-  truckNote: string;
-  shippingDispatchDetails: string;
-} {
-  const s = String(raw ?? "");
-  const idx = s.indexOf(SHIPPING_NOTE_SPLIT);
-  if (idx === -1) {
-    return { truckNote: s.trim(), shippingDispatchDetails: "" };
-  }
-  return {
-    truckNote: s.slice(0, idx).trim(),
-    shippingDispatchDetails: s.slice(idx + SHIPPING_NOTE_SPLIT.length).trim(),
+    customerId: String(r.customer_id ?? "").trim(),
+    project: String(r.project_id ?? ""),
+    grass: String(r.product_id ?? ""),
+    farm: String(r.farm_id ?? ""),
+    zone: String(r.zone ?? ""),
+    quantity: String(r.quantity ?? ""),
+    uom: uomStr,
+    harvestedArea: harvestedStr,
+    harvestType,
+    estimatedDate: toDateInput(r.estimated_harvest_date),
+    estimatedDateEnd: getEstimatedDateEndFromRow(r),
+    actualDate: toDateInput(r.actual_harvest_date),
+    actualHarvestEndDate: getActualHarvestEndDateFromRow(r),
+    deliveryDate: toDateInput(r.delivery_harvest_date),
+    portArrivalDate: toDateInput(r.shipment_required_date),
+    doSoNumber: String(r.do_so_number ?? ""),
+    doSoDate: toDateInput(r.do_so_date),
+    truckNote: getTruckNoteFromRow(r),
+    shippingDispatchDetails: getShippingDispatchDetailsFromRow(r),
+    generalNote: getGeneralNoteFromRow(r),
+    licensePlate: String(r.license_plate ?? ""),
   };
 }
 
@@ -578,42 +533,6 @@ function parseHarvestDeliveredRow(raw: unknown): HarvestDeliveredRow | null {
   const quantity = parseNum(row.quantity);
   if (!projectId || !productId || quantity <= 0) return null;
   return { id, projectId, productId, uom, quantity };
-}
-
-function applyRowToFormState(r: Record<string, unknown>): HarvestFormState {
-  const rawUom = String(r.uom ?? "M2").trim() || "M2";
-  const harvestType = resolvedHarvestTypeForForm(String(r.load_type ?? ""), rawUom);
-  const uomStr = requiredUomForHarvestType(harvestType);
-  const harvested = r.harvested_area;
-  const harvestedStr = formatHarvestedAreaForForm(harvested);
-  const descParsed = parseDescriptionFromRow(String(r.description ?? ""));
-  const estimatedDateEnd = getEstimatedDateEndFromRow(r, descParsed);
-  const { truckNote, shippingDispatchDetails } = splitTruckNoteFromRow(
-    String(r.truck_note ?? ""),
-  );
-  return {
-    customerId: String(r.customer_id ?? "").trim(),
-    project: String(r.project_id ?? ""),
-    grass: String(r.product_id ?? ""),
-    farm: String(r.farm_id ?? ""),
-    zone: String(r.zone ?? ""),
-    quantity: String(r.quantity ?? ""),
-    uom: uomStr,
-    harvestedArea: harvestedStr,
-    harvestType,
-    estimatedDate: toDateInput(r.estimated_harvest_date),
-    estimatedDateEnd,
-    actualDate: toDateInput(r.actual_harvest_date),
-    actualHarvestEndDate: descParsed.actualHarvestEndDate,
-    deliveryDate: toDateInput(r.delivery_harvest_date),
-    portArrivalDate: toDateInput(r.shipment_required_date),
-    doSoNumber: String(r.do_so_number ?? ""),
-    doSoDate: toDateInput(r.do_so_date),
-    truckNote,
-    shippingDispatchDetails,
-    generalNote: descParsed.generalNote,
-    licensePlate: String(r.license_plate ?? ""),
-  };
 }
 
 type HarvestFieldErrors = Partial<
@@ -1182,11 +1101,8 @@ function HarvestInputPageInner() {
     if (!editId) {
       const dupRow = peelHarvestDuplicateDraftRow();
       if (dupRow) {
-        const descParsed = parseDescriptionFromRow(String(dupRow.description ?? ""));
         setFormData(applyRowToFormState(dupRow));
-        setUseEstimatedDateRange(
-          Boolean(getEstimatedDateEndFromRow(dupRow, descParsed)),
-        );
+        setUseEstimatedDateRange(Boolean(getEstimatedDateEndFromRow(dupRow)));
         setPhotos({});
         setExistingDocSlots({});
         setPendingImagesRemoved({});
@@ -1231,9 +1147,8 @@ function HarvestInputPageInner() {
         }
         if (cancelled) return;
         const row = raw as Record<string, unknown>;
-        const descParsed = parseDescriptionFromRow(String(row.description ?? ""));
         setFormData(applyRowToFormState(row));
-        setUseEstimatedDateRange(Boolean(getEstimatedDateEndFromRow(row, descParsed)));
+        setUseEstimatedDateRange(Boolean(getEstimatedDateEndFromRow(row)));
         setEditTableId(String(row.table_id ?? "").trim());
         setEditTableName(String(row.table_name ?? "Harvesting").trim() || "Harvesting");
         setExistingDocSlots(parseHarvestDocImagesFromRow(row));
@@ -1652,13 +1567,6 @@ function HarvestInputPageInner() {
       ).trim();
       const customerIdSubmit =
         formData.customerId.trim() || customerFromProject || undefined;
-      const descriptionPayload = buildDescriptionForSubmit(
-        formData,
-        useEstimatedDateRange,
-      ).trim();
-      const truckNotePayload = [formData.truckNote.trim(), formData.shippingDispatchDetails.trim()]
-        .filter(Boolean)
-        .join(SHIPPING_NOTE_SPLIT);
       const savedHarvest = (await submitFlutterHarvest(
         {
           id: editId ?? undefined,
@@ -1674,14 +1582,16 @@ function HarvestInputPageInner() {
             ? formData.estimatedDateEnd
             : undefined,
           actualHarvestDate: formData.actualDate,
+          actualHarvestEndDate: formData.actualHarvestEndDate.trim() || undefined,
           deliveryHarvestDate: formData.deliveryDate,
           shipmentRequiredDate: formData.portArrivalDate.trim() || undefined,
           doSoNumber: formData.doSoNumber,
           doSoDate: formData.doSoDate.trim() || undefined,
-          truckNote: truckNotePayload,
+          truckNote: formData.truckNote.trim(),
+          shippingDispatchDetails: formData.shippingDispatchDetails.trim() || undefined,
+          generalNote: formData.generalNote.trim() || undefined,
           licensePlate: formData.licensePlate,
           customerId: customerIdSubmit,
-          description: descriptionPayload || undefined,
           assignedTo: user?.id != null ? String(user.id) : "",
           createdBy: !editId && user?.id != null ? String(user.id) : undefined,
           harvestedArea: harvestedAreaPayload,
