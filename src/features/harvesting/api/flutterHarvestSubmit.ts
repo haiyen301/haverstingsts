@@ -49,6 +49,9 @@ export type FlutterNewHarvestInput = {
   shipmentRequiredDate?: string;
   doSoDate?: string;
   paymentId?: string;
+  refHrvQtySprig?: string;
+  referenceHarvestUom?: string;
+  turfType?: string;
   /**
    * Maps to `harvested_area` (Flutter `harvestedAreaController`).
    * Required when Actual Harvest Date is set (Sod, Sod -> Sprig, or Sprig/Kg).
@@ -101,6 +104,11 @@ function buildRecordsJson(
     do_so_date: input.doSoDate?.trim() || null,
     do_so_number: input.doSoNumber.trim() || null,
     payment_id: input.paymentId?.trim() || null,
+    ref_hrv_qty_sprig: input.refHrvQtySprig?.trim()
+      ? stripCommas(input.refHrvQtySprig)
+      : null,
+    reference_harvest_uom: input.referenceHarvestUom?.trim() || null,
+    turf_type: input.turfType?.trim() || null,
     harvested_area: input.harvestedArea?.trim()
       ? stripCommas(input.harvestedArea)
       : null,
