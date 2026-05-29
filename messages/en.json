@@ -65,7 +65,8 @@
     "adminKeyAreas": "Key Areas",
     "settings": "Settings",
     "adminCountries": "Countries",
-    "adminMaintenance": "Maintenance mode"
+    "adminMaintenance": "Maintenance mode",
+    "adminActivityLog": "Activity log"
   },
   "Maintenance": {
     "badge": "Scheduled maintenance",
@@ -110,6 +111,82 @@
     "errors": {
       "load": "Could not load maintenance settings.",
       "save": "Could not save maintenance settings."
+    }
+  },
+  "AdminActivityLog": {
+    "title": "Activity log",
+    "description": "Audit trail for projects, harvests, inventory, and admin settings changes made through STS TURF OPS. Only administrator account 409 can view this screen.",
+    "refresh": "Refresh",
+    "searchPlaceholder": "Search by title or user…",
+    "filterModule": "Filter by module",
+    "filterAction": "Filter by action",
+    "filterAllModules": "All modules",
+    "filterAllActions": "All actions",
+    "summaryLoaded": "Showing {loaded} of {total} entries",
+    "summaryEmpty": "No entries yet",
+    "loadMore": "Load more",
+    "loadingMore": "Loading…",
+    "emptyTitle": "No activity recorded yet",
+    "emptyDescription": "Create, edit, or delete records in projects, harvests, inventory, or admin settings to see entries here.",
+    "untitledRecord": "Untitled record",
+    "contextProject": "Project",
+    "contextFarm": "Farm",
+    "contextAdmin": "Admin",
+    "recordId": "Record",
+    "showChanges": "Show {count} changes",
+    "hideChanges": "Hide {count} changes",
+    "field": "Field",
+    "before": "Before",
+    "after": "After",
+    "deletedHint": "This record was removed.",
+    "module": {
+      "project_api": "Project",
+      "harvest_api": "Harvest",
+      "inventory_api": "Inventory",
+      "zones_api": "Zones",
+      "zone_configurations_api": "Zone configurations",
+      "grasses_api": "Grasses",
+      "keyareas_api": "Key areas",
+      "countries_api": "Countries",
+      "roles_api": "Roles",
+      "regrowth_rules_api": "Regrowth rules",
+      "project_form_catalog_api": "Project types & architects",
+      "staff_api": "People"
+    },
+    "action": {
+      "created": "Created",
+      "updated": "Updated",
+      "deleted": "Deleted"
+    },
+    "fields": {
+      "project_id": "Project ID",
+      "project_name": "Project name",
+      "alias_title": "Project title",
+      "title": "Title",
+      "name": "Name",
+      "description": "Description",
+      "quantity": "Quantity",
+      "uom": "Unit",
+      "farm_id": "Farm",
+      "zone": "Zone",
+      "product_id": "Product",
+      "status": "Status",
+      "status_id": "Status ID",
+      "estimated_harvest_date": "Estimated harvest date",
+      "estimated_harvest_end_date": "Estimated harvest end date",
+      "actual_harvest_date": "Actual harvest date",
+      "delivery_harvest_date": "Delivery date",
+      "available_kg": "Available (kg)",
+      "calculated_kg": "Calculated (kg)",
+      "balance_date": "Balance date",
+      "grass_id": "Grass",
+      "zone_configuration_id": "Zone configuration",
+      "odoo_customer_id": "Odoo customer",
+      "truck_note": "Truck note",
+      "load_type": "Load type"
+    },
+    "errors": {
+      "load": "Could not load activity logs."
     }
   },
   "Nav": {

@@ -34,7 +34,7 @@ import {
   localizedFeedCategoryCopy,
 } from "@/features/alerts/localizeStoredAlertText";
 import { cn } from "@/lib/utils";
-import { formatDateDisplayDmy } from "@/shared/lib/format/date";
+import { formatDateDisplayDmy, parseStsPortalUtcDate } from "@/shared/lib/format/date";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 
 type AlertSeverity = "info" | "warning" | "success" | "critical";
@@ -55,25 +55,12 @@ const severityStyles: Record<AlertSeverity, string> = {
   critical: "bg-destructive/15 text-destructive",
 };
 
-const ALERT_UTC_WITHOUT_ZONE_RE = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?$/;
-
-function parseAlertDate(input: string): Date | null {
-  const raw = input.trim();
-  if (!raw) return null;
-  // STSPortal returns `Y-m-d H:i:s` without zone; treat it as UTC, then let the browser render local time.
-  const normalized = ALERT_UTC_WITHOUT_ZONE_RE.test(raw)
-    ? `${raw.replace(" ", "T")}Z`
-    : raw;
-  const d = new Date(normalized);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
-
 function alertTimestamp(input: string): number {
-  return parseAlertDate(input)?.getTime() ?? 0;
+  return parseStsPortalUtcDate(input)?.getTime() ?? 0;
 }
 
 function formatFeedTime(iso: string, locale: string): string {
-  const d = parseAlertDate(iso);
+  const d = parseStsPortalUtcDate(iso);
   if (!d) return "";
   const timePart = new Intl.DateTimeFormat(locale, {
     hour: "2-digit",

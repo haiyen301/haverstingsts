@@ -125,21 +125,6 @@ function planRowHarvestTypeKeyFromRaw(
   return candidates.map((v) => normalizeHarvestTypeStorageKey(v)).find(Boolean) ?? null;
 }
 
-/** Sod → Sprig plan (`load_type` / `harvest_type` = sod_to_sprig). */
-export function planRowIsSodToSprig(rawPlanRow: Record<string, unknown>): boolean {
-  return planRowHarvestTypeKeyFromRaw(rawPlanRow) === "sod_to_sprig";
-}
-
-/**
- * Kg sprig cho Sod → Sprig: cột `quantity` (không nhân harvested_area × kg/m²).
- */
-export function harvestPlanSprigKgFromRaw(
-  rawPlanRow: Record<string, unknown>,
-): number {
-  if (!planRowIsSodToSprig(rawPlanRow)) return 0;
-  return harvestPlanQuantityFromRaw(rawPlanRow);
-}
-
 function planRowHasNoHarvestZone(rawPlanRow: Record<string, unknown>): boolean {
   const planZoneNorm = normalizeZone(String(rawPlanRow.zone ?? ""));
   return !planZoneNorm || isForecastNoZoneBucketKey(planZoneNorm);
@@ -237,7 +222,7 @@ function resolveInventoryKgPerM2ForPlanRow(params: {
 
 /**
  * Kg dùng trừ tồn / forecast (trước cap `max_inventory_kg`).
- * Sod → Sprig: plan `quantity`; Sod/M²: harvested_area × kg/m²; Sprig/Kg: quantity.
+ * Sod / Sod→Sprig / M²: harvested_area × zone kg/m²; Sprig/Kg: plan `quantity`.
  */
 export function harvestPlanInventoryKgFromRaw(
   rawPlanRow: Record<string, unknown>,
@@ -246,11 +231,6 @@ export function harvestPlanInventoryKgFromRaw(
     buckets?: Map<string, ZoneBucket>;
   } = {},
 ): number {
-  const sodSprigKg = harvestPlanSprigKgFromRaw(rawPlanRow);
-  if (planRowIsSodToSprig(rawPlanRow)) {
-    return Math.max(0, sodSprigKg);
-  }
-
   const uom = resolvePlanRowUomFromRaw(rawPlanRow);
   const rawQty = harvestPlanEffectiveMagnitudeFromRaw(rawPlanRow);
 
@@ -285,8 +265,9 @@ export function harvestPlanHarvestedAreaFromRaw(
     : 0;
   if (fromHarvestedArea > 0) return fromHarvestedArea;
 
-  /** Sod: `harvested_area` trống → dùng `quantity` (m²) làm diện tích thu hoạch. */
-  if (planRowHarvestTypeKeyFromRaw(rawPlanRow) === "sod") {
+  /** Sod / Sod→Sprig: `harvested_area` trống → dùng `quantity` (m²) làm diện tích thu hoạch. */
+  const harvestType = planRowHarvestTypeKeyFromRaw(rawPlanRow);
+  if (harvestType === "sod" || harvestType === "sod_to_sprig") {
     return Math.max(0, harvestPlanQuantityFromRaw(rawPlanRow));
   }
 
@@ -365,15 +346,18 @@ export function harvestPlanM2MagnitudeFromRaw(
     : 0;
 }
 
-/** kg gom theo tháng — Sprig / UOM Kg / Sod→Sprig (plan `quantity`). */
+/** kg gom theo tháng — Sprig / UOM Kg (`quantity`); Sod / Sod→Sprig (m² × zone kg/m²). */
 export function harvestPlanKgMagnitudeFromRaw(
   rawPlanRow: Record<string, unknown>,
+  options: {
+    zoneConfigs?: ZoneConfigurationRow[];
+    buckets?: Map<string, ZoneBucket>;
+  } = {},
 ): number {
-  const sodSprigKg = harvestPlanSprigKgFromRaw(rawPlanRow);
-  if (planRowIsSodToSprig(rawPlanRow) && sodSprigKg > 0) return sodSprigKg;
-  return planRowUsesPlanQuantityForMagnitude(rawPlanRow)
-    ? harvestPlanQuantityFromRaw(rawPlanRow)
-    : 0;
+  if (planRowUsesPlanQuantityForMagnitude(rawPlanRow)) {
+    return harvestPlanQuantityFromRaw(rawPlanRow);
+  }
+  return harvestPlanInventoryKgFromRaw(rawPlanRow, options);
 }
 
 /** Prefer `product_id`, then legacy / camelCase keys used by some clients. */

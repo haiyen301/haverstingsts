@@ -65,7 +65,8 @@
     "adminKeyAreas": "Khu vực chính",
     "settings": "Cài đặt",
     "adminCountries": "Quốc gia",
-    "adminMaintenance": "Chế độ bảo trì"
+    "adminMaintenance": "Chế độ bảo trì",
+    "adminActivityLog": "Nhật ký hoạt động"
   },
   "Maintenance": {
     "badge": "Đang bảo trì hệ thống",
@@ -110,6 +111,82 @@
     "errors": {
       "load": "Không tải được cài đặt bảo trì.",
       "save": "Không lưu được cài đặt bảo trì."
+    }
+  },
+  "AdminActivityLog": {
+    "title": "Nhật ký hoạt động",
+    "description": "Theo dõi thay đổi dự án, thu hoạch, tồn kho và cài đặt admin qua STS TURF OPS. Chỉ tài khoản quản trị 409 mới xem được.",
+    "refresh": "Làm mới",
+    "searchPlaceholder": "Tìm theo tiêu đề hoặc người dùng…",
+    "filterModule": "Lọc theo module",
+    "filterAction": "Lọc theo hành động",
+    "filterAllModules": "Tất cả module",
+    "filterAllActions": "Tất cả hành động",
+    "summaryLoaded": "Đang hiển thị {loaded}/{total} mục",
+    "summaryEmpty": "Chưa có mục nào",
+    "loadMore": "Tải thêm",
+    "loadingMore": "Đang tải…",
+    "emptyTitle": "Chưa có hoạt động",
+    "emptyDescription": "Tạo, sửa hoặc xóa dự án, thu hoạch, tồn kho hoặc cài đặt admin để thấy mục tại đây.",
+    "untitledRecord": "Bản ghi không tiêu đề",
+    "contextProject": "Dự án",
+    "contextFarm": "Trang trại",
+    "contextAdmin": "Admin",
+    "recordId": "Bản ghi",
+    "showChanges": "Xem {count} thay đổi",
+    "hideChanges": "Ẩn {count} thay đổi",
+    "field": "Trường",
+    "before": "Trước",
+    "after": "Sau",
+    "deletedHint": "Bản ghi này đã bị xóa.",
+    "module": {
+      "project_api": "Dự án",
+      "harvest_api": "Thu hoạch",
+      "inventory_api": "Tồn kho",
+      "zones_api": "Vùng (Zones)",
+      "zone_configurations_api": "Cấu hình vùng",
+      "grasses_api": "Loại cỏ",
+      "keyareas_api": "Khu vực trọng điểm",
+      "countries_api": "Quốc gia",
+      "roles_api": "Vai trò",
+      "regrowth_rules_api": "Quy tắc tái sinh",
+      "project_form_catalog_api": "Loại dự án & kiến trúc sư",
+      "staff_api": "Nhân sự"
+    },
+    "action": {
+      "created": "Tạo mới",
+      "updated": "Cập nhật",
+      "deleted": "Xóa"
+    },
+    "fields": {
+      "project_id": "ID dự án",
+      "project_name": "Tên dự án",
+      "alias_title": "Tiêu đề dự án",
+      "title": "Tiêu đề",
+      "name": "Tên",
+      "description": "Mô tả",
+      "quantity": "Số lượng",
+      "uom": "Đơn vị",
+      "farm_id": "Trang trại",
+      "zone": "Khu vực",
+      "product_id": "Sản phẩm",
+      "status": "Trạng thái",
+      "status_id": "ID trạng thái",
+      "estimated_harvest_date": "Ngày thu hoạch dự kiến",
+      "estimated_harvest_end_date": "Ngày kết thúc thu hoạch dự kiến",
+      "actual_harvest_date": "Ngày thu hoạch thực tế",
+      "delivery_harvest_date": "Ngày giao hàng",
+      "available_kg": "Khả dụng (kg)",
+      "calculated_kg": "Tính toán (kg)",
+      "balance_date": "Ngày cân bằng",
+      "grass_id": "Loại cỏ",
+      "zone_configuration_id": "Cấu hình khu",
+      "odoo_customer_id": "Khách hàng Odoo",
+      "truck_note": "Ghi chú xe",
+      "load_type": "Loại tải"
+    },
+    "errors": {
+      "load": "Không tải được nhật ký hoạt động."
     }
   },
   "Nav": {

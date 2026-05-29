@@ -2,9 +2,9 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
 import {
-  parseMaintenanceUserId,
-  userIdMayBypassMaintenance,
-} from "@/shared/auth/maintenanceAccess";
+  parsePrivilegedAdminUserId,
+  userIdIsPrivilegedAdmin,
+} from "@/shared/auth/privilegedAdminAccess";
 import { sanitizeMaintenanceReturnPath } from "@/shared/auth/maintenanceReturnPath";
 import { MAINTENANCE_GRACE_COOKIE_NAME } from "@/shared/auth/maintenanceGraceCookie";
 import {
@@ -32,7 +32,7 @@ function isMaintenanceExemptPath(pathname: string): boolean {
 
 function parseAuthUserIdFromCookie(req: NextRequest): number | undefined {
   const raw = req.cookies.get(AUTH_USER_ID_COOKIE_NAME)?.value?.trim();
-  return parseMaintenanceUserId(raw);
+  return parsePrivilegedAdminUserId(raw);
 }
 
 async function fetchMaintenanceEnabled(req: NextRequest): Promise<boolean> {
@@ -67,7 +67,7 @@ async function resolveUserIdForMiddleware(
     });
     if (!res.ok) return undefined;
     const json = (await res.json()) as { userId?: unknown };
-    return parseMaintenanceUserId(json.userId);
+    return parsePrivilegedAdminUserId(json.userId);
   } catch {
     return undefined;
   }
@@ -89,7 +89,7 @@ export async function middleware(req: NextRequest) {
   const bypassUserId = parseAuthUserIdFromCookie(req);
   if (
     bypassUserId != null &&
-    userIdMayBypassMaintenance(bypassUserId)
+    userIdIsPrivilegedAdmin(bypassUserId)
   ) {
     if (pathname.startsWith("/admin")) {
       const token = req.cookies.get(AUTH_COOKIE_NAME)?.value?.trim();
@@ -105,11 +105,11 @@ export async function middleware(req: NextRequest) {
     const hasToken = Boolean(req.cookies.get(AUTH_COOKIE_NAME)?.value?.trim());
     const userId = await resolveUserIdForMiddleware(req);
 
-    if (userId != null && userIdMayBypassMaintenance(userId)) {
+    if (userId != null && userIdIsPrivilegedAdmin(userId)) {
       return NextResponse.next();
     }
 
-    if (userId != null && !userIdMayBypassMaintenance(userId)) {
+    if (userId != null && !userIdIsPrivilegedAdmin(userId)) {
       const graceActive =
         req.cookies.get(MAINTENANCE_GRACE_COOKIE_NAME)?.value === "1";
       if (graceActive) {

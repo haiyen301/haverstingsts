@@ -65,7 +65,8 @@
     "adminKeyAreas": "พื้นที่หลัก",
     "settings": "การตั้งค่า",
     "adminCountries": "ประเทศ",
-    "adminMaintenance": "โหมดบำรุงรักษา"
+    "adminMaintenance": "โหมดบำรุงรักษา",
+    "adminActivityLog": "บันทึกกิจกรรม"
   },
   "Maintenance": {
     "badge": "กำลังบำรุงรักษาระบบ",
@@ -110,6 +111,82 @@
     "errors": {
       "load": "โหลดการตั้งค่าบำรุงรักษาไม่ได้",
       "save": "บันทึกการตั้งค่าบำรุงรักษาไม่ได้"
+    }
+  },
+  "AdminActivityLog": {
+    "title": "บันทึกกิจกรรม",
+    "description": "ติดตามการเปลี่ยนแปลงโครงการ การเก็บเกี่ยว สินค้าคงคลัง และการตั้งค่าผู้ดูแลผ่าน STS TURF OPS เฉพาะบัญชีผู้ดูแล 409 เท่านั้นที่ดูได้",
+    "refresh": "รีเฟรช",
+    "searchPlaceholder": "ค้นหาจากชื่อหรือผู้ใช้…",
+    "filterModule": "กรองตามโมดูล",
+    "filterAction": "กรองตามการกระทำ",
+    "filterAllModules": "ทุกโมดูล",
+    "filterAllActions": "ทุกการกระทำ",
+    "summaryLoaded": "แสดง {loaded} จาก {total} รายการ",
+    "summaryEmpty": "ยังไม่มีรายการ",
+    "loadMore": "โหลดเพิ่ม",
+    "loadingMore": "กำลังโหลด…",
+    "emptyTitle": "ยังไม่มีกิจกรรม",
+    "emptyDescription": "สร้าง แก้ไข หรือลบโครงการ การเก็บเกี่ยว สินค้าคงคลัง หรือการตั้งค่าผู้ดูแลเพื่อดูรายการที่นี่",
+    "untitledRecord": "รายการไม่มีชื่อ",
+    "contextProject": "โครงการ",
+    "contextFarm": "ฟาร์ม",
+    "contextAdmin": "ผู้ดูแล",
+    "recordId": "รายการ",
+    "showChanges": "แสดง {count} การเปลี่ยนแปลง",
+    "hideChanges": "ซ่อน {count} การเปลี่ยนแปลง",
+    "field": "ฟิลด์",
+    "before": "ก่อน",
+    "after": "หลัง",
+    "deletedHint": "รายการนี้ถูกลบแล้ว",
+    "module": {
+      "project_api": "โครงการ",
+      "harvest_api": "การเก็บเกี่ยว",
+      "inventory_api": "สินค้าคงคลัง",
+      "zones_api": "โซน",
+      "zone_configurations_api": "การตั้งค่าโซน",
+      "grasses_api": "หญ้า",
+      "keyareas_api": "พื้นที่สำคัญ",
+      "countries_api": "ประเทศ",
+      "roles_api": "บทบาท",
+      "regrowth_rules_api": "กฎการเจริญใหม่",
+      "project_form_catalog_api": "ประเภทโครงการและสถาปนิก",
+      "staff_api": "บุคลากร"
+    },
+    "action": {
+      "created": "สร้าง",
+      "updated": "อัปเดต",
+      "deleted": "ลบ"
+    },
+    "fields": {
+      "project_id": "รหัสโครงการ",
+      "project_name": "ชื่อโครงการ",
+      "alias_title": "ชื่อเรื่องโครงการ",
+      "title": "ชื่อเรื่อง",
+      "name": "ชื่อ",
+      "description": "คำอธิบาย",
+      "quantity": "จำนวน",
+      "uom": "หน่วย",
+      "farm_id": "ฟาร์ม",
+      "zone": "โซน",
+      "product_id": "ผลิตภัณฑ์",
+      "status": "สถานะ",
+      "status_id": "รหัสสถานะ",
+      "estimated_harvest_date": "วันที่เก็บเกี่ยวโดยประมาณ",
+      "estimated_harvest_end_date": "วันสิ้นสุดเก็บเกี่ยวโดยประมาณ",
+      "actual_harvest_date": "วันที่เก็บเกี่ยวจริง",
+      "delivery_harvest_date": "วันที่ส่งมอบ",
+      "available_kg": "คงเหลือ (kg)",
+      "calculated_kg": "คำนวณ (kg)",
+      "balance_date": "วันที่ยอดคงเหลือ",
+      "grass_id": "หญ้า",
+      "zone_configuration_id": "การตั้งค่าโซน",
+      "odoo_customer_id": "ลูกค้า Odoo",
+      "truck_note": "หมายเหตุรถ",
+      "load_type": "ประเภทโหลด"
+    },
+    "errors": {
+      "load": "โหลดบันทึกกิจกรรมไม่ได้"
     }
   },
   "Nav": {

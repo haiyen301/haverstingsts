@@ -6,7 +6,7 @@ import { userIdIsPrivilegedAdmin } from "@/shared/auth/privilegedAdminAccess";
 import { AUTH_COOKIE_NAME } from "@/shared/lib/authCookie";
 import { fetchTrustedAclByToken } from "@/shared/server/trustedAcl";
 
-export default async function AdminMaintenanceSettingsLayout({
+export default async function AdminActivityLogLayout({
   children,
 }: {
   children: ReactNode;
