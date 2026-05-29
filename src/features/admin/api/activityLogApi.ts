@@ -108,7 +108,7 @@ export async function fetchActivityLogs(
 
   const data = Array.isArray(json.data) ? json.data : [];
   const metaRaw = (json.meta ?? {}) as Record<string, unknown>;
-  const perPage = Number(metaRaw.per_page) || query.per_page;
+  const perPage = Number(metaRaw.per_page) || Number(query.per_page) || 25;
   const total = Number(metaRaw.total) || 0;
 
   return {
