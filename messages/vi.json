@@ -175,6 +175,7 @@
       "estimated_harvest_date": "Ngày thu hoạch dự kiến",
       "estimated_harvest_end_date": "Ngày kết thúc thu hoạch dự kiến",
       "actual_harvest_date": "Ngày thu hoạch thực tế",
+      "actual_harvest_end_date": "Ngày kết thúc thu hoạch",
       "delivery_harvest_date": "Ngày giao hàng",
       "available_kg": "Khả dụng (kg)",
       "calculated_kg": "Tính toán (kg)",
@@ -183,6 +184,8 @@
       "zone_configuration_id": "Cấu hình khu",
       "odoo_customer_id": "Khách hàng Odoo",
       "truck_note": "Ghi chú xe",
+      "shipping_dispatch_details": "Chi tiết vận chuyển / giao hàng",
+      "general_note": "Ghi chú",
       "load_type": "Loại tải"
     },
     "errors": {
@@ -584,6 +587,7 @@
     "type": "Loại",
     "estDate": "Ngày dự kiến",
     "harvestDate": "Ngày thu hoạch",
+    "harvestEndDate": "Ngày kết thúc thu hoạch",
     "deliveryDate": "Ngày giao",
     "areaM2": "Diện tích (m²)",
     "quantity": "Số lượng",

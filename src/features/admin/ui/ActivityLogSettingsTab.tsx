@@ -66,9 +66,10 @@ function fieldLabel(field: string, t: ReturnType<typeof useTranslations>): strin
   const known = [
     "project_id", "project_name", "alias_title", "title", "name", "description", "quantity", "uom",
     "farm_id", "zone", "product_id", "status", "status_id", "estimated_harvest_date",
-    "estimated_harvest_end_date", "actual_harvest_date", "delivery_harvest_date",
+    "estimated_harvest_end_date", "actual_harvest_date", "actual_harvest_end_date",
+    "delivery_harvest_date",
     "available_kg", "calculated_kg", "balance_date", "grass_id", "zone_configuration_id",
-    "odoo_customer_id", "truck_note", "load_type",
+    "odoo_customer_id", "truck_note", "shipping_dispatch_details", "general_note", "load_type",
   ] as const;
   if ((known as readonly string[]).includes(field)) {
     return t(`fields.${field}` as "fields.project_id");

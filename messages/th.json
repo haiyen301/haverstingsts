@@ -175,6 +175,7 @@
       "estimated_harvest_date": "วันที่เก็บเกี่ยวโดยประมาณ",
       "estimated_harvest_end_date": "วันสิ้นสุดเก็บเกี่ยวโดยประมาณ",
       "actual_harvest_date": "วันที่เก็บเกี่ยวจริง",
+      "actual_harvest_end_date": "วันสิ้นสุดการเก็บเกี่ยว",
       "delivery_harvest_date": "วันที่ส่งมอบ",
       "available_kg": "คงเหลือ (kg)",
       "calculated_kg": "คำนวณ (kg)",
@@ -183,6 +184,8 @@
       "zone_configuration_id": "การตั้งค่าโซน",
       "odoo_customer_id": "ลูกค้า Odoo",
       "truck_note": "หมายเหตุรถ",
+      "shipping_dispatch_details": "รายละเอียดการขนส่ง / การจัดส่ง",
+      "general_note": "หมายเหตุ",
       "load_type": "ประเภทโหลด"
     },
     "errors": {
@@ -584,6 +587,7 @@
     "type": "ประเภท",
     "estDate": "วันที่คาดการณ์",
     "harvestDate": "วันที่เก็บเกี่ยว",
+    "harvestEndDate": "วันสิ้นสุดการเก็บเกี่ยว",
     "deliveryDate": "วันที่ส่งมอบ",
     "areaM2": "พื้นที่ (ม²)",
     "quantity": "ปริมาณ",

@@ -30,6 +30,12 @@ import { harvestTypeDisplayLabel, normalizeHarvestTypeStorageKey } from "@/share
 import { HARVEST_DOC_PHOTO_FIELDS } from "@/features/harvesting/api/flutterHarvestSubmit";
 import { parseHarvestDocImagesFromRow } from "@/features/harvesting/lib/parseHarvestDocImages";
 import { effectiveHarvestDateYmd, isValidHarvestDateString } from "@/shared/lib/harvestPlanDates";
+import {
+  getActualHarvestEndDateFromRow,
+  getGeneralNoteFromRow,
+  getShippingDispatchDetailsFromRow,
+  getTruckNoteFromRow,
+} from "@/shared/lib/harvestPlanExtendedFields";
 import { computeReadyDateYmdFromPlanRow } from "@/features/forecasting/computeReadyDateFromPlanRow";
 import { cn } from "@/lib/utils";
 
@@ -320,13 +326,19 @@ export default function HarvestDetailPage() {
                       { label: t("zone"), value: zoneText, Icon: Layers },
                       { label: t("estDate"), value: displayDate(row.estimated_harvest_date), Icon: Calendar },
                       { label: t("harvestDate"), value: displayDate(row.actual_harvest_date), Icon: Calendar },
+                      { label: t("harvestEndDate"), value: displayDate(getActualHarvestEndDateFromRow(row)), Icon: Calendar },
                       { label: t("deliveryDate"), value: displayDate(row.delivery_harvest_date), Icon: Truck },
                       { label: t("areaM2"), value: areaSafe > 0 ? areaSafe.toLocaleString() : "—", Icon: Ruler },
                       { label: t("quantity"), value: `${qtySafe.toLocaleString()} ${qtyUom}`, Icon: Weight },
                       { label: t("density"), value: kgPerM2 > 0 ? `${kgPerM2.toFixed(1)} kg/m²` : "—", Icon: Weight },
                       { label: t("doSo"), value: String(row.do_so_number ?? "—"), Icon: FileText },
-                      { label: t("truckNote"), value: String(row.truck_note ?? "—"), Icon: Truck },
-                      { label: t("generalNote"), value: String(row.description ?? "—"), Icon: FileText },
+                      { label: t("truckNote"), value: getTruckNoteFromRow(row) || "—", Icon: Truck },
+                      {
+                        label: tForm("shippingDispatchDetails"),
+                        value: getShippingDispatchDetailsFromRow(row) || "—",
+                        Icon: Truck,
+                      },
+                      { label: t("generalNote"), value: getGeneralNoteFromRow(row) || "—", Icon: FileText },
                     ].map((item) => (
                       <div key={item.label} className="flex items-start gap-3">
                         <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted">
