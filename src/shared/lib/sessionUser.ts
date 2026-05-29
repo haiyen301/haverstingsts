@@ -1,4 +1,4 @@
-import { parseMaintenanceUserId } from "@/shared/auth/maintenanceAccess";
+import { parsePrivilegedAdminUserId } from "@/shared/auth/privilegedAdminAccess";
 import { getStsApiBaseUrl, INTERNAL_API } from "@/shared/api/stsLogin";
 
 /** Legacy key — JWT now lives in HttpOnly session cookie only. */
@@ -33,7 +33,7 @@ export async function fetchSessionStatus(): Promise<SessionStatus> {
     });
     if (!res.ok) return { authenticated: false };
     const j = (await res.json()) as { authenticated?: boolean; userId?: unknown };
-    const userId = parseMaintenanceUserId(j.userId);
+    const userId = parsePrivilegedAdminUserId(j.userId);
     return {
       authenticated: j.authenticated === true,
       userId,

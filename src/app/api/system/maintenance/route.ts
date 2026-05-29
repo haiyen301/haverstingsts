@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
-import { userIdMayBypassMaintenance } from "@/shared/auth/maintenanceAccess";
+import { userIdIsPrivilegedAdmin } from "@/shared/auth/privilegedAdminAccess";
 import { AUTH_COOKIE_NAME } from "@/shared/lib/authCookie";
 import { normalizeMaintenancePatch } from "@/shared/system/maintenanceConfig";
 import {
@@ -27,7 +27,7 @@ async function requireMaintenanceAdmin(req: Request): Promise<Response | null> {
   if (!acl) {
     return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
   }
-  if (!userIdMayBypassMaintenance(acl.userId)) {
+  if (!userIdIsPrivilegedAdmin(acl.userId)) {
     return NextResponse.json({ success: false, message: "Forbidden." }, { status: 403 });
   }
   return null;

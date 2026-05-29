@@ -13,9 +13,9 @@ import {
   harvestPlanEffectiveMagnitudeFromRaw,
   harvestPlanHarvestedAreaFromRaw,
   harvestPlanProductIdFromRaw,
+  harvestPlanInventoryKgFromRaw,
   harvestPlanQuantityFromRaw,
   harvestPlanScalarFromRaw,
-  harvestPlanSprigKgFromRaw,
   resolvePlanRowUomFromRaw,
   type ZoneInventoryFragment,
 } from "@/features/forecasting/forecastingInventoryConversion";
@@ -102,20 +102,18 @@ export function harvestApiRowToForecastRow(
   const customer = String(raw.customer_name ?? raw.customer ?? "").trim();
   const harvestType = detectHarvestType(raw);
   const uom = resolvePlanRowUom(raw);
-  const sodSprigKg = harvestPlanSprigKgFromRaw(raw);
-  const quantityKgForDensity =
-    harvestType === "sod_for_sprig" && sodSprigKg > 0
-      ? sodSprigKg
-      : harvestPlanQuantityFromRaw(raw);
   const harvestedAreaM2 = harvestPlanHarvestedAreaFromRaw(raw);
   const quantity = harvestPlanEffectiveMagnitudeFromRaw(raw);
+  const inventoryKgEst = harvestPlanInventoryKgFromRaw(raw);
   const kgPerM2Raw = Number(raw.kg_per_m2);
   const kgPerM2 =
     Number.isFinite(kgPerM2Raw) && kgPerM2Raw > 0
       ? kgPerM2Raw
-      : harvestedAreaM2 > 0
-        ? quantityKgForDensity / harvestedAreaM2
-        : 0;
+      : harvestedAreaM2 > 0 && inventoryKgEst > 0
+        ? inventoryKgEst / harvestedAreaM2
+        : harvestType === "sprig" && harvestedAreaM2 > 0
+          ? harvestPlanQuantityFromRaw(raw) / harvestedAreaM2
+          : 0;
 
   const readyDateYmd =
     computeReadyDateYmdFromPlanRow(raw, harvestDateYmd) ?? harvestDateYmd;

@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
-import { parseMaintenanceUserId } from "@/shared/auth/maintenanceAccess";
+import { parsePrivilegedAdminUserId } from "@/shared/auth/privilegedAdminAccess";
 import {
   AUTH_COOKIE_NAME,
   AUTH_USER_ID_COOKIE_NAME,
@@ -16,7 +16,7 @@ export async function GET() {
   }
 
   const acl = await fetchTrustedAclByToken(token);
-  const userId = parseMaintenanceUserId(acl?.userId) ?? null;
+  const userId = parsePrivilegedAdminUserId(acl?.userId) ?? null;
 
   const res = NextResponse.json({
     authenticated: true,

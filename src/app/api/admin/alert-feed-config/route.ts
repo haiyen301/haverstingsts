@@ -5,7 +5,7 @@ import { NextResponse } from "next/server";
 import { AUTH_COOKIE_NAME } from "@/shared/lib/authCookie";
 import { cookies } from "next/headers";
 import { fetchTrustedAclByToken } from "@/shared/server/trustedAcl";
-import { userIdMayAccessAlertFeedSettings } from "@/shared/auth/alertFeedSettingsAccess";
+import { userIdIsPrivilegedAdmin } from "@/shared/auth/privilegedAdminAccess";
 import { hasModulePermission } from "@/shared/auth/permissions";
 import {
   ALERT_CATEGORY_ICON_KEYS,
@@ -166,7 +166,7 @@ async function requireAdminPeopleEdit(req: Request): Promise<Response | null> {
   if (!ok) {
     return NextResponse.json({ success: false, message: "Forbidden." }, { status: 403 });
   }
-  if (!userIdMayAccessAlertFeedSettings(acl.userId)) {
+  if (!userIdIsPrivilegedAdmin(acl.userId)) {
     return NextResponse.json({ success: false, message: "Forbidden." }, { status: 403 });
   }
   return null;

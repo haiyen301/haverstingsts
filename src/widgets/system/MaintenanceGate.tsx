@@ -6,9 +6,9 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { MaintenanceEvictionOverlay } from "@/features/system/ui/MaintenanceEvictionOverlay";
 import { fetchMaintenanceStatus } from "@/features/admin/api/maintenanceApi";
 import {
-  parseMaintenanceUserId,
-  userIdMayBypassMaintenance,
-} from "@/shared/auth/maintenanceAccess";
+  parsePrivilegedAdminUserId,
+  userIdIsPrivilegedAdmin,
+} from "@/shared/auth/privilegedAdminAccess";
 import { subscribeMaintenanceConfigChanged } from "@/shared/auth/maintenanceBroadcast";
 import { setMaintenanceGraceCookie } from "@/shared/auth/maintenanceGraceCookie";
 import {
@@ -47,7 +47,7 @@ export function MaintenanceGate() {
   const startEviction = useMaintenanceEvictionStore((s) => s.startEviction);
   const evicting = useMaintenanceEvictionStore((s) => s.evicting);
   const resolveUserId = useCallback(async (): Promise<number | undefined> => {
-    const fromStore = parseMaintenanceUserId(user?.id);
+    const fromStore = parsePrivilegedAdminUserId(user?.id);
     if (fromStore != null) return fromStore;
 
     const session = await fetchSessionStatus();
@@ -74,8 +74,8 @@ export function MaintenanceGate() {
     if (!shouldEnforceMaintenance(pathname)) return;
     if (isMaintenancePollingDisabled()) return;
 
-    const storeUserId = parseMaintenanceUserId(user?.id);
-    if (userIdMayBypassMaintenance(storeUserId)) {
+    const storeUserId = parsePrivilegedAdminUserId(user?.id);
+    if (userIdIsPrivilegedAdmin(storeUserId)) {
       disableMaintenancePolling("bypass");
       return;
     }
@@ -101,7 +101,7 @@ export function MaintenanceGate() {
           return;
         }
 
-        if (userIdMayBypassMaintenance(userId)) {
+        if (userIdIsPrivilegedAdmin(userId)) {
           disableMaintenancePolling("bypass");
           return;
         }

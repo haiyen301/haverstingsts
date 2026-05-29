@@ -96,4 +96,6 @@ export const STS_API_PATHS = {
   maintenanceGet: "/api/base/react_get_maintenance_mode",
   /** POST toggle maintenance — user id 409 only. */
   maintenanceSave: "/api/base/react_save_maintenance_mode",
+  /** GET activity audit log — user id 409 only (`Activity_logs::index`). */
+  activityLogs: "/api/activity_logs",
 } as const;

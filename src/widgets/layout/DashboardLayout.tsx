@@ -13,6 +13,7 @@ import {
   Building2,
   Calendar,
   ChevronDown,
+  ClipboardList,
   Cog,
   FileSpreadsheet,
   FolderKanban,
@@ -42,9 +43,8 @@ import { fetchMyAlerts } from "@/features/alerts/api/alertsApi";
 import { ALERTS_UPDATED_EVENT } from "@/features/alerts/alertClientEvents";
 import { useSyncedFarmMultiSelect } from "@/shared/hooks/useSyncedFarmMultiSelect";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
-import { ALERT_FEED_SETTINGS_ALLOWED_USER_IDS } from "@/shared/auth/alertFeedSettingsAccess";
 import { INVENTORY_IMPORT_ALLOWED_USER_IDS, userIdMayAccessInventoryImport } from "@/shared/auth/inventoryImportAccess";
-import { MAINTENANCE_BYPASS_USER_IDS } from "@/shared/auth/maintenanceAccess";
+import { PRIVILEGED_ADMIN_USER_IDS } from "@/shared/auth/privilegedAdminAccess";
 import {
   canAccessModule,
 } from "@/shared/auth/permissions";
@@ -337,7 +337,7 @@ export function DashboardLayout({ children, hideAppNav = false }: DashboardLayou
                 icon: Bell,
                 path: "/admin/people/alerts",
                 module: "admin_people",
-                restrictToUserIds: [...ALERT_FEED_SETTINGS_ALLOWED_USER_IDS],
+                restrictToUserIds: [...PRIVILEGED_ADMIN_USER_IDS],
                 isActive: (p) => p === "/admin/people/alerts" || p.startsWith("/admin/people/alerts/"),
               },
             ],
@@ -364,10 +364,20 @@ export function DashboardLayout({ children, hideAppNav = false }: DashboardLayou
                 label: tn("adminMaintenance"),
                 icon: ShieldAlert,
                 path: "/admin/settings/maintenance",
-                restrictToUserIds: [...MAINTENANCE_BYPASS_USER_IDS],
+                restrictToUserIds: [...PRIVILEGED_ADMIN_USER_IDS],
                 isActive: (p) =>
                   p === "/admin/settings/maintenance" ||
                   p.startsWith("/admin/settings/maintenance/"),
+              },
+              {
+                value: "activity-log",
+                label: tn("adminActivityLog"),
+                icon: ClipboardList,
+                path: "/admin/settings/activity-log",
+                restrictToUserIds: [...PRIVILEGED_ADMIN_USER_IDS],
+                isActive: (p) =>
+                  p === "/admin/settings/activity-log" ||
+                  p.startsWith("/admin/settings/activity-log/"),
               },
             ],
           },

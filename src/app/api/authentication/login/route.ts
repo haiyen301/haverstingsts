@@ -8,9 +8,9 @@ import {
 import { getStsApiUrlCandidates, STS_LOGIN_PATHS } from "@/shared/api/stsLogin";
 import { AUTH_COOKIE_OPTIONS } from "@/shared/server/stsAuthBearer";
 import {
-  parseMaintenanceUserId,
-  userIdMayBypassMaintenance,
-} from "@/shared/auth/maintenanceAccess";
+  parsePrivilegedAdminUserId,
+  userIdIsPrivilegedAdmin,
+} from "@/shared/auth/privilegedAdminAccess";
 import { buildAclSnapshotFromProfile } from "@/shared/auth/permissions";
 import { fetchMaintenanceStatusFromUpstream } from "@/shared/server/maintenanceUpstream";
 import {
@@ -126,11 +126,11 @@ export async function POST(req: Request) {
       profile && typeof profile === "object"
         ? (profile as Record<string, unknown>)
         : null;
-    const userId = parseMaintenanceUserId(
+    const userId = parsePrivilegedAdminUserId(
       profileObj?.id ?? profileObj?.user_id ?? profileObj?.userId,
     );
     const maintenance = await fetchMaintenanceStatusFromUpstream();
-    if (maintenance.enabled && !userIdMayBypassMaintenance(userId)) {
+    if (maintenance.enabled && !userIdIsPrivilegedAdmin(userId)) {
       return NextResponse.json(
         {
           success: false,
