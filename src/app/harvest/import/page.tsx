@@ -25,18 +25,30 @@ import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
 type FieldKey =
   | "customerName"
   | "projectName"
+  | "name"
   | "farm"
   | "zone"
   | "grass"
+  | "turfType"
   | "harvestType"
+  | "uom"
   | "quantity"
+  | "refHrvQtySprig"
+  | "referenceHarvestUom"
   | "estimatedDate"
+  | "estimatedDateEnd"
   | "actualDate"
+  | "actualHarvestEndDate"
   | "deliveryDate"
+  | "shipmentRequiredDate"
   | "doSoDate"
   | "doSoNumber"
   | "truckNote"
+  | "shippingDispatchDetails"
+  | "generalNote"
   | "licensePlate"
+  | "paymentId"
+  | "country"
   | "harvestedArea";
 
 type ExcelRow = Record<string, unknown>;
@@ -49,19 +61,30 @@ type MappedRow = {
   source: ExcelRow;
   customerName: string;
   projectName: string;
+  name: string;
   farm: string;
   zone: string;
   grass: string;
+  turfType: string;
   harvestType: string; // Sod | Sprig
   quantity: string;
   uom: "M2" | "Kg";
+  refHrvQtySprig: string;
+  referenceHarvestUom: string;
   estimatedDate: string;
+  estimatedDateEnd: string;
   actualDate: string;
+  actualHarvestEndDate: string;
   deliveryDate: string;
+  shipmentRequiredDate: string;
   doSoDate: string;
   doSoNumber: string;
   truckNote: string;
+  shippingDispatchDetails: string;
+  generalNote: string;
   licensePlate: string;
+  paymentId: string;
+  country: string;
   harvestedArea: string;
 };
 
@@ -86,19 +109,31 @@ type ImportLog = {
 const FIELDS: { key: FieldKey }[] = [
   { key: "customerName" },
   { key: "projectName" },
+  { key: "name" },
   { key: "farm" },
   { key: "zone" },
   { key: "grass" },
+  { key: "turfType" },
   { key: "harvestType" },
+  { key: "uom" },
   { key: "quantity" },
+  { key: "refHrvQtySprig" },
+  { key: "referenceHarvestUom" },
+  { key: "harvestedArea" },
   { key: "estimatedDate" },
+  { key: "estimatedDateEnd" },
   { key: "actualDate" },
+  { key: "actualHarvestEndDate" },
   { key: "deliveryDate" },
+  { key: "shipmentRequiredDate" },
   { key: "doSoDate" },
   { key: "doSoNumber" },
   { key: "truckNote" },
+  { key: "shippingDispatchDetails" },
+  { key: "generalNote" },
   { key: "licensePlate" },
-  { key: "harvestedArea" },
+  { key: "paymentId" },
+  { key: "country" },
 ];
 
 function normalizeHeader(v: string) {
@@ -232,6 +267,14 @@ function normalizeHarvestType(v: string): { harvestType: "Sod" | "Sprig" | ""; u
   return { harvestType: "", uom: "M2" };
 }
 
+function normalizeUom(v: string, fallback: "M2" | "Kg"): "M2" | "Kg" {
+  const s = normalizeLoose(v);
+  if (!s) return fallback;
+  if (s === "kg" || s.includes("kg")) return "Kg";
+  if (s === "m2" || s === "m²" || s.includes("m2") || s.includes("sqm")) return "M2";
+  return fallback;
+}
+
 function suggestMapping(headers: string[]): FieldMapping {
   const byNorm = new Map(headers.map((h) => [normalizeHeader(h), h]));
   const pick = (candidates: string[]) => {
@@ -248,18 +291,30 @@ function suggestMapping(headers: string[]): FieldMapping {
   return {
     customerName: pick(["customer", "customer name"]),
     projectName: pick(["project", "project name"]),
+    name: pick(["name", "harvest name"]),
     farm: pick(["farm", "farm name"]),
     zone: pick(["zone"]),
-    grass: pick(["grass", "product"]),
-    harvestType: pick(["harvest type", "load type", "sod/sprig", "sod sprig", "type", "uom", "unit"]),
+    grass: pick(["grass", "grass type", "product"]),
+    turfType: pick(["turf type", "turf_type"]),
+    harvestType: pick(["harvest type", "load type", "sod/sprig", "sod sprig", "type"]),
+    uom: pick(["uom", "unit"]),
     quantity: pick(["quantity", "qty"]),
-    estimatedDate: pick(["estimated harvest date", "estimated date", "estimate date"]),
-    actualDate: pick(["actual harvest date", "actual date"]),
+    refHrvQtySprig: pick(["ref harvest qty sprig", "ref_hrv_qty_sprig", "reference harvest qty"]),
+    referenceHarvestUom: pick(["reference harvest uom", "reference_harvest_uom"]),
+    estimatedDate: pick(["estimated harvest date", "estimated date", "estimate date", "est. date"]),
+    estimatedDateEnd: pick(["estimated harvest end date", "estimated end date", "est. end date"]),
+    actualDate: pick(["actual harvest date", "actual date", "harvest date"]),
+    actualHarvestEndDate: pick(["actual harvest end date", "harvest end date", "actual end date"]),
     deliveryDate: pick(["delivery harvest date", "delivery date"]),
-    doSoNumber: pick(["do/so", "do so", "do so number", "do_so_number"]),
-    doSoDate: pick(["do so date", "do_so_date", "doso date"]),
+    shipmentRequiredDate: pick(["shipment required date", "port arrival date", "port arrival"]),
+    doSoNumber: pick(["do/so", "do so", "do so number", "do_so_number", "do/so #"]),
+    doSoDate: pick(["do so date", "do_so_date", "doso date", "do/so date"]),
     truckNote: pick(["truck note", "note"]),
+    shippingDispatchDetails: pick(["shipping dispatch details", "shipping/dispatch", "dispatch details"]),
+    generalNote: pick(["general note", "general_note", "general comments"]),
     licensePlate: pick(["license plate", "license", "plate"]),
+    paymentId: pick(["payment id", "payment_id", "payment"]),
+    country: pick(["country", "country code"]),
     harvestedArea: pick(["harvested area", "area"]),
   };
 }
@@ -320,6 +375,7 @@ export default function HarvestImportPage() {
 
   const farms = useHarvestingDataStore((s) => s.farms);
   const projects = useHarvestingDataStore((s) => s.projects);
+  const allProjects = useHarvestingDataStore((s) => s.allProjects);
   const products = useHarvestingDataStore((s) => s.products);
   const fetchAllHarvestingReferenceData = useHarvestingDataStore(
     (s) => s.fetchAllHarvestingReferenceData,
@@ -356,6 +412,20 @@ export default function HarvestImportPage() {
       .filter((x) => x.id && x.label);
   }, [products]);
 
+  const customerCandidates = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const item of allProjects as unknown[]) {
+      if (!item || typeof item !== "object") continue;
+      const row = item as Record<string, unknown>;
+      const cid = toStringSafe(row.odoo_customer_id);
+      if (!cid) continue;
+      const label =
+        toStringSafe(row.company_name ?? row.alias_title) || cid;
+      if (!m.has(cid)) m.set(cid, label);
+    }
+    return Array.from(m.entries()).map(([id, label]) => ({ id, label }));
+  }, [allProjects]);
+
   const resolveByLooseText = (
     raw: string,
     candidates: { id: string; label: string }[],
@@ -381,35 +451,40 @@ export default function HarvestImportPage() {
 
   const mappedRows = useMemo((): MappedRow[] => {
     if (!mapping) return [];
+    const dateOpts = { date1904: workbookDate1904 };
     return rows.map((r, i) => {
       const get = (k: FieldKey) => r[mapping[k]];
       const ht = normalizeHarvestType(toStringSafe(get("harvestType")));
+      const uom = normalizeUom(toStringSafe(get("uom")), ht.uom);
       return {
         rowNumber: i + 2,
         source: r,
         customerName: toStringSafe(get("customerName")),
         projectName: toStringSafe(get("projectName")),
+        name: toStringSafe(get("name")),
         farm: toStringSafe(get("farm")),
         zone: toStringSafe(get("zone")),
         grass: toStringSafe(get("grass")),
+        turfType: toStringSafe(get("turfType")),
         harvestType: ht.harvestType || "",
         quantity: toStringSafe(get("quantity")).replaceAll(",", ""),
-        uom: ht.uom,
-        estimatedDate: tryParseDate(get("estimatedDate"), {
-          date1904: workbookDate1904,
-        }),
-        actualDate: tryParseDate(get("actualDate"), {
-          date1904: workbookDate1904,
-        }),
-        deliveryDate: tryParseDate(get("deliveryDate"), {
-          date1904: workbookDate1904,
-        }),
-        doSoDate: tryParseDate(get("doSoDate"), {
-          date1904: workbookDate1904,
-        }),
+        uom,
+        refHrvQtySprig: toStringSafe(get("refHrvQtySprig")).replaceAll(",", ""),
+        referenceHarvestUom: toStringSafe(get("referenceHarvestUom")),
+        estimatedDate: tryParseDate(get("estimatedDate"), dateOpts),
+        estimatedDateEnd: tryParseDate(get("estimatedDateEnd"), dateOpts),
+        actualDate: tryParseDate(get("actualDate"), dateOpts),
+        actualHarvestEndDate: tryParseDate(get("actualHarvestEndDate"), dateOpts),
+        deliveryDate: tryParseDate(get("deliveryDate"), dateOpts),
+        shipmentRequiredDate: tryParseDate(get("shipmentRequiredDate"), dateOpts),
+        doSoDate: tryParseDate(get("doSoDate"), dateOpts),
         doSoNumber: toStringSafe(get("doSoNumber")),
         truckNote: toStringSafe(get("truckNote")),
+        shippingDispatchDetails: toStringSafe(get("shippingDispatchDetails")),
+        generalNote: toStringSafe(get("generalNote")),
         licensePlate: toStringSafe(get("licensePlate")),
+        paymentId: toStringSafe(get("paymentId")),
+        country: toStringSafe(get("country")),
         harvestedArea: toStringSafe(get("harvestedArea")).replaceAll(",", ""),
       };
     });
@@ -536,7 +611,10 @@ export default function HarvestImportPage() {
     setWorkbookDate1904(
       d1904 === true || d1904 === 1 || d1904 === "true" || d1904 === "1",
     );
-    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const sheetName =
+      wb.SheetNames.find((n) => n.trim().toLowerCase() === "data") ??
+      wb.SheetNames[0];
+    const sheet = wb.Sheets[sheetName];
     if (!sheet) {
       setError(t("invalidSheet"));
       return;
@@ -563,8 +641,11 @@ export default function HarvestImportPage() {
       if (mapping) {
         const dateKeys: FieldKey[] = [
           "estimatedDate",
+          "estimatedDateEnd",
           "actualDate",
+          "actualHarvestEndDate",
           "deliveryDate",
+          "shipmentRequiredDate",
           "doSoDate",
         ];
         logHarvestImportDates("test data (column mapping + raw vs parsed)", {
@@ -674,7 +755,15 @@ export default function HarvestImportPage() {
         const projectId = resolveByLooseText(r.projectName, projectCandidates);
         const farmId = resolveByLooseText(r.farm, farmCandidates);
         const productId = resolveByLooseText(r.grass, productCandidates);
+        const customerIdFromName = resolveByLooseText(r.customerName, customerCandidates);
         const assignedTo = user?.id != null ? String(user.id) : "";
+        const selectedProjectRow = (allProjects as unknown[]).find((item) => {
+          if (!item || typeof item !== "object") return false;
+          const row = item as Record<string, unknown>;
+          return toStringSafe(row.id) === projectId;
+        }) as Record<string, unknown> | undefined;
+        const customerFromProject = toStringSafe(selectedProjectRow?.odoo_customer_id);
+        const customerId = customerIdFromName || customerFromProject || undefined;
         try {
           if (!projectId) {
             throw new Error(t("warnProjectNotFound", { value: r.projectName }));
@@ -709,13 +798,25 @@ export default function HarvestImportPage() {
               quantity: r.quantity,
               uom: r.uom,
               harvestType: r.harvestType,
+              name: r.name || undefined,
+              turfType: r.turfType || undefined,
               estimatedHarvestDate: r.estimatedDate,
+              estimatedHarvestEndDate: r.estimatedDateEnd || undefined,
               actualHarvestDate: r.actualDate,
+              actualHarvestEndDate: r.actualHarvestEndDate || undefined,
               deliveryHarvestDate: r.deliveryDate,
+              shipmentRequiredDate: r.shipmentRequiredDate || undefined,
               doSoDate: r.doSoDate,
               doSoNumber: r.doSoNumber,
               truckNote: r.truckNote,
+              shippingDispatchDetails: r.shippingDispatchDetails || undefined,
+              generalNote: r.generalNote || undefined,
               licensePlate: r.licensePlate,
+              paymentId: r.paymentId || undefined,
+              refHrvQtySprig: r.refHrvQtySprig || undefined,
+              referenceHarvestUom: r.referenceHarvestUom || undefined,
+              country: r.country || undefined,
+              customerId,
               assignedTo,
               createdBy: user?.id != null ? String(user.id) : undefined,
               harvestedArea: r.harvestedArea || undefined,
