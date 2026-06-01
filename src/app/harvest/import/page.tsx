@@ -13,6 +13,7 @@ import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { useAuthUserStore } from "@/shared/store/authUserStore";
 import { canAccessModule } from "@/shared/auth/permissions";
 import { submitFlutterHarvest } from "@/features/harvesting/api/flutterHarvestSubmit";
+import { downloadHarvestImportErrors } from "@/features/harvesting/lib/harvestImportErrorExport";
 import { stsProxyGetHarvestingIndex, stsProxyPostJson } from "@/shared/api/stsProxyClient";
 import { STS_API_PATHS } from "@/shared/api/stsApiPaths";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
@@ -319,29 +320,6 @@ function suggestMapping(headers: string[]): FieldMapping {
   };
 }
 
-function downloadWorkbook(fileName: string, rows: ExcelRow[], logs: RowIssue[]) {
-  const wb = XLSX.utils.book_new();
-  const errorByRow = new Map<number, string>();
-  for (const l of logs) {
-    errorByRow.set(l.rowIndex, l.messages.join("; "));
-  }
-  const rowsWithErrorColumn = rows.map((r, idx) => {
-    // `sheet_to_json` starts at row 2 (row 1 = header)
-    const rowNumber = idx + 2;
-    const msg = errorByRow.get(rowNumber) ?? "";
-    return { ...(r as Record<string, unknown>), error_message: msg };
-  });
-  const dataSheet = XLSX.utils.json_to_sheet(rowsWithErrorColumn);
-  XLSX.utils.book_append_sheet(wb, dataSheet, "data");
-  const logRows = logs.map((l) => ({
-    row: l.rowIndex,
-    message: l.messages.join("; "),
-  }));
-  const logSheet = XLSX.utils.json_to_sheet(logRows);
-  XLSX.utils.book_append_sheet(wb, logSheet, "logs");
-  XLSX.writeFile(wb, fileName);
-}
-
 export default function HarvestImportPage() {
   const tBase = useAppTranslations();
   const t = (
@@ -362,6 +340,7 @@ export default function HarvestImportPage() {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<TestResult | null>(null);
   const [importing, setImporting] = useState(false);
+  const [downloadingErrors, setDownloadingErrors] = useState(false);
   const [importLogs, setImportLogs] = useState<ImportLog[]>([]);
   const [error, setError] = useState("");
   const [summary, setSummary] = useState("");
@@ -859,20 +838,28 @@ export default function HarvestImportPage() {
     }
   };
 
-  const successCount = importLogs.filter((x) => x.status === "success").length;
   const errorCount = importLogs.filter((x) => x.status === "error").length;
   const importErrorLogs = importLogs.filter((x) => x.status === "error");
 
-  const downloadResult = (kind: "success" | "error") => {
-    const picked = importLogs.filter((x) => x.status === kind);
-    if (!picked.length) return;
-    const rowsOut = picked.map((x) => x.source);
-    const logs = picked.map((x) => ({ rowIndex: x.rowNumber, messages: [x.message] }));
-    downloadWorkbook(
-      kind === "success" ? "harvest-import-success.xlsx" : "harvest-import-error.xlsx",
-      rowsOut,
-      logs,
-    );
+  const downloadErrorRows = async () => {
+    if (!importErrorLogs.length || downloadingErrors) return;
+    setDownloadingErrors(true);
+    setError("");
+    try {
+      await downloadHarvestImportErrors(
+        importErrorLogs.map((x) => ({
+          rowNumber: x.rowNumber,
+          message: x.message,
+          source: x.source,
+        })),
+        mapping ?? {},
+        fileName,
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t("downloadErrorFailed"));
+    } finally {
+      setDownloadingErrors(false);
+    }
   };
 
   return (
@@ -1031,24 +1018,21 @@ export default function HarvestImportPage() {
 
               {importLogs.length ? (
                 <div className="space-y-3">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => downloadResult("success")}
-                      className="inline-flex items-center gap-2 rounded-lg border border-green-300 px-3 py-2 text-sm text-green-700 hover:bg-green-50"
-                    >
-                      <Download className="h-4 w-4" />
-                      {t("downloadSuccess", { count: successCount })}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => downloadResult("error")}
-                      className="inline-flex items-center gap-2 rounded-lg border border-red-300 px-3 py-2 text-sm text-red-700 hover:bg-red-50"
-                    >
-                      <Download className="h-4 w-4" />
-                      {t("downloadError", { count: errorCount })}
-                    </button>
-                  </div>
+                  {importErrorLogs.length ? (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void downloadErrorRows()}
+                        disabled={downloadingErrors}
+                        className="inline-flex items-center gap-2 rounded-lg border border-red-300 px-3 py-2 text-sm text-red-700 hover:bg-red-50 disabled:opacity-60"
+                      >
+                        <Download className="h-4 w-4" />
+                        {downloadingErrors
+                          ? t("downloadingErrors")
+                          : t("downloadError", { count: errorCount })}
+                      </button>
+                    </div>
+                  ) : null}
 
                   {importErrorLogs.length ? (
                     <div className="rounded-md border border-red-200 bg-red-50 p-3 text-sm">
@@ -1063,7 +1047,7 @@ export default function HarvestImportPage() {
                         ))}
                         {importErrorLogs.length > 20 ? (
                           <p className="text-xs text-red-600">
-                            Showing first 20 errors. Download the error file for full details.
+                            {t("showingFirstErrors", { shown: 20, total: importErrorLogs.length })}
                           </p>
                         ) : null}
                       </div>

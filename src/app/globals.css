@@ -287,3 +287,8 @@ select:disabled {
   background-color: hsl(var(--muted));
   color: hsl(var(--muted-foreground));
 }
+
+/* Project harvest history modal uses z-75; Fancybox must sit above it */
+.fancybox__container.harvest-history-fancybox {
+  z-index: 200;
+}
