@@ -77,6 +77,7 @@ import { useLocale } from "next-intl";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
 import { translateProjectType } from "@/features/project/lib/projectTypeDisplay";
 import {
+  calculateOverallProjectProgressFromRaw,
   formatGrassQuantityProgressLabel,
   formatGrassRequiredQuantityLabel,
   formatGrassRequirementDisplayName,
@@ -1197,13 +1198,14 @@ export default function ProjectDetailPage() {
   }, [deliveredQuantityRows, keyAreaMap, projectRow, productMap, t]);
 
   const overallPercent = useMemo(() => {
-    const totalReq = grassRows.reduce((s, g) => s + g.required, 0);
-    const totalDel = grassRows.reduce(
-      (s, g) => s + Math.min(g.delivered, g.required),
-      0,
+    if (!projectRow) return 0;
+    const harvestProjectId = String(projectRow.project_id ?? "").trim() || undefined;
+    return calculateOverallProjectProgressFromRaw(
+      deliveredQuantityRows,
+      projectRow.quantity_required_sprig_sod,
+      harvestProjectId,
     );
-    return totalReq > 0 ? Math.round((totalDel / totalReq) * 100) : 0;
-  }, [grassRows]);
+  }, [deliveredQuantityRows, projectRow]);
 
   const sortedGrassRows = useMemo(() => {
     return [...grassRows].sort((a, b) => {

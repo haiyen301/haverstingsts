@@ -185,6 +185,12 @@ function normalizeSubitems(raw: unknown): SubItem[] {
       delivery_harvest_date: String(x.delivery_harvest_date ?? "").trim() || undefined,
       actual_harvest_date: String(x.actual_harvest_date ?? "").trim() || undefined,
       uom: String(x.uom ?? "").trim() || undefined,
+      id: x.id as string | number | undefined,
+      harvest_type: String(x.harvest_type ?? "").trim() || undefined,
+      load_type: String(x.load_type ?? "").trim() || undefined,
+      harvestType: String(x.harvestType ?? "").trim() || undefined,
+      select_harvest_type: String(x.select_harvest_type ?? "").trim() || undefined,
+      selectHarvestType: String(x.selectHarvestType ?? "").trim() || undefined,
     }));
 }
 
@@ -290,7 +296,7 @@ function computeMondayStatus(
  * Each line uses `calculateDeliveredQuantityDeliveryOnly` (valid `delivery_harvest_date` + UOM + project scope).
  * Not volume-weighted across lines so Kg vs m² lines contribute equally to the bar.
  */
-function calculateProgress(
+export function calculateOverallProjectProgress(
   subitems: SubItem[],
   requirements: QuantityRequiredProject[],
   harvestProjectId?: string,
@@ -312,6 +318,19 @@ function calculateProgress(
   }
   if (countedRows <= 0) return 0;
   return Math.round((sumCompletion / countedRows) * 100);
+}
+
+/** List cards, detail page — same inputs as Monday `subitems` + `quantity_required_sprig_sod`. */
+export function calculateOverallProjectProgressFromRaw(
+  subitemsSource: unknown,
+  requirementsRaw: unknown,
+  harvestProjectId?: string,
+): number {
+  return calculateOverallProjectProgress(
+    normalizeSubitems(subitemsSource),
+    normalizeRequirements(requirementsRaw),
+    harvestProjectId,
+  );
 }
 
 /**
@@ -354,7 +373,7 @@ export function buildProjectDataFromServerRow(
   const keyAreas = parseKeyAreas(row.key_areas);
   const noOfHoles = String(row.no_of_holes ?? "").trim();
 
-  const progress = Math.round(calculateProgress(subitems, requirements, projectId));
+  const progress = calculateOverallProjectProgress(subitems, requirements, projectId);
 
   /** Harvesting.php sets this from `_mondayEffectiveStatusLabel` (includes per-line uom vs subitems). */
   const apiStatusRaw = String(row.status_app ?? row.status ?? "").trim();

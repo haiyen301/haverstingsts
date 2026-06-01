@@ -63,6 +63,14 @@ export type SubItem = {
   /** Harvest completed (fallback when delivery date not set yet) */
   actual_harvest_date?: string;
   uom?: string;
+  /** Plan / subitem row id (merge dedupe). */
+  id?: string | number;
+  /** Sod → Sprig progress matching (`subitemDeliveredQuantity`). */
+  harvest_type?: string;
+  load_type?: string;
+  harvestType?: string;
+  select_harvest_type?: string;
+  selectHarvestType?: string;
 };
 
 export interface MondayProjectServerRow {
