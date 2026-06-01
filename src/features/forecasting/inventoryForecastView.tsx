@@ -1093,26 +1093,70 @@ export function InventoryForecast() {
     [farmOptions],
   );
 
-  /** Grass filter: STS sales window on today (empty `refYmds` → today); URL-selected ids stay pinned. */
+  /** Grass ids configured in zone setup for the selected farm(s); null when all farms → show full catalog. */
+  const grassIdsFromZoneConfigForFarms = useMemo(() => {
+    if (selectedFarmIds.length === 0) return null;
+    const ids = new Set<string>();
+    for (const row of zoneConfigSnapshot) {
+      if (!selectedFarmIdSet.has(String(row.farm_id))) continue;
+      const grassId = String(row.grass_id ?? "").trim();
+      if (grassId) ids.add(grassId);
+    }
+    return ids;
+  }, [selectedFarmIds, selectedFarmIdSet, zoneConfigSnapshot]);
+
+  /** All farms → every grass type; specific farm(s) → grasses from zone configuration only. */
   const grassFilterOptions = useMemo(() => {
-    const picked = pickGrassCatalogRows({
-      catalog: grasses as unknown[],
-      mode: "sales_window",
-      refYmds: [],
-      pinnedGrassIds: selectedGrassIds,
+    const catalogLabelById = new Map<string, string>();
+    for (const g of grasses as unknown[]) {
+      if (!g || typeof g !== "object") continue;
+      const rec = g as Record<string, unknown>;
+      const id = String(rec.id ?? "").trim();
+      if (!id) continue;
+      const label = String(rec.title ?? rec.name ?? "").trim();
+      if (label) catalogLabelById.set(id, label);
+    }
+
+    if (grassIdsFromZoneConfigForFarms === null) {
+      const picked = pickGrassCatalogRows({
+        catalog: grasses as unknown[],
+        mode: "all",
+        refYmds: [],
+        pinnedGrassIds: selectedGrassIds,
+      });
+      return picked
+        .map((g) => {
+          if (!g || typeof g !== "object") return null;
+          const rec = g as Record<string, unknown>;
+          const value = String(rec.id ?? "").trim();
+          const label = String(rec.title ?? rec.name ?? "").trim() || value;
+          if (!value) return null;
+          return { value, label };
+        })
+        .filter((x): x is { value: string; label: string } => x !== null)
+        .sort((a, b) => a.label.localeCompare(b.label));
+    }
+
+    const options = [...grassIdsFromZoneConfigForFarms].map((id) => {
+      const sample = zoneConfigSnapshot.find((row) => String(row.grass_id) === id);
+      const turf =
+        sample?.turfgrass != null && String(sample.turfgrass).trim() !== ""
+          ? String(sample.turfgrass).trim()
+          : null;
+      return { value: id, label: catalogLabelById.get(id) ?? turf ?? id };
     });
-    return picked
-      .map((g) => {
-        if (!g || typeof g !== "object") return null;
-        const rec = g as Record<string, unknown>;
-        const value = String(rec.id ?? "").trim();
-        const label = String(rec.title ?? rec.name ?? "").trim() || value;
-        if (!value) return null;
-        return { value, label };
-      })
-      .filter((x): x is { value: string; label: string } => x !== null)
-      .sort((a, b) => a.label.localeCompare(b.label));
-  }, [grasses, selectedGrassIds]);
+
+    return options.sort((a, b) => a.label.localeCompare(b.label));
+  }, [grasses, selectedGrassIds, grassIdsFromZoneConfigForFarms, zoneConfigSnapshot]);
+
+  useEffect(() => {
+    if (selectedFarmIds.length === 0 || selectedGrassIds.length === 0) return;
+    const allowed = new Set(grassFilterOptions.map((o) => o.value));
+    const next = selectedGrassIds.filter((id) => allowed.has(id));
+    if (next.length !== selectedGrassIds.length) {
+      setHarvestListGrassFilter(toCsvList(next));
+    }
+  }, [selectedFarmIds, selectedGrassIds, grassFilterOptions, setHarvestListGrassFilter]);
 
   const rowsWithLiveZoneCaps = useMemo(
     () => applyLatestZoneMaxKgToForecastRows(rows, zoneConfigSnapshot),

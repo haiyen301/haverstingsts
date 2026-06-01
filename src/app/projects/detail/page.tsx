@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
@@ -33,10 +40,11 @@ import {
   fetchProjectDynamicFieldsByProjectId,
 } from "@/entities/projects/api/projectsApi";
 import { stsProxyGetHarvestingIndex } from "@/shared/api/stsProxyClient";
+import { HARVEST_ATTACHMENT_SOURCES } from "@/shared/lib/harvestAttachmentImages";
 import {
-  HARVEST_ATTACHMENT_SOURCES,
-  getAttachmentUrls,
-} from "@/shared/lib/harvestAttachmentImages";
+  buildHarvestAttachmentSlidesFromRow,
+  openHarvestAttachmentFancybox,
+} from "@/shared/lib/harvestAttachmentFancybox";
 import { formatDateDisplay, isValidDate } from "@/shared/lib/format/date";
 import {
   farmNameByIdFromRows,
@@ -47,7 +55,10 @@ import {
   zoneIdToLabel,
 } from "@/shared/lib/harvestReferenceData";
 import { parseJsonMaybe } from "@/shared/lib/parseJsonMaybe";
-import { calculateDeliveredQuantityDeliveryOnly } from "@/features/project/lib/subitemDeliveredQuantity";
+import {
+  calculateDeliveredQuantityDeliveryOnly,
+  isSodToSprigHarvestLine,
+} from "@/features/project/lib/subitemDeliveredQuantity";
 import {
   buildHarvestPlanVisibilityCtx,
   canUserManageHarvestPlanRecord,
@@ -57,7 +68,11 @@ import {
 import {
   HARVEST_PROJECT_PROGRESS_SCOPE,
 } from "@/features/project/lib/mergeProjectSubitemsWithHarvestPlan";
-import { effectiveRequiredQuantityFromRecord } from "@/features/project/lib/effectiveRequirementQuantity";
+import {
+  effectiveRequiredQuantityFromRecord,
+  formatRequirementUomDisplay,
+  inferRequirementUom,
+} from "@/features/project/lib/effectiveRequirementQuantity";
 import { useLocale } from "next-intl";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
 import { translateProjectType } from "@/features/project/lib/projectTypeDisplay";
@@ -66,8 +81,14 @@ import {
   formatGrassRequiredQuantityLabel,
   formatGrassRequirementDisplayName,
 } from "@/features/project/lib/buildProjectCardData";
-import { inferRequirementUom } from "@/features/project/lib/effectiveRequirementQuantity";
-import { normalizeHarvestTypeStorageKey } from "@/shared/lib/harvestType";
+import {
+  getActualHarvestEndDateFromRow,
+  getEstimatedDateEndFromRow,
+  getGeneralNoteFromRow,
+  getShippingDispatchDetailsFromRow,
+  getTruckNoteFromRow,
+} from "@/shared/lib/harvestPlanExtendedFields";
+import { harvestTypeDisplayLabel } from "@/shared/lib/harvestType";
 import { cn } from "@/lib/utils";
 import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
 import { DatePicker } from "@/shared/ui/date-picker";
@@ -305,11 +326,112 @@ type HarvestRow = {
   actualDate: string;
   deliveryDate: string;
   doSoNumber: string;
+  doSoDate: string;
   truckNote: string;
+  shippingDispatchDetails: string;
+  generalNote: string;
+  licensePlate: string;
+  harvestTypeLabel: string;
+  uomDisplay: string;
+  customerDisplay: string;
+  estimatedDateEnd: string;
+  actualHarvestEndDate: string;
+  portArrivalDate: string;
+  /** Harvested area with unit for detail modal. */
+  harvestedAreaFullDisplay: string | null;
+  densityDisplay: string | null;
   attachments: Array<{ label: string; url: string }>;
   /** Per-record edit/delete (see `PROJECT_DETAIL_HARVEST_HISTORY_DISPLAY_MODE`). */
   canManageHarvest: boolean;
 };
+
+function harvestDetailDisplayText(v: string | null | undefined): string {
+  const s = String(v ?? "").trim();
+  if (!s || s === "-") return "—";
+  return s;
+}
+
+function HarvestHistoryDetailField({
+  label,
+  value,
+  className,
+}: {
+  label: string;
+  value: ReactNode;
+  className?: string;
+}) {
+  return (
+    <p className={className}>
+      <span className="inline-block w-[140px] shrink-0 text-gray-500">{label}</span>
+      <span className="text-foreground">{value}</span>
+    </p>
+  );
+}
+
+function HarvestHistoryDetailNote({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  const text = harvestDetailDisplayText(value);
+  return (
+    <div>
+      <p className="mb-1 text-gray-500">{label}</p>
+      <p className="whitespace-pre-wrap wrap-break-word text-foreground">{text}</p>
+    </div>
+  );
+}
+
+/** All image URLs per harvest doc slot (Fancybox gallery). */
+function buildHarvestAttachmentSlides(
+  r: Record<string, unknown>,
+): Array<{ label: string; url: string }> {
+  const slides: Array<{ label: string; url: string }> = [];
+  for (const src of HARVEST_ATTACHMENT_SOURCES) {
+    const urls = getAttachmentUrls(r[src.field]);
+    if (urls.length === 0) {
+      slides.push({ label: src.label, url: "" });
+      continue;
+    }
+    urls.forEach((url, idx) => {
+      slides.push({
+        label: urls.length > 1 ? `${src.label} (${idx + 1})` : src.label,
+        url,
+      });
+    });
+  }
+  return slides;
+}
+
+function openHarvestHistoryFancybox(
+  slides: Array<{ label: string; url: string }>,
+  slideIndex: number,
+): void {
+  const items = slides
+    .filter((s) => s.url.trim())
+    .map((s) => ({
+      src: s.url,
+      caption: s.label,
+      type: "image" as const,
+    }));
+  if (items.length === 0) return;
+
+  let startIndex = 0;
+  for (let i = 0; i < slideIndex; i++) {
+    if (slides[i]?.url.trim()) startIndex += 1;
+  }
+  if (!slides[slideIndex]?.url.trim()) {
+    startIndex = 0;
+  }
+
+  Fancybox.show(items, {
+    startIndex: Math.min(startIndex, items.length - 1),
+    Carousel: { infinite: false },
+    mainClass: "harvest-history-fancybox",
+  });
+}
 
 function parseNumber(v: unknown): number {
   if (typeof v === "number") return Number.isFinite(v) ? v : 0;
@@ -384,28 +506,24 @@ function mapHarvestRecordToHarvestRow(
   const actual = String(r.actual_harvest_date ?? "").trim();
   const estimated = String(r.estimated_harvest_date ?? "").trim();
   const status = deriveProjectHarvestStatusFromRecord(r);
-  const attachments: Array<{ label: string; url: string }> = HARVEST_ATTACHMENT_SOURCES.map(
-    (src) => ({
-      label: src.label,
-      url: getAttachmentUrls(r[src.field])[0] ?? "",
-    }),
-  );
+  const attachments = buildHarvestAttachmentSlidesFromRow(r);
 
   const uomRaw = String(r.uom ?? "").trim();
   const uomLower = uomRaw.toLowerCase();
   const ha = parseNumber(r.harvested_area);
   const qty = parseNumber(r.quantity);
-  const harvestTypeKey =
-    normalizeHarvestTypeStorageKey(r.harvest_type ?? r.load_type ?? "") ||
-    normalizeHarvestTypeStorageKey(r.harvestType ?? "");
-  const isSodToSprig = harvestTypeKey === "sod_to_sprig";
+  const isSodToSprig = isSodToSprigHarvestLine(r);
   const displayQty = qty;
-  const displayUom = uomRaw;
+  const displayUom = isSodToSprig
+    ? "Kg"
+    : formatRequirementUomDisplay(uomRaw) || uomRaw;
   const productId = String(r.product_id ?? "").trim();
   const uomKey = isSodToSprig ? "kg" : normalizeUomKey(uomRaw);
   const remainingMapKey = `${productId}::${uomKey}`;
   const remainingQty = ctx.remainingByProductUom.get(remainingMapKey);
-  const remainingUnit = ctx.unitByProductUom.get(remainingMapKey) ?? uomRaw;
+  const remainingUnit =
+    ctx.unitByProductUom.get(remainingMapKey) ??
+    (isSodToSprig ? "Kg" : uomRaw);
   const remainingQuantityDisplay =
     remainingQty != null
       ? `${remainingQty.toLocaleString()} ${remainingUnit}`.trim()
@@ -413,9 +531,13 @@ function mapHarvestRecordToHarvestRow(
   const harvestedAreaDisplay =
     uomLower === "kg" && ha > 0 ? ha.toLocaleString() : null;
   const harvestedAreaM2Display =
-    uomLower === "m2" && (ha > 0 || (!isSodToSprig && qty > 0))
+    !isSodToSprig &&
+    uomLower === "m2" &&
+    (ha > 0 || qty > 0)
       ? (ha > 0 ? ha : qty).toLocaleString()
-      : null;
+      : isSodToSprig && ha > 0
+        ? ha.toLocaleString()
+        : null;
 
   const grassName = String(r.grass_name ?? r.commodity_name ?? "").trim();
   const grass =
@@ -439,6 +561,27 @@ function mapHarvestRecordToHarvestRow(
       ? estimated.slice(0, 10)
       : "";
   const createdAt = String(r.created_at ?? r.createdAt ?? "").trim();
+  const kgPerM2Raw = parseNumber(r.kg_per_m2);
+  const densityDisplay =
+    kgPerM2Raw > 0
+      ? `${kgPerM2Raw.toFixed(1)} kg/m²`
+      : ha > 0 && qty > 0 && (isSodToSprig || uomLower === "kg")
+        ? `${(qty / ha).toFixed(1)} kg/m²`
+        : null;
+  const harvestedAreaFullDisplay =
+    harvestedAreaM2Display != null
+      ? `${harvestedAreaM2Display} m²`
+      : harvestedAreaDisplay != null
+        ? `${harvestedAreaDisplay} m²`
+        : null;
+  const harvestTypeLabel =
+    harvestTypeDisplayLabel(
+      r.harvest_type ?? r.load_type ?? r.harvestType ?? "",
+    ) || "—";
+  const customerDisplay =
+    String(r.customer_name ?? r.customer ?? "").trim() ||
+    String(r.customer_id ?? "").trim() ||
+    "";
 
   return {
     id: String(r.id ?? ""),
@@ -470,10 +613,22 @@ function mapHarvestRecordToHarvestRow(
     harvestedAreaDisplay,
     harvestedAreaM2Display,
     estimatedDate: formatDateDisplay(r.estimated_harvest_date, ctx.locale),
+    estimatedDateEnd: formatDateDisplay(getEstimatedDateEndFromRow(r), ctx.locale),
     actualDate: formatDateDisplay(r.actual_harvest_date, ctx.locale),
+    actualHarvestEndDate: formatDateDisplay(getActualHarvestEndDateFromRow(r), ctx.locale),
+    portArrivalDate: formatDateDisplay(r.shipment_required_date, ctx.locale),
     deliveryDate: formatDateDisplay(r.delivery_harvest_date, ctx.locale),
     doSoNumber: String(r.do_so_number ?? "").trim() || "-",
-    truckNote: String(r.truck_note ?? "").trim() || "-",
+    doSoDate: formatDateDisplay(r.do_so_date, ctx.locale),
+    truckNote: getTruckNoteFromRow(r) || "-",
+    shippingDispatchDetails: getShippingDispatchDetailsFromRow(r) || "-",
+    generalNote: getGeneralNoteFromRow(r) || "-",
+    licensePlate: String(r.license_plate ?? "").trim() || "-",
+    harvestTypeLabel,
+    uomDisplay: displayUom,
+    customerDisplay,
+    harvestedAreaFullDisplay,
+    densityDisplay,
     attachments,
     canManageHarvest: canUserManageHarvestPlanRecord(r, ctx.harvestVisibilityCtx),
   };
@@ -578,6 +733,7 @@ export default function ProjectDetailPage() {
   // `ProjectDetail.harvestedArea`). Using namespaces matches the JSON shape and yields stable `t`.
   const t = useAppTranslations("ProjectDetail");
   const tForm = useAppTranslations("HarvestForm");
+  const tHarvestDetail = useAppTranslations("HarvestDetail");
   const tProjectForm = useAppTranslations("ProjectForm");
   const tBase = useAppTranslations();
   const tCommon = (key: string) => tBase(`Common.${key}`);
@@ -936,15 +1092,10 @@ export default function ProjectDetailPage() {
   }, [fetchAllHarvestingReferenceData, harvestHistoryScope, projectIdFromQuery, rowId, tableId, t, userId]);
 
   useEffect(() => {
-    Fancybox.bind(".harvest-fancybox-trigger", {
-      Carousel: {
-        infinite: false,
-      },
-    });
-    return () => {
-      Fancybox.unbind(".harvest-fancybox-trigger");
-    };
-  }, [expandedHarvestId, harvests]);
+    if (!expandedHarvestId) {
+      Fancybox.close();
+    }
+  }, [expandedHarvestId]);
 
   const basic = useMemo(() => {
     const r = projectRow;
@@ -1774,52 +1925,149 @@ export default function ProjectDetailPage() {
                     </button>
                   </div>
                 </div>
-                <div className="space-y-4 text-sm">
-                  <div className="grid grid-cols-1 gap-3 border-b border-gray-200 pb-4 sm:grid-cols-2">
-                    <p>
-                      <span className="inline-block w-[110px] text-gray-500">{t("grass")}:</span>
-                      {" "}
-                      <span className="inline-flex items-center gap-1">
-                        <span>{h.grass}</span>
-                        <HarvestLimitQuestionMark status={h.limitStatus} />
-                      </span>
-                    </p>
-                    <p>
-                      <span className="inline-block w-[110px] text-gray-500">{t("quantity")}:</span>
-                      {" "}
-                      {h.quantity}
-                      <span className="mt-1 ml-[110px] block text-xs text-gray-500">
-                        {t("Remqty")} {h.remainingQuantityDisplay ? h.remainingQuantityDisplay : "-"}
-                      </span>
-                    </p>
-                    <p>
-                      <span className="inline-block w-[110px] text-gray-500 align-top">
-                        {t("harvestedArea")}{" "}
-                      </span>
-                      {h.harvestedAreaM2Display ? h.harvestedAreaM2Display + t("harvestedAreaUnitM2") : "-"}
-                    </p>
-                    <p>
-                      <span className="inline-block w-[110px] text-gray-500">{t("farm")}:</span>
-                      {` ${h.farm && h.farm !== "-" ? h.farm : "—"}`}
-                    </p>
-                    <p><span className="inline-block w-[110px] text-gray-500">{t("zone")}:</span>{` ${h.zone}`}</p>
-                    <p><span className="inline-block w-[110px] text-gray-500">{t("displayDate")} </span>{h.date}</p>
-                  </div>
-                  <div className="grid grid-cols-1 gap-3 border-b border-gray-200 pb-4 sm:grid-cols-2">
-                    <p><span className="inline-block w-[110px] text-gray-500">{t("estimateDate")} </span>{h.estimatedDate}</p>
-                    <p><span className="inline-block w-[110px] text-gray-500">{t("actualDate")} </span>{h.actualDate}</p>
-                    <p><span className="inline-block w-[110px] text-gray-500">{t("deliveryDate")} </span>{h.deliveryDate}</p>
-                    <p><span className="inline-block w-[110px] text-gray-500">{t("doSoNumber")} </span>{h.doSoNumber}</p>
-                  </div>
-                  <p><span className="text-gray-500">{t("truckNote")} </span>{h.truckNote}</p>
+                <div className="space-y-5 text-sm">
                   <div>
-                    <label className="mb-3 block text-xs uppercase tracking-wider text-[#5a7d3c]">
-                      {t("attachment")}
+                    <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-[#5a7d3c]">
+                      {tForm("sectionQuantityTitle")}
+                    </h3>
+                    <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+                      <HarvestHistoryDetailField
+                        label={`${t("grass")}:`}
+                        value={
+                          <span className="inline-flex items-center gap-1">
+                            {h.grass}
+                            <HarvestLimitQuestionMark status={h.limitStatus} />
+                          </span>
+                        }
+                      />
+                      <HarvestHistoryDetailField
+                        label={`${tForm("harvestType")}:`}
+                        value={harvestDetailDisplayText(h.harvestTypeLabel)}
+                      />
+                      <HarvestHistoryDetailField
+                        label={`${tForm("unit")}:`}
+                        value={harvestDetailDisplayText(h.uomDisplay)}
+                      />
+                      <HarvestHistoryDetailField
+                        label={`${t("farm")}:`}
+                        value={
+                          harvestDetailDisplayText(
+                            h.farm && h.farm !== "-" ? h.farm : "",
+                          )
+                        }
+                      />
+                      <HarvestHistoryDetailField
+                        label={`${t("zone")}:`}
+                        value={harvestDetailDisplayText(h.zone)}
+                      />
+                   
+                      <div className="sm:col-span-2">
+                        <HarvestHistoryDetailField
+                          label={`${t("quantity")}:`}
+                          value={harvestDetailDisplayText(h.quantity)}
+                        />
+                        <p className="mt-1 pl-[140px] text-xs text-gray-500">
+                          {t("Remqty")}{" "}
+                          {h.remainingQuantityDisplay
+                            ? h.remainingQuantityDisplay
+                            : "—"}
+                        </p>
+                      </div>
+                      <HarvestHistoryDetailField
+                        label={`${t("harvestedArea")}`}
+                        value={
+                          harvestDetailDisplayText(h.harvestedAreaFullDisplay)
+                        }
+                      />
+                      {h.densityDisplay ? (
+                        <HarvestHistoryDetailField
+                          label={`${tHarvestDetail("density")}:`}
+                          value={h.densityDisplay}
+                        />
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <div className="border-t border-gray-200 pt-4">
+                    <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-[#5a7d3c]">
+                      {tForm("sectionTimelineTitle")}
+                    </h3>
+                    <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+                      <HarvestHistoryDetailField
+                        label={`${t("displayDate")}`}
+                        value={harvestDetailDisplayText(h.date)}
+                      />
+                      <HarvestHistoryDetailField
+                        label={`${t("estimateDate")}`}
+                        value={harvestDetailDisplayText(h.estimatedDate)}
+                      />
+                      <HarvestHistoryDetailField
+                        label={`${tForm("estimatedRangeEndHint")}:`}
+                        value={harvestDetailDisplayText(h.estimatedDateEnd)}
+                      />
+                      <HarvestHistoryDetailField
+                        label={`${tForm("actualDateHarvestForm")}:`}
+                        value={harvestDetailDisplayText(h.actualDate)}
+                      />
+                      <HarvestHistoryDetailField
+                        label={`${tForm("harvestEndDate")}:`}
+                        value={harvestDetailDisplayText(h.actualHarvestEndDate)}
+                      />
+                      <HarvestHistoryDetailField
+                        label={`${tForm("portArrivalDate")}:`}
+                        value={harvestDetailDisplayText(h.portArrivalDate)}
+                      />
+                      <HarvestHistoryDetailField
+                        label={`${t("deliveryDate")}`}
+                        value={harvestDetailDisplayText(h.deliveryDate)}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="border-t border-gray-200 pt-4">
+                    <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-[#5a7d3c]">
+                      {tForm("sectionLogisticsTitle")}
+                    </h3>
+                    <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+                      <HarvestHistoryDetailField
+                        label={`${t("doSoNumber")}`}
+                        value={harvestDetailDisplayText(h.doSoNumber)}
+                      />
+                      <HarvestHistoryDetailField
+                        label={`${tForm("doSoDate")}:`}
+                        value={harvestDetailDisplayText(h.doSoDate)}
+                      />
+                      <HarvestHistoryDetailField
+                        label={`${tForm("licensePlate")}:`}
+                        value={harvestDetailDisplayText(h.licensePlate)}
+                      />
+                    </div>
+                    <div className="mt-3 space-y-3">
+                      <HarvestHistoryDetailNote
+                        label={t("truckNote")}
+                        value={h.truckNote}
+                      />
+                      <HarvestHistoryDetailNote
+                        label={tForm("shippingDispatchDetails")}
+                        value={h.shippingDispatchDetails}
+                      />
+                      <HarvestHistoryDetailNote
+                        label={tForm("generalNote")}
+                        value={h.generalNote}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="border-t border-gray-200 pt-4">
+                    <label className="mb-3 block text-xs font-semibold uppercase tracking-wider text-[#5a7d3c]">
+                      {tForm("documentationPhotos")}
                     </label>
                     <Swiper
                       modules={[FreeMode]}
                       freeMode
                       grabCursor
+                      preventClicks={false}
+                      preventClicksPropagation={false}
                       spaceBetween={12}
                       slidesPerView={2.2}
                       breakpoints={{
@@ -1838,19 +2086,23 @@ export default function ProjectDetailPage() {
                           <div className="group rounded-lg border-2 border-dashed border-gray-300 p-2 transition-colors hover:border-[#5a7d3c]">
                             <div className="mb-2 flex aspect-square items-center justify-center overflow-hidden rounded bg-gray-50 group-hover:bg-gray-100">
                               {a.url ? (
-                                <a
-                                  href={a.url}
-                                  className="harvest-fancybox-trigger relative block h-full w-full cursor-zoom-in"
-                                  data-fancybox={`harvest-${h.id}`}
-                                  data-caption={a.label}
+                                <button
+                                  type="button"
+                                  className="relative block h-full w-full cursor-zoom-in border-0 bg-transparent p-0"
+                                  aria-label={`${t("expandHarvestRow")}: ${a.label}`}
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    openHarvestAttachmentFancybox(h.attachments, i);
+                                  }}
                                 >
                                   {/* eslint-disable-next-line @next/next/no-img-element */}
                                   <img
                                     src={a.url}
                                     alt={a.label}
-                                    className="h-full w-full object-cover"
+                                    className="h-full w-full object-cover transition-opacity group-hover:opacity-90"
                                   />
-                                </a>
+                                </button>
                               ) : (
                                 <ImageIcon className="h-10 w-10 text-gray-300" />
                               )}

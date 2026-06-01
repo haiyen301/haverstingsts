@@ -189,9 +189,9 @@ const emptyForm = {
   /** Matches `customer_id` on plan row when available from projects (`odoo_customer_id`). */
   customerId: "",
   grass: "",
-  harvestType: "sod",
+  harvestType: "",
   quantity: "",
-  uom: "M2",
+  uom: "",
   /** `harvested_area` — nhập riêng với quantity; payload M2 vẫn không gửi cột này (theo API). */
   harvestedArea: "",
   zone: "",
@@ -318,6 +318,8 @@ type QuantityRequirement = {
   /** Generic `quantity` when API does not split kg/m2. */
   quantity: number | null;
   uom: string | null;
+  farmId: string | null;
+  zoneId: string | null;
 };
 
 /** Server / Flutter `getRemainingQuantityForProduct` — branches use form UOM (`uomRaw`). */
@@ -333,13 +335,7 @@ function getRequiredQtyForUom(req: QuantityRequirement, uomRaw: string): number 
   );
 }
 
-function defaultUomForRequirement(req: QuantityRequirement): string {
-  if (req.quantityKg != null && req.quantityKg > 0) {
-    return "Kg";
-  }
-  if (req.quantityM2 != null && req.quantityM2 > 0) {
-    return "M2";
-  }
+function defaultUomForRequirement(req: QuantityRequirement): "Kg" | "M2" {
   const u = req.uom?.trim().toLowerCase() ?? "";
   if (u === "kg" || u === "kgs") {
     return "Kg";
@@ -347,7 +343,43 @@ function defaultUomForRequirement(req: QuantityRequirement): string {
   if (u === "m2" || u === "m²" || u === "sqm") {
     return "M2";
   }
+  if (req.quantityKg != null && req.quantityKg > 0) {
+    return "Kg";
+  }
+  if (req.quantityM2 != null && req.quantityM2 > 0) {
+    return "M2";
+  }
   return "M2";
+}
+
+function uniqueRequirementProductIds(requirements: QuantityRequirement[]): string[] {
+  const seen = new Set<string>();
+  const ids: string[] = [];
+  for (const req of requirements) {
+    const id = req.productId.trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+  }
+  return ids;
+}
+
+function findRequirementForProduct(
+  requirements: QuantityRequirement[],
+  productId: string,
+): QuantityRequirement | null {
+  const normalized = productId.trim();
+  if (!normalized) return null;
+  return requirements.find((r) => r.productId.trim() === normalized) ?? null;
+}
+
+function resolveFarmIdFromRequirement(
+  req: QuantityRequirement | null,
+  farmOptions: { id: string }[],
+): string {
+  const farmId = String(req?.farmId ?? "").trim();
+  if (!farmId) return "";
+  return farmOptions.some((f) => f.id === farmId) ? farmId : "";
 }
 
 function normUomKey(u: string): string {
@@ -478,6 +510,8 @@ function parseRequirements(raw: unknown, productNameById: Map<string, string>) {
       quantityM2,
       quantity: qRaw !== "" ? genericQty : null,
       uom: uomRaw || null,
+      farmId: String(row.farm_id ?? "").trim() || null,
+      zoneId: String(row.zone_id ?? row.zone ?? "").trim() || null,
     });
   }
   return out;
@@ -852,6 +886,7 @@ function HarvestInputPageInner() {
   );
 
   const defaultFarmAppliedRef = useRef(false);
+  const projectDefaultsAppliedRef = useRef("");
   const customerOptions = useMemo(() => {
     const m = new Map<string, string>();
     for (const item of allProjects) {
@@ -1173,6 +1208,7 @@ function HarvestInputPageInner() {
 
   useEffect(() => {
     defaultFarmAppliedRef.current = false;
+    projectDefaultsAppliedRef.current = "";
   }, [editId, initialProjectId]);
 
   useEffect(() => {
@@ -1355,6 +1391,74 @@ function HarvestInputPageInner() {
     setFormData((prev) => ({ ...prev, grass: "" }));
     setFieldErrors((prev) => ({ ...prev, grass: undefined }));
   }, [formData.grass, formData.project, selectedProjectRequirements]);
+
+  useEffect(() => {
+    if (accessDenied || editId || !editLoaded || !bootstrapDone) return;
+
+    const projectId = formData.project.trim();
+    if (!projectId) {
+      projectDefaultsAppliedRef.current = "";
+      return;
+    }
+    if (projectDefaultsAppliedRef.current === projectId) return;
+
+    const uniqueGrassIds = uniqueRequirementProductIds(selectedProjectRequirements);
+    if (uniqueGrassIds.length !== 1) return;
+
+    const grassId = uniqueGrassIds[0]!;
+    const req = findRequirementForProduct(selectedProjectRequirements, grassId);
+    if (!req) return;
+
+    projectDefaultsAppliedRef.current = projectId;
+
+    setFormData((prev) => {
+      if (prev.project.trim() !== projectId) return prev;
+
+      const grassEmpty = !prev.grass.trim();
+      const grassMatchesSingle = prev.grass.trim() === grassId;
+      if (!grassEmpty && !grassMatchesSingle) return prev;
+
+      let next: HarvestFormState = { ...prev, grass: grassId };
+      const uomEmpty = !prev.uom.trim() && !prev.harvestType.trim();
+      if (grassEmpty || uomEmpty) {
+        next = applyUomConstraint(next, defaultUomForRequirement(req));
+      }
+
+      const reqFarmId = resolveFarmIdFromRequirement(req, farmOptions);
+      if (reqFarmId) {
+        next = {
+          ...next,
+          farm: reqFarmId,
+          zone: reqFarmId !== prev.farm ? "" : prev.zone,
+        };
+      }
+
+      if (
+        next.grass === prev.grass &&
+        next.uom === prev.uom &&
+        next.harvestType === prev.harvestType &&
+        next.farm === prev.farm &&
+        next.zone === prev.zone
+      ) {
+        return prev;
+      }
+      return next;
+    });
+    setFieldErrors((prev) => ({
+      ...prev,
+      grass: undefined,
+      harvestType: undefined,
+      farm: undefined,
+    }));
+  }, [
+    accessDenied,
+    bootstrapDone,
+    editId,
+    editLoaded,
+    farmOptions,
+    formData.project,
+    selectedProjectRequirements,
+  ]);
 
   /** One row per `product_id` in `quantity_required_sprig_sod`, like Flutter `quantityRequiredSprigSod.firstWhereOrNull`. */
   const requirementForGrass = useMemo(() => {
@@ -1910,16 +2014,32 @@ function HarvestInputPageInner() {
                             const pr = findProjectRowBySelectId(allProjects, project);
                             const cid = String(pr?.odoo_customer_id ?? "").trim();
                             const projectChanged = project !== formData.project;
+                            if (projectChanged) {
+                              projectDefaultsAppliedRef.current = "";
+                            }
                             setFormData({
                               ...formData,
                               project,
                               customerId: formData.customerId || cid,
-                              ...(projectChanged ? { grass: "" } : null),
+                              ...(projectChanged
+                                ? {
+                                    grass: "",
+                                    uom: "",
+                                    harvestType: "",
+                                    quantity: "",
+                                  }
+                                : null),
                             });
                             setFieldErrors((prev) => ({
                               ...prev,
                               project: undefined,
-                              ...(projectChanged ? { grass: undefined } : null),
+                              ...(projectChanged
+                                ? {
+                                    grass: undefined,
+                                    harvestType: undefined,
+                                    quantity: undefined,
+                                  }
+                                : null),
                             }));
                           }}
                           multi={false}
@@ -1995,13 +2115,27 @@ function HarvestInputPageInner() {
                               selectedProjectRequirements.find(
                                 (r) => r.productId === grass,
                               ) ?? null;
-                            const nextUom = req ? defaultUomForRequirement(req) : formData.uom;
+                            const nextUom = req
+                              ? defaultUomForRequirement(req)
+                              : (formData.uom as "Kg" | "M2" | "");
+                            const reqFarmId = resolveFarmIdFromRequirement(
+                              req,
+                              farmOptions,
+                            );
                             setFormData((prev) => {
                               if (prev.grass === grass) return prev;
-                              return applyUomConstraint(
-                                { ...prev, grass },
-                                nextUom as "Kg" | "M2",
-                              );
+                              let next: HarvestFormState = { ...prev, grass };
+                              if (nextUom) {
+                                next = applyUomConstraint(next, nextUom);
+                              }
+                              if (reqFarmId) {
+                                next = {
+                                  ...next,
+                                  farm: reqFarmId,
+                                  zone: reqFarmId !== prev.farm ? "" : prev.zone,
+                                };
+                              }
+                              return next;
                             });
                             setFieldErrors((prev) => ({ ...prev, grass: undefined }));
                           }}

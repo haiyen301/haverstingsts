@@ -27,8 +27,11 @@ import { useAuthUserStore } from "@/shared/store/authUserStore";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { zoneIdToLabel } from "@/shared/lib/harvestReferenceData";
 import { harvestTypeDisplayLabel, normalizeHarvestTypeStorageKey } from "@/shared/lib/harvestType";
-import { HARVEST_DOC_PHOTO_FIELDS } from "@/features/harvesting/api/flutterHarvestSubmit";
-import { parseHarvestDocImagesFromRow } from "@/features/harvesting/lib/parseHarvestDocImages";
+import {
+  buildHarvestAttachmentSlidesFromRow,
+  openHarvestAttachmentFancybox,
+} from "@/shared/lib/harvestAttachmentFancybox";
+import "@fancyapps/ui/dist/fancybox/fancybox.css";
 import { effectiveHarvestDateYmd, isValidHarvestDateString } from "@/shared/lib/harvestPlanDates";
 import {
   getActualHarvestEndDateFromRow,
@@ -178,23 +181,24 @@ export default function HarvestDetailPage() {
   );
   const StatusIcon = status === "delivered" ? CheckCircle2 : status === "harvested" ? Clock : Calendar;
 
-  const imageSlots = useMemo(() => {
-    if (!row) return [];
-    const parsed = parseHarvestDocImagesFromRow(row);
-    const labelMap: Record<string, string> = {
+  const photoLabelByField = useMemo(
+    (): Record<string, string> => ({
       payment_img: tForm("photoSlotPayment"),
       shipping_note_img: tForm("photoSlotShipping"),
       thermostats_img: tForm("photoSlotThermostat"),
       truck_license_plate_img: tForm("photoSlotPlate"),
       product_being_cut_img: tForm("photoSlotCutting"),
       truck_loaded_img: tForm("photoSlotLoaded"),
-    };
-    return HARVEST_DOC_PHOTO_FIELDS.map((field) => ({
-      field,
-      label: labelMap[field] ?? field,
-      previewUrl: parsed[field]?.previewUrl ?? null,
-    })).filter((x) => !!x.previewUrl);
-  }, [row, tForm]);
+    }),
+    [tForm],
+  );
+
+  const attachmentSlides = useMemo(() => {
+    if (!row) return [];
+    return buildHarvestAttachmentSlidesFromRow(row, photoLabelByField).filter(
+      (s) => s.url.trim(),
+    );
+  }, [row, photoLabelByField]);
 
   const regrowth = useMemo(() => {
     if (!row) return null;
@@ -355,17 +359,28 @@ export default function HarvestDetailPage() {
 
                 <div className="glass-card rounded-xl p-5">
                   <h3 className="mb-3 text-sm font-semibold text-foreground">{t("documentationPhotos")}</h3>
-                  {imageSlots.length === 0 ? (
+                  {attachmentSlides.length === 0 ? (
                     <p className="text-sm text-muted-foreground">{t("noImages")}</p>
                   ) : (
                     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-                      {imageSlots.map((slot) => (
-                        <div key={slot.field} className="space-y-1">
-                          <div className="aspect-square overflow-hidden rounded-lg bg-muted">
+                      {attachmentSlides.map((slot, i) => (
+                        <div key={`${slot.label}-${slot.url}-${i}`} className="space-y-1">
+                          <button
+                            type="button"
+                            className="group aspect-square w-full overflow-hidden rounded-lg border-0 bg-muted p-0 cursor-zoom-in"
+                            aria-label={`${t("documentationPhotos")}: ${slot.label}`}
+                            onClick={() => openHarvestAttachmentFancybox(attachmentSlides, i)}
+                          >
                             {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={slot.previewUrl ?? ""} alt={slot.label} className="h-full w-full object-cover" />
-                          </div>
-                          <p className="truncate text-center text-xs text-muted-foreground">{slot.label}</p>
+                            <img
+                              src={slot.url}
+                              alt={slot.label}
+                              className="h-full w-full object-cover transition-opacity group-hover:opacity-90"
+                            />
+                          </button>
+                          <p className="truncate text-center text-xs text-muted-foreground">
+                            {slot.label}
+                          </p>
                         </div>
                       ))}
                     </div>
