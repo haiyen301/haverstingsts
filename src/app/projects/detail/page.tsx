@@ -77,6 +77,7 @@ import { useLocale } from "next-intl";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
 import { translateProjectType } from "@/features/project/lib/projectTypeDisplay";
 import {
+  calculateOverallProjectProgressFromRaw,
   formatGrassQuantityProgressLabel,
   formatGrassRequiredQuantityLabel,
   formatGrassRequirementDisplayName,
@@ -382,55 +383,6 @@ function HarvestHistoryDetailNote({
       <p className="whitespace-pre-wrap wrap-break-word text-foreground">{text}</p>
     </div>
   );
-}
-
-/** All image URLs per harvest doc slot (Fancybox gallery). */
-function buildHarvestAttachmentSlides(
-  r: Record<string, unknown>,
-): Array<{ label: string; url: string }> {
-  const slides: Array<{ label: string; url: string }> = [];
-  for (const src of HARVEST_ATTACHMENT_SOURCES) {
-    const urls = getAttachmentUrls(r[src.field]);
-    if (urls.length === 0) {
-      slides.push({ label: src.label, url: "" });
-      continue;
-    }
-    urls.forEach((url, idx) => {
-      slides.push({
-        label: urls.length > 1 ? `${src.label} (${idx + 1})` : src.label,
-        url,
-      });
-    });
-  }
-  return slides;
-}
-
-function openHarvestHistoryFancybox(
-  slides: Array<{ label: string; url: string }>,
-  slideIndex: number,
-): void {
-  const items = slides
-    .filter((s) => s.url.trim())
-    .map((s) => ({
-      src: s.url,
-      caption: s.label,
-      type: "image" as const,
-    }));
-  if (items.length === 0) return;
-
-  let startIndex = 0;
-  for (let i = 0; i < slideIndex; i++) {
-    if (slides[i]?.url.trim()) startIndex += 1;
-  }
-  if (!slides[slideIndex]?.url.trim()) {
-    startIndex = 0;
-  }
-
-  Fancybox.show(items, {
-    startIndex: Math.min(startIndex, items.length - 1),
-    Carousel: { infinite: false },
-    mainClass: "harvest-history-fancybox",
-  });
 }
 
 function parseNumber(v: unknown): number {
@@ -1197,13 +1149,14 @@ export default function ProjectDetailPage() {
   }, [deliveredQuantityRows, keyAreaMap, projectRow, productMap, t]);
 
   const overallPercent = useMemo(() => {
-    const totalReq = grassRows.reduce((s, g) => s + g.required, 0);
-    const totalDel = grassRows.reduce(
-      (s, g) => s + Math.min(g.delivered, g.required),
-      0,
+    if (!projectRow) return 0;
+    const harvestProjectId = String(projectRow.project_id ?? "").trim() || undefined;
+    return calculateOverallProjectProgressFromRaw(
+      deliveredQuantityRows,
+      projectRow.quantity_required_sprig_sod,
+      harvestProjectId,
     );
-    return totalReq > 0 ? Math.round((totalDel / totalReq) * 100) : 0;
-  }, [grassRows]);
+  }, [deliveredQuantityRows, projectRow]);
 
   const sortedGrassRows = useMemo(() => {
     return [...grassRows].sort((a, b) => {

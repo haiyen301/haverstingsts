@@ -9,6 +9,7 @@ export {
 } from "./lib/mondayRowOps";
 export {
   buildProjectDataFromServerRow,
+  calculateOverallProjectProgressFromRaw,
   resolveMondayCardStatusForListFilter,
   resolveReactHarvestingImageUrl,
 } from "./lib/buildProjectCardData";
