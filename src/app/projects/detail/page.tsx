@@ -93,6 +93,11 @@ import { harvestTypeDisplayLabel } from "@/shared/lib/harvestType";
 import { cn } from "@/lib/utils";
 import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
 import { DatePicker } from "@/shared/ui/date-picker";
+import {
+  deriveProjectHarvestStatusFromRecord,
+  projectHarvestDisplayDateFromRecord,
+  projectHarvestLineStatusLabel,
+} from "@/features/project/lib/projectHarvestPlanExport";
 import { ProjectDetailHarvestExportDialog } from "@/features/project/ui/ProjectDetailHarvestExportDialog";
 import { Swiper, SwiperSlide } from "swiper/react";
 import { FreeMode } from "swiper/modules";
@@ -277,16 +282,6 @@ type HarvestLineStatus = "scheduled" | "harvested" | "delivered";
 
 type HarvestPhaseFilter = "all" | "upcoming" | "completed";
 
-function deriveProjectHarvestStatusFromRecord(
-  r: Record<string, unknown>,
-): HarvestLineStatus {
-  const delivery = String(r.delivery_harvest_date ?? "").trim();
-  const harvest = String(r.actual_harvest_date ?? "").trim();
-  if (isValidDate(delivery)) return "delivered";
-  if (isValidDate(harvest)) return "harvested";
-  return "scheduled";
-}
-
 function harvestMatchesPhaseFilter(
   status: HarvestLineStatus,
   phase: HarvestPhaseFilter,
@@ -310,7 +305,7 @@ const HARVEST_PHASE_FILTER_OPTIONS: HarvestPhaseFilter[] = [
   "completed",
 ];
 
-/** Phase + column labels stick together below app header when the page scrolls. */
+/** Phase tabs stick below app header when the page scrolls. */
 const HARVEST_TABLE_STICKY_CHROME_CLASS =
   "sticky top-14 z-20 -mx-6 border-b border-border bg-card/95 backdrop-blur supports-backdrop-filter:bg-card/80";
 
@@ -319,6 +314,26 @@ const HARVEST_TABLE_HORIZONTAL_SCROLL_CLASS =
 
 const HARVEST_TABLE_COLUMN_HEAD_CLASS =
   "bg-muted py-2.5 font-medium text-muted-foreground";
+
+const HARVEST_TABLE_CLASS =
+  "w-full min-w-[900px] table-fixed border-separate border-spacing-0 text-sm";
+
+const HARVEST_TABLE_CELL_CLASS = "px-3 py-2.5";
+
+function HarvestHistoryTableColGroup() {
+  return (
+    <colgroup>
+      <col className="w-[10%]" />
+      <col className="w-[14%]" />
+      <col className="w-[12%]" />
+      <col className="w-[10%]" />
+      <col className="w-[12%]" />
+      <col className="w-[10%]" />
+      <col className="w-[12%]" />
+      <col className="w-[10%]" />
+    </colgroup>
+  );
+}
 
 type HarvestRow = {
   id: string;
@@ -449,22 +464,6 @@ type HarvestSourceBundle = {
   unitByProductUom: [string, string][];
 };
 
-function harvestLineStatusLabel(
-  tr: (key: string) => string,
-  status: HarvestLineStatus,
-): string {
-  switch (status) {
-    case "scheduled":
-      return tr("harvestStatus_scheduled");
-    case "harvested":
-      return tr("harvestStatus_harvested");
-    case "delivered":
-      return tr("harvestStatus_delivered");
-    default:
-      return status;
-  }
-}
-
 function harvestPhaseFilterLabel(
   tr: (key: string) => string,
   phase: HarvestPhaseFilter,
@@ -577,10 +576,7 @@ function mapHarvestRecordToHarvestRow(
     status,
     filterDate,
     createdAt,
-    date: formatDateDisplay(
-      isValidDate(actual) ? actual : estimated,
-      ctx.locale,
-    ),
+    date: projectHarvestDisplayDateFromRecord(r, ctx.locale),
     grass,
     farm,
     zone: (() => {
@@ -809,6 +805,25 @@ export default function ProjectDetailPage() {
   const harvestPlanPageRef = useRef(0);
   const harvestLoadMoreLockRef = useRef(false);
   const harvestLoadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
+  const harvestHeadScrollRef = useRef<HTMLDivElement | null>(null);
+  const harvestBodyScrollRef = useRef<HTMLDivElement | null>(null);
+  const harvestScrollSyncLockRef = useRef(false);
+
+  const syncHarvestTableHorizontalScroll = useCallback(
+    (source: "head" | "body", scrollLeft: number) => {
+      if (harvestScrollSyncLockRef.current) return;
+      harvestScrollSyncLockRef.current = true;
+      const head = harvestHeadScrollRef.current;
+      const body = harvestBodyScrollRef.current;
+      if (source === "head" && body && body.scrollLeft !== scrollLeft) {
+        body.scrollLeft = scrollLeft;
+      } else if (source === "body" && head && head.scrollLeft !== scrollLeft) {
+        head.scrollLeft = scrollLeft;
+      }
+      harvestScrollSyncLockRef.current = false;
+    },
+    [],
+  );
   const currentProjectId = useMemo(
     () => String(projectRow?.project_id ?? "").trim(),
     [projectRow],
@@ -1270,13 +1285,18 @@ export default function ProjectDetailPage() {
       farms: farmsForHarvest,
       farmZones: farmZonesForHarvest,
       defaultProjectLabel: basic?.projectName ?? "",
+      locale,
+      projectHarvestLineStatusLabel: (status: HarvestLineStatus) =>
+        projectHarvestLineStatusLabel(t, status),
     }),
     [
       basic?.projectName,
       farmZonesForHarvest,
       farmsForHarvest,
+      locale,
       productsRef,
       projectsRef,
+      t,
     ],
   );
 
@@ -1289,6 +1309,19 @@ export default function ProjectDetailPage() {
     const orderIndex = new Map(
       filteredHarvests.map((h, i) => [String(h.id ?? "").trim(), i]),
     );
+    const exportFieldsById = new Map(
+      filteredHarvests.map((h) => {
+        const id = String(h.id ?? "").trim();
+        const d = String(h.date ?? "").trim();
+        return [
+          id,
+          {
+            date: d && d !== "-" ? d : "",
+            status: projectHarvestLineStatusLabel(t, h.status),
+          },
+        ] as const;
+      }),
+    );
     return filterHarvestHistoryForProjectDetail(
       harvestPlanRowsForProject(harvestSource.planRows, harvestSource.projectId),
       harvestVisibilityCtx,
@@ -1299,11 +1332,22 @@ export default function ProjectDetailPage() {
         (a, b) =>
           (orderIndex.get(String(a.id ?? "").trim()) ?? 0) -
           (orderIndex.get(String(b.id ?? "").trim()) ?? 0),
-      );
+      )
+      .map((r) => {
+        const id = String(r.id ?? "").trim();
+        const fields = exportFieldsById.get(id);
+        if (!fields) return r;
+        return {
+          ...r,
+          ...(fields.date ? { date: fields.date } : {}),
+          status_label: fields.status,
+        };
+      });
   }, [
     filteredHarvests,
     harvestSource,
     harvestVisibilityCtx,
+    t,
   ]);
 
   const canEditHarvestRow = (h: HarvestRow) =>
@@ -1735,7 +1779,7 @@ export default function ProjectDetailPage() {
                           role="tablist"
                           aria-label={t("harvestPhaseFilter")}
                         >
-                          <div className="inline-flex rounded-lg p-0.5">
+                          <div className="inline-flex rounded-lg border border-border p-0.5">
                             {HARVEST_PHASE_FILTER_OPTIONS.map((phase) => {
                               const active = harvestPhaseFilter === phase;
                               return (
@@ -1758,26 +1802,57 @@ export default function ProjectDetailPage() {
                             })}
                           </div>
                         </div>
-                        <div className={HARVEST_TABLE_HORIZONTAL_SCROLL_CLASS}>
-                          <table className="w-full min-w-[900px] text-sm">
+                        <div
+                          ref={harvestHeadScrollRef}
+                          className={HARVEST_TABLE_HORIZONTAL_SCROLL_CLASS}
+                          onScroll={(e) =>
+                            syncHarvestTableHorizontalScroll(
+                              "head",
+                              e.currentTarget.scrollLeft,
+                            )
+                          }
+                        >
+                          <table className={HARVEST_TABLE_CLASS}>
+                            <HarvestHistoryTableColGroup />
                             <thead>
-                              <tr className="text-left">
-                                <th className={cn(HARVEST_TABLE_COLUMN_HEAD_CLASS, "pr-4 pl-2")}>
+                              <tr className="text-left shadow-[0_1px_0_0_hsl(var(--border))]">
+                                <th
+                                  className={cn(
+                                    HARVEST_TABLE_COLUMN_HEAD_CLASS,
+                                    HARVEST_TABLE_CELL_CLASS,
+                                  )}
+                                >
                                   {t("date")}
                                 </th>
-                                <th className={cn(HARVEST_TABLE_COLUMN_HEAD_CLASS, "pr-4")}>
+                                <th
+                                  className={cn(
+                                    HARVEST_TABLE_COLUMN_HEAD_CLASS,
+                                    HARVEST_TABLE_CELL_CLASS,
+                                  )}
+                                >
                                   {t("grass")}
                                 </th>
-                                <th className={cn(HARVEST_TABLE_COLUMN_HEAD_CLASS, "pr-4")}>
+                                <th
+                                  className={cn(
+                                    HARVEST_TABLE_COLUMN_HEAD_CLASS,
+                                    HARVEST_TABLE_CELL_CLASS,
+                                  )}
+                                >
                                   {t("farm")}
                                 </th>
-                                <th className={cn(HARVEST_TABLE_COLUMN_HEAD_CLASS, "pr-4 pl-2")}>
+                                <th
+                                  className={cn(
+                                    HARVEST_TABLE_COLUMN_HEAD_CLASS,
+                                    HARVEST_TABLE_CELL_CLASS,
+                                  )}
+                                >
                                   {t("zone")}
                                 </th>
                                 <th
                                   className={cn(
                                     HARVEST_TABLE_COLUMN_HEAD_CLASS,
-                                    "pr-4 text-right",
+                                    HARVEST_TABLE_CELL_CLASS,
+                                    "text-right",
                                   )}
                                 >
                                   {t("quantity")}
@@ -1785,16 +1860,26 @@ export default function ProjectDetailPage() {
                                 <th
                                   className={cn(
                                     HARVEST_TABLE_COLUMN_HEAD_CLASS,
-                                    "pr-4 text-right",
+                                    HARVEST_TABLE_CELL_CLASS,
+                                    "text-right",
                                   )}
                                 >
-                                  {t("areaM2Short")}
+                                  {t("area")}
                                 </th>
-                                <th className={cn(HARVEST_TABLE_COLUMN_HEAD_CLASS, "pr-4")}>
+                                <th
+                                  className={cn(
+                                    HARVEST_TABLE_COLUMN_HEAD_CLASS,
+                                    HARVEST_TABLE_CELL_CLASS,
+                                  )}
+                                >
                                   {tCommon("status")}
                                 </th>
                                 <th
-                                  className={cn(HARVEST_TABLE_COLUMN_HEAD_CLASS, "text-right pr-2")}
+                                  className={cn(
+                                    HARVEST_TABLE_COLUMN_HEAD_CLASS,
+                                    HARVEST_TABLE_CELL_CLASS,
+                                    "text-right",
+                                  )}
                                 >
                                   {t("rowActions")}
                                 </th>
@@ -1804,9 +1889,17 @@ export default function ProjectDetailPage() {
                         </div>
                       </div>
                       <div
+                        ref={harvestBodyScrollRef}
                         className={cn("-mx-6", HARVEST_TABLE_HORIZONTAL_SCROLL_CLASS)}
+                        onScroll={(e) =>
+                          syncHarvestTableHorizontalScroll(
+                            "body",
+                            e.currentTarget.scrollLeft,
+                          )
+                        }
                       >
-                        <table className="w-full min-w-[900px] text-sm">
+                        <table className={HARVEST_TABLE_CLASS}>
+                          <HarvestHistoryTableColGroup />
                           <tbody>
                           {filteredHarvests.map((h) => {
                             const areaDisplay =
@@ -1821,32 +1914,51 @@ export default function ProjectDetailPage() {
                                 className="cursor-pointer border-b border-border/50 last:border-0 hover:bg-muted/50"
                                 onClick={() => setExpandedHarvestId(h.id)}
                               >
-                                <td className="py-2.5 pr-4 text-foreground">{h.date}</td>
-                                <td className="py-2.5 pr-4 font-medium text-foreground">
+                                <td className={cn(HARVEST_TABLE_CELL_CLASS, "text-foreground")}>
+                                  {h.date}
+                                </td>
+                                <td
+                                  className={cn(
+                                    HARVEST_TABLE_CELL_CLASS,
+                                    "font-medium text-foreground",
+                                  )}
+                                >
                                   <span className="inline-flex items-center gap-1">
                                     <span>{h.grass}</span>
                                     <HarvestLimitQuestionMark status={h.limitStatus} />
                                   </span>
                                 </td>
-                                <td className="py-2.5 pr-4 text-muted-foreground">
+                                <td className={cn(HARVEST_TABLE_CELL_CLASS, "text-muted-foreground")}>
                                   {h.farm && h.farm !== "-" ? h.farm : "—"}
                                 </td>
-                                <td className="py-2.5 pr-4 text-muted-foreground">{h.zone}</td>
-                                <td className="py-2.5 pr-4 text-right text-foreground">
+                                <td className={cn(HARVEST_TABLE_CELL_CLASS, "text-muted-foreground")}>
+                                  {h.zone}
+                                </td>
+                                <td
+                                  className={cn(
+                                    HARVEST_TABLE_CELL_CLASS,
+                                    "text-right text-foreground",
+                                  )}
+                                >
                                   {h.quantity}
                                 </td>
-                                <td className="py-2.5 pr-4 text-right text-foreground">
+                                <td
+                                  className={cn(
+                                    HARVEST_TABLE_CELL_CLASS,
+                                    "text-right text-foreground",
+                                  )}
+                                >
                                   {areaDisplay}
                                 </td>
-                                <td className="py-2.5 pr-4">
+                                <td className={HARVEST_TABLE_CELL_CLASS}>
                                   <span
                                     className={`inline-flex items-center gap-1 text-xs font-medium ${HARVEST_STATUS_ROW_CLASSES[h.status] ?? "text-muted-foreground"}`}
                                   >
                                     <StatusIcon className="h-3.5 w-3.5" />
-                                    {harvestLineStatusLabel(t, h.status)}
+                                    {projectHarvestLineStatusLabel(t, h.status)}
                                   </span>
                                 </td>
-                                <td className="py-2.5 text-right">
+                                <td className={cn(HARVEST_TABLE_CELL_CLASS, "text-right")}>
                                   <div className="flex items-center justify-end gap-1">
                                     {canEditHarvestRow(h) ? (
                                       <button
@@ -1989,7 +2101,7 @@ export default function ProjectDetailPage() {
                       className={`inline-flex items-center gap-1 text-xs font-medium ${HARVEST_STATUS_ROW_CLASSES[h.status] ?? "text-muted-foreground"}`}
                     >
                       <HeaderStatusIcon className="h-3.5 w-3.5" />
-                      {harvestLineStatusLabel(t, h.status)}
+                      {projectHarvestLineStatusLabel(t, h.status)}
                     </span>
                   </div>
                   <div className="flex items-center gap-1">
@@ -2067,7 +2179,7 @@ export default function ProjectDetailPage() {
                         </p>
                       </div>
                       <HarvestHistoryDetailField
-                        label={`${t("harvestedArea")}`}
+                        label={`${t("area")}:`}
                         value={
                           harvestDetailDisplayText(h.harvestedAreaFullDisplay)
                         }

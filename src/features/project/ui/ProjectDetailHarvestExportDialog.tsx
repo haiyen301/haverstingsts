@@ -8,6 +8,7 @@ import {
   defaultSelectedHarvestPlanExportColumns,
   discoverHarvestPlanExportColumns,
   exportHarvestPlanRowsToXlsx,
+  projectDetailHarvestExportColumnLabel,
   type HarvestPlanExportResolveContext,
 } from "@/features/project/lib/projectHarvestPlanExport";
 import { canAccessModule } from "@/shared/auth/permissions";
@@ -51,7 +52,7 @@ export function ProjectDetailHarvestExportDialog({
   const selectedColumns = allColumns.filter((col) => selected[col]);
 
   const columnLabel = (key: string): string =>
-    t(`exportCol_${key}` as "exportCol_id");
+    projectDetailHarvestExportColumnLabel(t, key);
 
   const toggleColumn = (key: string) => {
     setSelected((prev) => ({ ...prev, [key]: !prev[key] }));

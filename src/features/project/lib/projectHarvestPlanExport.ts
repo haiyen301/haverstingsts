@@ -7,6 +7,7 @@ import {
   type FarmZoneReferenceRow,
   zoneIdToLabel,
 } from "@/shared/lib/harvestReferenceData";
+import { formatDateDisplay, isValidDate } from "@/shared/lib/format/date";
 import { harvestTypeDisplayLabel } from "@/shared/lib/harvestType";
 
 /**
@@ -15,14 +16,16 @@ import { harvestTypeDisplayLabel } from "@/shared/lib/harvestType";
  */
 export const PROJECT_DETAIL_HARVEST_EXPORT_COLUMN_KEYS = [
   "id",
-  "project_id",
+  "date",
   "product_id",
-  "zone",
   "farm_id",
+  "zone",
   "quantity",
   "uom",
-  "load_type",
   "harvested_area",
+  "status",
+  "project_id",
+  "load_type",
   "estimated_harvest_date",
   "estimated_harvest_end_date",
   "actual_harvest_date",
@@ -41,6 +44,23 @@ export const PROJECT_DETAIL_HARVEST_EXPORT_COLUMN_KEYS = [
 export type ProjectDetailHarvestExportColumnKey =
   (typeof PROJECT_DETAIL_HARVEST_EXPORT_COLUMN_KEYS)[number];
 
+/** Default export selection — same columns as project detail harvest table. */
+export const PROJECT_DETAIL_HARVEST_EXPORT_DEFAULT_SELECTED_KEYS: readonly ProjectDetailHarvestExportColumnKey[] =
+  [
+    "date",
+    "product_id",
+    "farm_id",
+    "zone",
+    "quantity",
+    "uom",
+    "harvested_area",
+    "status",
+  ];
+
+const PROJECT_DETAIL_HARVEST_EXPORT_DEFAULT_SELECTED_SET = new Set(
+  PROJECT_DETAIL_HARVEST_EXPORT_DEFAULT_SELECTED_KEYS,
+);
+
 export type HarvestPlanExportResolveContext = {
   projects: unknown[];
   products: unknown[];
@@ -48,7 +68,68 @@ export type HarvestPlanExportResolveContext = {
   farmZones: FarmZoneReferenceRow[];
   /** When catalog lookup misses (e.g. current project title). */
   defaultProjectLabel?: string;
+  /** Same locale as project detail table (`formatDateDisplay`). */
+  locale?: string;
+  /** Localized scheduled / harvested / delivered labels for export cells. */
+  projectHarvestLineStatusLabel?: (
+    status: ProjectHarvestLineStatus,
+  ) => string;
 };
+
+export type ProjectHarvestLineStatus = "scheduled" | "harvested" | "delivered";
+
+/** Same rule as project detail harvest table status column. */
+export function deriveProjectHarvestStatusFromRecord(
+  row: Record<string, unknown>,
+): ProjectHarvestLineStatus {
+  const delivery = String(row.delivery_harvest_date ?? "").trim();
+  const harvest = String(row.actual_harvest_date ?? "").trim();
+  if (isValidDate(delivery)) return "delivered";
+  if (isValidDate(harvest)) return "harvested";
+  return "scheduled";
+}
+
+export function projectHarvestLineStatusLabel(
+  translate: (key: string) => string,
+  status: ProjectHarvestLineStatus,
+): string {
+  switch (status) {
+    case "scheduled":
+      return translate("harvestStatus_scheduled");
+    case "harvested":
+      return translate("harvestStatus_harvested");
+    case "delivered":
+      return translate("harvestStatus_delivered");
+    default:
+      return status;
+  }
+}
+
+/**
+ * Same rule as project detail table + harvest detail popup (`h.date` /
+ * `displayDate`): actual harvest date if valid, else estimated.
+ */
+export function projectHarvestDisplayDateFromRecord(
+  row: Record<string, unknown>,
+  locale?: string,
+): string {
+  const actual = String(row.actual_harvest_date ?? "").trim();
+  const estimated = String(row.estimated_harvest_date ?? "").trim();
+  return formatDateDisplay(
+    isValidDate(actual) ? actual : estimated,
+    locale,
+  );
+}
+
+function harvestPlanDisplayDateForExport(
+  row: Record<string, unknown>,
+  locale?: string,
+): string {
+  const fromUi = String(row.date ?? "").trim();
+  if (fromUi && fromUi !== "-") return fromUi;
+  const formatted = projectHarvestDisplayDateFromRecord(row, locale);
+  return formatted === "-" ? "" : formatted;
+}
 
 /** Export picker columns (fixed allowlist only). */
 export function discoverHarvestPlanExportColumns(
@@ -61,18 +142,58 @@ export function defaultSelectedHarvestPlanExportColumns(
   allColumns: string[],
 ): Record<string, boolean> {
   const selected: Record<string, boolean> = {};
-  for (const col of allColumns) selected[col] = true;
+  for (const col of allColumns) {
+    selected[col] = PROJECT_DETAIL_HARVEST_EXPORT_DEFAULT_SELECTED_SET.has(
+      col as ProjectDetailHarvestExportColumnKey,
+    );
+  }
   return selected;
+}
+
+const EXPORT_NUMERIC_STRING_RE = /^-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?$/;
+
+function parseExportNumber(value: unknown): number | null {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value === "string") {
+    const s = value.trim().replace(/,/g, "");
+    if (!s || !EXPORT_NUMERIC_STRING_RE.test(s)) return null;
+    const n = Number(s);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+/** Excel-friendly numbers: `0` not `0.000…`, strip trailing fractional zeros. */
+function formatExportNumericValue(value: unknown): string {
+  const n = parseExportNumber(value);
+  if (n == null) return "";
+  if (Object.is(n, -0) || Math.abs(n) < 1e-12) return "0";
+  if (Number.isInteger(n) || Math.abs(n - Math.round(n)) < 1e-9) {
+    return String(Math.round(n));
+  }
+  let s = String(parseFloat(n.toPrecision(12)));
+  if (s.includes(".")) {
+    s = s.replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
+  }
+  return s;
 }
 
 function formatCellValue(value: unknown): string {
   if (value == null) return "";
+  if (typeof value === "number") {
+    return formatExportNumericValue(value);
+  }
   if (typeof value === "string") {
     const s = value.trim();
+    if (!s) return "";
     if (s.startsWith("0000-00-00")) return "";
+    const n = parseExportNumber(s);
+    if (n != null) return formatExportNumericValue(n);
     return s;
   }
-  if (typeof value === "number" || typeof value === "boolean") {
+  if (typeof value === "boolean") {
     return String(value);
   }
   if (value instanceof Date) {
@@ -91,6 +212,16 @@ export function humanizeHarvestPlanColumnKey(key: string): string {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+/** Column labels in export dialog / Excel header (`ProjectDetail.exportCol_*`). */
+export function projectDetailHarvestExportColumnLabel(
+  translate: (key: string) => string,
+  columnKey: string,
+): string {
+  const stripLabel = (label: string) => label.replace(/:+\s*$/, "").trim();
+  // Use `exportCol_*` keys — all export columns define these in `ProjectDetail` messages.
+  return stripLabel(translate(`exportCol_${columnKey}` as "exportCol_id"));
 }
 
 function productNameFromId(
@@ -113,6 +244,17 @@ export function resolveHarvestPlanExportCellValue(
   row: Record<string, unknown>,
   ctx?: HarvestPlanExportResolveContext,
 ): string {
+  if (columnKey === "date") {
+    return harvestPlanDisplayDateForExport(row, ctx?.locale);
+  }
+
+  if (columnKey === "status") {
+    const fromUi = String(row.status_label ?? "").trim();
+    if (fromUi) return fromUi;
+    const status = deriveProjectHarvestStatusFromRecord(row);
+    return ctx?.projectHarvestLineStatusLabel?.(status) ?? status;
+  }
+
   if (!ctx) return formatCellValue(row[columnKey]);
 
   switch (columnKey) {
