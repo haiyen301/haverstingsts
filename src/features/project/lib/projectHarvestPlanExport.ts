@@ -165,19 +165,30 @@ function parseExportNumber(value: unknown): number | null {
   return null;
 }
 
-/** Excel-friendly numbers: `0` not `0.000…`, strip trailing fractional zeros. */
+/** Excel-friendly numbers: `0` not `0.000…`, strip trailing fractional zeros (text cells). */
 function formatExportNumericValue(value: unknown): string {
   const n = parseExportNumber(value);
   if (n == null) return "";
-  if (Object.is(n, -0) || Math.abs(n) < 1e-12) return "0";
+  const cell = normalizeExportNumeric(n);
+  if (cell === "") return "";
+  return Number.isInteger(cell)
+    ? String(cell)
+    : String(cell).replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
+}
+
+/** Numeric Excel cells (`quantity`, `harvested_area`) — not text. */
+function normalizeExportNumeric(n: number): number | "" {
+  if (Object.is(n, -0) || Math.abs(n) < 1e-12) return 0;
   if (Number.isInteger(n) || Math.abs(n - Math.round(n)) < 1e-9) {
-    return String(Math.round(n));
+    return Math.round(n);
   }
-  let s = String(parseFloat(n.toPrecision(12)));
-  if (s.includes(".")) {
-    s = s.replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
-  }
-  return s;
+  return parseFloat(n.toPrecision(12));
+}
+
+function exportNumericCellValue(value: unknown): number | "" {
+  const n = parseExportNumber(value);
+  if (n == null) return "";
+  return normalizeExportNumeric(n);
 }
 
 function formatCellValue(value: unknown): string {
@@ -238,12 +249,18 @@ function productNameFromId(
   return "";
 }
 
+export type HarvestPlanExportCellValue = string | number;
+
 /** Resolve FK / zone keys to display names for Excel cells. */
 export function resolveHarvestPlanExportCellValue(
   columnKey: string,
   row: Record<string, unknown>,
   ctx?: HarvestPlanExportResolveContext,
-): string {
+): HarvestPlanExportCellValue {
+  if (columnKey === "quantity" || columnKey === "harvested_area") {
+    return exportNumericCellValue(row[columnKey]);
+  }
+
   if (columnKey === "date") {
     return harvestPlanDisplayDateForExport(row, ctx?.locale);
   }
@@ -322,14 +339,16 @@ export function exportHarvestPlanRowsToXlsx(opts: {
   if (rows.length === 0 || selectedColumns.length === 0) return;
 
   const label = opts.columnLabel ?? humanizeHarvestPlanColumnKey;
-  const headerRow = selectedColumns.map(label);
-  const dataRows = rows.map((row) =>
+  const headerRow: HarvestPlanExportCellValue[] = selectedColumns.map(label);
+  const dataRows: HarvestPlanExportCellValue[][] = rows.map((row) =>
     selectedColumns.map((col) =>
       resolveHarvestPlanExportCellValue(col, row, resolveContext),
     ),
   );
 
-  const ws = XLSX.utils.aoa_to_sheet([headerRow, ...dataRows]);
+  const ws = XLSX.utils.aoa_to_sheet([headerRow, ...dataRows], {
+    cellDates: false,
+  });
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(
     wb,
