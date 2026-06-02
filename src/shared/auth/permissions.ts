@@ -6,6 +6,7 @@ export type PermissionAction =
   | "edit"
   | "delete"
   | "import"
+  | "export"
   | (string & {});
 export type PermissionModule = string;
 
@@ -16,6 +17,7 @@ export const APP_PERMISSION_ACTIONS = [
   "edit",
   "delete",
   "import",
+  "export",
   "view_all_data",
 ] as const;
 
@@ -35,6 +37,7 @@ export const APP_PERMISSION_MODULES = [
   "admin_regrowth",
   "admin_grasses",
   "admin_key_areas",
+  "admin_project_paces",
   "admin_countries",
 ] as const;
 

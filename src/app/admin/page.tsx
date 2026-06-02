@@ -25,6 +25,7 @@ export default async function AdminPage() {
     { module: "admin_regrowth", path: "/admin/regrowth" },
     { module: "admin_grasses", path: "/admin/grasses" },
     { module: "admin_key_areas", path: "/admin/keyareas" },
+    { module: "admin_project_paces", path: "/admin/project-paces" },
     { module: "admin_countries", path: "/admin/settings/countries" },
   ];
 

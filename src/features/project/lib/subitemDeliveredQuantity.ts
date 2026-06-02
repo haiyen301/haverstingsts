@@ -90,7 +90,7 @@ function countsTowardDeliveredProgress(
   if (
     requiredUomNorm === "kg" &&
     isSodToSprigHarvestLine(s) &&
-    parseNumber(s.quantity) > 0 &&
+    sodToSprigDeliveredKgQty(s) > 0 &&
     isValidActualHarvestDate(s.actual_harvest_date)
   ) {
     return true;
@@ -98,15 +98,29 @@ function countsTowardDeliveredProgress(
   return false;
 }
 
+/** Sod → Sprig progress is always in kg even when the plan row UOM is m². */
+function sodToSprigDeliveredKgQty(s: Record<string, unknown>): number {
+  const qty = parseNumber(s.quantity);
+  if (qty > 0) return qty;
+  const area = parseNumber(s.harvested_area);
+  const kgPerM2 = parseNumber(s.kg_per_m2);
+  if (area > 0 && kgPerM2 > 0) return area * kgPerM2;
+  return 0;
+}
+
 /**
  * Delivered qty counted toward one requirement line (delivery date required).
- * Sod → Sprig: kg and m² requirements both use plan `quantity`.
+ * Sod → Sprig: always kg qty for the product's kg requirement line (never the m² line).
  */
 export function deliveredQtyForRequirementLine(
   s: Record<string, unknown>,
   requiredUomNorm: string,
 ): number {
   if (!countsTowardDeliveredProgress(s, requiredUomNorm)) return 0;
+
+  if (isSodToSprigHarvestLine(s) && requiredUomNorm === "kg") {
+    return sodToSprigDeliveredKgQty(s);
+  }
 
   return parseNumber(s.quantity);
 }
@@ -121,16 +135,13 @@ function subitemMatchesRequirementForDelivery(
   if (!requiredUomNorm) return true;
 
   const subUom = normalizeUomForHarvestMatch(s.uom);
+  if (isSodToSprigHarvestLine(s)) {
+    if (requiredUomNorm === "kg") return true;
+    if (requiredUomNorm === "m2") return false;
+  }
+
   if (subUom === requiredUomNorm) return true;
   if (allowBlankSubitemUom && subUom === "") return true;
-
-  if (requiredUomNorm === "kg" && isSodToSprigHarvestLine(s)) {
-    return parseNumber(s.quantity) > 0 || subUom === "kg";
-  }
-
-  if (requiredUomNorm === "m2" && isSodToSprigHarvestLine(s)) {
-    return parseNumber(s.quantity) > 0;
-  }
 
   return false;
 }

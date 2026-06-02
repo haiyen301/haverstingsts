@@ -1,12 +1,19 @@
 import { submitFlutterHarvest } from "@/features/harvesting/api/flutterHarvestSubmit";
+import type { ProjectPaceRow } from "@/features/admin/api/adminApi";
 
 /**
- * Planned harvest schedule when creating a project — mirrors the Harvesting Portal demo
- * (`generatePlannedHarvests` in `projectForecast.ts`): pace drives months, weekly delivery cadence,
- * split quantities across dates. Harvest kind follows grass UoM: Kg → sprig, M² → sod.
+ * Planned harvest schedule when creating a project — pace config drives months,
+ * weekly delivery cadence, split quantities across dates. Harvest kind follows
+ * grass UoM: Kg → sprig, M² → sod.
  */
 
-export type ProjectPaceForHarvestPlan = "slow" | "medium" | "fast";
+export type ProjectPaceForHarvestPlan = string;
+
+export type ProjectPaceConfig = {
+  durationMonths: number;
+  harvestBatches: number;
+  harvestEveryWeeks: number;
+};
 
 export type GrassRequirementForHarvestPlan = {
   /** `sts_items` / product id */
@@ -34,13 +41,15 @@ const KG_PER_M2: Record<HarvestKind, number> = {
   SPRIG: 1.3,
 };
 
-const PACE_MONTHS: Record<ProjectPaceForHarvestPlan, number> = {
-  slow: 9,
-  medium: 6,
-  fast: 4,
+const DEFAULT_PACE_CONFIG: ProjectPaceConfig = {
+  durationMonths: 6,
+  harvestBatches: 2,
+  harvestEveryWeeks: 1,
 };
 
-const DELIVERIES_PER_WEEK = 2;
+/** Business calendar: 1 month = 4 weeks (used for pace totals and planned-harvest span). */
+export const WEEKS_PER_MONTH = 4;
+
 const SPRIG_SHARE_WHEN_MIXED = 0.75;
 
 function addDays(d: Date, days: number): Date {
@@ -69,6 +78,48 @@ function harvestKindFromGrassUom(uom: string): HarvestKind {
 
 function displayUom(kind: HarvestKind): "Kg" | "M2" {
   return kind === "SPRIG" ? "Kg" : "M2";
+}
+
+function positiveInt(raw: unknown, fallback: number): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.round(n);
+}
+
+export function projectPaceConfigFromRow(row: ProjectPaceRow): ProjectPaceConfig {
+  return {
+    durationMonths: positiveInt(row.duration_months, DEFAULT_PACE_CONFIG.durationMonths),
+    harvestBatches: positiveInt(row.harvest_batches, DEFAULT_PACE_CONFIG.harvestBatches),
+    harvestEveryWeeks: positiveInt(
+      row.harvest_every_weeks,
+      DEFAULT_PACE_CONFIG.harvestEveryWeeks,
+    ),
+  };
+}
+
+
+/** Weeks spanned by a pace duration — same rule as planned-harvest generation. */
+export function estimatePaceDurationWeeks(config: ProjectPaceConfig): number {
+  const months = Math.max(1, config.durationMonths);
+  return Math.max(1, months * WEEKS_PER_MONTH);
+}
+
+function deliveriesPerWeek(config: ProjectPaceConfig): number {
+  const weeks = Math.max(1, config.harvestEveryWeeks);
+  return config.harvestBatches / weeks;
+}
+
+function maxDeliveriesPerWeek(config: ProjectPaceConfig): number {
+  return Math.max(1, Math.ceil(deliveriesPerWeek(config)));
+}
+
+function dayOffsetsForPace(config: ProjectPaceConfig): number[] {
+  const spanDays = 7 * Math.max(1, config.harvestEveryWeeks);
+  const batchCount = Math.max(1, config.harvestBatches);
+  if (batchCount === 1) return [0];
+  return Array.from({ length: batchCount }, (_, i) =>
+    Math.min(spanDays - 1, Math.round((i * spanDays) / batchCount)),
+  );
 }
 
 type NormalisedReq = {
@@ -103,28 +154,28 @@ function normaliseRequirements(
     });
 }
 
-function paceMonths(pace: ProjectPaceForHarvestPlan): number {
-  return PACE_MONTHS[pace] ?? 6;
-}
-
 /**
  * @param estimatedStartYmd — `YYYY-MM-DD`; anchor for the delivery schedule (demo: estimated start).
  */
 export function generatePlannedHarvestsForNewProject(opts: {
-  pace: ProjectPaceForHarvestPlan;
+  paceConfig: ProjectPaceConfig;
   estimatedStartYmd: string;
   grassRequirements: GrassRequirementForHarvestPlan[];
 }): PlannedHarvestSeed[] {
-  const { pace, estimatedStartYmd, grassRequirements } = opts;
+  const { paceConfig, estimatedStartYmd, grassRequirements } = opts;
   const startStr = String(estimatedStartYmd ?? "").trim();
   if (!startStr || !grassRequirements.length) return [];
 
   const start = new Date(startStr);
   if (Number.isNaN(start.getTime())) return [];
 
-  const months = paceMonths(pace);
-  const totalWeeks = Math.round(months * 4.345);
+  const months = Math.max(1, paceConfig.durationMonths);
+  const totalWeeks = months * WEEKS_PER_MONTH;
   if (totalWeeks <= 0) return [];
+
+  const deliveriesPerWeekRate = deliveriesPerWeek(paceConfig);
+  const maxDeliveriesPerWeek = maxDeliveriesPerWeek(paceConfig);
+  const dayOffsets = dayOffsetsForPace(paceConfig);
 
   const reqs = normaliseRequirements(grassRequirements);
   if (!reqs.length) return [];
@@ -137,12 +188,12 @@ export function generatePlannedHarvestsForNewProject(opts: {
   let sprigDelPerWeek = 0;
   let sodDelPerWeek = 0;
   if (hasSprig && hasSod) {
-    sprigDelPerWeek = DELIVERIES_PER_WEEK * SPRIG_SHARE_WHEN_MIXED;
-    sodDelPerWeek = DELIVERIES_PER_WEEK * (1 - SPRIG_SHARE_WHEN_MIXED);
+    sprigDelPerWeek = deliveriesPerWeekRate * SPRIG_SHARE_WHEN_MIXED;
+    sodDelPerWeek = deliveriesPerWeekRate * (1 - SPRIG_SHARE_WHEN_MIXED);
   } else if (hasSprig) {
-    sprigDelPerWeek = DELIVERIES_PER_WEEK;
+    sprigDelPerWeek = deliveriesPerWeekRate;
   } else if (hasSod) {
-    sodDelPerWeek = DELIVERIES_PER_WEEK;
+    sodDelPerWeek = deliveriesPerWeekRate;
   }
 
   const totalSprigDeliveries = Math.max(1, Math.round(sprigDelPerWeek * totalWeeks));
@@ -204,7 +255,6 @@ export function generatePlannedHarvestsForNewProject(opts: {
 
   let sprigAcc = 0;
   let sodAcc = 0;
-  const dayOffsets = [0, 3];
 
   const pushHarvest = (
     req: NormalisedReq,
@@ -232,11 +282,11 @@ export function generatePlannedHarvestsForNewProject(opts: {
     sodAcc += sodDelPerWeek;
 
     const weekDeliveries: HarvestKind[] = [];
-    while (sprigAcc >= 1 && weekDeliveries.length < DELIVERIES_PER_WEEK) {
+    while (sprigAcc >= 1 && weekDeliveries.length < maxDeliveriesPerWeek) {
       weekDeliveries.push("SPRIG");
       sprigAcc -= 1;
     }
-    while (sodAcc >= 1 && weekDeliveries.length < DELIVERIES_PER_WEEK) {
+    while (sodAcc >= 1 && weekDeliveries.length < maxDeliveriesPerWeek) {
       weekDeliveries.push("SOD");
       sodAcc -= 1;
     }
@@ -264,8 +314,16 @@ export function generatePlannedHarvestsForNewProject(opts: {
 
 export function isProjectPaceForHarvestPlan(
   raw: string,
-): raw is ProjectPaceForHarvestPlan {
-  return raw === "slow" || raw === "medium" || raw === "fast";
+  catalog?: ProjectPaceRow[],
+): boolean {
+  const key = String(raw ?? "").trim().toLowerCase();
+  if (!key || key === "none") return false;
+  if (catalog?.length) {
+    return catalog.some(
+      (row) => String(row.pace_key ?? "").trim().toLowerCase() === key,
+    );
+  }
+  return key === "slow" || key === "medium" || key === "fast";
 }
 
 /**

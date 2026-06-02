@@ -16,7 +16,7 @@ import {
   Calendar,
   Image as ImageIcon,
   Trash2,
-  Filter,
+  Download,
   Users,
   Phone,
   Mail,
@@ -93,6 +93,7 @@ import { harvestTypeDisplayLabel } from "@/shared/lib/harvestType";
 import { cn } from "@/lib/utils";
 import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
 import { DatePicker } from "@/shared/ui/date-picker";
+import { ProjectDetailHarvestExportDialog } from "@/features/project/ui/ProjectDetailHarvestExportDialog";
 import { Swiper, SwiperSlide } from "swiper/react";
 import { FreeMode } from "swiper/modules";
 import { Fancybox } from "@fancyapps/ui";
@@ -271,33 +272,51 @@ type GrassRow = {
   progress: number;
 };
 
-/** Parity with Harvesting Portal `ProjectHarvestStatus` / `deriveProjectHarvestStatus`. */
-type HarvestLineStatus =
-  | "planned"
-  | "scheduled"
-  | "harvested"
-  | "delivered"
-  | "completed";
+/** Project detail harvest list: scheduled → harvested → delivered only. */
+type HarvestLineStatus = "scheduled" | "harvested" | "delivered";
+
+type HarvestPhaseFilter = "all" | "upcoming" | "completed";
 
 function deriveProjectHarvestStatusFromRecord(
   r: Record<string, unknown>,
 ): HarvestLineStatus {
   const delivery = String(r.delivery_harvest_date ?? "").trim();
   const harvest = String(r.actual_harvest_date ?? "").trim();
-  const est = String(r.estimated_harvest_date ?? "").trim();
   if (isValidDate(delivery)) return "delivered";
   if (isValidDate(harvest)) return "harvested";
-  if (isValidDate(est)) return "scheduled";
-  return "planned";
+  return "scheduled";
+}
+
+function harvestMatchesPhaseFilter(
+  status: HarvestLineStatus,
+  phase: HarvestPhaseFilter,
+): boolean {
+  if (phase === "all") return true;
+  if (phase === "upcoming") {
+    return status === "scheduled" || status === "harvested";
+  }
+  return status === "delivered";
 }
 
 const HARVEST_STATUS_ROW_CLASSES: Record<HarvestLineStatus, string> = {
-  planned: "text-muted-foreground",
   scheduled: "text-accent",
   harvested: "text-info",
   delivered: "text-primary",
-  completed: "text-primary",
 };
+
+const HARVEST_PHASE_FILTER_OPTIONS: HarvestPhaseFilter[] = [
+  "all",
+  "upcoming",
+  "completed",
+];
+
+/** Below app header (3.5rem). */
+const HARVEST_TABLE_PHASE_HEAD_CLASS =
+  "sticky top-14 z-20 border-0 bg-card/95 p-0 pb-2 font-normal backdrop-blur supports-backdrop-filter:bg-card/80";
+
+/** Below app header + phase row (~2.75rem). */
+const HARVEST_TABLE_COLUMN_HEAD_CLASS =
+  "sticky top-[6.25rem] z-[15] bg-card/95 pb-2 font-medium text-muted-foreground backdrop-blur supports-backdrop-filter:bg-card/80 shadow-[0_1px_0_0_hsl(var(--border))]";
 
 type HarvestRow = {
   id: string;
@@ -433,18 +452,30 @@ function harvestLineStatusLabel(
   status: HarvestLineStatus,
 ): string {
   switch (status) {
-    case "planned":
-      return tr("harvestStatus_planned");
     case "scheduled":
       return tr("harvestStatus_scheduled");
     case "harvested":
       return tr("harvestStatus_harvested");
     case "delivered":
       return tr("harvestStatus_delivered");
-    case "completed":
-      return tr("harvestStatus_completed");
     default:
       return status;
+  }
+}
+
+function harvestPhaseFilterLabel(
+  tr: (key: string) => string,
+  phase: HarvestPhaseFilter,
+): string {
+  switch (phase) {
+    case "all":
+      return tr("harvestPhase_all");
+    case "upcoming":
+      return tr("harvestPhase_upcoming");
+    case "completed":
+      return tr("harvestPhase_completed");
+    default:
+      return phase;
   }
 }
 
@@ -697,6 +728,7 @@ export default function ProjectDetailPage() {
   const canCreateHarvest = canAccessModule(user, "harvests", "create");
   const canEditHarvest = canAccessModule(user, "harvests", "edit");
   const canDeleteHarvest = canAccessModule(user, "harvests", "delete");
+  const canExportHarvest = canAccessModule(user, "harvests", "export");
   const canViewAllHarvestData = canViewAllModuleData(user, "harvests");
   const userId = user?.id;
   const harvestHistoryScope = useMemo(
@@ -758,11 +790,13 @@ export default function ProjectDetailPage() {
   );
   const [harvestDeleting, setHarvestDeleting] = useState(false);
   const [harvestDeleteError, setHarvestDeleteError] = useState<string | null>(null);
-  const [harvestFilterOpen, setHarvestFilterOpen] = useState(false);
+  const [harvestExportOpen, setHarvestExportOpen] = useState(false);
   const [harvestGrassFilter, setHarvestGrassFilter] = useState("");
   const [harvestStatusFilter, setHarvestStatusFilter] = useState<"" | HarvestLineStatus>(
     "",
   );
+  const [harvestPhaseFilter, setHarvestPhaseFilter] =
+    useState<HarvestPhaseFilter>("all");
   const [harvestDateFrom, setHarvestDateFrom] = useState("");
   const [harvestDateTo, setHarvestDateTo] = useState("");
   const [harvestPlanLoadingMore, setHarvestPlanLoadingMore] = useState(false);
@@ -1193,6 +1227,7 @@ export default function ProjectDetailPage() {
     const filtered = harvestsWithProductNames.filter((h) => {
       if (harvestGrassFilter && h.grass !== harvestGrassFilter) return false;
       if (harvestStatusFilter && h.status !== harvestStatusFilter) return false;
+      if (!harvestMatchesPhaseFilter(h.status, harvestPhaseFilter)) return false;
       if (fromIso && h.filterDate && h.filterDate < fromIso) return false;
       if (toIso && h.filterDate && h.filterDate > toIso) return false;
       if ((fromIso || toIso) && !h.filterDate) return false;
@@ -1214,15 +1249,60 @@ export default function ProjectDetailPage() {
     harvestDateFrom,
     harvestDateTo,
     harvestGrassFilter,
+    harvestPhaseFilter,
     harvestStatusFilter,
     harvestsWithProductNames,
   ]);
   const hasActiveHarvestFilters = Boolean(
     harvestGrassFilter.trim() ||
       harvestStatusFilter ||
+      harvestPhaseFilter !== "all" ||
       normalizeDateFilterInput(harvestDateFrom) ||
       normalizeDateFilterInput(harvestDateTo),
   );
+
+  const harvestExportResolveContext = useMemo(
+    () => ({
+      projects: projectsRef,
+      products: productsRef,
+      farms: farmsForHarvest,
+      farmZones: farmZonesForHarvest,
+      defaultProjectLabel: basic?.projectName ?? "",
+    }),
+    [
+      basic?.projectName,
+      farmZonesForHarvest,
+      farmsForHarvest,
+      productsRef,
+      projectsRef,
+    ],
+  );
+
+  const harvestRowsForExport = useMemo(() => {
+    if (!harvestSource) return [];
+    const filteredIds = new Set(
+      filteredHarvests.map((h) => String(h.id ?? "").trim()).filter(Boolean),
+    );
+    if (filteredIds.size === 0) return [];
+    const orderIndex = new Map(
+      filteredHarvests.map((h, i) => [String(h.id ?? "").trim(), i]),
+    );
+    return filterHarvestHistoryForProjectDetail(
+      harvestPlanRowsForProject(harvestSource.planRows, harvestSource.projectId),
+      harvestVisibilityCtx,
+      PROJECT_DETAIL_HARVEST_HISTORY_DISPLAY_MODE,
+    )
+      .filter((r) => filteredIds.has(String(r.id ?? "").trim()))
+      .sort(
+        (a, b) =>
+          (orderIndex.get(String(a.id ?? "").trim()) ?? 0) -
+          (orderIndex.get(String(b.id ?? "").trim()) ?? 0),
+      );
+  }, [
+    filteredHarvests,
+    harvestSource,
+    harvestVisibilityCtx,
+  ]);
 
   const canEditHarvestRow = (h: HarvestRow) =>
     canEditHarvest && h.canManageHarvest && Boolean(String(h.id ?? "").trim());
@@ -1532,21 +1612,35 @@ export default function ProjectDetailPage() {
                       })}
                     </p>
                   </div>
-                  {canCreateHarvest ? (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        router.push(
-                          `/harvest/new?returnTo=${encodeURIComponent(returnTo)}&projectId=${encodeURIComponent(currentProjectId)}`,
-                        )
-                      }
-                      className="inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground ring-offset-background transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0"
-                      aria-label={t("addHarvest")}
-                    >
-                      <Plus className="h-4 w-4" aria-hidden />
-                      {t("addHarvest")}
-                    </button>
-                  ) : null}
+                  <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                    {canExportHarvest ? (
+                      <button
+                        type="button"
+                        onClick={() => setHarvestExportOpen(true)}
+                        disabled={harvestRowsForExport.length === 0}
+                        className="inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-border bg-background px-3 text-sm font-medium text-foreground ring-offset-background transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0"
+                        aria-label={t("exportExcel")}
+                      >
+                        <Download className="h-4 w-4" aria-hidden />
+                        {t("exportExcel")}
+                      </button>
+                    ) : null}
+                    {canCreateHarvest ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          router.push(
+                            `/harvest/new?returnTo=${encodeURIComponent(returnTo)}&projectId=${encodeURIComponent(currentProjectId)}`,
+                          )
+                        }
+                        className="inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground ring-offset-background transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0"
+                        aria-label={t("addHarvest")}
+                      >
+                        <Plus className="h-4 w-4" aria-hidden />
+                        {t("addHarvest")}
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
                 <div className="space-y-4 p-6 pt-0">
                   {harvestDeleteError ? (
@@ -1554,13 +1648,14 @@ export default function ProjectDetailPage() {
                       {harvestDeleteError}
                     </p>
                   ) : null}
-                  <div className="mb-4 flex justify-between gap-2">
-                    {hasActiveHarvestFilters ? (
+                  {hasActiveHarvestFilters ? (
+                    <div className="mb-3 flex justify-end">
                       <button
                         type="button"
                         onClick={() => {
                           setHarvestGrassFilter("");
                           setHarvestStatusFilter("");
+                          setHarvestPhaseFilter("all");
                           setHarvestDateFrom("");
                           setHarvestDateTo("");
                         }}
@@ -1571,23 +1666,9 @@ export default function ProjectDetailPage() {
                       >
                         {t("clearFilters")}
                       </button>
-                    ) : (
-                      <div />
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => setHarvestFilterOpen((v) => !v)}
-                      className={cn(
-                        "inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm text-foreground hover:bg-muted",
-                        bgSurfaceFilter(hasActiveHarvestFilters),
-                      )}
-                    >
-                      <span>{t("filter")}</span>
-                      <Filter className="h-4 w-4" />
-                    </button>
-                  </div>
-                  {harvestFilterOpen ? (
-                    <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    </div>
+                  ) : null}
+                  <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
                       <select
                         value={harvestGrassFilter}
                         onChange={(e) => setHarvestGrassFilter(e.target.value)}
@@ -1616,11 +1697,9 @@ export default function ProjectDetailPage() {
                         aria-label={t("filterHarvestStatus")}
                       >
                         <option value="">{t("allStatuses")}</option>
-                        <option value="planned">{t("harvestStatus_planned")}</option>
                         <option value="scheduled">{t("harvestStatus_scheduled")}</option>
                         <option value="harvested">{t("harvestStatus_harvested")}</option>
                         <option value="delivered">{t("harvestStatus_delivered")}</option>
-                        <option value="completed">{t("harvestStatus_completed")}</option>
                       </select>
                       <DatePicker
                         value={normalizeDateFilterInput(harvestDateFrom)}
@@ -1634,8 +1713,7 @@ export default function ProjectDetailPage() {
                         placeholder={t("toDate")}
                         className="h-[42px]"
                       />
-                    </div>
-                  ) : null}
+                  </div>
                   {harvests.length === 0 ? (
                     <p className="py-6 text-center text-sm text-muted-foreground">
                       {t("noHarvestRecords")}
@@ -1645,32 +1723,77 @@ export default function ProjectDetailPage() {
                       {t("noHarvestRecordsFiltered")}
                     </p>
                   ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full min-w-[900px] text-sm">
+                    <div className="-mx-6 overflow-x-auto overflow-y-visible px-6">
+                      <table className="w-full min-w-[900px] border-separate border-spacing-0 text-sm">
                         <thead>
-                          <tr className="border-b border-border text-left">
-                            <th className="pb-2 pr-4 font-medium text-muted-foreground">
+                          <tr>
+                            <th colSpan={8} className={HARVEST_TABLE_PHASE_HEAD_CLASS}>
+                              <div
+                                className={cn(
+                                  "border-b border-border py-2",
+                                  bgSurfaceFilter(harvestPhaseFilter !== "all"),
+                                )}
+                                role="tablist"
+                                aria-label={t("harvestPhaseFilter")}
+                              >
+                                <div className="inline-flex rounded-lg border border-border p-0.5">
+                                  {HARVEST_PHASE_FILTER_OPTIONS.map((phase) => {
+                                    const active = harvestPhaseFilter === phase;
+                                    return (
+                                      <button
+                                        key={phase}
+                                        type="button"
+                                        role="tab"
+                                        aria-selected={active}
+                                        onClick={() => setHarvestPhaseFilter(phase)}
+                                        className={cn(
+                                          "rounded-md px-4 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors",
+                                          active
+                                            ? "bg-primary text-primary-foreground shadow-sm"
+                                            : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                                        )}
+                                      >
+                                        {harvestPhaseFilterLabel(t, phase)}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            </th>
+                          </tr>
+                          <tr className="text-left">
+                            <th className={cn(HARVEST_TABLE_COLUMN_HEAD_CLASS, "pr-4")}>
                               {t("date")}
                             </th>
-                            <th className="pb-2 pr-4 font-medium text-muted-foreground">
+                            <th className={cn(HARVEST_TABLE_COLUMN_HEAD_CLASS, "pr-4")}>
                               {t("grass")}
                             </th>
-                            <th className="pb-2 pr-4 font-medium text-muted-foreground">
+                            <th className={cn(HARVEST_TABLE_COLUMN_HEAD_CLASS, "pr-4")}>
                               {t("farm")}
                             </th>
-                            <th className="pb-2 pr-4 font-medium text-muted-foreground">
+                            <th className={cn(HARVEST_TABLE_COLUMN_HEAD_CLASS, "pr-4")}>
                               {t("zone")}
                             </th>
-                            <th className="pb-2 pr-4 text-right font-medium text-muted-foreground">
+                            <th
+                              className={cn(
+                                HARVEST_TABLE_COLUMN_HEAD_CLASS,
+                                "pr-4 text-right",
+                              )}
+                            >
                               {t("quantity")}
                             </th>
-                            <th className="pb-2 pr-4 text-right font-medium text-muted-foreground">
+                            <th
+                              className={cn(
+                                HARVEST_TABLE_COLUMN_HEAD_CLASS,
+                                "pr-4 text-right",
+                              )}
+                            >
                               {t("areaM2Short")}
                             </th>
-                            <th className="pb-2 pr-4 font-medium text-muted-foreground">
+                            <th className={cn(HARVEST_TABLE_COLUMN_HEAD_CLASS, "pr-4")}>
                               {tCommon("status")}
                             </th>
-                            <th className="pb-2 font-medium text-muted-foreground text-right">
+                            <th className={cn(HARVEST_TABLE_COLUMN_HEAD_CLASS, "text-right")}>
                               {t("rowActions")}
                             </th>
                           </tr>
@@ -1682,9 +1805,7 @@ export default function ProjectDetailPage() {
                               h.harvestedAreaDisplay ??
                               "—";
                             const StatusIcon =
-                              h.status === "delivered" || h.status === "completed"
-                                ? CheckCircle2
-                                : Clock;
+                              h.status === "delivered" ? CheckCircle2 : Clock;
                             return (
                               <tr
                                 key={h.id}
@@ -1775,6 +1896,17 @@ export default function ProjectDetailPage() {
         </div>
       </DashboardLayout>
 
+      {canExportHarvest ? (
+        <ProjectDetailHarvestExportDialog
+          open={harvestExportOpen}
+          onClose={() => setHarvestExportOpen(false)}
+          rows={harvestRowsForExport}
+          projectId={currentProjectId}
+          projectLabel={basic?.projectName ?? ""}
+          resolveContext={harvestExportResolveContext}
+        />
+      ) : null}
+
       {harvestDeleteTarget ? (
         <div
           className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4"
@@ -1831,9 +1963,7 @@ export default function ProjectDetailPage() {
             const h = harvestsWithProductNames.find((item) => item.id === expandedHarvestId);
             if (!h) return null;
             const HeaderStatusIcon =
-              h.status === "delivered" || h.status === "completed"
-                ? CheckCircle2
-                : Clock;
+              h.status === "delivered" ? CheckCircle2 : Clock;
             return (
               <div
                 className="max-h-[90vh] w-full max-w-5xl overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl lg:p-6"

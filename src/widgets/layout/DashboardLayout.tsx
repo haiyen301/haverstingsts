@@ -43,7 +43,7 @@ import { fetchMyAlerts } from "@/features/alerts/api/alertsApi";
 import { ALERTS_UPDATED_EVENT } from "@/features/alerts/alertClientEvents";
 import { useSyncedFarmMultiSelect } from "@/shared/hooks/useSyncedFarmMultiSelect";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
-import { INVENTORY_IMPORT_ALLOWED_USER_IDS, userIdMayAccessInventoryImport } from "@/shared/auth/inventoryImportAccess";
+import { INVENTORY_IMPORT_ALLOWED_USER_IDS } from "@/shared/auth/inventoryImportAccess";
 import { PRIVILEGED_ADMIN_USER_IDS } from "@/shared/auth/privilegedAdminAccess";
 import {
   canAccessModule,
@@ -51,7 +51,7 @@ import {
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { prefetchForecastDataIfIdle } from "@/features/forecasting/forecastDataLoader";
 import { useAuthUserStore } from "@/shared/store/authUserStore";
-import { MobileBottomNav } from "@/widgets/layout/MobileBottomNav";
+import { MobileBottomNav, type MobileMoreNavSection } from "@/widgets/layout/MobileBottomNav";
 import { SidebarProfile } from "@/widgets/layout/SidebarProfile";
 import { ThemeToggle } from "@/widgets/layout/ThemeToggle";
 import { cn } from "@/lib/utils";
@@ -393,7 +393,8 @@ export function DashboardLayout({ children, hideAppNav = false }: DashboardLayou
               p.startsWith("/admin/zone-configurations") ||
               p.startsWith("/admin/regrowth") ||
               p.startsWith("/admin/grasses") ||
-              p.startsWith("/admin/keyareas"),
+              p.startsWith("/admin/keyareas") ||
+              p.startsWith("/admin/project-paces"),
             tabs: [
               {
                 value: "projectTypes",
@@ -449,6 +450,15 @@ export function DashboardLayout({ children, hideAppNav = false }: DashboardLayou
                 module: "admin_key_areas",
                 isActive: (p) => p === "/admin/keyareas" || p.startsWith("/admin/keyareas/"),
               },
+              {
+                value: "project-paces",
+                label: tn("adminProjectPaces"),
+                icon: Gauge,
+                path: "/admin/project-paces",
+                module: "admin_project_paces",
+                isActive: (p) =>
+                  p === "/admin/project-paces" || p.startsWith("/admin/project-paces/"),
+              },
             ],
             // disabled: true,
           },
@@ -503,6 +513,41 @@ export function DashboardLayout({ children, hideAppNav = false }: DashboardLayou
   const flatSidebarItems = useMemo(
     () => filteredSidebarSections.flatMap((sec) => sec.items),
     [filteredSidebarSections],
+  );
+
+  const mobilePrimaryPaths = useMemo(() => new Set(["/dashboard", "/harvest", "/projects"]), []);
+
+  const mobileMoreSections = useMemo<MobileMoreNavSection[]>(
+    () =>
+      filteredSidebarSections
+        .map((section) => ({
+          id: section.id,
+          title: section.title,
+          items: section.items
+            .filter(
+              (item) => item.path && !item.disabled && !mobilePrimaryPaths.has(item.path),
+            )
+            .map((item) => ({
+              key: item.key,
+              path: item.path,
+              label: item.label,
+              icon: item.icon,
+              isActive: item.isActive,
+              disabled: item.disabled,
+              badge: item.badge,
+              tabs: (item.tabs ?? [])
+                .filter((tab) => tab.path && !tab.disabled)
+                .map((tab) => ({
+                  path: tab.path!,
+                  label: tab.label,
+                  icon: tab.icon,
+                  isActive: tab.isActive,
+                  disabled: tab.disabled,
+                })),
+            })),
+        }))
+        .filter((section) => section.items.length > 0),
+    [filteredSidebarSections, mobilePrimaryPaths],
   );
 
   const sidebarWidthClass = sidebarCollapsed ? "lg:w-[5.25rem]" : "lg:w-72";
@@ -957,10 +1002,7 @@ export function DashboardLayout({ children, hideAppNav = false }: DashboardLayou
       </div>
 
       {!hideAppNav ? (
-        <MobileBottomNav
-          showInventoryImport={userIdMayAccessInventoryImport(Number(user?.id))}
-          user={user}
-        />
+        <MobileBottomNav moreSections={mobileMoreSections} user={user} />
       ) : null}
     </div>
   );

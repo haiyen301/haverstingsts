@@ -17,6 +17,7 @@ export const QUICK_ROLE_MODULES = [
   "admin_regrowth",
   "admin_grasses",
   "admin_key_areas",
+  "admin_project_paces",
   "admin_countries",
   "dashboard",
 ] as const;
@@ -27,6 +28,7 @@ export const ROLE_ACTIONS = [
   "can_create",
   "can_delete",
   "can_import",
+  "can_export",
 ] as const;
 
 /** Same modules as Quick Toggle — each row can grant full data visibility (requires show). */

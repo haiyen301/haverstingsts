@@ -30,10 +30,12 @@ import {
   fetchKeyAreas,
   sortKeyAreaRows,
   fetchProjectFormCatalog,
+  fetchProjectPaces,
   isArchitectCatalogKey,
   isProjectCatalogKey,
   type KeyAreaRow,
   type ProjectFormCatalogRow,
+  type ProjectPaceRow,
 } from "@/features/admin/api/adminApi";
 import {
   PROJECT_TYPE_VALUES,
@@ -43,6 +45,7 @@ import {
   generatePlannedHarvestsForNewProject,
   isProjectPaceForHarvestPlan,
   persistPlannedHarvestSeedsForProject,
+  projectPaceConfigFromRow,
 } from "@/features/project/lib/generatePlannedHarvestsForNewProject";
 import {
   buildCountrySelectOptions,
@@ -262,6 +265,7 @@ export default function ProjectInputPage() {
   const [projectTypeCatalogRows, setProjectTypeCatalogRows] = useState<ProjectFormCatalogRow[]>([]);
   const [architectCatalogRows, setArchitectCatalogRows] = useState<ProjectFormCatalogRow[]>([]);
   const [keyAreaCatalogRows, setKeyAreaCatalogRows] = useState<KeyAreaRow[]>([]);
+  const [projectPaceCatalogRows, setProjectPaceCatalogRows] = useState<ProjectPaceRow[]>([]);
   const [formData, setFormData] = useState({
     projectName: "",
     golfClub: "",
@@ -279,7 +283,7 @@ export default function ProjectInputPage() {
     contactName: "",
     contactEmail: "",
     contactPhone: "",
-    projectPace: "medium" as "slow" | "medium" | "fast" | "none" | "",
+    projectPace: "",
   });
 
   const [grassRows, setGrassRows] = useState<GrassRow[]>([
@@ -358,6 +362,27 @@ export default function ProjectInputPage() {
     return values;
   }, [architectCatalogValues, formData.architect]);
 
+  const projectPaceRadioOptions = useMemo(() => {
+    const fromCatalog = projectPaceCatalogRows
+      .map((row) => {
+        const value = String(row.pace_key ?? "").trim();
+        if (!value) return null;
+        const title = String(row.title ?? value).trim();
+        const months = Math.max(0, Number(row.duration_months) || 0);
+        return { value, title, months };
+      })
+      .filter((opt): opt is NonNullable<typeof opt> => opt != null);
+
+    const cur = formData.projectPace.trim();
+    if (
+      cur &&
+      !fromCatalog.some((opt) => opt.value.toLowerCase() === cur.toLowerCase())
+    ) {
+      return [{ value: cur, title: cur, months: 0 }, ...fromCatalog];
+    }
+    return fromCatalog;
+  }, [formData.projectPace, projectPaceCatalogRows]);
+
   const labelForProjectTypeOption = (type: string) => {
     const mk = projectTypeMessageKey(type);
     if (mk) return t(mk);
@@ -421,6 +446,23 @@ export default function ProjectInputPage() {
       } catch {
         if (!mounted) return;
         setKeyAreaCatalogRows([]);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let mounted = true;
+    void (async () => {
+      try {
+        const rows = await fetchProjectPaces();
+        if (!mounted) return;
+        setProjectPaceCatalogRows(rows);
+      } catch {
+        if (!mounted) return;
+        setProjectPaceCatalogRows([]);
       }
     })();
     return () => {
@@ -791,12 +833,7 @@ export default function ProjectInputPage() {
     if (rowTableId) setEditTableId(rowTableId);
     const rec = row as Record<string, unknown>;
     const paceRaw = String(rec.project_pace ?? "").trim().toLowerCase();
-    const projectPace =
-      paceRaw === "slow" || paceRaw === "medium" || paceRaw === "fast"
-        ? paceRaw
-        : paceRaw === "none" || paceRaw === ""
-          ? "none"
-          : "medium";
+    const projectPace = paceRaw === "none" ? "" : paceRaw;
     setFormData({
       projectName: projectNameDisplay,
       golfClub: String(row.alias_title ?? "").trim(),
@@ -995,7 +1032,7 @@ export default function ProjectInputPage() {
           project_pace:
             formData.projectPace === "none" || !formData.projectPace.trim()
               ? ""
-              : formData.projectPace.trim(),
+              : formData.projectPace.trim().toLowerCase(),
           actual_completion_date: formData.actualCompletionDate.trim(),
         },
       };
@@ -1033,7 +1070,13 @@ export default function ProjectInputPage() {
         | undefined;
       if (!isEdit && canSeedPlannedHarvestsOnCreate && projectIdStr) {
         const paceKey = formData.projectPace.trim().toLowerCase();
-        if (isProjectPaceForHarvestPlan(paceKey)) {
+        const selectedPace = projectPaceCatalogRows.find(
+          (row) => String(row.pace_key ?? "").trim().toLowerCase() === paceKey,
+        );
+        if (
+          isProjectPaceForHarvestPlan(paceKey, projectPaceCatalogRows) &&
+          selectedPace
+        ) {
           const anchorYmd =
             formData.estimateStartDate.trim() ||
             formData.actualStartDate.trim();
@@ -1046,7 +1089,7 @@ export default function ProjectInputPage() {
               farmId: r.farmId.trim(),
             }));
           const seeds = generatePlannedHarvestsForNewProject({
-            pace: paceKey,
+            paceConfig: projectPaceConfigFromRow(selectedPace),
             estimatedStartYmd: anchorYmd,
             grassRequirements: grassReqs,
           });
@@ -1484,37 +1527,65 @@ export default function ProjectInputPage() {
                       </span>
                     </label>
                     <div className="grid grid-cols-1 gap-2 rounded-lg border border-border bg-surface-filter-filled p-3 sm:grid-cols-2 lg:grid-cols-3">
-                      {(
-                        [
-                          { value: "slow" as const, label: t("paceSlowOption") },
-                          { value: "medium" as const, label: t("paceMediumOption") },
-                          { value: "fast" as const, label: t("paceFastOption") },
-                          { value: "none" as const, label: t("paceNoneOption") },
-                        ] as const
-                      ).map((opt) => (
+                      {projectPaceRadioOptions.length === 0 ? (
+                        <p className="col-span-full text-sm text-muted-foreground">
+                          {t("projectPaceEmptyCatalog")}
+                        </p>
+                      ) : null}
+                      {projectPaceRadioOptions.map((opt) => (
                         <button
                           key={opt.value}
                           type="button"
                           onClick={() => {
                             const nextPace =
-                              formData.projectPace === opt.value
-                                ? "none"
-                                : opt.value;
+                              formData.projectPace === opt.value ? "" : opt.value;
                             setFormData({ ...formData, projectPace: nextPace });
                           }}
                           className="relative block cursor-pointer text-left"
                         >
                           <span
-                            className={`flex min-h-11 items-center justify-center rounded-md border px-3 text-center text-sm transition-colors ${formData.projectPace === opt.value
+                            className={`flex min-h-11 flex-col items-center justify-center gap-0.5 rounded-md border px-3 py-2 text-center text-sm transition-colors ${formData.projectPace === opt.value
                                 ? "border-primary bg-primary/5 text-primary"
                                 : "border-input bg-card text-foreground shadow-sm"
                               }`}
                           >
-                            {opt.label}
+                            <span className="font-medium leading-tight">{opt.title}</span>
+                            {opt.months > 0 ? (
+                              <span
+                                className={`text-xs leading-tight ${formData.projectPace === opt.value
+                                    ? "text-primary/80"
+                                    : "text-muted-foreground"
+                                  }`}
+                              >
+                                {t("projectPaceDurationLine", {
+                                  months: opt.months,
+                                })}
+                              </span>
+                            ) : null}
                           </span>
                           {formData.projectPace === opt.value ? <CheckBadge /> : null}
                         </button>
                       ))}
+                      <button
+                        key="none"
+                        type="button"
+                        onClick={() => {
+                          const nextPace =
+                            formData.projectPace === "none" ? "" : "none";
+                          setFormData({ ...formData, projectPace: nextPace });
+                        }}
+                        className="relative block cursor-pointer text-left"
+                      >
+                        <span
+                          className={`flex min-h-11 items-center justify-center rounded-md border px-3 text-center text-sm transition-colors ${formData.projectPace === "none"
+                              ? "border-primary bg-primary/5 text-primary"
+                              : "border-input bg-card text-foreground shadow-sm"
+                            }`}
+                        >
+                          {t("paceNoneOption")}
+                        </span>
+                        {formData.projectPace === "none" ? <CheckBadge /> : null}
+                      </button>
                     </div>
                   </div>
                 </div>

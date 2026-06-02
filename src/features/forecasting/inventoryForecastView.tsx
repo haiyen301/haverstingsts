@@ -64,6 +64,7 @@ import { useForecastSnapshot } from "@/features/forecasting/useForecastSnapshot"
 import { getForecastToday } from "@/features/forecasting/forecastDateUtils";
 import { useDebouncedValue } from "@/features/forecasting/useDebouncedValue";
 import { useForecastDailySeries } from "@/features/forecasting/useForecastCompute";
+import type { ForecastHorizonMonths } from "@/features/forecasting/ForecastHorizonStrip";
 import { MultiSelect } from "@/shared/ui/multi-select";
 import { cn } from "@/lib/utils";
 import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
@@ -1014,7 +1015,15 @@ function formatSprigRangeForReference(
   return `${p} - ${t} kg/m²`;
 }
 
-export function InventoryForecast() {
+type InventoryForecastProps = {
+  forecastMonths?: ForecastHorizonMonths;
+  onForecastMonthsChange?: (months: ForecastHorizonMonths) => void;
+};
+
+export function InventoryForecast({
+  forecastMonths: controlledForecastMonths,
+  onForecastMonthsChange,
+}: InventoryForecastProps = {}) {
   const t = useTranslations("ForecastInventory");
   const farmZones = useHarvestingDataStore((s) => s.farmZones);
   const grasses = useHarvestingDataStore((s) => s.grasses);
@@ -1037,7 +1046,9 @@ export function InventoryForecast() {
     setSelectedFarmIds,
     farmOptions,
   } = useSyncedFarmMultiSelect();
-  const [forecastMonths, setForecastMonths] = useState<number>(6);
+  const [internalForecastMonths, setInternalForecastMonths] = useState<ForecastHorizonMonths>(6);
+  const forecastMonths = controlledForecastMonths ?? internalForecastMonths;
+  const setForecastMonths = onForecastMonthsChange ?? setInternalForecastMonths;
   const [showBreakdownChart, setShowBreakdownChart] = useState(false);
   const debouncedFarmIds = useDebouncedValue(selectedFarmIds, 300);
   const debouncedGrassIds = useDebouncedValue(
@@ -2054,18 +2065,6 @@ export function InventoryForecast() {
           className={cn(multiSelectBaseClass, bgSurfaceFilter(selectedGrassIds.length > 0))}
           rightIcon={filterTriggerIcon}
         />
-        <select
-          value={forecastMonths}
-          onChange={(e) => setForecastMonths(Number(e.target.value))}
-          className={cn(
-            "h-10 min-w-[140px] max-w-[200px] rounded-md border border-input px-3 text-sm text-foreground shadow-sm outline-none transition-[color,box-shadow] hover:bg-btnhover/40 focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/35",
-            bgSurfaceFilter(forecastMonths !== 6),
-          )}
-        >
-          <option value={6}>{t("filters.nextMonths", { months: 6 })}</option>
-          <option value={12}>{t("filters.nextMonths", { months: 12 })}</option>
-          <option value={18}>{t("filters.nextMonths", { months: 18 })}</option>
-        </select>
       </div>
 
       {loading && !hasSnapshot ? (

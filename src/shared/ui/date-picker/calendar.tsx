@@ -30,11 +30,11 @@ function Calendar({
         dropdown:
           "h-8 rounded-md border border-border bg-background px-2 text-sm text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring",
         chevron: "h-4 w-4 text-muted-foreground",
-        nav: "pointer-events-none absolute inset-x-1 top-3 z-20 flex items-center justify-between",
+        nav: "pointer-events-none absolute inset-x-1 top-2 z-20 flex items-center justify-between",
         button_previous:
-          "pointer-events-auto inline-flex h-8 w-8 items-center justify-center rounded-md border border-border bg-background text-foreground hover:bg-muted/80",
+          "pointer-events-auto inline-flex h-7 w-6 items-center justify-center rounded-md border border-border bg-background text-foreground hover:bg-muted/80",
         button_next:
-          "pointer-events-auto inline-flex h-8 w-8 items-center justify-center rounded-md border border-border bg-background text-foreground hover:bg-muted/80",
+          "pointer-events-auto inline-flex h-7 w-6 items-center justify-center rounded-md border border-border bg-background text-foreground hover:bg-muted/80",
         weekdays: "flex",
         weekday: "w-9 rounded-md text-[0.8rem] font-medium text-muted-foreground",
         week: "mt-2 flex w-full",

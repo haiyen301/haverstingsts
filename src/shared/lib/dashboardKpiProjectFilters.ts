@@ -3,6 +3,22 @@ import { parseSubitems } from "@/shared/lib/parseJsonMaybe";
 
 export type KpiDeliveryPeriod = "week" | "month" | "quarter";
 
+export type KpiDatePreset =
+  | "today"
+  | "yesterday"
+  | "lastWeek"
+  | "lastMonth"
+  | "lastQuarter"
+  | "custom";
+
+export type KpiDeliveryDateFilter = {
+  preset: KpiDatePreset;
+  customFrom?: string;
+  customTo?: string;
+};
+
+export type KpiTrendBucketMode = "day" | "week" | "month";
+
 function startOfLocalToday(): Date {
   const n = new Date();
   return new Date(n.getFullYear(), n.getMonth(), n.getDate());
@@ -69,7 +85,64 @@ export function dateToLocalYmd(d: Date): string {
 export function isDeliveryYmdInKpiPeriod(ymd: string, period: KpiDeliveryPeriod): boolean {
   const start = periodStartYmd(period);
   const end = todayYmd();
-  return ymd >= start && ymd <= end;
+  return isDeliveryYmdInYmdRange(ymd, start, end);
+}
+
+export function isDeliveryYmdInYmdRange(ymd: string, startYmd: string, endYmd: string): boolean {
+  return ymd >= startYmd && ymd <= endYmd;
+}
+
+function addDaysYmd(ymd: string, days: number): string {
+  const d = ymdToLocalDate(ymd);
+  if (!d) return ymd;
+  return dateToLocalYmd(addCalendarDays(d, days));
+}
+
+/** Resolves preset or custom filter to inclusive `[start, end]` YMD bounds. */
+export function kpiDateRangeFromFilter(filter: KpiDeliveryDateFilter): {
+  start: string;
+  end: string;
+} {
+  const today = todayYmd();
+  switch (filter.preset) {
+    case "today":
+      return { start: today, end: today };
+    case "yesterday": {
+      const y = addDaysYmd(today, -1);
+      return { start: y, end: y };
+    }
+    case "lastWeek":
+      return { start: periodStartYmd("week"), end: today };
+    case "lastMonth":
+      return { start: periodStartYmd("month"), end: today };
+    case "lastQuarter":
+      return { start: periodStartYmd("quarter"), end: today };
+    case "custom": {
+      const from = String(filter.customFrom ?? "").trim() || today;
+      const to = String(filter.customTo ?? "").trim() || from;
+      return from <= to ? { start: from, end: to } : { start: to, end: from };
+    }
+    default:
+      return { start: periodStartYmd("month"), end: today };
+  }
+}
+
+/** Trend chart bucket granularity from selected range span. */
+export function kpiTrendBucketModeForRange(startYmd: string, endYmd: string): KpiTrendBucketMode {
+  const start = ymdToLocalDate(startYmd);
+  const end = ymdToLocalDate(endYmd);
+  if (!start || !end) return "day";
+  const spanDays = Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
+  if (spanDays <= 8) return "day";
+  if (spanDays <= 45) return "week";
+  return "month";
+}
+
+export function kpiPresetToLegacyPeriod(preset: KpiDatePreset): KpiDeliveryPeriod | null {
+  if (preset === "lastWeek") return "week";
+  if (preset === "lastMonth") return "month";
+  if (preset === "lastQuarter") return "quarter";
+  return null;
 }
 
 function ymdToLocalDate(ymd: string): Date | null {
@@ -90,10 +163,18 @@ function addCalendarDays(d: Date, days: number): Date {
 
 /** Previous sliding window with the same span as [periodStartYmd(period), today]. */
 export function priorKpiPeriodWindowYmd(period: KpiDeliveryPeriod): { start: string; end: string } {
-  const curStart = ymdToLocalDate(periodStartYmd(period));
-  const curEnd = ymdToLocalDate(todayYmd());
+  return priorKpiPeriodWindowYmdFromRange(periodStartYmd(period), todayYmd());
+}
+
+/** Previous window immediately before `[startYmd, endYmd]` with the same inclusive span. */
+export function priorKpiPeriodWindowYmdFromRange(
+  startYmd: string,
+  endYmd: string,
+): { start: string; end: string } {
+  const curStart = ymdToLocalDate(startYmd);
+  const curEnd = ymdToLocalDate(endYmd);
   if (!curStart || !curEnd) {
-    return { start: periodStartYmd(period), end: todayYmd() };
+    return { start: startYmd, end: endYmd };
   }
   const spanDays = Math.round((curEnd.getTime() - curStart.getTime()) / 86400000) + 1;
   const priorEnd = addCalendarDays(curStart, -1);

@@ -1,0 +1,320 @@
+"use client";
+
+import { useMemo, useRef, useState } from "react";
+import { format, isValid, parseISO } from "date-fns";
+import { CalendarDays, ChevronDown } from "lucide-react";
+
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
+import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
+import {
+  type KpiDatePreset,
+  type KpiDeliveryDateFilter,
+  kpiDateRangeFromFilter,
+} from "@/shared/lib/dashboardKpiProjectFilters";
+import { DateRangePickerInlinePanel, DateRangeMobileSheet } from "@/shared/ui/date-picker";
+import { useMediaQuery } from "@/shared/hooks/useMediaQuery";
+import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
+
+const PRESET_ORDER: KpiDatePreset[] = [
+  "today",
+  "yesterday",
+  "lastWeek",
+  "lastMonth",
+  "lastQuarter",
+  "custom",
+];
+
+function formatCustomRangeLabel(from?: string, to?: string): string {
+  const fmt = (ymd: string) => {
+    const parsed = parseISO(ymd.slice(0, 10));
+    return isValid(parsed) ? format(parsed, "MMM d, yyyy") : ymd;
+  };
+  const f = String(from ?? "").trim();
+  const t = String(to ?? "").trim();
+  if (f && t) return `${fmt(f)} – ${fmt(t)}`;
+  if (f) return fmt(f);
+  return "";
+}
+
+type DashboardKpiDateFilterProps = {
+  value: KpiDeliveryDateFilter;
+  onChange: (next: KpiDeliveryDateFilter) => void;
+  className?: string;
+};
+
+export function DashboardKpiDateFilter({
+  value,
+  onChange,
+  className,
+}: DashboardKpiDateFilterProps) {
+  const t = useAppTranslations();
+  const isMobileViewport = useMediaQuery("(max-width: 639px)");
+  const [open, setOpen] = useState(false);
+  const [mobileCustomOpen, setMobileCustomOpen] = useState(false);
+  const [customPickerActive, setCustomPickerActive] = useState(false);
+  const [customDraft, setCustomDraft] = useState<{ from?: string; to?: string }>({});
+  const revertFilterRef = useRef<KpiDeliveryDateFilter>(value);
+
+  const presetLabel = (preset: KpiDatePreset): string => {
+    switch (preset) {
+      case "today":
+        return t("Dashboard.datePresetToday");
+      case "yesterday":
+        return t("Dashboard.datePresetYesterday");
+      case "lastWeek":
+        return t("Dashboard.periodWeek");
+      case "lastMonth":
+        return t("Dashboard.periodMonth");
+      case "lastQuarter":
+        return t("Dashboard.periodQuarter");
+      case "custom":
+        return t("Dashboard.datePresetCustom");
+      default:
+        return t("Dashboard.dateRangeLabel");
+    }
+  };
+
+  const committedRange = useMemo(() => kpiDateRangeFromFilter(value), [value]);
+
+  const triggerPrimaryLabel = presetLabel(value.preset);
+
+  const popupRangeLabel = useMemo(() => {
+    if (customPickerActive && (customDraft.from || customDraft.to)) {
+      return formatCustomRangeLabel(
+        customDraft.from ?? committedRange.start,
+        customDraft.to ?? customDraft.from ?? committedRange.end,
+      );
+    }
+    return formatCustomRangeLabel(committedRange.start, committedRange.end);
+  }, [
+    customPickerActive,
+    customDraft.from,
+    customDraft.to,
+    committedRange.start,
+    committedRange.end,
+  ]);
+
+  const hasActiveFilter = value.preset !== "lastMonth" || Boolean(value.customFrom || value.customTo);
+
+  const seedCustomDraft = (filter: KpiDeliveryDateFilter) => {
+    const seedRange = kpiDateRangeFromFilter({
+      preset: "custom",
+      customFrom: filter.customFrom,
+      customTo: filter.customTo,
+    });
+    setCustomDraft({
+      from: filter.customFrom ?? seedRange.start,
+      to: filter.customTo ?? seedRange.end,
+    });
+  };
+
+  const openCustomPicker = () => {
+    revertFilterRef.current = value;
+    seedCustomDraft(value);
+    if (isMobileViewport) {
+      setOpen(false);
+      setMobileCustomOpen(true);
+      return;
+    }
+    setCustomPickerActive(true);
+    setOpen(true);
+  };
+
+  const closeMobileCustomPicker = () => {
+    const revert = revertFilterRef.current;
+    setCustomDraft({
+      from: revert.customFrom,
+      to: revert.customTo,
+    });
+    setCustomPickerActive(false);
+    setMobileCustomOpen(false);
+  };
+
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (nextOpen) {
+      revertFilterRef.current = value;
+      if (isMobileViewport) {
+        setCustomPickerActive(false);
+        setMobileCustomOpen(false);
+        setOpen(true);
+        return;
+      }
+      if (value.preset === "custom") {
+        seedCustomDraft(value);
+        setCustomPickerActive(true);
+      } else {
+        setCustomPickerActive(false);
+      }
+      setOpen(true);
+      return;
+    }
+
+    if (customPickerActive && !isMobileViewport) {
+      const revert = revertFilterRef.current;
+      setCustomDraft({
+        from: revert.customFrom,
+        to: revert.customTo,
+      });
+    }
+    setCustomPickerActive(false);
+    setOpen(false);
+  };
+
+  const handlePresetPick = (preset: KpiDatePreset) => {
+    if (preset === "custom") {
+      openCustomPicker();
+      return;
+    }
+    setCustomPickerActive(false);
+    onChange({ preset });
+    setOpen(false);
+  };
+
+  const handleCustomApply = () => {
+    if (!customDraft.from || !customDraft.to) return;
+    onChange({
+      preset: "custom",
+      customFrom: customDraft.from,
+      customTo: customDraft.to,
+    });
+    setCustomPickerActive(false);
+    setMobileCustomOpen(false);
+    setOpen(false);
+  };
+
+  const handleCustomCancel = () => {
+    if (isMobileViewport) {
+      closeMobileCustomPicker();
+      return;
+    }
+    const revert = revertFilterRef.current;
+    setCustomDraft({
+      from: revert.customFrom,
+      to: revert.customTo,
+    });
+    setCustomPickerActive(false);
+    setOpen(false);
+  };
+
+  const showDesktopCustomPanel = !isMobileViewport && customPickerActive;
+
+  const presetSidebar = (
+    <div className="flex flex-col p-1">
+      {PRESET_ORDER.map((preset) => {
+        const isSelected =
+          (customPickerActive && preset === "custom") ||
+          (!customPickerActive && value.preset === preset);
+        return (
+          <button
+            key={preset}
+            type="button"
+            onClick={() => handlePresetPick(preset)}
+            className={cn(
+              "flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-muted",
+              isSelected && "bg-muted font-medium text-foreground",
+            )}
+          >
+            <span
+              className={cn(
+                "h-4 w-4 shrink-0 rounded-full border border-input",
+                isSelected && "border-primary bg-primary",
+              )}
+              aria-hidden
+            />
+            {presetLabel(preset)}
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  return (
+    <div className={className}>
+      <Popover open={open} onOpenChange={handleOpenChange}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className={cn(
+              "inline-flex min-h-10 min-w-[180px] max-w-[300px] items-center justify-between gap-2 rounded-md border border-input px-3 py-2 text-sm text-foreground hover:bg-btnhover/40",
+              bgSurfaceFilter(hasActiveFilter),
+            )}
+          >
+            <span className="inline-flex min-w-0 items-center gap-2">
+              <CalendarDays className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              <span className="max-w-full truncate font-medium">{triggerPrimaryLabel}</span>
+            </span>
+            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          className={cn(
+            "p-0",
+            showDesktopCustomPanel
+              ? "w-[min(calc(100vw-1.5rem),640px)] max-w-[calc(100vw-1.5rem)] overflow-hidden -ml-2.5"
+              : "w-52",
+          )}
+          align={showDesktopCustomPanel ? "end" : "start"}
+          side="bottom"
+          sideOffset={6}
+          collisionPadding={20}
+          avoidCollisions
+        >
+          {!isMobileViewport ? (
+            showDesktopCustomPanel ? (
+              <div className="flex max-h-[min(calc(100vh-4rem),640px)] w-full min-w-0 flex-col overflow-hidden sm:flex-row">
+                <div className="max-h-40 shrink-0 overflow-y-auto border-b border-border sm:max-h-none sm:w-35 md:w-40 sm:shrink-0 sm:border-b-0 sm:border-r">
+                  {presetSidebar}
+                </div>
+                <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+                  <DateRangePickerInlinePanel
+                    embedded
+                    compact
+                    value={customDraft}
+                    onDraftChange={setCustomDraft}
+                    onApply={handleCustomApply}
+                    onCancel={handleCustomCancel}
+                    applyLabel={t("Dashboard.dateRangeUpdate")}
+                    cancelLabel={t("Common.cancel")}
+                    selectingEndHint={t("Dashboard.dateRangeSelectingEnd")}
+                    className="min-h-0 flex-1"
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col">
+                {popupRangeLabel ? (
+                  <div className="border-b border-border px-3 py-2 text-xs text-muted-foreground">
+                    {popupRangeLabel}
+                  </div>
+                ) : null}
+                {presetSidebar}
+              </div>
+            )
+          ) : (
+            <div className="flex flex-col">
+              {popupRangeLabel ? (
+                <div className="border-b border-border px-3 py-2 text-xs text-muted-foreground">
+                  {popupRangeLabel}
+                </div>
+              ) : null}
+              {presetSidebar}
+            </div>
+          )}
+        </PopoverContent>
+      </Popover>
+      <DateRangeMobileSheet
+        open={mobileCustomOpen}
+        value={customDraft}
+        onDraftChange={setCustomDraft}
+        onApply={handleCustomApply}
+        onCancel={closeMobileCustomPicker}
+        selectRangeLabel={t("Dashboard.dateRangeSelectTitle")}
+        doneLabel={t("Dashboard.dateRangeDone")}
+        closeLabel={t("Common.close")}
+        clearLabel={t("Dashboard.clearDate")}
+        selectingEndHint={t("Dashboard.dateRangeSelectingEnd")}
+      />
+    </div>
+  );
+}

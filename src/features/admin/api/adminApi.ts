@@ -487,3 +487,49 @@ export async function saveKeyArea(payload: KeyAreaSavePayload): Promise<KeyAreaR
 export async function removeKeyArea(id: number): Promise<{ id: number }> {
   return stsProxyPostJson<{ id: number }>(STS_API_PATHS.keyareasRemove, { id });
 }
+
+export type ProjectPaceRow = {
+  id: number;
+  pace_key: string;
+  title: string;
+  duration_months: number;
+  harvest_batches: number;
+  harvest_every_weeks: number;
+  sort_order?: number | null;
+};
+
+export type ProjectPaceSavePayload = {
+  id?: number;
+  pace_key: string;
+  title: string;
+  duration_months: number;
+  harvest_batches: number;
+  harvest_every_weeks: number;
+  sort_order?: number;
+};
+
+export function sortProjectPaceRows(list: ProjectPaceRow[]): ProjectPaceRow[] {
+  return [...list].sort(
+    (a, b) =>
+      Number(a.sort_order ?? 0) - Number(b.sort_order ?? 0) ||
+      String(a.title ?? "").localeCompare(String(b.title ?? ""), undefined, {
+        sensitivity: "base",
+      }) ||
+      Number(a.id) - Number(b.id),
+  );
+}
+
+export async function fetchProjectPaces(): Promise<ProjectPaceRow[]> {
+  const data = await stsProxyGet<unknown[]>(STS_API_PATHS.projectPaces);
+  return sortProjectPaceRows(Array.isArray(data) ? (data as ProjectPaceRow[]) : []);
+}
+
+export async function saveProjectPace(
+  payload: ProjectPaceSavePayload,
+): Promise<ProjectPaceRow> {
+  return stsProxyPostJson<ProjectPaceRow>(STS_API_PATHS.projectPacesSave, payload);
+}
+
+export async function removeProjectPace(id: number): Promise<{ id: number }> {
+  return stsProxyPostJson<{ id: number }>(STS_API_PATHS.projectPacesRemove, { id });
+}

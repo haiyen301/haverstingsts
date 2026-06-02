@@ -1,0 +1,47 @@
+/* Compact embedded range picker — fit popover within ~640px+ viewports */
+
+.sts-date-range-inline-compact .rdp-month,
+.sts-date-range-inline-compact .rdp-months,
+.sts-date-range-inline-compact .rdp-weeks,
+.sts-date-range-inline-compact .rdp-week {
+  width: 100%;
+  max-width: 100%;
+}
+
+.sts-date-range-inline-compact .rdp-week {
+  display: grid !important;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0;
+}
+
+.sts-date-range-inline-compact .rdp-day {
+  width: 100% !important;
+  height: auto !important;
+  aspect-ratio: 1;
+  max-width: none;
+  padding: 0;
+}
+
+.sts-date-range-inline-compact .rdp-day_button {
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 1.75rem;
+  margin: 0;
+}
+
+.sts-date-range-inline-compact .rdp-month_caption,
+.sts-date-range-inline-compact .rdp-caption {
+  justify-content: flex-start;
+  width: 100%;
+}
+
+.sts-date-range-inline-compact .rdp-dropdowns {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+
+.sts-date-range-inline-compact .rdp-outside,
+.sts-date-range-inline-compact .rdp-hidden {
+  visibility: hidden;
+  pointer-events: none;
+}

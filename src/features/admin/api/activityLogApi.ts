@@ -10,6 +10,7 @@ export type ActivityLogModule =
   | "zone_configurations_api"
   | "grasses_api"
   | "keyareas_api"
+  | "project_paces_api"
   | "countries_api"
   | "roles_api"
   | "regrowth_rules_api"

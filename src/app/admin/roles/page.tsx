@@ -39,6 +39,14 @@ function emptyForm(): FormState {
 
 type RolePermissionAction = RoleAction | typeof VIEW_ALL_DATA_ACTION;
 
+type RoleActionLabelKey =
+  | "show"
+  | "edit"
+  | "create"
+  | "delete"
+  | "import"
+  | "export";
+
 function permissionKey(action: RolePermissionAction, moduleName: RoleModule): string {
   return `${action}_${moduleName}`;
 }
@@ -88,6 +96,7 @@ export default function AdminRolesPage() {
       admin_regrowth: t("modules.admin_regrowth"),
       admin_grasses: t("modules.admin_grasses"),
       admin_key_areas: t("modules.admin_key_areas"),
+      admin_project_paces: t("modules.admin_project_paces"),
       admin_countries: t("modules.admin_countries"),
       dashboard: t("modules.dashboard"),
     }),
@@ -227,7 +236,7 @@ export default function AdminRolesPage() {
                             const count = QUICK_ROLE_MODULES.filter(
                               (moduleName) => r.permissions?.[permissionKey(action, moduleName)] === "1",
                             ).length;
-                            const actionKey = action.slice(4) as "show" | "edit" | "create" | "delete" | "import";
+                            const actionKey = action.slice(4) as RoleActionLabelKey;
                             return t("permissionCount", {
                               action: t(`actions.${actionKey}`),
                               count,
@@ -281,9 +290,9 @@ export default function AdminRolesPage() {
 
                 <div className="space-y-3 rounded-lg border border-border p-4">
                   <p className="text-sm font-medium">{t("quickToggle")}</p>
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-7">
                     {ROLE_ACTIONS.map((action) => {
-                      const actionKey = action.slice(4) as "show" | "edit" | "create" | "delete" | "import";
+                      const actionKey = action.slice(4) as RoleActionLabelKey;
                       const label = t(`actions.${actionKey}`);
                       const checked = isActionAllChecked(action);
                       return (
@@ -335,7 +344,7 @@ export default function AdminRolesPage() {
                       <tr className="border-b border-border bg-muted/20">
                         <th className="px-4 py-3 text-left font-medium">{t("colModule")}</th>
                         {ROLE_ACTIONS.map((action) => {
-                          const actionKey = action.slice(4) as "show" | "edit" | "create" | "delete" | "import";
+                          const actionKey = action.slice(4) as RoleActionLabelKey;
                           return (
                           <th key={action} className="w-40 px-4 py-3 text-center font-medium capitalize">
                             {t(`actions.${actionKey}`)}
@@ -354,7 +363,7 @@ export default function AdminRolesPage() {
                           {ROLE_ACTIONS.map((action) => {
                             const key = permissionKey(action, moduleName);
                             const checked = form.permissions[key] === "1";
-                            const actionKey = action.slice(4) as "show" | "edit" | "create" | "delete" | "import";
+                            const actionKey = action.slice(4) as RoleActionLabelKey;
                             return (
                               <td key={key} className="px-4 py-2 text-center align-middle">
                                 <label className="relative inline-block cursor-pointer">

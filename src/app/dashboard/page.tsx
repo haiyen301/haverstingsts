@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState, type ComponentType, type ReactNode } from "react";
 import Link from "next/link";
-import { useLocale } from "next-intl";
 import {
   BarChart,
   Bar,
@@ -20,6 +19,8 @@ import {
   Legend,
 } from "recharts";
 import {
+  AlignLeft,
+  ArrowDown,
   ArrowDownRight,
   ArrowUpRight,
   Briefcase,
@@ -37,7 +38,14 @@ import { useSyncedFarmMultiSelect } from "@/shared/hooks/useSyncedFarmMultiSelec
 import { fetchMondayProjectRowsFromServer, type MondayProjectServerRow } from "@/entities/projects";
 import { sortMondayProjectRows } from "@/features/project";
 import { stsProxyGetHarvestingIndex } from "@/shared/api/stsProxyClient";
-import { parseQuantityRequiredRows, parseSubitems } from "@/shared/lib/parseJsonMaybe";
+import { parseJsonMaybe, parseQuantityRequiredRows, parseSubitems } from "@/shared/lib/parseJsonMaybe";
+import { MultiSelect } from "@/shared/ui/multi-select";
+import { cn } from "@/lib/utils";
+import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
+import {
+  mapRowsToSelectOptions,
+  pickGrassCatalogRows,
+} from "@/shared/lib/harvestReferenceData";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
 import { SortableTh } from "@/components/ui/sortable-th";
 import { useTableColumnSort } from "@/shared/hooks/useTableColumnSort";
@@ -46,20 +54,22 @@ import {
   compareStrings,
   compareIsoDateStrings,
 } from "@/shared/lib/tableSort";
-import { FarmCountryFlag } from "./FarmCountryFlag";
+import { DashboardKpiDateFilter } from "@/features/dashboard/DashboardKpiDateFilter";
 import {
   dateToLocalYmd,
-  isDeliveryYmdInKpiPeriod,
+  isDeliveryYmdInYmdRange,
+  kpiDateRangeFromFilter,
+  kpiPresetToLegacyPeriod,
+  kpiTrendBucketModeForRange,
   normalizeDateFieldToYmd,
   normalizeDeliveryHarvestYmd,
-  periodStartYmd,
-  priorKpiPeriodWindowYmd,
-  projectHasSubitemDeliveryInKpiPeriod,
+  priorKpiPeriodWindowYmdFromRange,
   projectHasSubitemDeliveryInYmdRange,
   projectRowHasFarmAssigned,
   rowMatchesDashboardActiveProjectsKpi,
   todayYmd,
-  type KpiDeliveryPeriod,
+  type KpiDeliveryDateFilter,
+  type KpiTrendBucketMode,
 } from "@/shared/lib/dashboardKpiProjectFilters";
 
 type RecentDeliveriesSortKey =
@@ -171,6 +181,52 @@ function countryCodeToFlag(code: string): string {
   );
 }
 
+function toRecArray(rows: unknown[]): Record<string, unknown>[] {
+  return rows.filter((x): x is Record<string, unknown> => !!x && typeof x === "object");
+}
+
+function rowMatchesCountryFilter(rowCountryId: string, countryFilterIds: string[]): boolean {
+  if (countryFilterIds.length === 0) return true;
+  return countryFilterIds.includes(rowCountryId);
+}
+
+function rowHasGrassProduct(row: MondayProjectServerRow, productId: string): boolean {
+  const pid = String(productId ?? "").trim();
+  if (!pid) return false;
+  const raw = (row as Record<string, unknown>).quantity_required_sprig_sod;
+  const parsed = parseJsonMaybe(raw);
+  if (!Array.isArray(parsed)) return false;
+  return parsed.some((item) => {
+    if (!item || typeof item !== "object") return false;
+    const rec = item as Record<string, unknown>;
+    return String(rec.product_id ?? "").trim() === pid;
+  });
+}
+
+function rowMatchesGrassFilter(row: MondayProjectServerRow, grassFilterIds: string[]): boolean {
+  if (grassFilterIds.length === 0) return true;
+  return grassFilterIds.some((id) => rowHasGrassProduct(row, id));
+}
+
+function filterFarmFiltersByCountry<
+  T extends { countryId: string },
+>(farms: T[], countryFilterIds: string[]): T[] {
+  if (countryFilterIds.length === 0) return farms;
+  return farms.filter((f) => countryFilterIds.includes(f.countryId));
+}
+
+function rowPassesDashboardCountryGrassFilters(
+  row: MondayProjectServerRow,
+  countryFilterIds: string[],
+  grassFilterIds: string[],
+): boolean {
+  const rec = row as Record<string, unknown>;
+  const rowCountry = String(rec.country_id ?? "").trim();
+  if (!rowMatchesCountryFilter(rowCountry, countryFilterIds)) return false;
+  if (!rowMatchesGrassFilter(row, grassFilterIds)) return false;
+  return true;
+}
+
 /** Month bucket YYYY-MM from `sts_project_harvesting_plan.delivery_harvest_date` only (subitems). */
 function monthKeyFromSubitem(item: Record<string, unknown>): string | null {
   const raw = item.delivery_harvest_date;
@@ -188,21 +244,6 @@ function hasDeliveryHarvestDate(item: Record<string, unknown>): boolean {
 
 function parseRequirementItems(raw: unknown): Array<Record<string, unknown>> {
   return parseQuantityRequiredRows(raw);
-}
-
-function parseDeliveryDate(item: Record<string, unknown>): Date | null {
-  const raw = item.delivery_harvest_date;
-  const s = String(raw ?? "").trim();
-  if (!s || s === "0000-00-00" || s === "null") return null;
-  const datePart = s.includes(" ") ? s.split(" ")[0] : s;
-  const m = datePart.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!m) return null;
-  const y = Number(m[1]);
-  const mo = Number(m[2]);
-  const dNum = Number(m[3]);
-  const d = new Date(y, mo - 1, dNum);
-  if (Number.isNaN(d.getTime())) return null;
-  return d;
 }
 
 function localDateFromYmd(ymd: string): Date | null {
@@ -254,15 +295,19 @@ function mondayOnOrBeforeCalendar(d: Date): Date {
 
 type KpiTrendTimeSlot = { key: string; label: string };
 
-/** X-axis buckets for delivery trend: Week = days, Month = week slices, Quarter = calendar months. */
-function buildKpiDeliveryTrendSlots(deliveryPeriod: KpiDeliveryPeriod): KpiTrendTimeSlot[] {
-  const startD = localDateFromYmd(periodStartYmd(deliveryPeriod));
-  const endD = localDateFromYmd(todayYmd());
+/** X-axis buckets for delivery trend from selected date range. */
+function buildKpiDeliveryTrendSlots(
+  startYmd: string,
+  endYmd: string,
+  bucketMode: KpiTrendBucketMode,
+): KpiTrendTimeSlot[] {
+  const startD = localDateFromYmd(startYmd);
+  const endD = localDateFromYmd(endYmd);
   if (!startD || !endD) return [];
   const startStrip = stripTimeLocal(startD);
   const endStrip = stripTimeLocal(endD);
 
-  if (deliveryPeriod === "week") {
+  if (bucketMode === "day") {
     const out: KpiTrendTimeSlot[] = [];
     for (
       let t = startStrip.getTime();
@@ -278,7 +323,7 @@ function buildKpiDeliveryTrendSlots(deliveryPeriod: KpiDeliveryPeriod): KpiTrend
     return out;
   }
 
-  if (deliveryPeriod === "month") {
+  if (bucketMode === "week") {
     const out: KpiTrendTimeSlot[] = [];
     let weekStart = mondayOnOrBeforeCalendar(startStrip);
     const endTs = endStrip.getTime();
@@ -316,18 +361,18 @@ function buildKpiDeliveryTrendSlots(deliveryPeriod: KpiDeliveryPeriod): KpiTrend
   return out;
 }
 
-/** Maps a delivery_yyyymmdd to the trend-slot key chosen for `deliveryPeriod`. */
+/** Maps a delivery_yyyymmdd to the trend-slot key for the selected bucket mode. */
 function kpiTrendBucketKeyForDeliveryYmd(
   deliveryYmd: string,
-  deliveryPeriod: KpiDeliveryPeriod,
+  bucketMode: KpiTrendBucketMode,
 ): string | null {
   const d = localDateFromYmd(deliveryYmd);
   if (!d) return null;
-  if (deliveryPeriod === "quarter") {
+  if (bucketMode === "month") {
     return deliveryYmd.length >= 7 ? deliveryYmd.slice(0, 7) : null;
   }
   const strip = stripTimeLocal(d);
-  if (deliveryPeriod === "week") return dateToLocalYmd(strip);
+  if (bucketMode === "day") return dateToLocalYmd(strip);
   const monday = mondayOnOrBeforeCalendar(strip);
   return dateToLocalYmd(monday);
 }
@@ -337,14 +382,16 @@ function rowPassesKpiGrassDeliveryPortfolio(
   ctx: {
     excludeProjectsWithoutFarm: boolean;
     selectedFarmIdSet: Set<string>;
-    deliveryPeriod: KpiDeliveryPeriod;
+    kpiRangeStart: string;
+    kpiRangeEnd: string;
   },
 ): boolean {
   return rowMatchesDashboardActiveProjectsKpi(row, {
     excludeProjectsWithoutFarm: ctx.excludeProjectsWithoutFarm,
     selectedFarmIdSet: ctx.selectedFarmIdSet,
     excludeCompleted: true,
-    deliveryMatch: (r) => projectHasSubitemDeliveryInKpiPeriod(r, ctx.deliveryPeriod),
+    deliveryMatch: (r) =>
+      projectHasSubitemDeliveryInYmdRange(r, ctx.kpiRangeStart, ctx.kpiRangeEnd),
   });
 }
 
@@ -451,12 +498,6 @@ function sprigSodSegmentClass(active: boolean) {
     }`;
 }
 
-/** Same pills as KPI delivery period (week / month / quarter). */
-function kpiDeliveryPeriodSegmentClass(active: boolean) {
-  return `rounded-md px-3 py-1 text-xs font-medium transition-colors ${active ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-    }`;
-}
-
 function formatDashTableYmd(ymd: string): string {
   const datePart = ymd.includes(" ") ? ymd.split(" ")[0]!.trim() : ymd.trim();
   const parts = datePart.split("-").map(Number);
@@ -474,52 +515,27 @@ function dashProjectCustomerLabel(rec: Record<string, unknown>): string {
   return c || a || t || "";
 }
 
-type ForecastHorizonMonths = 1 | 3 | 6 | 12;
-
-function startOfLocalToday(): Date {
-  const n = new Date();
-  return new Date(n.getFullYear(), n.getMonth(), n.getDate());
-}
-
-/** Same idea as Harvesting Portal `monthsAhead`: move calendar months from anchor day. */
-function addCalendarMonths(anchor: Date, months: number): Date {
-  return new Date(anchor.getFullYear(), anchor.getMonth() + months, anchor.getDate());
-}
-
-function formatMonthYearLong(d: Date, locale: string): string {
-  return d.toLocaleDateString(locale, { month: "long", year: "numeric" });
-}
-
 /** Dedicated active-projects view (`app/projects/active-projects/page.tsx`). */
 const ACTIVE_PROJECTS_PAGE_HREF = "/projects/active-projects";
 
-/** Harvesting Portal forecast: `target = deliveryDate || estDate` on each harvest line. */
-function getForecastTargetYmd(rec: Record<string, unknown>): string | null {
-  return (
-    normalizeDateFieldToYmd(rec.delivery_harvest_date) ??
-    normalizeDateFieldToYmd(rec.estimated_harvest_date)
-  );
-}
-
 export default function DashboardPage() {
   const t = useAppTranslations();
-  const locale = useLocale();
-  const [selectedCountry, setSelectedCountry] = useState<string | null>(null);
+  const [countryFilterIds, setCountryFilterIds] = useState<string[]>([]);
+  const [grassFilterIds, setGrassFilterIds] = useState<string[]>([]);
   const { selectedFarmIds, setSelectedFarmIds } = useSyncedFarmMultiSelect();
   const selectedFarmIdSet = useMemo(() => new Set(selectedFarmIds), [selectedFarmIds]);
   const hasFarmSelection = selectedFarmIds.length > 0;
-  /** "All Countries" + no farm chips: omit projects with no `farm_id` on any subitem. */
-  const excludeProjectsWithoutFarm = selectedCountry === null && !hasFarmSelection;
-  const [forecastHorizon, setForecastHorizon] = useState<ForecastHorizonMonths>(3);
-  const [deliveryPeriod, setDeliveryPeriod] = useState<KpiDeliveryPeriod>("month");
-
-  const { forecastHorizonEnd, forecastTodayStart, firstForecastDay } = useMemo(() => {
-    const forecastTodayStart = startOfLocalToday();
-    const forecastHorizonEnd = addCalendarMonths(forecastTodayStart, forecastHorizon);
-    const firstForecastDay = new Date(forecastTodayStart);
-    firstForecastDay.setDate(firstForecastDay.getDate() + 1);
-    return { forecastHorizonEnd, forecastTodayStart, firstForecastDay };
-  }, [forecastHorizon]);
+  /** Default view: omit projects with no `farm_id` on any subitem until a filter is applied. */
+  const excludeProjectsWithoutFarm =
+    countryFilterIds.length === 0 && !hasFarmSelection && grassFilterIds.length === 0;
+  const [kpiDateFilter, setKpiDateFilter] = useState<KpiDeliveryDateFilter>({
+    preset: "lastMonth",
+  });
+  const kpiDateRange = useMemo(() => kpiDateRangeFromFilter(kpiDateFilter), [kpiDateFilter]);
+  const kpiTrendBucketMode = useMemo(
+    () => kpiTrendBucketModeForRange(kpiDateRange.start, kpiDateRange.end),
+    [kpiDateRange],
+  );
   const [deliveredByMonthMode, setDeliveredByMonthMode] = useState<"sprig" | "sod">("sprig");
   const [rows, setRows] = useState<MondayProjectServerRow[]>([]);
   const [showAnalyticsPanels, setShowAnalyticsPanels] = useState(true);
@@ -531,6 +547,7 @@ export default function DashboardPage() {
   const countriesRef = useHarvestingDataStore((s) => s.countries);
   const activeCountriesRef = useHarvestingDataStore((s) => s.activeCountries);
   const productsRef = useHarvestingDataStore((s) => s.products);
+  const grassesRef = useHarvestingDataStore((s) => s.grasses);
   const fetchAllHarvestingReferenceData = useHarvestingDataStore((s) => s.fetchAllHarvestingReferenceData);
 
   useEffect(() => {
@@ -652,29 +669,53 @@ export default function DashboardPage() {
     String((row as Record<string, unknown>).deleted ?? "0").trim() === "1";
 
   const deliveryPeriodLabel = useMemo(() => {
-    if (deliveryPeriod === "week") return t("Dashboard.periodWeek");
-    if (deliveryPeriod === "month") return t("Dashboard.periodMonth");
-    return t("Dashboard.periodQuarter");
-  }, [deliveryPeriod, t]);
+    switch (kpiDateFilter.preset) {
+      case "today":
+        return t("Dashboard.datePresetToday");
+      case "yesterday":
+        return t("Dashboard.datePresetYesterday");
+      case "lastWeek":
+        return t("Dashboard.periodWeek");
+      case "lastMonth":
+        return t("Dashboard.periodMonth");
+      case "lastQuarter":
+        return t("Dashboard.periodQuarter");
+      case "custom": {
+        const startDt = localDateFromYmd(kpiDateRange.start);
+        const endDt = localDateFromYmd(kpiDateRange.end);
+        if (startDt && endDt) {
+          if (kpiDateRange.start === kpiDateRange.end) {
+            return formatDashboardDateDmYyyy(startDt);
+          }
+          return `${formatDashboardDateDmYyyy(startDt)} – ${formatDashboardDateDmYyyy(endDt)}`;
+        }
+        return t("Dashboard.datePresetCustom");
+      }
+      default:
+        return t("Dashboard.periodMonth");
+    }
+  }, [kpiDateFilter.preset, kpiDateRange, t]);
 
-  /** KPI delivery window `[periodStart, today]` formatted for subtitles (Deliveries charts). */
+  /** KPI delivery window formatted for subtitles (Deliveries charts). */
   const kpiDeliveryWindowRangeLabel = useMemo(() => {
-    const startDt = localDateFromYmd(periodStartYmd(deliveryPeriod));
-    const endDt = localDateFromYmd(todayYmd());
+    const startDt = localDateFromYmd(kpiDateRange.start);
+    const endDt = localDateFromYmd(kpiDateRange.end);
     return startDt && endDt
       ? `${formatDashboardDateDmYyyy(startDt)} – ${formatDashboardDateDmYyyy(endDt)}`
       : "";
-  }, [deliveryPeriod]);
+  }, [kpiDateRange]);
 
   const kpiActiveProjectsCount = useMemo(() => {
     const ids = new Set<string>();
     for (const row of rows) {
+      if (!rowPassesDashboardCountryGrassFilters(row, countryFilterIds, grassFilterIds)) continue;
       if (
         !rowMatchesDashboardActiveProjectsKpi(row, {
           excludeProjectsWithoutFarm,
           selectedFarmIdSet,
           excludeCompleted: true,
-          deliveryMatch: (r) => projectHasSubitemDeliveryInKpiPeriod(r, deliveryPeriod),
+          deliveryMatch: (r) =>
+            projectHasSubitemDeliveryInYmdRange(r, kpiDateRange.start, kpiDateRange.end),
         })
       ) {
         continue;
@@ -684,18 +725,20 @@ export default function DashboardPage() {
       if (id) ids.add(id);
     }
     return ids.size;
-  }, [rows, selectedFarmIdSet, excludeProjectsWithoutFarm, deliveryPeriod]);
+  }, [rows, selectedFarmIdSet, excludeProjectsWithoutFarm, kpiDateRange, countryFilterIds, grassFilterIds]);
 
   /** Distinct projects whose row status is Ongoing / Future / Warning (active-type); excludes Done & unknown. */
   const kpiTotalProjectsCount = useMemo(() => {
     const ids = new Set<string>();
     for (const row of rows) {
+      if (!rowPassesDashboardCountryGrassFilters(row, countryFilterIds, grassFilterIds)) continue;
       if (
         !rowMatchesDashboardActiveProjectsKpi(row, {
           excludeProjectsWithoutFarm,
           selectedFarmIdSet,
           excludeCompleted: false,
-          deliveryMatch: (r) => projectHasSubitemDeliveryInKpiPeriod(r, deliveryPeriod),
+          deliveryMatch: (r) =>
+            projectHasSubitemDeliveryInYmdRange(r, kpiDateRange.start, kpiDateRange.end),
         })
       ) {
         continue;
@@ -705,13 +748,14 @@ export default function DashboardPage() {
       if (id) ids.add(id);
     }
     return ids.size;
-  }, [rows, selectedFarmIdSet, excludeProjectsWithoutFarm, deliveryPeriod]);
+  }, [rows, selectedFarmIdSet, excludeProjectsWithoutFarm, kpiDateRange, countryFilterIds, grassFilterIds]);
 
   /** Same rules as active-project count, but delivery lines must fall in the prior period window (trend baseline). */
   const kpiActiveProjectsPriorPeriodCount = useMemo(() => {
-    const prior = priorKpiPeriodWindowYmd(deliveryPeriod);
+    const prior = priorKpiPeriodWindowYmdFromRange(kpiDateRange.start, kpiDateRange.end);
     const ids = new Set<string>();
     for (const row of rows) {
+      if (!rowPassesDashboardCountryGrassFilters(row, countryFilterIds, grassFilterIds)) continue;
       if (
         !rowMatchesDashboardActiveProjectsKpi(row, {
           excludeProjectsWithoutFarm,
@@ -727,28 +771,31 @@ export default function DashboardPage() {
       if (id) ids.add(id);
     }
     return ids.size;
-  }, [rows, selectedFarmIdSet, excludeProjectsWithoutFarm, deliveryPeriod]);
+  }, [rows, selectedFarmIdSet, excludeProjectsWithoutFarm, kpiDateRange, countryFilterIds, grassFilterIds]);
 
   const activeProjectsListHref = useMemo(() => {
     const q = new URLSearchParams();
     q.set("kpi", "1");
-    q.set("period", deliveryPeriod);
+    const legacyPeriod = kpiPresetToLegacyPeriod(kpiDateFilter.preset);
+    if (legacyPeriod) q.set("period", legacyPeriod);
+    q.set("deliveryFrom", kpiDateRange.start);
+    q.set("deliveryTo", kpiDateRange.end);
     if (excludeProjectsWithoutFarm) q.set("excludeNoFarm", "1");
     return `${ACTIVE_PROJECTS_PAGE_HREF}?${q.toString()}`;
-  }, [deliveryPeriod, excludeProjectsWithoutFarm]);
+  }, [kpiDateFilter.preset, kpiDateRange, excludeProjectsWithoutFarm]);
 
   /** Same delivery window as KPI cards — `/harvest` list + API `delivery_harvest_date_*`. */
   const kpiDeliveriesHarvestListHref = useMemo(() => {
     const q = new URLSearchParams();
     q.set("status", "delivered");
-    q.set("deliveryFrom", periodStartYmd(deliveryPeriod));
-    q.set("deliveryTo", todayYmd());
+    q.set("deliveryFrom", kpiDateRange.start);
+    q.set("deliveryTo", kpiDateRange.end);
     const farmCsv = [...new Set(selectedFarmIds.map((x) => String(x).trim()).filter(Boolean))]
       .sort()
       .join(",");
     if (farmCsv) q.set("farm", farmCsv);
     return `/harvest?${q.toString()}`;
-  }, [deliveryPeriod, selectedFarmIds]);
+  }, [kpiDateRange, selectedFarmIds]);
 
   const kpiProjectTrendMonth = useMemo(() => {
     if (kpiActiveProjectsPriorPeriodCount <= 0) return 0;
@@ -760,10 +807,21 @@ export default function DashboardPage() {
   }, [kpiActiveProjectsCount, kpiActiveProjectsPriorPeriodCount]);
 
   const kpiProjectTrendVsLabel = useMemo(() => {
-    if (deliveryPeriod === "week") return t("Dashboard.kpiVsLastWeek");
-    if (deliveryPeriod === "month") return t("Dashboard.kpiVsLastMonth");
-    return t("Dashboard.kpiVsLastQuarter");
-  }, [deliveryPeriod, t]);
+    switch (kpiDateFilter.preset) {
+      case "today":
+        return t("Dashboard.kpiVsYesterday");
+      case "yesterday":
+        return t("Dashboard.kpiVsPriorPeriod");
+      case "lastWeek":
+        return t("Dashboard.kpiVsLastWeek");
+      case "lastMonth":
+        return t("Dashboard.kpiVsLastMonth");
+      case "lastQuarter":
+        return t("Dashboard.kpiVsLastQuarter");
+      default:
+        return t("Dashboard.kpiVsPriorPeriod");
+    }
+  }, [kpiDateFilter.preset, t]);
 
   const kpiDeliveryPeriodStats = useMemo(() => {
     let deliveryLineCount = 0;
@@ -772,13 +830,14 @@ export default function DashboardPage() {
     const productKg = new Map<string, number>();
     for (const row of rows) {
       if (isDeleted(row)) continue;
+      if (!rowPassesDashboardCountryGrassFilters(row, countryFilterIds, grassFilterIds)) continue;
       for (const item of parseSubitems((row as Record<string, unknown>).subitems)) {
         const rec = item as Record<string, unknown>;
         if (String(rec.deleted ?? "0").trim() === "1") continue;
         const farmId = String(rec.farm_id ?? "").trim();
         if (hasFarmSelection && !selectedFarmIdSet.has(farmId)) continue;
         const deliveryYmd = normalizeDeliveryHarvestYmd(rec);
-        if (!deliveryYmd || !isDeliveryYmdInKpiPeriod(deliveryYmd, deliveryPeriod)) continue;
+        if (!deliveryYmd || !isDeliveryYmdInYmdRange(deliveryYmd, kpiDateRange.start, kpiDateRange.end)) continue;
         deliveryLineCount += 1;
         const qtyRaw = rec.quantity_harvested ?? rec.quantity ?? 0;
         const qty = Number(String(qtyRaw).replace(/,/g, "").trim());
@@ -794,7 +853,7 @@ export default function DashboardPage() {
       }
     }
     return { deliveryLineCount, totalKg, totalM2, productKg };
-  }, [rows, hasFarmSelection, selectedFarmIdSet, deliveryPeriod]);
+  }, [rows, hasFarmSelection, selectedFarmIdSet, kpiDateRange, countryFilterIds, grassFilterIds]);
 
   const kpiQtyDeliveredValue = useMemo(() => {
     const { totalKg, totalM2 } = kpiDeliveryPeriodStats;
@@ -830,10 +889,8 @@ export default function DashboardPage() {
     for (const row of rows) {
       if (isDeleted(row)) continue;
       if (excludeProjectsWithoutFarm && !projectRowHasFarmAssigned(row)) continue;
+      if (!rowPassesDashboardCountryGrassFilters(row, countryFilterIds, grassFilterIds)) continue;
       const recRow = row as Record<string, unknown>;
-      if (!hasFarmSelection && selectedCountry && String(recRow.country_id ?? "").trim() !== selectedCountry) {
-        continue;
-      }
 
       for (const item of parseSubitems(recRow.subitems)) {
         const rec = item as Record<string, unknown>;
@@ -860,119 +917,30 @@ export default function DashboardPage() {
       }
     }
     return { estimated, delivered, inTransit, finalized };
-  }, [rows, hasFarmSelection, selectedFarmIdSet, selectedCountry, excludeProjectsWithoutFarm]);
-
-  /** Planned deliveries after today through end of horizon (inclusive), matching Harvesting Portal forecast semantics. */
-  const isSubitemInForecastHorizon = (item: Record<string, unknown>): boolean => {
-    const deliveryDate = parseDeliveryDate(item);
-    const itemFarmId = String(item.farm_id ?? "").trim();
-
-    // When farm(s) are selected, keep undated rows for those farms
-    // so dashboard doesn't go blank due to missing delivery_harvest_date.
-    if (!deliveryDate) {
-      return hasFarmSelection && selectedFarmIdSet.has(itemFarmId);
-    }
-    if (deliveryDate.getTime() <= forecastTodayStart.getTime()) return false;
-    if (deliveryDate.getTime() > forecastHorizonEnd.getTime()) return false;
-    return true;
-  };
-
-  const allProjectCount = useMemo(() => {
-    const ids = new Set<string>();
-    for (const row of rows) {
-      if (isDeleted(row)) continue;
-      if (hasFarmSelection) {
-        const hasSelectedFarm = parseSubitems((row as Record<string, unknown>).subitems).some((item) => {
-          if (String((item as Record<string, unknown>).deleted ?? "0").trim() === "1") return false;
-          const farmId = String((item as Record<string, unknown>).farm_id ?? "").trim();
-          return selectedFarmIdSet.has(farmId);
-        });
-        if (!hasSelectedFarm) continue;
-      }
-      const hasAnyInDateRange = parseSubitems((row as Record<string, unknown>).subitems).some((item) =>
-        isSubitemInForecastHorizon(item as Record<string, unknown>),
-      );
-      if (!hasAnyInDateRange) continue;
-      const id = String((row as Record<string, unknown>).project_id ?? row.id ?? "").trim();
-      if (id) ids.add(id);
-    }
-    return ids.size;
-  }, [rows, forecastHorizon, hasFarmSelection, selectedFarmIdSet]);
-
-  const totalCurrentProjects = useMemo(() => {
-    const ids = new Set<string>();
-    for (const row of rows) {
-      if (isDeleted(row)) continue;
-      if (hasFarmSelection) {
-        const hasSelectedFarm = parseSubitems((row as Record<string, unknown>).subitems).some((item) => {
-          if (String((item as Record<string, unknown>).deleted ?? "0").trim() === "1") return false;
-          const farmId = String((item as Record<string, unknown>).farm_id ?? "").trim();
-          return selectedFarmIdSet.has(farmId);
-        });
-        if (!hasSelectedFarm) continue;
-      }
-      const hasAnyInDateRange = parseSubitems((row as Record<string, unknown>).subitems).some((item) =>
-        isSubitemInForecastHorizon(item as Record<string, unknown>),
-      );
-      if (!hasAnyInDateRange) continue;
-      const status = normalizeStatus((row as Record<string, unknown>).status_app ?? row.status);
-      if (!(status === "Ongoing" || status === "Future" || status === "Warning")) continue;
-      const id = String((row as Record<string, unknown>).project_id ?? row.id ?? "").trim();
-      if (id) ids.add(id);
-    }
-    return ids.size;
-  }, [rows, forecastHorizon, hasFarmSelection, selectedFarmIdSet]);
-
-  const deliveredTotals = useMemo(() => {
-    let sprigKg = 0;
-    let sodM2 = 0;
-    for (const row of rows) {
-      if (isDeleted(row)) continue;
-      for (const item of parseSubitems((row as Record<string, unknown>).subitems)) {
-        if (String((item as Record<string, unknown>).deleted ?? "0").trim() === "1") continue;
-        if (!isSubitemInForecastHorizon(item as Record<string, unknown>)) continue;
-        const farmId = String((item as Record<string, unknown>).farm_id ?? "").trim();
-        if (hasFarmSelection && !selectedFarmIdSet.has(farmId)) continue;
-        const qtyRaw = item.quantity_harvested ?? item.quantity ?? 0;
-        const qty = Number(String(qtyRaw).replace(/,/g, "").trim());
-        if (!Number.isFinite(qty)) continue;
-        const uom = String(item.uom ?? "").trim().toLowerCase();
-        if (uom === "kg") sprigKg += qty;
-        if (uom === "m2" || uom === "m²" || uom === "sqm") sodM2 += qty;
-      }
-    }
-    return { sprigKg, sodM2 };
-  }, [rows, forecastHorizon, hasFarmSelection, selectedFarmIdSet]);
+  }, [rows, hasFarmSelection, selectedFarmIdSet, countryFilterIds, grassFilterIds, excludeProjectsWithoutFarm]);
 
   const countryProjectsChartData = useMemo(() => {
-    const singleSelectedFarmCountryId =
-      selectedFarmIds.length === 1
-        ? farmFilters.find((f) => f.farmId === selectedFarmIds[0])?.countryId ?? null
-        : null;
-    const effectiveCountryId = singleSelectedFarmCountryId ?? selectedCountry;
     const counts = new Map<string, { country: string; projects: number }>();
 
     for (const row of rows) {
       if (isDeleted(row)) continue;
+      if (!rowMatchesGrassFilter(row, grassFilterIds)) continue;
       if (
         !rowMatchesDashboardActiveProjectsKpi(row, {
           excludeProjectsWithoutFarm,
           selectedFarmIdSet,
           excludeCompleted: true,
-          deliveryMatch: (r) => projectHasSubitemDeliveryInKpiPeriod(r, deliveryPeriod),
+          deliveryMatch: (r) =>
+            projectHasSubitemDeliveryInYmdRange(r, kpiDateRange.start, kpiDateRange.end),
         })
       ) {
         continue;
       }
       const rec = row as Record<string, unknown>;
 
-      const rowCountryId = String(rec.country_id ?? "").trim();
-      const countryId =
-        selectedFarmIds.length === 1
-          ? String(singleSelectedFarmCountryId ?? rowCountryId).trim()
-          : rowCountryId;
+      const countryId = String(rec.country_id ?? "").trim();
       if (!countryId) continue;
-      if (!hasFarmSelection && effectiveCountryId && countryId !== effectiveCountryId) continue;
+      if (!rowMatchesCountryFilter(countryId, countryFilterIds)) continue;
 
       const projectId = String(rec.project_id ?? rec.id ?? "").trim();
       if (!projectId) continue;
@@ -1015,12 +983,11 @@ export default function DashboardPage() {
   }, [
     rows,
     countriesRef,
-    selectedCountry,
-    deliveryPeriod,
+    countryFilterIds,
+    grassFilterIds,
+    kpiDateRange,
     excludeProjectsWithoutFarm,
     selectedFarmIdSet,
-    selectedFarmIds,
-    farmFilters,
   ]);
 
   const grassDistributionByUnit = useMemo(() => {
@@ -1035,8 +1002,8 @@ export default function DashboardPage() {
     }
 
     let farmsForGrass = farmFilters;
-    if (selectedCountry) {
-      farmsForGrass = farmsForGrass.filter((f) => f.countryId === selectedCountry);
+    if (countryFilterIds.length > 0) {
+      farmsForGrass = farmsForGrass.filter((f) => countryFilterIds.includes(f.countryId));
     }
     if (hasFarmSelection) {
       farmsForGrass = farmsForGrass.filter((f) => selectedFarmIdSet.has(f.farmId));
@@ -1048,14 +1015,14 @@ export default function DashboardPage() {
     const kpiRowCtx = {
       excludeProjectsWithoutFarm,
       selectedFarmIdSet,
-      deliveryPeriod,
+      kpiRangeStart: kpiDateRange.start,
+      kpiRangeEnd: kpiDateRange.end,
     };
     for (const row of rows) {
       if (isDeleted(row)) continue;
+      if (!rowPassesDashboardCountryGrassFilters(row, countryFilterIds, grassFilterIds)) continue;
       if (!rowPassesKpiGrassDeliveryPortfolio(row, kpiRowCtx)) continue;
       const prow = row as Record<string, unknown>;
-      const rowCountry = String(prow.country_id ?? "").trim();
-      if (!hasFarmSelection && selectedCountry && rowCountry !== selectedCountry) continue;
 
       const subitems = parseSubitems(prow.subitems);
       for (const item of subitems) {
@@ -1064,7 +1031,7 @@ export default function DashboardPage() {
         if (!allowedFarmIds.has(farmId)) continue;
 
         const deliveryYmd = normalizeDeliveryHarvestYmd(item as Record<string, unknown>);
-        if (!deliveryYmd || !isDeliveryYmdInKpiPeriod(deliveryYmd, deliveryPeriod)) continue;
+        if (!deliveryYmd || !isDeliveryYmdInYmdRange(deliveryYmd, kpiDateRange.start, kpiDateRange.end)) continue;
 
         const productId = String(item.product_id ?? "").trim();
         if (!productId) continue;
@@ -1116,11 +1083,13 @@ export default function DashboardPage() {
     productsRef,
     rows,
     farmFilters,
-    selectedCountry,
+    countryFilterIds,
+    grassFilterIds,
     hasFarmSelection,
     excludeProjectsWithoutFarm,
     selectedFarmIdSet,
-    deliveryPeriod,
+    kpiDateRange,
+    kpiTrendBucketMode,
   ]);
 
   /** GRASS KPI card matches chart cohort (portfolio filter): distinct grasses with kg and/or sod m² in window */
@@ -1158,8 +1127,8 @@ export default function DashboardPage() {
    */
   const farmQtyDeliveredByHarvestTypeBarData = useMemo(() => {
     let farms = farmFilters;
-    if (selectedCountry) {
-      farms = farms.filter((f) => f.countryId === selectedCountry);
+    if (countryFilterIds.length > 0) {
+      farms = farms.filter((f) => countryFilterIds.includes(f.countryId));
     }
     if (hasFarmSelection) {
       farms = farms.filter((f) => selectedFarmIdSet.has(f.farmId));
@@ -1176,15 +1145,15 @@ export default function DashboardPage() {
     const stackKpiCtx = {
       excludeProjectsWithoutFarm,
       selectedFarmIdSet,
-      deliveryPeriod,
+      kpiRangeStart: kpiDateRange.start,
+      kpiRangeEnd: kpiDateRange.end,
     };
 
     for (const row of rows) {
       if (isDeleted(row)) continue;
+      if (!rowPassesDashboardCountryGrassFilters(row, countryFilterIds, grassFilterIds)) continue;
       if (!rowPassesKpiGrassDeliveryPortfolio(row, stackKpiCtx)) continue;
       const prow = row as Record<string, unknown>;
-      const rowCountry = String(prow.country_id ?? "").trim();
-      if (!hasFarmSelection && selectedCountry && rowCountry !== selectedCountry) continue;
 
       for (const item of parseSubitems(prow.subitems)) {
         const rec = item as Record<string, unknown>;
@@ -1195,7 +1164,7 @@ export default function DashboardPage() {
         if (hasFarmSelection && !selectedFarmIdSet.has(farmId)) continue;
 
         const deliveryYmd = normalizeDeliveryHarvestYmd(rec);
-        if (!deliveryYmd || !isDeliveryYmdInKpiPeriod(deliveryYmd, deliveryPeriod)) continue;
+        if (!deliveryYmd || !isDeliveryYmdInYmdRange(deliveryYmd, kpiDateRange.start, kpiDateRange.end)) continue;
 
         const uom = String(rec.uom ?? "").trim().toLowerCase();
         const qtyRaw = rec.quantity_harvested ?? rec.quantity ?? 0;
@@ -1236,11 +1205,13 @@ export default function DashboardPage() {
   }, [
     rows,
     farmFilters,
-    selectedCountry,
+    countryFilterIds,
+    grassFilterIds,
     excludeProjectsWithoutFarm,
     hasFarmSelection,
     selectedFarmIdSet,
-    deliveryPeriod,
+    kpiDateRange,
+    kpiTrendBucketMode,
   ]);
 
   /**
@@ -1248,8 +1219,8 @@ export default function DashboardPage() {
    */
   const recentKpiDeliveriesTableRows = useMemo(() => {
     let farms = farmFilters;
-    if (selectedCountry) {
-      farms = farms.filter((f) => f.countryId === selectedCountry);
+    if (countryFilterIds.length > 0) {
+      farms = farms.filter((f) => countryFilterIds.includes(f.countryId));
     }
     if (hasFarmSelection) {
       farms = farms.filter((f) => selectedFarmIdSet.has(f.farmId));
@@ -1281,15 +1252,16 @@ export default function DashboardPage() {
     const recentKpiCtx = {
       excludeProjectsWithoutFarm,
       selectedFarmIdSet,
-      deliveryPeriod,
+      kpiRangeStart: kpiDateRange.start,
+      kpiRangeEnd: kpiDateRange.end,
     };
 
     for (const row of rows) {
       if (isDeleted(row)) continue;
+      if (!rowPassesDashboardCountryGrassFilters(row, countryFilterIds, grassFilterIds)) continue;
       if (!rowPassesKpiGrassDeliveryPortfolio(row, recentKpiCtx)) continue;
       const projRec = row as Record<string, unknown>;
       const rowCountry = String(projRec.country_id ?? "").trim();
-      if (!hasFarmSelection && selectedCountry && rowCountry !== selectedCountry) continue;
       const projectLabel = dashProjectCustomerLabel(projRec);
 
       for (const item of parseSubitems(projRec.subitems)) {
@@ -1301,10 +1273,10 @@ export default function DashboardPage() {
           (farmId && allowedFarmIds.has(farmId)) ||
           (!farmId &&
             selectedFarmIdSet.size === 0 &&
-            (!selectedCountry || rowCountry === selectedCountry));
+            rowMatchesCountryFilter(rowCountry, countryFilterIds));
         if (!farmInScope) continue;
         const deliveryYmd = normalizeDeliveryHarvestYmd(rec);
-        if (!deliveryYmd || !isDeliveryYmdInKpiPeriod(deliveryYmd, deliveryPeriod)) continue;
+        if (!deliveryYmd || !isDeliveryYmdInYmdRange(deliveryYmd, kpiDateRange.start, kpiDateRange.end)) continue;
 
         const productId = String(rec.product_id ?? "").trim();
         const grassLabel = productId ? productNameById.get(productId) ?? productId : "";
@@ -1359,11 +1331,13 @@ export default function DashboardPage() {
     productsRef,
     rows,
     farmFilters,
-    selectedCountry,
+    countryFilterIds,
+    grassFilterIds,
     hasFarmSelection,
     excludeProjectsWithoutFarm,
     selectedFarmIdSet,
-    deliveryPeriod,
+    kpiDateRange,
+    kpiTrendBucketMode,
   ]);
 
   const sortedRecentKpiDeliveriesTableRows = useMemo(() => {
@@ -1415,8 +1389,8 @@ export default function DashboardPage() {
     const wantSprig = deliveredByMonthMode === "sprig";
 
     let farms = farmFilters;
-    if (selectedCountry) {
-      farms = farms.filter((f) => f.countryId === selectedCountry);
+    if (countryFilterIds.length > 0) {
+      farms = farms.filter((f) => countryFilterIds.includes(f.countryId));
     }
     if (hasFarmSelection) {
       farms = farms.filter((f) => selectedFarmIdSet.has(f.farmId));
@@ -1437,15 +1411,15 @@ export default function DashboardPage() {
     const grassBreakdownCtx = {
       excludeProjectsWithoutFarm,
       selectedFarmIdSet,
-      deliveryPeriod,
+      kpiRangeStart: kpiDateRange.start,
+      kpiRangeEnd: kpiDateRange.end,
     };
 
     for (const row of rows) {
       if (isDeleted(row)) continue;
+      if (!rowPassesDashboardCountryGrassFilters(row, countryFilterIds, grassFilterIds)) continue;
       if (!rowPassesKpiGrassDeliveryPortfolio(row, grassBreakdownCtx)) continue;
       const prow = row as Record<string, unknown>;
-      const rowCountry = String(prow.country_id ?? "").trim();
-      if (!hasFarmSelection && selectedCountry && rowCountry !== selectedCountry) continue;
 
       for (const item of parseSubitems(prow.subitems)) {
         const rec = item as Record<string, unknown>;
@@ -1454,7 +1428,7 @@ export default function DashboardPage() {
         if (!allowedFarmIds.has(farmId)) continue;
 
         const deliveryYmd = normalizeDeliveryHarvestYmd(rec);
-        if (!deliveryYmd || !isDeliveryYmdInKpiPeriod(deliveryYmd, deliveryPeriod)) continue;
+        if (!deliveryYmd || !isDeliveryYmdInYmdRange(deliveryYmd, kpiDateRange.start, kpiDateRange.end)) continue;
 
         const productId = String(rec.product_id ?? "").trim();
         if (!productId) continue;
@@ -1505,11 +1479,13 @@ export default function DashboardPage() {
     productsRef,
     rows,
     farmFilters,
-    selectedCountry,
+    countryFilterIds,
+    grassFilterIds,
     hasFarmSelection,
     excludeProjectsWithoutFarm,
     selectedFarmIdSet,
-    deliveryPeriod,
+    kpiDateRange,
+    kpiTrendBucketMode,
   ]);
 
   /** Per-farm horizontal bars: same KPI delivery window & qty rules as stacked bar (“Deliveries”). */
@@ -1519,8 +1495,8 @@ export default function DashboardPage() {
     const wantSprig = deliveredByMonthMode === "sprig";
 
     let farms = farmFilters;
-    if (selectedCountry) {
-      farms = farms.filter((f) => f.countryId === selectedCountry);
+    if (countryFilterIds.length > 0) {
+      farms = farms.filter((f) => countryFilterIds.includes(f.countryId));
     }
     if (hasFarmSelection) {
       farms = farms.filter((f) => selectedFarmIdSet.has(f.farmId));
@@ -1535,15 +1511,15 @@ export default function DashboardPage() {
     const composedKpiCtx = {
       excludeProjectsWithoutFarm,
       selectedFarmIdSet,
-      deliveryPeriod,
+      kpiRangeStart: kpiDateRange.start,
+      kpiRangeEnd: kpiDateRange.end,
     };
 
     for (const row of rows) {
       if (isDeleted(row)) continue;
+      if (!rowPassesDashboardCountryGrassFilters(row, countryFilterIds, grassFilterIds)) continue;
       if (!rowPassesKpiGrassDeliveryPortfolio(row, composedKpiCtx)) continue;
       const rec = row as Record<string, unknown>;
-      const rowCountry = String(rec.country_id ?? "").trim();
-      if (!hasFarmSelection && selectedCountry && rowCountry !== selectedCountry) continue;
 
       const subitems = parseSubitems(rec.subitems);
       for (const item of subitems) {
@@ -1553,7 +1529,7 @@ export default function DashboardPage() {
         if (!farmIds.has(farmId)) continue;
 
         const deliveryYmd = normalizeDeliveryHarvestYmd(itemRec);
-        if (!deliveryYmd || !isDeliveryYmdInKpiPeriod(deliveryYmd, deliveryPeriod)) continue;
+        if (!deliveryYmd || !isDeliveryYmdInYmdRange(deliveryYmd, kpiDateRange.start, kpiDateRange.end)) continue;
 
         const qtyRaw = itemRec.quantity_harvested ?? itemRec.quantity ?? 0;
         const qtyParsed = Number(String(qtyRaw).replace(/,/g, "").trim());
@@ -1608,25 +1584,31 @@ export default function DashboardPage() {
   }, [
     rows,
     farmFilters,
-    selectedCountry,
+    countryFilterIds,
+    grassFilterIds,
     excludeProjectsWithoutFarm,
     hasFarmSelection,
     selectedFarmIdSet,
     deliveredByMonthMode,
-    deliveryPeriod,
+    kpiDateRange,
+    kpiTrendBucketMode,
     kpiDeliveryWindowRangeLabel,
     t,
   ]);
 
   /** Delivery trend buckets track the selected KPI period: week = days, month = weeks, quarter = months. */
   const deliveredSixMonthFarmTrend = useMemo(() => {
-    const timeSlots = buildKpiDeliveryTrendSlots(deliveryPeriod);
+    const timeSlots = buildKpiDeliveryTrendSlots(
+      kpiDateRange.start,
+      kpiDateRange.end,
+      kpiTrendBucketMode,
+    );
 
     const wantSprig = deliveredByMonthMode === "sprig";
 
     let farmsFiltered = farmFilters;
-    if (selectedCountry) {
-      farmsFiltered = farmsFiltered.filter((f) => f.countryId === selectedCountry);
+    if (countryFilterIds.length > 0) {
+      farmsFiltered = farmsFiltered.filter((f) => countryFilterIds.includes(f.countryId));
     }
     if (hasFarmSelection) {
       farmsFiltered = farmsFiltered.filter((f) => selectedFarmIdSet.has(f.farmId));
@@ -1639,7 +1621,8 @@ export default function DashboardPage() {
     const trendKpiCtx = {
       excludeProjectsWithoutFarm,
       selectedFarmIdSet,
-      deliveryPeriod,
+      kpiRangeStart: kpiDateRange.start,
+      kpiRangeEnd: kpiDateRange.end,
     };
     const perFarmSlot = new Map<string, Map<string, number>>();
     for (const f of farmsFiltered) {
@@ -1648,10 +1631,9 @@ export default function DashboardPage() {
 
     for (const row of rows) {
       if (isDeleted(row)) continue;
+      if (!rowPassesDashboardCountryGrassFilters(row, countryFilterIds, grassFilterIds)) continue;
       if (!rowPassesKpiGrassDeliveryPortfolio(row, trendKpiCtx)) continue;
       const rec = row as Record<string, unknown>;
-      const rowCountry = String(rec.country_id ?? "").trim();
-      if (!hasFarmSelection && selectedCountry && rowCountry !== selectedCountry) continue;
 
       const subitems = parseSubitems(rec.subitems);
       for (const item of subitems) {
@@ -1661,8 +1643,8 @@ export default function DashboardPage() {
         if (!farmIds.has(fid)) continue;
 
         const deliveryYmd = normalizeDeliveryHarvestYmd(itemRec);
-        if (!deliveryYmd || !isDeliveryYmdInKpiPeriod(deliveryYmd, deliveryPeriod)) continue;
-        const slotKey = kpiTrendBucketKeyForDeliveryYmd(deliveryYmd, deliveryPeriod);
+        if (!deliveryYmd || !isDeliveryYmdInYmdRange(deliveryYmd, kpiDateRange.start, kpiDateRange.end)) continue;
+        const slotKey = kpiTrendBucketKeyForDeliveryYmd(deliveryYmd, kpiTrendBucketMode);
         if (!slotKey) continue;
         const inner = perFarmSlot.get(fid);
         if (!inner || !inner.has(slotKey)) continue;
@@ -1741,12 +1723,14 @@ export default function DashboardPage() {
   }, [
     rows,
     farmFilters,
-    selectedCountry,
+    countryFilterIds,
+    grassFilterIds,
     excludeProjectsWithoutFarm,
     hasFarmSelection,
     selectedFarmIdSet,
     deliveredByMonthMode,
-    deliveryPeriod,
+    kpiDateRange,
+    kpiTrendBucketMode,
     t,
   ]);
 
@@ -1757,121 +1741,88 @@ export default function DashboardPage() {
       .join(", ");
   }, [selectedFarmIds, farmFilters]);
 
-  const horizonThroughLabel = useMemo(
-    () => formatMonthYearLong(forecastHorizonEnd, locale),
-    [forecastHorizonEnd, locale],
+  const countryOptions = useMemo(() => {
+    const list = toRecArray(activeCountriesRef)
+      .map((r) => ({
+        id: String(r.id ?? "").trim(),
+        name: String(r.country_name ?? r.name ?? r.title ?? "").trim(),
+      }))
+      .filter((x) => x.id && x.name);
+    list.sort((a, b) => a.name.localeCompare(b.name));
+    return list;
+  }, [activeCountriesRef]);
+
+  const farmOptions = useMemo(() => {
+    const list = toRecArray(farmsRef)
+      .map((r) => ({
+        id: String(r.id ?? "").trim(),
+        name: String(r.name ?? r.title ?? "").trim(),
+      }))
+      .filter((x) => x.id && x.name);
+    list.sort((a, b) => a.name.localeCompare(b.name));
+    return list;
+  }, [farmsRef]);
+
+  const grassOptions = useMemo(() => {
+    const catalogRows = pickGrassCatalogRows({
+      catalog: grassesRef as unknown[],
+      mode: "all",
+      refYmds: [],
+      pinnedGrassIds: grassFilterIds,
+    });
+    return mapRowsToSelectOptions(catalogRows as unknown[], "title").map((o) => ({
+      id: o.id,
+      name: o.label,
+    }));
+  }, [grassesRef, grassFilterIds]);
+
+  const filterTriggerIcon = (
+    <>
+      <AlignLeft className="h-3.5 w-3.5 shrink-0" />
+      <ArrowDown className="h-3.5 w-3.5 shrink-0" />
+    </>
   );
 
-  /** Forecast strip: same rules as Harvesting Portal — target = delivery || est, string window (today, horizonEnd], count lines, sum kg. */
-  const upcomingDeliveries = useMemo(() => {
-    let length = 0;
-    let totalKg = 0;
-    const todayY = todayYmd();
-    const horizonY = dateToLocalYmd(forecastHorizonEnd);
-    for (const row of rows) {
-      if (isDeleted(row)) continue;
-      for (const item of parseSubitems((row as Record<string, unknown>).subitems)) {
-        const rec = item as Record<string, unknown>;
-        if (String(rec.deleted ?? "0").trim() === "1") continue;
-        const farmId = String(rec.farm_id ?? "").trim();
-        if (hasFarmSelection && !selectedFarmIdSet.has(farmId)) continue;
-        const targetYmd = getForecastTargetYmd(rec);
-        if (!targetYmd) continue;
-        if (targetYmd <= todayY) continue;
-        if (targetYmd > horizonY) continue;
-        length += 1;
-        const qtyRaw = rec.quantity_harvested ?? rec.quantity ?? 0;
-        const qty = Number(String(qtyRaw).replace(/,/g, "").trim());
-        const uom = String(rec.uom ?? "").trim().toLowerCase();
-        if (Number.isFinite(qty) && qty > 0 && uom === "kg") totalKg += qty;
-      }
-    }
-    return { length, totalKg };
-  }, [rows, hasFarmSelection, selectedFarmIdSet, forecastHorizonEnd]);
+  const multiSelectBaseClass =
+    "min-w-[140px] max-w-[180px] rounded-md border border-input text-sm text-foreground hover:bg-btnhover/40";
 
   return (
     <RequireAuth>
       <DashboardLayout>
         <div className="dashboard-harvesting-skin min-w-0 flex-1">
-          <div className="mx-auto w-full max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+          <div className="mx-auto w-full space-y-6 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
             <div>
               <h2 className="font-heading text-2xl font-bold text-foreground">{t("Dashboard.title")}</h2>
               <p className="mt-1 text-sm text-muted-foreground">{t("Dashboard.subtitle")}</p>
             </div>
 
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={() => {
-                  setSelectedCountry(null);
-                  setSelectedFarmIds([]);
-                }}
-                type="button"
-                className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${selectedCountry === null && selectedFarmIds.length === 0
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted text-muted-foreground hover:bg-muted/80"
-                  }`}
-              >
-                {t("Dashboard.allCountries")}
-              </button>
-              {farmFilters.map((f) => {
-                const farmSelected = selectedFarmIds.includes(f.farmId);
-                return (
-                  <button
-                    key={f.farmId}
-                    onClick={() => {
-                      setSelectedCountry(null);
-                      const next = new Set(selectedFarmIds);
-                      if (next.has(f.farmId)) next.delete(f.farmId);
-                      else next.add(f.farmId);
-                      setSelectedFarmIds(Array.from(next));
-                    }}
-                    type="button"
-                    aria-pressed={farmSelected}
-                    className={`inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${farmSelected
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted text-muted-foreground hover:bg-muted/80"
-                      }`}
-                  >
-                    <FarmCountryFlag countryCode={f.countryCode} flagEmoji={f.flag} active={farmSelected} />
-                    {f.farmName}
-                  </button>
-                );
-              })}
+            <div className="flex flex-wrap items-start gap-3">
+              <MultiSelect
+                options={countryOptions.map((c) => ({ value: c.id, label: c.name }))}
+                values={countryFilterIds}
+                onChange={setCountryFilterIds}
+                placeholder={t("Projects.allCountries")}
+                className={cn(multiSelectBaseClass, bgSurfaceFilter(countryFilterIds.length > 0))}
+                rightIcon={filterTriggerIcon}
+              />
+              <MultiSelect
+                options={farmOptions.map((f) => ({ value: f.id, label: f.name }))}
+                values={selectedFarmIds}
+                onChange={setSelectedFarmIds}
+                placeholder={t("Projects.allFarms")}
+                className={cn(multiSelectBaseClass, bgSurfaceFilter(selectedFarmIds.length > 0))}
+                rightIcon={filterTriggerIcon}
+              />
+              <MultiSelect
+                options={grassOptions.map((g) => ({ value: g.id, label: g.name }))}
+                values={grassFilterIds}
+                onChange={setGrassFilterIds}
+                placeholder={t("Projects.allGrass")}
+                className={cn(multiSelectBaseClass, bgSurfaceFilter(grassFilterIds.length > 0))}
+                rightIcon={filterTriggerIcon}
+              />
+              <DashboardKpiDateFilter value={kpiDateFilter} onChange={setKpiDateFilter} />
             </div>
-
-            <div className="glass-card flex flex-col gap-3 rounded-xl p-4 sm:flex-row sm:items-center">
-              <div className="min-w-0 flex-1">
-                <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  {t("Dashboard.forecastHorizonSection")}
-                </p>
-                <p className="mt-0.5 text-sm text-foreground">
-                  <span className="font-heading font-bold">{upcomingDeliveries.length}</span>{" "}
-                  {t("Dashboard.forecastUpcomingDeliveriesBullet")}{" "}
-                  <span className="font-heading font-bold">
-                    {(upcomingDeliveries.totalKg / 1000).toFixed(1)}k kg
-                  </span>{" "}
-                  {t("Dashboard.forecastSprigThrough")}{" "}
-                  <span className="font-heading font-semibold">{horizonThroughLabel}</span>
-                </p>
-              </div>
-              <div className="flex gap-1 rounded-lg bg-muted p-0.5">
-                {([1, 3, 6, 12] as ForecastHorizonMonths[]).map((h) => (
-                  <button
-                    key={h}
-                    type="button"
-                    onClick={() => setForecastHorizon(h)}
-                    className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${forecastHorizon === h
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
-                      }`}
-                  >
-                    {h === 1 ? t("Dashboard.forecastNextMonth") : t("Dashboard.forecastNextNMonths", { months: h })}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-
 
             <div className="grid grid-cols-2 items-stretch gap-4 lg:grid-cols-4">
               <Link
@@ -1920,26 +1871,10 @@ export default function DashboardPage() {
             </div>
 
             <div>
-              <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="mb-4">
                 <h3 className="font-heading text-lg font-semibold text-foreground">
                   {t("Dashboard.kpiDeliveries")}
                 </h3>
-                <div className="flex gap-1 rounded-lg bg-muted p-0.5">
-                  {(["week", "month", "quarter"] as const).map((p) => (
-                    <button
-                      key={p}
-                      type="button"
-                      onClick={() => setDeliveryPeriod(p)}
-                      className={kpiDeliveryPeriodSegmentClass(deliveryPeriod === p)}
-                    >
-                      {p === "week"
-                        ? t("Dashboard.periodWeek")
-                        : p === "month"
-                          ? t("Dashboard.periodMonth")
-                          : t("Dashboard.periodQuarter")}
-                    </button>
-                  ))}
-                </div>
               </div>
 
               <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">

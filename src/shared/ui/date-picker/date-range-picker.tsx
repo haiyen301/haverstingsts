@@ -72,9 +72,12 @@ function formatLabel(range?: DateRange, selectingEndHint?: string): string {
 function initPaneMonths(range?: DateRange): { left: Date; right: Date } {
   const anchor = range?.from ?? range?.to ?? new Date();
   const left = startOfMonth(anchor);
-  const right = range?.to
+  let right = range?.to
     ? startOfMonth(range.to)
     : startOfMonth(addMonths(left, 1));
+  if (right.getTime() <= left.getTime()) {
+    right = startOfMonth(addMonths(left, 1));
+  }
   return { left, right };
 }
 
