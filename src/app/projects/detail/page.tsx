@@ -310,13 +310,15 @@ const HARVEST_PHASE_FILTER_OPTIONS: HarvestPhaseFilter[] = [
   "completed",
 ];
 
-/** Below app header (3.5rem). */
-const HARVEST_TABLE_PHASE_HEAD_CLASS =
-  "sticky top-14 z-20 border-0 bg-card/95 p-0 pb-2 font-normal backdrop-blur supports-backdrop-filter:bg-card/80";
+/** Phase + column labels stick together below app header when the page scrolls. */
+const HARVEST_TABLE_STICKY_CHROME_CLASS =
+  "sticky top-14 z-20 -mx-6 border-b border-border bg-card/95 backdrop-blur supports-backdrop-filter:bg-card/80";
 
-/** Below app header + phase row (~2.75rem). */
+const HARVEST_TABLE_HORIZONTAL_SCROLL_CLASS =
+  "overflow-x-auto overflow-y-visible px-6";
+
 const HARVEST_TABLE_COLUMN_HEAD_CLASS =
-  "sticky top-[6.25rem] z-[15] bg-card/95 pb-2 font-medium text-muted-foreground backdrop-blur supports-backdrop-filter:bg-card/80 shadow-[0_1px_0_0_hsl(var(--border))]";
+  "bg-muted py-2.5 font-medium text-muted-foreground";
 
 type HarvestRow = {
   id: string;
@@ -1723,82 +1725,89 @@ export default function ProjectDetailPage() {
                       {t("noHarvestRecordsFiltered")}
                     </p>
                   ) : (
-                    <div className="-mx-6 overflow-x-auto overflow-y-visible px-6">
-                      <table className="w-full min-w-[900px] border-separate border-spacing-0 text-sm">
-                        <thead>
-                          <tr>
-                            <th colSpan={8} className={HARVEST_TABLE_PHASE_HEAD_CLASS}>
-                              <div
-                                className={cn(
-                                  "border-b border-border py-2",
-                                  bgSurfaceFilter(harvestPhaseFilter !== "all"),
-                                )}
-                                role="tablist"
-                                aria-label={t("harvestPhaseFilter")}
-                              >
-                                <div className="inline-flex rounded-lg border border-border p-0.5">
-                                  {HARVEST_PHASE_FILTER_OPTIONS.map((phase) => {
-                                    const active = harvestPhaseFilter === phase;
-                                    return (
-                                      <button
-                                        key={phase}
-                                        type="button"
-                                        role="tab"
-                                        aria-selected={active}
-                                        onClick={() => setHarvestPhaseFilter(phase)}
-                                        className={cn(
-                                          "rounded-md px-4 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors",
-                                          active
-                                            ? "bg-primary text-primary-foreground shadow-sm"
-                                            : "text-muted-foreground hover:bg-muted hover:text-foreground",
-                                        )}
-                                      >
-                                        {harvestPhaseFilterLabel(t, phase)}
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                            </th>
-                          </tr>
-                          <tr className="text-left">
-                            <th className={cn(HARVEST_TABLE_COLUMN_HEAD_CLASS, "pr-4")}>
-                              {t("date")}
-                            </th>
-                            <th className={cn(HARVEST_TABLE_COLUMN_HEAD_CLASS, "pr-4")}>
-                              {t("grass")}
-                            </th>
-                            <th className={cn(HARVEST_TABLE_COLUMN_HEAD_CLASS, "pr-4")}>
-                              {t("farm")}
-                            </th>
-                            <th className={cn(HARVEST_TABLE_COLUMN_HEAD_CLASS, "pr-4")}>
-                              {t("zone")}
-                            </th>
-                            <th
-                              className={cn(
-                                HARVEST_TABLE_COLUMN_HEAD_CLASS,
-                                "pr-4 text-right",
-                              )}
-                            >
-                              {t("quantity")}
-                            </th>
-                            <th
-                              className={cn(
-                                HARVEST_TABLE_COLUMN_HEAD_CLASS,
-                                "pr-4 text-right",
-                              )}
-                            >
-                              {t("areaM2Short")}
-                            </th>
-                            <th className={cn(HARVEST_TABLE_COLUMN_HEAD_CLASS, "pr-4")}>
-                              {tCommon("status")}
-                            </th>
-                            <th className={cn(HARVEST_TABLE_COLUMN_HEAD_CLASS, "text-right")}>
-                              {t("rowActions")}
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody>
+                    <>
+                      <div className={HARVEST_TABLE_STICKY_CHROME_CLASS}>
+                        <div
+                          className={cn(
+                            "flex justify-start px-6 py-2",
+                            bgSurfaceFilter(harvestPhaseFilter !== "all"),
+                          )}
+                          role="tablist"
+                          aria-label={t("harvestPhaseFilter")}
+                        >
+                          <div className="inline-flex rounded-lg p-0.5">
+                            {HARVEST_PHASE_FILTER_OPTIONS.map((phase) => {
+                              const active = harvestPhaseFilter === phase;
+                              return (
+                                <button
+                                  key={phase}
+                                  type="button"
+                                  role="tab"
+                                  aria-selected={active}
+                                  onClick={() => setHarvestPhaseFilter(phase)}
+                                  className={cn(
+                                    "rounded-md px-4 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors",
+                                    active
+                                      ? "bg-primary text-primary-foreground shadow-sm"
+                                      : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                                  )}
+                                >
+                                  {harvestPhaseFilterLabel(t, phase)}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                        <div className={HARVEST_TABLE_HORIZONTAL_SCROLL_CLASS}>
+                          <table className="w-full min-w-[900px] text-sm">
+                            <thead>
+                              <tr className="text-left">
+                                <th className={cn(HARVEST_TABLE_COLUMN_HEAD_CLASS, "pr-4 pl-2")}>
+                                  {t("date")}
+                                </th>
+                                <th className={cn(HARVEST_TABLE_COLUMN_HEAD_CLASS, "pr-4")}>
+                                  {t("grass")}
+                                </th>
+                                <th className={cn(HARVEST_TABLE_COLUMN_HEAD_CLASS, "pr-4")}>
+                                  {t("farm")}
+                                </th>
+                                <th className={cn(HARVEST_TABLE_COLUMN_HEAD_CLASS, "pr-4 pl-2")}>
+                                  {t("zone")}
+                                </th>
+                                <th
+                                  className={cn(
+                                    HARVEST_TABLE_COLUMN_HEAD_CLASS,
+                                    "pr-4 text-right",
+                                  )}
+                                >
+                                  {t("quantity")}
+                                </th>
+                                <th
+                                  className={cn(
+                                    HARVEST_TABLE_COLUMN_HEAD_CLASS,
+                                    "pr-4 text-right",
+                                  )}
+                                >
+                                  {t("areaM2Short")}
+                                </th>
+                                <th className={cn(HARVEST_TABLE_COLUMN_HEAD_CLASS, "pr-4")}>
+                                  {tCommon("status")}
+                                </th>
+                                <th
+                                  className={cn(HARVEST_TABLE_COLUMN_HEAD_CLASS, "text-right pr-2")}
+                                >
+                                  {t("rowActions")}
+                                </th>
+                              </tr>
+                            </thead>
+                          </table>
+                        </div>
+                      </div>
+                      <div
+                        className={cn("-mx-6", HARVEST_TABLE_HORIZONTAL_SCROLL_CLASS)}
+                      >
+                        <table className="w-full min-w-[900px] text-sm">
+                          <tbody>
                           {filteredHarvests.map((h) => {
                             const areaDisplay =
                               h.harvestedAreaM2Display ??
@@ -1872,9 +1881,10 @@ export default function ProjectDetailPage() {
                               </tr>
                             );
                           })}
-                        </tbody>
-                      </table>
-                    </div>
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
                   )}
                   {harvestPlanHasMore ? (
                     <div
