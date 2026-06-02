@@ -174,7 +174,7 @@ export function generatePlannedHarvestsForNewProject(opts: {
   if (totalWeeks <= 0) return [];
 
   const deliveriesPerWeekRate = deliveriesPerWeek(paceConfig);
-  const maxDeliveriesPerWeek = maxDeliveriesPerWeek(paceConfig);
+  const maxDeliveriesPerWeekLimit = maxDeliveriesPerWeek(paceConfig);
   const dayOffsets = dayOffsetsForPace(paceConfig);
 
   const reqs = normaliseRequirements(grassRequirements);
@@ -282,11 +282,11 @@ export function generatePlannedHarvestsForNewProject(opts: {
     sodAcc += sodDelPerWeek;
 
     const weekDeliveries: HarvestKind[] = [];
-    while (sprigAcc >= 1 && weekDeliveries.length < maxDeliveriesPerWeek) {
+    while (sprigAcc >= 1 && weekDeliveries.length < maxDeliveriesPerWeekLimit) {
       weekDeliveries.push("SPRIG");
       sprigAcc -= 1;
     }
-    while (sodAcc >= 1 && weekDeliveries.length < maxDeliveriesPerWeek) {
+    while (sodAcc >= 1 && weekDeliveries.length < maxDeliveriesPerWeekLimit) {
       weekDeliveries.push("SOD");
       sodAcc -= 1;
     }
