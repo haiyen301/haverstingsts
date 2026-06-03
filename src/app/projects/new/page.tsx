@@ -116,14 +116,10 @@ function normalizeProjectNameForCompare(v: unknown): string {
     .trim();
 }
 
-function withRefreshQueryParam(target: string, key = "refresh"): string {
-  const [pathAndQuery, hash = ""] = target.split("#", 2);
-  const [pathname, query = ""] = pathAndQuery.split("?", 2);
-  const params = new URLSearchParams(query);
-  params.set(key, String(Date.now()));
-  const nextQuery = params.toString();
-  return `${pathname}${nextQuery ? `?${nextQuery}` : ""}${hash ? `#${hash}` : ""}`;
-}
+import {
+  resolveReturnToTarget,
+  withRefreshQueryParam,
+} from "@/shared/lib/appNavigationHref";
 
 type TopFieldErrors = Partial<
   Record<
@@ -209,31 +205,26 @@ export default function ProjectInputPage() {
   const canSeedPlannedHarvestsOnCreate =
     !isEdit && canAccessModule(user, "harvests", "create");
   const canDeleteProject = isEdit && canDeleteProjects;
-  const returnTarget = useMemo(() => {
-    if (!returnToParam) return "/projects";
-    let decoded = returnToParam;
-    try {
-      decoded = decodeURIComponent(returnToParam);
-    } catch {
-      decoded = returnToParam;
-    }
-    const safeTarget = decoded.trim();
-    if (
-      safeTarget.startsWith("/projects") ||
-      safeTarget.startsWith("/projects/detail")
-    ) {
-      return safeTarget;
-    }
-    return "/projects";
-  }, [returnToParam]);
+  const returnTarget = useMemo(
+    () =>
+      resolveReturnToTarget(returnToParam, {
+        allowedPrefixes: ["/projects"],
+        fallback: "/projects",
+      }),
+    [returnToParam],
+  );
 
   const goBack = useCallback(() => {
+    if (returnToParam) {
+      router.push(returnTarget);
+      return;
+    }
     if (typeof window !== "undefined" && window.history.length > 1) {
       router.back();
       return;
     }
     router.push(returnTarget);
-  }, [router, returnTarget]);
+  }, [router, returnTarget, returnToParam]);
 
   const [loading, setLoading] = useState(isEdit);
   type ProjectSavePhase = false | "project" | "planned_harvests";

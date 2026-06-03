@@ -7,7 +7,6 @@ import { normalizeHarvestTypeStorageKey } from "@/shared/lib/harvestType";
 import { computeReadyDateYmdFromPlanRow } from "@/features/forecasting/computeReadyDateFromPlanRow";
 import {
   convertPlanRowQuantityToKgFromZones,
-  DEFAULT_FALLBACK_MAX_INVENTORY_KG,
   distributePlanRowToZoneFragments,
   forecastZoneBucketKey,
   harvestPlanEffectiveMagnitudeFromRaw,
@@ -20,6 +19,11 @@ import {
   type ZoneInventoryFragment,
 } from "@/features/forecasting/forecastingInventoryConversion";
 import type { ZoneConfigurationRow } from "@/features/admin/api/adminApi";
+import {
+  filterActiveHarvestPlanRows,
+  filterActiveZoneConfigurations,
+  isStsRecordDeleted,
+} from "@/features/forecasting/forecastActiveRecords";
 
 import type { ForecastHarvestRow } from "./forecastingTypes";
 import {
@@ -88,6 +92,7 @@ export function harvestApiRowToForecastRow(
 ): ForecastHarvestRow | null {
   const id = raw.id;
   if (id === undefined || id === null) return null;
+  if (isStsRecordDeleted(raw)) return null;
 
   const harvestDateYmd = effectiveHarvestDateYmd(raw);
   if (!harvestDateYmd) return null;
@@ -148,7 +153,7 @@ export function harvestApiRowToForecastRow(
     // Giá trị mặc định; sẽ được override ở bước `rowsToMockHarvestRows` nếu có Zone Configuration.
     inventoryKg: quantity,
     inventoryIsCapped: false,
-    zoneMaxInventoryKg: DEFAULT_FALLBACK_MAX_INVENTORY_KG,
+    zoneMaxInventoryKg: 0,
     inventoryKgFromNozoneSpread: undefined,
   };
 }
@@ -253,8 +258,10 @@ export async function fetchHarvestRowsForForecasting(params: {
           String(r.project_id ?? "").trim() !== "",
       );
 
+    const activeRows = filterActiveHarvestPlanRows(out);
+
     if (!needsGrassFarmFallback) {
-      return { rows: out };
+      return { rows: activeRows };
     }
 
     try {
@@ -263,17 +270,19 @@ export async function fetchHarvestRowsForForecasting(params: {
         projectRes.rows,
       );
       if (requirementFarmByProjectProduct.size === 0) {
-        return { rows: out };
+        return { rows: activeRows };
       }
       return {
-        rows: enrichHarvestRowsWithResolvedFarm(
-          out,
-          requirementFarmByProjectProduct,
-          params.farms ?? [],
+        rows: filterActiveHarvestPlanRows(
+          enrichHarvestRowsWithResolvedFarm(
+            activeRows,
+            requirementFarmByProjectProduct,
+            params.farms ?? [],
+          ),
         ),
       };
     } catch {
-      return { rows: out };
+      return { rows: activeRows };
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Failed to load harvesting data";
@@ -345,5 +354,7 @@ export function buildForecastRowsFromHarvestRaw(
   today = new Date(),
 ): ForecastHarvestRow[] {
   if (!harvestRowsRaw?.length) return [];
-  return rowsToMockHarvestRows(harvestRowsRaw, today, zoneConfigs ?? []);
+  const activeHarvest = filterActiveHarvestPlanRows(harvestRowsRaw);
+  const activeZones = filterActiveZoneConfigurations(zoneConfigs ?? []);
+  return rowsToMockHarvestRows(activeHarvest, today, activeZones);
 }

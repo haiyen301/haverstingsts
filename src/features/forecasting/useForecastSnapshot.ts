@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo } from "react";
 
 import { getForecastToday } from "@/features/forecasting/forecastDateUtils";
 import { ensureForecastDataLoaded } from "@/features/forecasting/forecastDataLoader";
+import { filterActiveZoneConfigurations } from "@/features/forecasting/forecastActiveRecords";
 import { buildForecastRowsFromHarvestRaw } from "@/features/forecasting/mapHarvestApiToForecastRows";
 import {
   DEFAULT_REGROWTH_REFERENCE_CONFIG,
@@ -62,20 +63,26 @@ export function useForecastSnapshot(options?: { enabled?: boolean }) {
   const combinedError = error ?? harvestError ?? null;
 
   /** Always remap from raw plans so charts / lists use latest m²→kg rules (Sod quantity, zone 1). */
+  const activeZoneConfigs = useMemo(
+    () => filterActiveZoneConfigurations(zoneConfigs ?? []),
+    [zoneConfigs],
+  );
+
   const forecastRows = useMemo(() => {
     if (harvestRowsRaw?.length) {
       return buildForecastRowsFromHarvestRaw(
         harvestRowsRaw,
-        zoneConfigs,
+        activeZoneConfigs,
         getForecastToday(),
       );
     }
     return forecastRowsCached ?? [];
-  }, [harvestRowsRaw, zoneConfigs, forecastRowsCached]);
+  }, [harvestRowsRaw, activeZoneConfigs, forecastRowsCached]);
 
   return {
     forecastRows,
-    zoneConfigs: zoneConfigs ?? [],
+    harvestRowsRaw: harvestRowsRaw ?? [],
+    zoneConfigs: activeZoneConfigs,
     regrowthConfig: regrowthConfig ?? DEFAULT_REGROWTH_REFERENCE_CONFIG,
     overridesByZone,
     isLoading,

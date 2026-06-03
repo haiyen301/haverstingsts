@@ -236,7 +236,7 @@ export function MultiSelect({
       </PopoverTrigger>
       <PopoverContent
         align="start"
-        className="w-(--radix-popover-trigger-width) min-w-[280px] max-w-[min(420px,calc(100vw-1.5rem))] p-2"
+        className="w-(--radix-popover-trigger-width) max-w-[min(420px,calc(100vw-1.5rem))] p-2"
       >
         {showChipPreview ? (
           <div className="mb-2 space-y-1.5">

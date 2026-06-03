@@ -89,12 +89,19 @@ import {
   getShippingDispatchDetailsFromRow,
   getTruckNoteFromRow,
 } from "@/shared/lib/harvestPlanExtendedFields";
-import { harvestTypeDisplayLabel } from "@/shared/lib/harvestType";
+import {
+  harvestTypeDisplayLabel,
+  normalizeHarvestTypeStorageKey,
+  type HarvestTypeStorageKey,
+} from "@/shared/lib/harvestType";
 import { cn } from "@/lib/utils";
 import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
+import { normalizeAppNavigationHref } from "@/shared/lib/appNavigationHref";
 import { DatePicker } from "@/shared/ui/date-picker";
 import {
+  compareProjectDetailHarvestHistory,
   deriveProjectHarvestStatusFromRecord,
+  PROJECT_DETAIL_HARVEST_HISTORY_ORDER_MODE,
   projectHarvestDisplayDateFromRecord,
   projectHarvestLineStatusLabel,
 } from "@/features/project/lib/projectHarvestPlanExport";
@@ -152,6 +159,7 @@ function buildProjectDetailHarvestHistoryApiParams(
     user_id: scope.userId,
     project_progress_scope: HARVEST_PROJECT_PROGRESS_SCOPE,
     view_all_data_module: "harvests",
+    order_mode: PROJECT_DETAIL_HARVEST_HISTORY_ORDER_MODE,
   };
 }
 
@@ -329,8 +337,8 @@ function HarvestHistoryTableColGroup() {
       <col className="w-[10%]" />
       <col className="w-[12%]" />
       <col className="w-[10%]" />
-      <col className="w-[12%]" />
-      <col className="w-[10%]" />
+      <col className="w-[14%]" />
+      <col className="w-[8%]" />
     </colgroup>
   );
 }
@@ -345,6 +353,8 @@ type HarvestRow = {
   status: HarvestLineStatus;
   /** ISO yyyy-mm-dd for date-range filter. */
   filterDate: string;
+  /** ISO yyyy-mm-dd for delivered-row sort (valid delivery date only). */
+  deliveryFilterDate: string;
   createdAt: string;
   date: string;
   grass: string;
@@ -355,9 +365,9 @@ type HarvestRow = {
   quantityValue: number;
   limitStatus: "limit" | "overLimit" | null;
   remainingQuantityDisplay: string | null;
-  /** `harvested_area` formatted when UOM is Kg (reference quantity + Kg). */
+  /** `harvested_area` formatted when UOM is Kg. */
   harvestedAreaDisplay: string | null;
-  /** `harvested_area` / quantity when UOM is M2 (Harvested area + m²). */
+  /** `harvested_area` when UOM is M2 or Sod→Sprig (m²). */
   harvestedAreaM2Display: string | null;
   estimatedDate: string;
   actualDate: string;
@@ -369,6 +379,7 @@ type HarvestRow = {
   generalNote: string;
   licensePlate: string;
   harvestTypeLabel: string;
+  harvestTypeKey: HarvestTypeStorageKey | "";
   uomDisplay: string;
   customerDisplay: string;
   estimatedDateEnd: string;
@@ -386,6 +397,10 @@ function harvestDetailDisplayText(v: string | null | undefined): string {
   const s = String(v ?? "").trim();
   if (!s || s === "-") return "—";
   return s;
+}
+
+function harvestHistoryTableAreaDisplay(h: HarvestRow): string {
+  return h.harvestedAreaM2Display ?? h.harvestedAreaDisplay ?? "—";
 }
 
 function HarvestHistoryDetailField({
@@ -494,6 +509,7 @@ function mapHarvestRecordToHarvestRow(
 
   const uomRaw = String(r.uom ?? "").trim();
   const uomLower = uomRaw.toLowerCase();
+  const uomNorm = normalizeUomKey(uomRaw);
   const ha = parseNumber(r.harvested_area);
   const qty = parseNumber(r.quantity);
   const isSodToSprig = isSodToSprigHarvestLine(r);
@@ -513,15 +529,11 @@ function mapHarvestRecordToHarvestRow(
       ? `${remainingQty.toLocaleString()} ${remainingUnit}`.trim()
       : null;
   const harvestedAreaDisplay =
-    uomLower === "kg" && ha > 0 ? ha.toLocaleString() : null;
+    uomNorm === "kg" && ha > 0 ? ha.toLocaleString() : null;
   const harvestedAreaM2Display =
-    !isSodToSprig &&
-    uomLower === "m2" &&
-    (ha > 0 || qty > 0)
-      ? (ha > 0 ? ha : qty).toLocaleString()
-      : isSodToSprig && ha > 0
-        ? ha.toLocaleString()
-        : null;
+    ha > 0 && (isSodToSprig || uomNorm === "m2")
+      ? ha.toLocaleString()
+      : null;
 
   const grassName = String(r.grass_name ?? r.commodity_name ?? "").trim();
   const grass =
@@ -544,6 +556,10 @@ function mapHarvestRecordToHarvestRow(
     : isValidDate(estimated)
       ? estimated.slice(0, 10)
       : "";
+  const deliveryRaw = String(r.delivery_harvest_date ?? "").trim();
+  const deliveryFilterDate = isValidDate(deliveryRaw)
+    ? deliveryRaw.slice(0, 10)
+    : "";
   const createdAt = String(r.created_at ?? r.createdAt ?? "").trim();
   const kgPerM2Raw = parseNumber(r.kg_per_m2);
   const densityDisplay =
@@ -558,10 +574,9 @@ function mapHarvestRecordToHarvestRow(
       : harvestedAreaDisplay != null
         ? `${harvestedAreaDisplay} m²`
         : null;
-  const harvestTypeLabel =
-    harvestTypeDisplayLabel(
-      r.harvest_type ?? r.load_type ?? r.harvestType ?? "",
-    ) || "—";
+  const harvestTypeRaw = r.harvest_type ?? r.load_type ?? r.harvestType ?? "";
+  const harvestTypeKey = normalizeHarvestTypeStorageKey(harvestTypeRaw);
+  const harvestTypeLabel = harvestTypeDisplayLabel(harvestTypeRaw) || "—";
   const customerDisplay =
     String(r.customer_name ?? r.customer ?? "").trim() ||
     String(r.customer_id ?? "").trim() ||
@@ -575,6 +590,7 @@ function mapHarvestRecordToHarvestRow(
     uom: uomRaw,
     status,
     filterDate,
+    deliveryFilterDate,
     createdAt,
     date: projectHarvestDisplayDateFromRecord(r, ctx.locale),
     grass,
@@ -606,6 +622,7 @@ function mapHarvestRecordToHarvestRow(
     generalNote: getGeneralNoteFromRow(r) || "-",
     licensePlate: String(r.license_plate ?? "").trim() || "-",
     harvestTypeLabel,
+    harvestTypeKey,
     uomDisplay: displayUom,
     customerDisplay,
     harvestedAreaFullDisplay,
@@ -617,21 +634,15 @@ function mapHarvestRecordToHarvestRow(
 
 function safeProjectsListHref(raw: string | null | undefined): string {
   const fallback = "/projects";
-  const s0 = String(raw ?? "").trim();
-  if (!s0) return fallback;
-  let s = s0;
-  try {
-    s = decodeURIComponent(s0);
-  } catch {
-    s = s0;
-  }
+  const s = String(raw ?? "").trim();
+  if (!s) return fallback;
   if (
     (!s.startsWith("/projects") && !s.startsWith("/harvest")) ||
     s.startsWith("//")
   ) {
     return fallback;
   }
-  return s;
+  return normalizeAppNavigationHref(s);
 }
 
 function normalizeDateFilterInput(v: string): string {
@@ -646,6 +657,34 @@ function harvestLimitLabel(status: HarvestRow["limitStatus"]): string {
   if (status === "limit") return "Limit";
   if (status === "overLimit") return "Over limit";
   return "";
+}
+
+function harvestLoadTypeBadgeClass(key: HarvestTypeStorageKey | ""): string {
+  if (key === "sod_to_sprig") return "bg-primary/10 text-primary";
+  if (key === "sod") return "bg-primary/10 text-primary";
+  if (key === "sprig") return "bg-secondary/40 text-foreground";
+  return "bg-muted text-muted-foreground";
+}
+
+function HarvestHistoryLoadTypeBadge({
+  label,
+  storageKey,
+}: {
+  label: string;
+  storageKey: HarvestTypeStorageKey | "";
+}) {
+  const text = harvestDetailDisplayText(label);
+  if (text === "—") return null;
+  return (
+    <span
+      className={cn(
+        "rounded-full px-2 py-0.5 text-[10px] font-medium",
+        harvestLoadTypeBadgeClass(storageKey),
+      )}
+    >
+      {text}
+    </span>
+  );
 }
 
 function HarvestLimitQuestionMark({ status }: { status: HarvestRow["limitStatus"] }) {
@@ -743,7 +782,7 @@ export default function ProjectDetailPage() {
     "";
   const returnTo = useMemo(() => {
     const query = searchParams.toString();
-    return query ? `${pathname}?${query}` : pathname;
+    return normalizeAppNavigationHref(query ? `${pathname}?${query}` : pathname);
   }, [pathname, searchParams]);
 
   const projectsListBackHref = useMemo(
@@ -1238,6 +1277,14 @@ export default function ProjectDetailPage() {
     ).sort((a, b) => a.localeCompare(b));
   }, [harvestsWithProductNames]);
 
+  const hasActiveHarvestFilters = Boolean(
+    harvestGrassFilter.trim() ||
+      harvestStatusFilter ||
+      harvestPhaseFilter !== "all" ||
+      normalizeDateFilterInput(harvestDateFrom) ||
+      normalizeDateFilterInput(harvestDateTo),
+  );
+
   const filteredHarvests = useMemo(() => {
     const fromIso = normalizeDateFilterInput(harvestDateFrom);
     const toIso = normalizeDateFilterInput(harvestDateTo);
@@ -1250,18 +1297,8 @@ export default function ProjectDetailPage() {
       if ((fromIso || toIso) && !h.filterDate) return false;
       return true;
     });
-    return filtered.sort((a, b) => {
-      // Newest harvest date first; empty/invalid dates go to the end.
-      const ad = a.filterDate.trim();
-      const bd = b.filterDate.trim();
-      if (ad && bd) {
-        if (ad !== bd) return bd.localeCompare(ad);
-        return String(b.id).localeCompare(String(a.id));
-      }
-      if (ad && !bd) return -1;
-      if (!ad && bd) return 1;
-      return String(b.id).localeCompare(String(a.id));
-    });
+    if (!hasActiveHarvestFilters) return filtered;
+    return [...filtered].sort(compareProjectDetailHarvestHistory);
   }, [
     harvestDateFrom,
     harvestDateTo,
@@ -1269,14 +1306,8 @@ export default function ProjectDetailPage() {
     harvestPhaseFilter,
     harvestStatusFilter,
     harvestsWithProductNames,
+    hasActiveHarvestFilters,
   ]);
-  const hasActiveHarvestFilters = Boolean(
-    harvestGrassFilter.trim() ||
-      harvestStatusFilter ||
-      harvestPhaseFilter !== "all" ||
-      normalizeDateFilterInput(harvestDateFrom) ||
-      normalizeDateFilterInput(harvestDateTo),
-  );
 
   const harvestExportResolveContext = useMemo(
     () => ({
@@ -1902,10 +1933,7 @@ export default function ProjectDetailPage() {
                           <HarvestHistoryTableColGroup />
                           <tbody>
                           {filteredHarvests.map((h) => {
-                            const areaDisplay =
-                              h.harvestedAreaM2Display ??
-                              h.harvestedAreaDisplay ??
-                              "—";
+                            const areaDisplay = harvestHistoryTableAreaDisplay(h);
                             const StatusIcon =
                               h.status === "delivered" ? CheckCircle2 : Clock;
                             return (
@@ -1951,12 +1979,18 @@ export default function ProjectDetailPage() {
                                   {areaDisplay}
                                 </td>
                                 <td className={HARVEST_TABLE_CELL_CLASS}>
-                                  <span
-                                    className={`inline-flex items-center gap-1 text-xs font-medium ${HARVEST_STATUS_ROW_CLASSES[h.status] ?? "text-muted-foreground"}`}
-                                  >
-                                    <StatusIcon className="h-3.5 w-3.5" />
-                                    {projectHarvestLineStatusLabel(t, h.status)}
-                                  </span>
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    <span
+                                      className={`inline-flex items-center gap-1 text-xs font-medium ${HARVEST_STATUS_ROW_CLASSES[h.status] ?? "text-muted-foreground"}`}
+                                    >
+                                      <StatusIcon className="h-3.5 w-3.5" />
+                                      {projectHarvestLineStatusLabel(t, h.status)}
+                                    </span>
+                                    <HarvestHistoryLoadTypeBadge
+                                      label={h.harvestTypeLabel}
+                                      storageKey={h.harvestTypeKey}
+                                    />
+                                  </div>
                                 </td>
                                 <td className={cn(HARVEST_TABLE_CELL_CLASS, "text-right")}>
                                   <div className="flex items-center justify-end gap-1">
@@ -2095,14 +2129,20 @@ export default function ProjectDetailPage() {
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="mb-4 flex items-center justify-between border-b border-gray-200 pb-3">
-                  <div className="flex items-center gap-3">
+                  <div className="flex flex-wrap items-center gap-3">
                     <span className="text-sm font-semibold text-gray-500">#{filteredHarvests.findIndex((x) => x.id === h.id) + 1}</span>
-                    <span
-                      className={`inline-flex items-center gap-1 text-xs font-medium ${HARVEST_STATUS_ROW_CLASSES[h.status] ?? "text-muted-foreground"}`}
-                    >
-                      <HeaderStatusIcon className="h-3.5 w-3.5" />
-                      {projectHarvestLineStatusLabel(t, h.status)}
-                    </span>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span
+                        className={`inline-flex items-center gap-1 text-xs font-medium ${HARVEST_STATUS_ROW_CLASSES[h.status] ?? "text-muted-foreground"}`}
+                      >
+                        <HeaderStatusIcon className="h-3.5 w-3.5" />
+                        {projectHarvestLineStatusLabel(t, h.status)}
+                      </span>
+                      <HarvestHistoryLoadTypeBadge
+                        label={h.harvestTypeLabel}
+                        storageKey={h.harvestTypeKey}
+                      />
+                    </div>
                   </div>
                   <div className="flex items-center gap-1">
                     {canEditHarvestRow(h) ? (

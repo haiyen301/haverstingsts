@@ -7,7 +7,10 @@ import {
   zoneConfigYmdSlice,
   zoneConfigurationMaxKg,
 } from "@/features/forecasting/inventoryRegrowthCalculator";
-import { FORECAST_NOZONE_ZONE } from "@/features/forecasting/forecastingInventoryConversion";
+import {
+  FORECAST_NOZONE_ZONE,
+  isForecastExcludedZone,
+} from "@/features/forecasting/forecastingInventoryConversion";
 import type { ZoneRegrowthBreakdown } from "@/features/forecasting/regrowthAllocation";
 
 export type RegrowthZoneSetupKind = "period" | "default" | "not_set";
@@ -136,10 +139,11 @@ export function collectZonesForRegrowthEvent(params: {
 
   const add = (rawZone: string) => {
     const zone = String(rawZone ?? "").trim();
-    const key = normalizeZoneForMatch(zone || FORECAST_NOZONE_ZONE);
+    if (isForecastExcludedZone(zone)) return;
+    const key = normalizeZoneForMatch(zone);
     if (seen.has(key)) return;
     seen.add(key);
-    out.push(zone || FORECAST_NOZONE_ZONE);
+    out.push(zone);
   };
 
   for (const f of params.fragments) {
@@ -150,10 +154,6 @@ export function collectZonesForRegrowthEvent(params: {
     if (z.capKg > 0 || z.grossZonedKg > 0 || z.nozoneFillKg > 0 || z.creditedTotalKg > 0) {
       add(z.zoneLabel);
     }
-  }
-
-  if (out.length === 0) {
-    add(FORECAST_NOZONE_ZONE);
   }
 
   return out;

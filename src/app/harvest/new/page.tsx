@@ -86,14 +86,10 @@ const DOC_PHOTO_SLOTS: HarvestDocPhotoField[] = [
 /** Backend validates `tableId` for both parent/sub delete, even though sub-delete only uses `rowId`. */
 const SUB_DELETE_TABLE_ID_FALLBACK = "subitem";
 
-function withRefreshQueryParam(target: string, key = "refresh"): string {
-  const [pathAndQuery, hash = ""] = target.split("#", 2);
-  const [pathname, query = ""] = pathAndQuery.split("?", 2);
-  const params = new URLSearchParams(query);
-  params.set(key, String(Date.now()));
-  const nextQuery = params.toString();
-  return `${pathname}${nextQuery ? `?${nextQuery}` : ""}${hash ? `#${hash}` : ""}`;
-}
+import {
+  resolveReturnToTarget,
+  withRefreshQueryParam,
+} from "@/shared/lib/appNavigationHref";
 
 function parseProjectDetailQueryParam(
   detailHref: string,
@@ -229,13 +225,6 @@ function requiredUomForHarvestType(harvestType: HarvestTypeStorageKey): "Kg" | "
   return harvestType === "sprig" ? "Kg" : "M2";
 }
 
-function resolvedHarvestTypeForForm(
-  harvestType: string,
-  fallbackUom: string,
-): HarvestTypeStorageKey {
-  return normalizeHarvestTypeStorageKey(harvestType) || defaultHarvestTypeForUom(fallbackUom);
-}
-
 function applyHarvestTypeConstraint(
   prev: HarvestFormState,
   harvestType: HarvestTypeStorageKey,
@@ -251,21 +240,22 @@ function applyHarvestTypeConstraint(
   };
 }
 
+/** Kg → sprig only; M2 → UoM only (user picks sod vs sod_to_sprig). */
 function applyUomConstraint(
   prev: HarvestFormState,
   uom: "Kg" | "M2",
 ): HarvestFormState {
-  const currentHarvestType = resolvedHarvestTypeForForm(prev.harvestType, prev.uom);
-  const nextHarvestType =
-    normUomKey(uom) === "kg"
-      ? "sprig"
-      : currentHarvestType === "sod_to_sprig"
-        ? "sod_to_sprig"
-        : "sod";
-  if (prev.uom === uom && prev.harvestType === nextHarvestType) {
+  if (normUomKey(uom) === "kg") {
+    return applyHarvestTypeConstraint({ ...prev, uom: "Kg" }, "sprig");
+  }
+  const nextHarvestType = "";
+  if (
+    normUomKey(prev.uom) === "m2" &&
+    prev.harvestType === nextHarvestType
+  ) {
     return prev;
   }
-  return applyHarvestTypeConstraint({ ...prev, uom }, nextHarvestType);
+  return { ...prev, uom: "M2", harvestType: nextHarvestType };
 }
 
 function harvestTypeAllowedForUom(
@@ -273,15 +263,26 @@ function harvestTypeAllowedForUom(
   uom: string,
 ): boolean {
   const uomKey = normUomKey(uom);
+  if (!uomKey) return false;
   if (uomKey === "kg") return harvestType === "sprig";
   if (uomKey === "m2") return harvestType === "sod" || harvestType === "sod_to_sprig";
-  return true;
+  return false;
+}
+
+function clearQuantityUnitsFields(
+  state: HarvestFormState,
+): HarvestFormState {
+  if (!state.uom && !state.harvestType && !state.quantity) {
+    return state;
+  }
+  return { ...state, uom: "", harvestType: "", quantity: "" };
 }
 
 function applyRowToFormState(r: Record<string, unknown>): HarvestFormState {
-  const rawUom = String(r.uom ?? "M2").trim() || "M2";
-  const harvestType = resolvedHarvestTypeForForm(String(r.load_type ?? ""), rawUom);
-  const uomStr = requiredUomForHarvestType(harvestType);
+  const harvestType = normalizeHarvestTypeStorageKey(String(r.load_type ?? ""));
+  const rawUom = String(r.uom ?? "").trim();
+  const uomStr =
+    rawUom || (harvestType ? requiredUomForHarvestType(harvestType) : "");
   const harvested = r.harvested_area;
   const harvestedStr = formatHarvestedAreaForForm(harvested);
   return {
@@ -362,6 +363,16 @@ function uniqueRequirementProductIds(requirements: QuantityRequirement[]): strin
     ids.push(id);
   }
   return ids;
+}
+
+/** Auto harvest type / UoM only when the project has a single grass line (one product, one requirement row). */
+function canAutoQuantityUnits(requirements: QuantityRequirement[]): boolean {
+  const uniqueIds = uniqueRequirementProductIds(requirements);
+  if (uniqueIds.length !== 1) return false;
+  const productId = uniqueIds[0]!;
+  return (
+    requirements.filter((r) => r.productId.trim() === productId).length === 1
+  );
 }
 
 function findRequirementForProduct(
@@ -801,31 +812,26 @@ function HarvestInputPageInner() {
     }
     return decoded.trim();
   }, [projectIdParam]);
-  const returnTarget = useMemo(() => {
-    if (!returnToParam) return "/harvest";
-    let decoded = returnToParam;
-    try {
-      decoded = decodeURIComponent(returnToParam);
-    } catch {
-      decoded = returnToParam;
-    }
-    const safeTarget = decoded.trim();
-    if (
-      safeTarget.startsWith("/harvest") ||
-      safeTarget.startsWith("/projects/detail")
-    ) {
-      return safeTarget;
-    }
-    return "/harvest";
-  }, [returnToParam]);
+  const returnTarget = useMemo(
+    () =>
+      resolveReturnToTarget(returnToParam, {
+        allowedPrefixes: ["/harvest", "/projects/detail"],
+        fallback: "/harvest",
+      }),
+    [returnToParam],
+  );
 
   const goBack = useCallback(() => {
+    if (returnToParam) {
+      router.push(returnTarget);
+      return;
+    }
     if (typeof window !== "undefined" && window.history.length > 1) {
       router.back();
       return;
     }
     router.push(returnTarget);
-  }, [router, returnTarget]);
+  }, [router, returnTarget, returnToParam]);
 
   const user = useAuthUserStore((s) => s.user);
   const canCreateHarvest = canAccessModule(user, "harvests", "create");
@@ -1388,8 +1394,15 @@ function HarvestInputPageInner() {
         .filter((id) => id !== ""),
     );
     if (requiredIds.size === 0 || requiredIds.has(grass)) return;
-    setFormData((prev) => ({ ...prev, grass: "" }));
-    setFieldErrors((prev) => ({ ...prev, grass: undefined }));
+    setFormData((prev) =>
+      clearQuantityUnitsFields({ ...prev, grass: "" }),
+    );
+    setFieldErrors((prev) => ({
+      ...prev,
+      grass: undefined,
+      harvestType: undefined,
+      quantity: undefined,
+    }));
   }, [formData.grass, formData.project, selectedProjectRequirements]);
 
   useEffect(() => {
@@ -1420,8 +1433,13 @@ function HarvestInputPageInner() {
 
       let next: HarvestFormState = { ...prev, grass: grassId };
       const uomEmpty = !prev.uom.trim() && !prev.harvestType.trim();
-      if (grassEmpty || uomEmpty) {
+      if (
+        canAutoQuantityUnits(selectedProjectRequirements) &&
+        (grassEmpty || uomEmpty)
+      ) {
         next = applyUomConstraint(next, defaultUomForRequirement(req));
+      } else if (grassEmpty || uomEmpty) {
+        next = clearQuantityUnitsFields(next);
       }
 
       const reqFarmId = resolveFarmIdFromRequirement(req, farmOptions);
@@ -1468,11 +1486,40 @@ function HarvestInputPageInner() {
       (r) => r.productId === productId,
     );
     if (sameProduct.length === 0) return null;
+    if (sameProduct.length > 1 && !normUomKey(formData.uom)) return null;
     const matchByFormUom = sameProduct.find((r) =>
       requirementMatchesFormUom(r, formData.uom),
     );
-    return matchByFormUom ?? sameProduct[0] ?? null;
+    if (matchByFormUom) return matchByFormUom;
+    return sameProduct.length === 1 ? sameProduct[0]! : null;
   }, [formData.grass, formData.uom, selectedProjectRequirements]);
+
+  const grassHasQuantityRequirements = useMemo(() => {
+    const productId = formData.grass.trim();
+    if (!productId) return false;
+    return selectedProjectRequirements.some((r) => r.productId === productId);
+  }, [formData.grass, selectedProjectRequirements]);
+
+  /** Grass has project quantity rows (or edit with UoM) — enables harvest type / UoM controls. */
+  const quantityUnitsBasisReady = Boolean(
+    formData.grass.trim() &&
+      (grassHasQuantityRequirements ||
+        (editId && Boolean(normUomKey(formData.uom)))),
+  );
+
+  const selectedHarvestTypeKey = normalizeHarvestTypeStorageKey(
+    formData.harvestType,
+  );
+
+  useEffect(() => {
+    if (editId || !formData.grass.trim() || grassHasQuantityRequirements) return;
+    setFormData((prev) => clearQuantityUnitsFields(prev));
+    setFieldErrors((prev) => ({
+      ...prev,
+      harvestType: undefined,
+      quantity: undefined,
+    }));
+  }, [editId, formData.grass, grassHasQuantityRequirements]);
 
   const deliveredQuantityForSelection = useMemo(() => {
     if (!requirementForGrass) return 0;
@@ -2115,9 +2162,6 @@ function HarvestInputPageInner() {
                               selectedProjectRequirements.find(
                                 (r) => r.productId === grass,
                               ) ?? null;
-                            const nextUom = req
-                              ? defaultUomForRequirement(req)
-                              : (formData.uom as "Kg" | "M2" | "");
                             const reqFarmId = resolveFarmIdFromRequirement(
                               req,
                               farmOptions,
@@ -2125,8 +2169,18 @@ function HarvestInputPageInner() {
                             setFormData((prev) => {
                               if (prev.grass === grass) return prev;
                               let next: HarvestFormState = { ...prev, grass };
-                              if (nextUom) {
-                                next = applyUomConstraint(next, nextUom);
+                              if (!grass.trim()) {
+                                next = clearQuantityUnitsFields(next);
+                              } else if (
+                                req &&
+                                canAutoQuantityUnits(selectedProjectRequirements)
+                              ) {
+                                next = applyUomConstraint(
+                                  next,
+                                  defaultUomForRequirement(req),
+                                );
+                              } else {
+                                next = clearQuantityUnitsFields(next);
                               }
                               if (reqFarmId) {
                                 next = {
@@ -2137,7 +2191,12 @@ function HarvestInputPageInner() {
                               }
                               return next;
                             });
-                            setFieldErrors((prev) => ({ ...prev, grass: undefined }));
+                            setFieldErrors((prev) => ({
+                              ...prev,
+                              grass: undefined,
+                              harvestType: undefined,
+                              quantity: undefined,
+                            }));
                           }}
                           className={`${harvestFieldClass} ${fieldErrors.grass ? "ring-2 ring-destructive" : ""}`}
                           disabled={formDisabled || !formData.project.trim()}
@@ -2238,7 +2297,7 @@ function HarvestInputPageInner() {
                               type="button"
                               onMouseDown={(e) => e.preventDefault()}
                               onClick={() => {
-                                if (formDisabled) return;
+                                if (formDisabled || !quantityUnitsBasisReady) return;
                                 if (formData.harvestType === value) return;
                                 setFormData((prev) =>
                                   applyHarvestTypeConstraint(
@@ -2256,28 +2315,37 @@ function HarvestInputPageInner() {
                               className="relative w-max cursor-pointer text-left justify-self-start disabled:cursor-not-allowed"
                               disabled={
                                 formDisabled ||
-                                !harvestTypeAllowedForUom(
-                                  value as HarvestTypeStorageKey,
-                                  formData.uom,
-                                )
+                                !quantityUnitsBasisReady ||
+                                (formData.uom.trim() !== "" &&
+                                  !harvestTypeAllowedForUom(
+                                    value as HarvestTypeStorageKey,
+                                    formData.uom,
+                                  ))
                               }
-                              aria-pressed={formData.harvestType === value}
+                              aria-pressed={
+                                quantityUnitsBasisReady &&
+                                selectedHarvestTypeKey === value
+                              }
                             >
                               <span
                                 className={`flex min-h-10 min-w-10 items-center justify-center whitespace-nowrap rounded-md border px-3 text-sm transition-colors ${
-                                  formData.harvestType === value
+                                  quantityUnitsBasisReady &&
+                                  selectedHarvestTypeKey === value
                                     ? "border-primary bg-primary/5 text-primary"
-                                    : harvestTypeAllowedForUom(
-                                          value as HarvestTypeStorageKey,
-                                          formData.uom,
-                                        )
+                                    : quantityUnitsBasisReady &&
+                                        (formData.uom.trim() === "" ||
+                                          harvestTypeAllowedForUom(
+                                            value as HarvestTypeStorageKey,
+                                            formData.uom,
+                                          ))
                                       ? "border-input bg-card text-foreground shadow-sm"
                                       : "border-input bg-muted text-muted-foreground/60 shadow-sm"
                                 }`}
                               >
                                 {label}
                               </span>
-                              {formData.harvestType === value ? (
+                              {quantityUnitsBasisReady &&
+                              selectedHarvestTypeKey === value ? (
                                 <CheckBadge className="left-1 top-1 h-3 w-3" />
                               ) : null}
                             </button>
@@ -2299,7 +2367,7 @@ function HarvestInputPageInner() {
                               type="button"
                               onMouseDown={(e) => e.preventDefault()}
                               onClick={() => {
-                                if (formDisabled) return;
+                                if (formDisabled || !quantityUnitsBasisReady) return;
                                 if (formData.uom === u) return;
                                 setHarvestedAreaManual(false);
                                 setFormData((prev) => applyUomConstraint(prev, u));
@@ -2310,19 +2378,26 @@ function HarvestInputPageInner() {
                                 }));
                               }}
                               className="relative w-max cursor-pointer text-left justify-self-start disabled:cursor-not-allowed"
-                              disabled={formDisabled}
-                              aria-pressed={formData.uom === u}
+                              disabled={formDisabled || !quantityUnitsBasisReady}
+                              aria-pressed={
+                                quantityUnitsBasisReady &&
+                                normUomKey(formData.uom) === normUomKey(u)
+                              }
                             >
                               <span
                                 className={`flex min-h-10 min-w-10 items-center justify-center whitespace-nowrap rounded-md border px-3 text-sm transition-colors ${
-                                  formData.uom === u
+                                  quantityUnitsBasisReady &&
+                                  normUomKey(formData.uom) === normUomKey(u)
                                     ? "border-primary bg-primary/5 text-primary"
-                                    : "border-input bg-card text-foreground shadow-sm"
+                                    : quantityUnitsBasisReady
+                                      ? "border-input bg-card text-foreground shadow-sm"
+                                      : "border-input bg-muted text-muted-foreground/60 shadow-sm"
                                 }`}
                               >
                                 {u}
                               </span>
-                              {formData.uom === u ? (
+                              {quantityUnitsBasisReady &&
+                              normUomKey(formData.uom) === normUomKey(u) ? (
                                 <CheckBadge className="left-1 top-1 h-3 w-3" />
                               ) : null}
                             </button>

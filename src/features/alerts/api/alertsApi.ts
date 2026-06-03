@@ -15,6 +15,8 @@ export type AlertPushPayload = {
   push_email?: boolean;
   /** e.g. `projects_new` — stored in `alert_events.payload` for workers. */
   route_key?: string;
+  /** Where the alert was created: `web` or `mobile`. */
+  source_platform?: "web" | "mobile";
 };
 
 export type AlertFeedItem = {
@@ -37,6 +39,9 @@ export type AlertFeedItem = {
   routeKey?: string;
   status?: string;
   actionPayload?: Record<string, unknown>;
+  createdByUserId?: number | null;
+  createdByUser?: string;
+  sourcePlatform?: "web" | "mobile";
 };
 
 export type CreateAlertInput = {
@@ -89,6 +94,7 @@ export async function createAlert(input: CreateAlertInput): Promise<{ event_id: 
             push_web: Boolean(push.push_web),
             push_email: Boolean(push.push_email),
             ...(rk ? { route_key: rk } : {}),
+            ...(push.source_platform ? { source_platform: push.source_platform } : {}),
           };
         })()
       : undefined;

@@ -122,6 +122,7 @@ export async function dispatchCustomAlert(
         push_mobile: flags.push_mobile,
         push_web: flags.push_web,
         push_email: flags.push_email,
+        source_platform: "web" as const,
         ...(rk ? { route_key: rk } : {}),
       },
     };

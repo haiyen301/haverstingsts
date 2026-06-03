@@ -3,6 +3,10 @@ import {
   fetchZoneConfigurations,
 } from "@/features/admin/api/adminApi";
 import {
+  filterActiveRegrowthRules,
+  filterActiveZoneConfigurations,
+} from "@/features/forecasting/forecastActiveRecords";
+import {
   buildForecastRowsFromHarvestRaw,
   fetchHarvestRowsForForecasting,
 } from "@/features/forecasting/mapHarvestApiToForecastRows";
@@ -36,7 +40,7 @@ async function loadReference(force: boolean): Promise<void> {
 }
 
 async function loadZones(token: number): Promise<void> {
-  const rows = await fetchZoneConfigurations();
+  const rows = filterActiveZoneConfigurations(await fetchZoneConfigurations());
   if (token !== loadToken) return;
   const store = useForecastDataStore.getState();
   store.setZoneConfigs(rows);
@@ -45,7 +49,7 @@ async function loadZones(token: number): Promise<void> {
 
 async function loadRules(token: number): Promise<void> {
   try {
-    const rules = await fetchRegrowthRules();
+    const rules = filterActiveRegrowthRules(await fetchRegrowthRules());
     if (token !== loadToken) return;
     useForecastDataStore
       .getState()

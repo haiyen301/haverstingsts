@@ -7,7 +7,8 @@ import { normalizeHarvestTypeStorageKey } from "@/shared/lib/harvestType";
 import type { ForecastHarvestRow } from "./forecastingTypes";
 
 export const DEFAULT_FALLBACK_INVENTORY_KG_PER_M2 = 1;
-export const DEFAULT_FALLBACK_MAX_INVENTORY_KG = 500000;
+/** @deprecated Do not use for capacity / chart — only zone-config caps apply. Kept as 0. */
+export const DEFAULT_FALLBACK_MAX_INVENTORY_KG = 0;
 
 /**
  * Helper quy đổi m² → kg dựa trên Zone Configuration.
@@ -43,10 +44,11 @@ export function convertPlanRowQuantityToKgFromZones(params: {
     : null;
   const maxInventoryKgUsed = config
     ? normalizeMaxInventoryKg(toNumber(config.max_inventory_kg))
-    : DEFAULT_FALLBACK_MAX_INVENTORY_KG;
+    : 0;
 
   const requestedKg = harvestPlanInventoryKgFromRaw(rawPlanRow, { zoneConfigs });
-  const finalKg = Math.min(requestedKg, maxInventoryKgUsed);
+  const finalKg =
+    maxInventoryKgUsed > 0 ? Math.min(requestedKg, maxInventoryKgUsed) : requestedKg;
 
   return {
     quantityKg: finalKg,
@@ -57,7 +59,7 @@ export function convertPlanRowQuantityToKgFromZones(params: {
 }
 
 function normalizeMaxInventoryKg(v: number): number {
-  return v > 0 ? v : DEFAULT_FALLBACK_MAX_INVENTORY_KG;
+  return v > 0 ? v : 0;
 }
 
 function toNumber(v: unknown): number {
@@ -408,6 +410,18 @@ export function isForecastNoZoneBucketKey(normalizedZone: string): boolean {
   return !s || s === FORECAST_NOZONE_ZONE || s === "no-zone" || s === "no zone";
 }
 
+/** Zone trống / no-zone / nozone — bỏ qua trong cap, chart, zone-config buckets. */
+export function isForecastExcludedZone(zone: string | undefined | null): boolean {
+  return isForecastNoZoneBucketKey(normalizeZone(String(zone ?? "")));
+}
+
+/** `farmId|zone|productId` keys that participate in mapped-zone inventory math. */
+export function isMappedForecastZoneKey(zoneKey: string): boolean {
+  const parts = zoneKey.split("|");
+  if (parts.length !== 3) return false;
+  return !isForecastExcludedZone(parts[1]);
+}
+
 /** Chuẩn hóa key bucket dùng trong `aggregateBucketsForFarmGrass` / `distributePlanRowToZoneFragments`. */
 export function forecastZoneBucketKey(normalizedZone: string): string {
   return isForecastNoZoneBucketKey(normalizedZone) ? FORECAST_NOZONE_ZONE : normalizedZone;
@@ -461,6 +475,7 @@ function aggregateBucketsForFarmGrass(
   for (const cfg of zoneConfigs) {
     if (Number(cfg.farm_id) !== farmId || Number(cfg.grass_id) !== productId) continue;
     const zoneRaw = String(cfg.zone ?? "").trim();
+    if (isForecastExcludedZone(zoneRaw)) continue;
     const key = forecastZoneBucketKey(normalizeZone(zoneRaw));
     const displayRaw =
       key === FORECAST_NOZONE_ZONE ? zoneRaw || FORECAST_NOZONE_ZONE : zoneRaw;
@@ -555,25 +570,11 @@ export function distributePlanRowToZoneFragments(params: {
       ];
     }
 
-    return [
-      {
-        zone: String(rawPlanRow.zone ?? "").trim(),
-        inventoryKg: requestedKg,
-        zoneMaxInventoryKg: DEFAULT_FALLBACK_MAX_INVENTORY_KG,
-        inventoryIsCapped: false,
-      },
-    ];
+    return [];
   }
 
   if (buckets.size === 0) {
-    return [
-      {
-        zone: FORECAST_NOZONE_ZONE,
-        inventoryKg: requestedKg,
-        zoneMaxInventoryKg: DEFAULT_FALLBACK_MAX_INVENTORY_KG,
-        inventoryIsCapped: false,
-      },
-    ];
+    return [];
   }
 
   const fillKeys = Array.from(buckets.keys())
@@ -607,40 +608,7 @@ export function distributePlanRowToZoneFragments(params: {
     if (remainder <= 0) break;
   }
 
-  const noz = buckets.get(FORECAST_NOZONE_ZONE);
-  if (remainder > 0) {
-    if (noz && noz.maxKg > 0) {
-      const usedNoz = priorUsedKgByZoneBucket?.get(FORECAST_NOZONE_ZONE) ?? 0;
-      const headroomNoz = Math.max(0, noz.maxKg - usedNoz);
-      const take = Math.min(remainder, headroomNoz);
-      fragments.push({
-        zone: noz.zoneRaw.trim() || FORECAST_NOZONE_ZONE,
-        inventoryKg: take,
-        zoneMaxInventoryKg: noz.maxKg,
-        inventoryIsCapped: remainder > take,
-      });
-      remainder -= take;
-    }
-    if (remainder > 0) {
-      fragments.push({
-        zone: FORECAST_NOZONE_ZONE,
-        inventoryKg: remainder,
-        zoneMaxInventoryKg: DEFAULT_FALLBACK_MAX_INVENTORY_KG,
-        inventoryIsCapped: true,
-      });
-    }
-  }
-
-  return fragments.length > 0
-    ? fragments
-    : [
-        {
-          zone: FORECAST_NOZONE_ZONE,
-          inventoryKg: requestedKg,
-          zoneMaxInventoryKg: DEFAULT_FALLBACK_MAX_INVENTORY_KG,
-          inventoryIsCapped: false,
-        },
-      ];
+  return fragments;
 }
 
 /**
@@ -666,9 +634,8 @@ export function applyLatestZoneMaxKgToForecastRows(
       productId: row.productId,
       asOfYmd: ymd,
     });
-    if (!cfg) return row;
+    if (!cfg) return { ...row, zoneMaxInventoryKg: 0 };
     const maxKg = normalizeMaxInventoryKg(toNumber(cfg.max_inventory_kg));
-    if (maxKg <= 0) return row;
     return { ...row, zoneMaxInventoryKg: maxKg };
   });
 }

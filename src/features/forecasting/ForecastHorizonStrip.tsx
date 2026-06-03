@@ -207,7 +207,7 @@ export function ForecastHorizonStrip({
           <span className="font-heading font-bold">{upcomingDeliveries.length}</span>{" "}
           {t("Dashboard.forecastUpcomingDeliveriesBullet")}{" "}
           <span className="font-heading font-bold">
-            {(upcomingDeliveries.totalKg / 1000).toFixed(1)}k kg
+            {Math.round(upcomingDeliveries.totalKg).toLocaleString()} kg
           </span>{" "}
           {t("Dashboard.forecastSprigThrough")}{" "}
           <span className="font-heading font-semibold">{horizonThroughLabel}</span>

@@ -328,7 +328,7 @@ export default function ProjectListPage() {
 
   const returnTo = useMemo(() => {
     const params = new URLSearchParams();
-    const q = debouncedSearch.trim();
+    const q = search.trim();
     if (q) params.set("q", q);
     if (countryFilterIds.length) params.set("country", countryFilterIds.join(","));
     if (harvestListFarmFilter.trim())
@@ -340,7 +340,7 @@ export default function ProjectListPage() {
     return qs ? `${pathname}?${qs}` : pathname;
   }, [
     pathname,
-    debouncedSearch,
+    search,
     countryFilterIds,
     harvestListFarmFilter,
     grassFilterIds,
@@ -758,14 +758,15 @@ export default function ProjectListPage() {
     return list;
   }, [activeCountriesRef]);
 
+  /** Full grass catalog (Dashboard / Harvest parity) — not limited by zone config when farms are selected. */
   const grassOptions = useMemo(() => {
-    const rows = pickGrassCatalogRows({
+    const catalogRows = pickGrassCatalogRows({
       catalog: grassesRef as unknown[],
       mode: "all",
       refYmds: [],
       pinnedGrassIds: grassFilterIds,
     });
-    return mapRowsToSelectOptions(rows as unknown[], "title").map((o) => ({
+    return mapRowsToSelectOptions(catalogRows as unknown[], "title").map((o) => ({
       id: o.id,
       name: o.label,
     }));

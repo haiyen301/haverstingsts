@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ClipboardEdit, RotateCcw, X } from "lucide-react";
+import { AlignLeft, ArrowDown, ClipboardEdit, RotateCcw, X } from "lucide-react";
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { toast } from "react-toastify";
 import { useTranslations } from "next-intl";
@@ -11,8 +11,15 @@ import {
   applyInventoryAvailableOverridesToZoneMap,
   type AppliedInventoryAvailableOverride,
 } from "@/features/forecasting/inventoryAvailableOverrides";
-import { applyLatestZoneMaxKgToForecastRows } from "@/features/forecasting/forecastingInventoryConversion";
-import { computeAllocatedAvailableByZoneAtDate } from "@/features/forecasting/forecastAvailableAtDate";
+import {
+  applyLatestZoneMaxKgToForecastRows,
+  isForecastExcludedZone,
+} from "@/features/forecasting/forecastingInventoryConversion";
+import {
+  computeAllocatedAvailableByZoneAtDate,
+  computeInventoryStyleAvailableByZoneAtDate,
+} from "@/features/forecasting/forecastAvailableAtDate";
+import { getForecastToday } from "@/features/forecasting/forecastDateUtils";
 import { onForecastMutation } from "@/features/forecasting/forecastDataSync";
 import { useForecastSnapshot } from "@/features/forecasting/useForecastSnapshot";
 import type { ZoneConfigurationRow } from "@/features/admin/api/adminApi";
@@ -24,9 +31,14 @@ import {
   forecastZoneKeyFromParts,
   forecastZoneKeyFromRow,
   mergeZoneCapacityMapsAtDate,
+  zoneConfigIsActiveAtYmd,
   zoneConfigurationMaxKg,
 } from "@/features/forecasting/inventoryRegrowthCalculator";
-import { zoneIdToLabelResolved, pickGrassCatalogRows } from "@/shared/lib/harvestReferenceData";
+import { zoneIdToLabelResolved } from "@/shared/lib/harvestReferenceData";
+import {
+  buildGrassFilterOptionsForFarms,
+  pruneGrassIdsToFarmZoneOptions,
+} from "@/shared/lib/grassFilterByFarmZone";
 import { DatePicker } from "@/shared/ui/date-picker";
 import type { InventoryAvailableOverrideEntry } from "@/shared/store/inventoryAvailableOverrideStore";
 import {
@@ -34,7 +46,14 @@ import {
   useInventoryAvailableOverrideStore,
 } from "@/shared/store/inventoryAvailableOverrideStore";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
-import { useSyncedFarmMultiSelect } from "@/shared/hooks/useSyncedFarmMultiSelect";
+import {
+  parseCsvList,
+  toCsvList,
+  useSyncedFarmMultiSelect,
+} from "@/shared/hooks/useSyncedFarmMultiSelect";
+import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
+import { MultiSelect } from "@/shared/ui/multi-select";
+import { cn } from "@/lib/utils";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 
 type InventoryRow = {
@@ -71,15 +90,33 @@ type InventoryBuildResult = {
   overlimitEntries: OverlimitEntry[];
 };
 
-const FARM_COLORS: Record<string, string> = {
-  "Hoi An": "hsl(85, 80%, 41%)",
-  "Phan Thiet": "hsl(152, 55%, 36%)",
-  "Ban Bueng": "hsl(35, 92%, 52%)",
-  "Laem Chabang": "hsl(28, 35%, 56%)",
-  "Semenyih": "hsl(210, 70%, 50%)",
-};
+/** Site brand green (#298E60). */
+const BRAND_CHART_GREEN = "#298E60";
 
-const OVERLIMIT_SLICE_COLOR = "hsl(0, 72%, 48%)";
+/** Brand green first, then soft tints + other muted farm hues (stable A→Z order). */
+const FARM_CHART_PALETTE = [
+  BRAND_CHART_GREEN,
+  "color-mix(in srgb, #298E60 70%, white)",
+  "color-mix(in srgb, #298E60 50%, white)",
+  "hsl(210, 38%, 62%)",
+  "hsl(28, 42%, 65%)",
+  "hsl(275, 34%, 64%)",
+  "hsl(340, 38%, 64%)",
+  "hsl(195, 34%, 60%)",
+  "hsl(250, 32%, 66%)",
+  "hsl(12, 40%, 63%)",
+];
+
+const OVERLIMIT_SLICE_COLOR = "hsl(4, 48%, 62%)";
+
+function farmChartColor(
+  farmColorByName: Record<string, string>,
+  farmName: string,
+  singleFarmSlice: boolean,
+): string {
+  if (singleFarmSlice) return BRAND_CHART_GREEN;
+  return farmColorByName[farmName] ?? BRAND_CHART_GREEN;
+}
 
 type GrassPieSlice = {
   name: string;
@@ -242,6 +279,8 @@ function buildInventoryRowsFromZoneConfigs(
   const rows: InventoryRow[] = [];
 
   for (const row of zoneConfigurations) {
+    if (!zoneConfigIsActiveAtYmd(row, asOfYmd)) continue;
+    if (isForecastExcludedZone(row.zone)) continue;
     const key = forecastZoneKeyFromParts(row.farm_id, String(row.zone ?? ""), row.grass_id);
     if (seenKeys.has(key)) continue;
 
@@ -334,13 +373,19 @@ function buildInventoryRowsAtDate(params: {
     zoneConfigurations,
     asOfYmd,
   );
+  const calculatedByZone = computeInventoryStyleAvailableByZoneAtDate(
+    forecastRows,
+    zoneConfigurations,
+    regrowthConfig,
+    overridesByZone,
+    asOf,
+  );
   const allocated = computeAllocatedAvailableByZoneAtDate(
     forecastRowsWithLiveCaps,
     regrowthConfig,
     asOf,
     zoneConfigurations,
   );
-  const calculatedByZone = allocated.availableByZone;
   const maxByZone = mergeZoneCapacityMapsAtDate(
     forecastRowsWithLiveCaps,
     zoneConfigurations,
@@ -394,7 +439,6 @@ export default function InventoryPage() {
     hasSnapshot,
     error,
   } = useForecastSnapshot();
-  const [filterGrass, setFilterGrass] = useState("");
   const [drillFarm, setDrillFarm] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [updateOpen, setUpdateOpen] = useState(false);
@@ -407,6 +451,8 @@ export default function InventoryPage() {
   const removeOverride = useInventoryAvailableOverrideStore((s) => s.removeOverride);
   const farmZones = useHarvestingDataStore((s) => s.farmZones);
   const grasses = useHarvestingDataStore((s) => s.grasses);
+  const harvestListGrassFilter = useHarvestingDataStore((s) => s.harvestListGrassFilter);
+  const setHarvestListGrassFilter = useHarvestingDataStore((s) => s.setHarvestListGrassFilter);
   const {
     farmOptions,
     selectedFarmIds,
@@ -414,6 +460,30 @@ export default function InventoryPage() {
     setSelectedFarmIds,
     farmNameById,
   } = useSyncedFarmMultiSelect();
+
+  const selectedGrassIds = useMemo(
+    () => parseCsvList(harvestListGrassFilter),
+    [harvestListGrassFilter],
+  );
+  const selectedGrassIdSet = useMemo(
+    () => new Set(selectedGrassIds),
+    [selectedGrassIds],
+  );
+  const setSelectedGrassIds = (ids: string[]) => setHarvestListGrassFilter(toCsvList(ids));
+
+  const farmFilterOptions = useMemo(
+    () => farmOptions.map((o) => ({ value: o.id, label: o.label })),
+    [farmOptions],
+  );
+
+  const filterTriggerIcon = (
+    <>
+      <AlignLeft className="h-3.5 w-3.5 shrink-0" />
+      <ArrowDown className="h-3.5 w-3.5 shrink-0" />
+    </>
+  );
+  const multiSelectBaseClass =
+    "min-w-[140px] max-w-[180px] rounded-md border border-input text-sm text-foreground hover:bg-btnhover/40";
 
   const zoneLabel = (zoneId: string) =>
     zoneIdToLabelResolved(zoneId, farmZones, tForecast("events.noZoneName"));
@@ -435,7 +505,7 @@ export default function InventoryPage() {
   }, [notice]);
 
   const { rows, overlimitEntries } = useMemo(() => {
-    const today = startOfLocalDay(new Date());
+    const today = getForecastToday();
     return buildInventoryRowsAtDate({
       asOf: today,
       forecastRows,
@@ -490,34 +560,73 @@ export default function InventoryPage() {
       .map(([id, name]) => ({ id, name }))
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [rowsWithFarmLabels, farmOptions, farmNameById]);
-  /** Grass dropdown: sales window (today); current filter value pinned if outside window. */
-  const availableGrasses = useMemo(() => {
-    const picked = pickGrassCatalogRows({
-      catalog: grasses as unknown[],
-      mode: "sales_window",
-      refYmds: [],
-      pinnedGrassIds: filterGrass.trim() ? [filterGrass.trim()] : [],
+
+  const farmColorByName = useMemo(() => {
+    const names = Array.from(new Set(availableFarms.map((f) => f.name).filter(Boolean))).sort(
+      (a, b) => a.localeCompare(b),
+    );
+    const map: Record<string, string> = {};
+    names.forEach((name, i) => {
+      map[name] = FARM_CHART_PALETTE[i % FARM_CHART_PALETTE.length];
     });
-    return picked
-      .map((g) => {
-        if (!g || typeof g !== "object") return null;
-        const rec = g as Record<string, unknown>;
-        const id = String(rec.id ?? "").trim();
-        const label = String(rec.title ?? rec.name ?? "").trim() || id;
-        return id ? { id, label } : null;
-      })
-      .filter((x): x is { id: string; label: string } => x !== null)
-      .sort((a, b) => a.label.localeCompare(b.label));
-  }, [grasses, filterGrass]);
+    return map;
+  }, [availableFarms]);
+  /** All farms → full catalog; specific farm → grasses from zone config (shared with Forecast). */
+  const grassFilterOptions = useMemo(
+    () =>
+      buildGrassFilterOptionsForFarms({
+        grasses: grasses as unknown[],
+        zoneConfigs: zoneConfigurations,
+        selectedFarmIds,
+        pinnedGrassIds: selectedGrassIds,
+        catalogMode: "all",
+      }),
+    [grasses, zoneConfigurations, selectedFarmIds, selectedGrassIds],
+  );
+
+  useEffect(() => {
+    if (selectedFarmIds.length === 0 || selectedGrassIds.length === 0) return;
+    const next = pruneGrassIdsToFarmZoneOptions(selectedGrassIds, grassFilterOptions);
+    if (next.length !== selectedGrassIds.length) {
+      setHarvestListGrassFilter(toCsvList(next));
+    }
+  }, [selectedFarmIds, selectedGrassIds, grassFilterOptions, setHarvestListGrassFilter]);
+
+  const grassIdToTurfgrass = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const r of rowsWithFarmLabels) {
+      const id = String(r.grassId ?? "").trim();
+      const turf = String(r.turfgrass ?? "").trim();
+      if (id && turf) map.set(id, turf);
+    }
+    for (const row of zoneConfigurations) {
+      const id = String(row.grass_id ?? "").trim();
+      const turf = String(row.turfgrass ?? "").trim();
+      if (id && turf) map.set(id, turf);
+    }
+    for (const opt of grassFilterOptions) {
+      if (!map.has(opt.value)) map.set(opt.value, opt.label);
+    }
+    return map;
+  }, [rowsWithFarmLabels, zoneConfigurations, grassFilterOptions]);
+
+  /** Farms included in grass-type charts (respects farm filter). */
+  const chartFarms = useMemo(
+    () =>
+      selectedFarmIds.length === 0
+        ? availableFarms
+        : availableFarms.filter((f) => selectedFarmIdSet.has(f.id)),
+    [availableFarms, selectedFarmIds, selectedFarmIdSet],
+  );
 
   const inventory = useMemo(
     () =>
       rowsWithFarmLabels.filter(
         (r) =>
           (selectedFarmIds.length === 0 || selectedFarmIdSet.has(String(r.farmId))) &&
-          (!filterGrass || String(r.grassId) === filterGrass),
+          (selectedGrassIds.length === 0 || selectedGrassIdSet.has(String(r.grassId))),
       ),
-    [rowsWithFarmLabels, selectedFarmIds, selectedFarmIdSet, filterGrass],
+    [rowsWithFarmLabels, selectedFarmIds, selectedFarmIdSet, selectedGrassIds, selectedGrassIdSet],
   );
 
   const inventoryOverlimit = useMemo(() => {
@@ -530,9 +639,45 @@ export default function InventoryPage() {
     return withFarmNames.filter(
       (r) =>
         (selectedFarmIds.length === 0 || selectedFarmIdSet.has(String(r.farmId))) &&
-        (!filterGrass || String(r.grassId) === filterGrass),
+        (selectedGrassIds.length === 0 || selectedGrassIdSet.has(String(r.grassId))),
     );
-  }, [overlimitEntries, selectedFarmIds, selectedFarmIdSet, filterGrass, farmNameById]);
+  }, [
+    overlimitEntries,
+    selectedFarmIds,
+    selectedFarmIdSet,
+    selectedGrassIds,
+    selectedGrassIdSet,
+    farmNameById,
+  ]);
+
+  /** Grass ids shown in "Inventory by Grass Type" (farm → all zone grasses; else data + filter). */
+  const chartGrassIds = useMemo(() => {
+    if (selectedGrassIds.length > 0) return selectedGrassIds;
+    if (selectedFarmIds.length > 0) {
+      return grassFilterOptions.map((o) => o.value);
+    }
+    const ids = new Set<string>();
+    for (const r of inventory) {
+      const id = String(r.grassId ?? "").trim();
+      if (id) ids.add(id);
+    }
+    for (const o of inventoryOverlimit) {
+      const id = String(o.grassId ?? "").trim();
+      if (id) ids.add(id);
+    }
+    return Array.from(ids).sort((a, b) => {
+      const la = grassIdToTurfgrass.get(a) ?? a;
+      const lb = grassIdToTurfgrass.get(b) ?? b;
+      return la.localeCompare(lb);
+    });
+  }, [
+    selectedGrassIds,
+    selectedFarmIds,
+    grassFilterOptions,
+    inventory,
+    inventoryOverlimit,
+    grassIdToTurfgrass,
+  ]);
 
   const updateZones = useMemo(
     () =>
@@ -570,7 +715,7 @@ export default function InventoryPage() {
   }, [overridesByZone, farmZoneKeySet, selectedFarm]);
 
   const isUpdateDateInFuture = useMemo(() => {
-    const todayYmd = ymdFromDate(startOfLocalDay(new Date()));
+    const todayYmd = ymdFromDate(getForecastToday());
     return updateDate.trim().slice(0, 10) > todayYmd;
   }, [updateDate]);
 
@@ -641,32 +786,45 @@ export default function InventoryPage() {
   }
 
   const stackedByGrass = useMemo(() => {
-    const allGrasses = Array.from(
-      new Set([
-        ...rowsWithFarmLabels.map((r) => r.turfgrass),
-        ...inventoryOverlimit.map((o) => o.turfgrass),
-      ]),
-    ).sort((a, b) => a.localeCompare(b));
-    return allGrasses
-      .map((grass) => {
-        const row: Record<string, string | number> = { grass };
+    const showAllFarmGrasses = selectedFarmIds.length > 0 && selectedGrassIds.length === 0;
+    return chartGrassIds
+      .map((grassId) => {
+        const grass =
+          grassIdToTurfgrass.get(grassId) ??
+          grassFilterOptions.find((o) => o.value === grassId)?.label ??
+          grassId;
+        const row: Record<string, string | number> = { grass, grassId };
         let total = 0;
-        for (const farm of availableFarms) {
-          const v = rowsWithFarmLabels
-            .filter((z) => z.turfgrass === grass && String(z.farmId) === farm.id)
+        for (const farm of chartFarms) {
+          const v = inventory
+            .filter((z) => String(z.grassId) === grassId && String(z.farmId) === farm.id)
             .reduce((s, z) => s + z.currentKg, 0);
           row[farm.name] = v;
           total += v;
         }
         const overlimitTotal = inventoryOverlimit
-          .filter((o) => o.turfgrass === grass)
+          .filter((o) => String(o.grassId) === grassId)
           .reduce((s, o) => s + o.overlimitKg, 0);
         row.overlimitTotal = overlimitTotal;
         row.total = total;
         return row;
       })
-      .filter((r) => (r.total as number) > 0 || (r.overlimitTotal as number) > 0);
-  }, [rowsWithFarmLabels, availableFarms, inventoryOverlimit]);
+      .filter(
+        (r) =>
+          showAllFarmGrasses ||
+          (r.total as number) > 0 ||
+          (r.overlimitTotal as number) > 0,
+      );
+  }, [
+    chartGrassIds,
+    chartFarms,
+    grassIdToTurfgrass,
+    grassFilterOptions,
+    inventory,
+    inventoryOverlimit,
+    selectedFarmIds,
+    selectedGrassIds,
+  ]);
 
   const companyTotalKg = useMemo(
     () => stackedByGrass.reduce((s, r) => s + (r.total as number), 0),
@@ -706,33 +864,23 @@ export default function InventoryPage() {
             </button>
           </div>
 
-          <div className="flex gap-3 flex-wrap">
-            <select
-              value={selectedFarmIds[0] ?? ""}
-              onChange={(e) =>
-                setSelectedFarmIds(e.target.value ? [e.target.value] : [])
-              }
-              className="px-3 py-1.5 rounded-lg text-xs bg-muted border border-border text-foreground"
-            >
-              <option value="">{t("allFarms")}</option>
-              {availableFarms.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.name}
-                </option>
-              ))}
-            </select>
-            <select
-              value={filterGrass}
-              onChange={(e) => setFilterGrass(e.target.value)}
-              className="px-3 py-1.5 rounded-lg text-xs bg-muted border border-border text-foreground"
-            >
-              <option value="">{t("allGrassTypes")}</option>
-              {availableGrasses.map((g) => (
-                <option key={g.id} value={g.id}>
-                  {g.label}
-                </option>
-              ))}
-            </select>
+          <div className="flex flex-wrap items-center gap-3">
+            <MultiSelect
+              options={farmFilterOptions}
+              values={selectedFarmIds}
+              onChange={setSelectedFarmIds}
+              placeholder={t("allFarms")}
+              className={cn(multiSelectBaseClass, bgSurfaceFilter(selectedFarmIds.length > 0))}
+              rightIcon={filterTriggerIcon}
+            />
+            <MultiSelect
+              options={grassFilterOptions}
+              values={selectedGrassIds}
+              onChange={setSelectedGrassIds}
+              placeholder={t("allGrassTypes")}
+              className={cn(multiSelectBaseClass, bgSurfaceFilter(selectedGrassIds.length > 0))}
+              rightIcon={filterTriggerIcon}
+            />
           </div>
 
           {notice ? (
@@ -1025,7 +1173,7 @@ export default function InventoryPage() {
                   const totalOverlimit = (row.overlimitTotal as number) ?? 0;
                   const chartTotal = totalAvailable + totalOverlimit;
 
-                  const farmSlices: GrassPieSlice[] = availableFarms
+                  const farmSlices: GrassPieSlice[] = chartFarms
                     .map((farm) => ({
                       name: farm.name,
                       value: row[farm.name] as number,
@@ -1033,8 +1181,9 @@ export default function InventoryPage() {
                     }))
                     .filter((s) => s.value > 0);
 
+                  const grassId = String(row.grassId ?? "");
                   const overlimitSlices: GrassPieSlice[] = inventoryOverlimit
-                    .filter((o) => o.turfgrass === grass)
+                    .filter((o) => String(o.grassId) === grassId)
                     .map((o) => ({
                       name: t("pieOverlimitSlice", { farm: resolveOverlimitFarmLabel(o) }),
                       value: o.overlimitKg,
@@ -1043,6 +1192,7 @@ export default function InventoryPage() {
                     .filter((s) => s.value > 0);
 
                   const slices = [...farmSlices, ...overlimitSlices];
+                  const singleFarmSlice = farmSlices.length === 1;
 
                   return (
                     <div key={grass} className="rounded-lg border border-border/50 bg-background/40 p-3">
@@ -1078,7 +1228,7 @@ export default function InventoryPage() {
                                   fill={
                                     s.kind === "overlimit"
                                       ? OVERLIMIT_SLICE_COLOR
-                                      : FARM_COLORS[s.name] ?? "hsl(var(--primary))"
+                                      : farmChartColor(farmColorByName, s.name, singleFarmSlice)
                                   }
                                 />
                               ))}

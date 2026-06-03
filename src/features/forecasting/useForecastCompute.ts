@@ -82,7 +82,7 @@ export function useForecastDailySeries(args: UseForecastDailySeriesArgs): DailyS
   );
 
   useEffect(() => {
-    if (!enabled || args.filteredRows.length === 0) {
+    if (!enabled || (args.filteredRows.length === 0 && args.zoneConfigs.length === 0)) {
       setResult(EMPTY_RESULT);
       useForecastDataStore.getState().setLoadState({ isRecomputing: false });
       return;

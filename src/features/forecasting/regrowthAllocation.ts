@@ -1,4 +1,5 @@
 import { FORECAST_NOZONE_ZONE } from "@/features/forecasting/forecastingInventoryConversion";
+import { sumConfiguredZoneCapKgForFarmProduct } from "@/features/forecasting/inventoryRegrowthCalculator";
 
 export type RegrowthFragmentInput = {
   zoneKey: string;
@@ -11,6 +12,7 @@ export type RegrowthFragmentInput = {
 export type ZoneRegrowthBreakdown = {
   zoneKey: string;
   zoneLabel: string;
+  /** Per-zone config max (reference only); crediting uses `farmProductCapKg`. */
   capKg: number;
   grossZonedKg: number;
   /** Tổng kg gán thẳng zone có đánh dấu từ spread plan không zone. */
@@ -25,6 +27,9 @@ export type ZoneRegrowthBreakdown = {
 
 export type RegrowthAllocationResult = {
   zoneBreakdowns: ZoneRegrowthBreakdown[];
+  /** Σ zone-config max kg for this farm + grass (excl. nozone); single credit ceiling. */
+  farmProductCapKg: number;
+  configuredZoneCount: number;
   nozoneInputKg: number;
   nozoneRemainingKg: number;
   totalGrossKg: number;
@@ -78,10 +83,9 @@ function listConfiguredZoneKeysForFarmProduct(
 }
 
 /**
- * 1) Zoned harvest fragments: credit up to per-zone cap; record zoned overflow.
- * 2) No-zone fragments: pool kg, then fill remaining headroom in configured zones (sorted),
- *    remainder stays in virtual no-zone pool.
- * 3) Final per-zone credited totals and uncredited overflow (gross − credited mapped).
+ * 1) Zoned harvest fragments: aggregate gross per zone (no per-zone cap).
+ * 2) No-zone pool: fill configured zones in sort order until farm+grass total cap.
+ * 3) Credit in zone order against one farm+grass ceiling (`sumConfiguredZoneCapKgForFarmProduct`).
  */
 export function computeRegrowthAllocationForFarmProductDate(params: {
   farmId: number;
@@ -90,6 +94,9 @@ export function computeRegrowthAllocationForFarmProductDate(params: {
   fragments: RegrowthFragmentInput[];
 }): RegrowthAllocationResult {
   const { farmId, productId, maxByZone, fragments } = params;
+
+  const farmProductCapKg = sumConfiguredZoneCapKgForFarmProduct(maxByZone, farmId, productId);
+  const configuredKeys = listConfiguredZoneKeysForFarmProduct(maxByZone, farmId, productId);
 
   const zonedAgg = new Map<string, { label: string; qty: number; fromSpread: number }>();
   let nozoneInputKg = 0;
@@ -115,7 +122,6 @@ export function computeRegrowthAllocationForFarmProductDate(params: {
     zonedAgg.set(key, cur);
   }
 
-  const configuredKeys = listConfiguredZoneKeysForFarmProduct(maxByZone, farmId, productId);
   const keySet = new Set<string>(configuredKeys);
   for (const k of zonedAgg.keys()) keySet.add(k);
   const sortedKeys = [...keySet].sort((a, b) => {
@@ -127,59 +133,40 @@ export function computeRegrowthAllocationForFarmProductDate(params: {
     return sa.localeCompare(sb);
   });
 
-  const creditedZonedByKey = new Map<string, number>();
-  const zonedOverflowByKey = new Map<string, number>();
-
-  for (const key of sortedKeys) {
-    const cap = maxByZone.get(key) ?? 0;
-    const grossZ = zonedAgg.get(key)?.qty ?? 0;
-    if (cap > 0) {
-      const creditedZ = Math.min(grossZ, cap);
-      creditedZonedByKey.set(key, creditedZ);
-      zonedOverflowByKey.set(key, Math.max(0, grossZ - cap));
-    } else {
-      creditedZonedByKey.set(key, 0);
-      zonedOverflowByKey.set(key, grossZ);
-    }
-  }
-
-  let pool = nozoneInputKg;
   const nozoneFillByKey = new Map<string, number>();
   for (const key of sortedKeys) {
-    const cap = maxByZone.get(key) ?? 0;
-    if (cap <= 0) {
-      nozoneFillByKey.set(key, 0);
-      continue;
-    }
-    const grossZ = zonedAgg.get(key)?.qty ?? 0;
-    const creditedZ = Math.min(grossZ, cap);
-    const headroom = Math.max(0, cap - creditedZ);
-    const take = Math.min(pool, headroom);
-    nozoneFillByKey.set(key, take);
-    pool -= take;
+    nozoneFillByKey.set(key, 0);
   }
-  const nozoneRemainingKg = Math.max(0, pool);
+  const nozoneRemainingKg = Math.max(0, nozoneInputKg);
 
   const zoneBreakdowns: ZoneRegrowthBreakdown[] = [];
   let totalCreditedMappedKg = 0;
+  let creditLeft = farmProductCapKg;
 
   for (const key of sortedKeys) {
-    const capKg = maxByZone.get(key) ?? 0;
+    const zoneConfigCapKg = maxByZone.get(key) ?? 0;
     const agg = zonedAgg.get(key);
     const zoneLabel = agg?.label ?? zoneSegmentFromKey(key, farmId, productId);
     const grossZonedKg = agg?.qty ?? 0;
     const grossZonedFromNozoneSpreadKg = agg?.fromSpread ?? 0;
-    const creditedZonedKg = creditedZonedByKey.get(key) ?? 0;
-    const zonedOverflowKg = zonedOverflowByKey.get(key) ?? 0;
     const nozoneFillKg = nozoneFillByKey.get(key) ?? 0;
     const totalIntoZoneKg = grossZonedKg + nozoneFillKg;
-    const creditedTotalKg = capKg > 0 ? Math.min(totalIntoZoneKg, capKg) : 0;
-    const zoneOverflowKg = capKg > 0 ? Math.max(0, totalIntoZoneKg - capKg) : totalIntoZoneKg;
+
+    let creditedTotalKg = 0;
+    if (farmProductCapKg > 0) {
+      creditedTotalKg = Math.min(totalIntoZoneKg, Math.max(0, creditLeft));
+      creditLeft = Math.max(0, creditLeft - creditedTotalKg);
+    }
+
+    const creditedZonedKg = Math.min(grossZonedKg, creditedTotalKg);
+    const zonedOverflowKg = Math.max(0, grossZonedKg - creditedZonedKg);
+    const zoneOverflowKg = Math.max(0, totalIntoZoneKg - creditedTotalKg);
     totalCreditedMappedKg += creditedTotalKg;
+
     zoneBreakdowns.push({
       zoneKey: key,
       zoneLabel,
-      capKg,
+      capKg: zoneConfigCapKg,
       grossZonedKg,
       grossZonedFromNozoneSpreadKg,
       creditedZonedKg,
@@ -195,6 +182,8 @@ export function computeRegrowthAllocationForFarmProductDate(params: {
 
   return {
     zoneBreakdowns,
+    farmProductCapKg,
+    configuredZoneCount: configuredKeys.length,
     nozoneInputKg,
     nozoneRemainingKg,
     totalGrossKg,

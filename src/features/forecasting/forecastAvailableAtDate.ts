@@ -6,17 +6,16 @@ import {
 } from "@/features/forecasting/forecastingRegrowth";
 import {
   applyLatestZoneMaxKgToForecastRows,
-  FORECAST_NOZONE_ZONE,
   forecastHarvestRowInventoryKg,
+  isForecastExcludedZone,
+  isMappedForecastZoneKey,
 } from "@/features/forecasting/forecastingInventoryConversion";
 import type { InventoryAvailableOverrideEntry } from "@/shared/store/inventoryAvailableOverrideStore";
 import {
   buildZoneConfigurationCapacityMapAtDate,
-  computeZoneCapacityMap,
-  forecastZoneKeyFromParts,
+  farmProductHasMappedZoneConfigAtYmd,
   forecastZoneKeyFromRow,
   getRegrowthDateFromHarvest,
-  mergeZoneCapacityMaps,
   mergeZoneCapacityMapsAtDate,
   sumConfiguredZoneCapKgForFarmProduct,
   zoneConfigIsActiveAtYmd,
@@ -136,9 +135,11 @@ function harvestKgOnDate(rows: ForecastHarvestRow[], onDate: Date): number {
 function harvestKgByZoneOnDate(rows: ForecastHarvestRow[], onDate: Date): Map<string, number> {
   const out = new Map<string, number>();
   for (const row of rows) {
+    if (isForecastExcludedZone(row.zone)) continue;
     const harvestDate = parseHarvestDateFromRow(row);
     if (!harvestDate || !isSameLocalDay(harvestDate, onDate)) continue;
     const zoneKey = forecastZoneKeyFromRow(row);
+    if (!isMappedForecastZoneKey(zoneKey)) continue;
     out.set(zoneKey, (out.get(zoneKey) ?? 0) + Math.max(0, rowInventoryKg(row)));
   }
   return out;
@@ -149,13 +150,6 @@ function parseYmdLocal(ymd: string): Date | null {
   if (!m) return null;
   const parsed = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
   return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-
-function isMappedForecastZoneKey(zoneKey: string): boolean {
-  const parts = zoneKey.split("|");
-  if (parts.length !== 3) return false;
-  const zoneSeg = parts[1];
-  return zoneSeg !== FORECAST_NOZONE_ZONE && zoneSeg !== "nozone";
 }
 
 function farmProductFromZoneKey(
@@ -220,6 +214,21 @@ function computeInventorySeriesLoopStart(
   return earliest;
 }
 
+/** Roll inventory from zone-config max caps through history before the chart horizon (24 months). */
+function computeInventorySeriesLoopStartWithHistory(
+  startDate: Date,
+  overridesByZone: Record<string, InventoryAvailableOverrideEntry>,
+  farmProductFilter?: (farmId: number, productId: number) => boolean,
+): Date {
+  const fromOverrides = computeInventorySeriesLoopStart(
+    startDate,
+    overridesByZone,
+    farmProductFilter,
+  );
+  const simStart = addMonths(startDate, -24);
+  return fromOverrides.getTime() < simStart.getTime() ? fromOverrides : simStart;
+}
+
 type RegrowthAllocationMode = "on-or-before" | "on-exact";
 
 function allocateRegrowthCreditsAtDate(
@@ -229,12 +238,10 @@ function allocateRegrowthCreditsAtDate(
   zoneConfigs: ZoneConfigurationRow[] | undefined,
   mode: RegrowthAllocationMode,
 ): AvailableByZoneAtDateResult {
-  const harvestCaps = computeZoneCapacityMap(rows);
-  const configCaps =
+  const maxByZone =
     zoneConfigs && zoneConfigs.length > 0
       ? buildZoneConfigurationCapacityMapAtDate(zoneConfigs, onDate)
       : new Map<string, number>();
-  const maxByZone = mergeZoneCapacityMaps(harvestCaps, configCaps);
 
   const groups = new Map<string, ForecastHarvestRow[]>();
   for (const h of rows) {
@@ -268,17 +275,20 @@ function allocateRegrowthCreditsAtDate(
       farmId,
       productId,
       maxByZone,
-      fragments: frags.map((f) => ({
-        zoneKey: forecastZoneKeyFromRow(f),
-        zoneLabel: String(f.zone ?? "").trim() || FORECAST_NOZONE_ZONE,
-        qty: rowInventoryKg(f),
-        inventoryKgFromNozoneSpread: f.inventoryKgFromNozoneSpread,
-      })),
+      fragments: frags
+        .filter((f) => !isForecastExcludedZone(f.zone))
+        .map((f) => ({
+          zoneKey: forecastZoneKeyFromRow(f),
+          zoneLabel: String(f.zone ?? "").trim(),
+          qty: rowInventoryKg(f),
+          inventoryKgFromNozoneSpread: f.inventoryKgFromNozoneSpread,
+        })),
     });
 
     if (hasConfiguredZones) {
       for (const z of alloc.zoneBreakdowns) {
         if (z.creditedTotalKg <= 0) continue;
+        if (!isMappedForecastZoneKey(z.zoneKey)) continue;
         availableByZone.set(
           z.zoneKey,
           (availableByZone.get(z.zoneKey) ?? 0) + z.creditedTotalKg,
@@ -288,12 +298,6 @@ function allocateRegrowthCreditsAtDate(
         overlimitKg += alloc.overflowUncreditedKg;
         overlimitByFarmProduct.set(gk, alloc.overflowUncreditedKg);
       }
-    } else if (alloc.totalGrossKg > 0) {
-      const nozoneKey = forecastZoneKeyFromParts(farmId, FORECAST_NOZONE_ZONE, productId);
-      availableByZone.set(
-        nozoneKey,
-        (availableByZone.get(nozoneKey) ?? 0) + alloc.totalGrossKg,
-      );
     }
   }
 
@@ -357,12 +361,10 @@ export function computePortalStyleAvailableByZoneAtDate(
   forecastDate: Date,
   zoneConfigs?: ZoneConfigurationRow[],
 ): PortalStyleAvailableResult {
-  const harvestCaps = computeZoneCapacityMap(rows);
-  const configCaps =
+  const maxByZone =
     zoneConfigs && zoneConfigs.length > 0
       ? buildZoneConfigurationCapacityMapAtDate(zoneConfigs, forecastDate)
       : new Map<string, number>();
-  const maxByZone = mergeZoneCapacityMaps(harvestCaps, configCaps);
 
   const availableByZone = new Map<string, number>();
   let totalQuantityKg = 0;
@@ -682,7 +684,7 @@ function sumZoneMapKgForFarmProduct(
   for (const [key, kg] of byZone) {
     if (!key.startsWith(prefix) || !key.endsWith(suffix)) continue;
     const zoneSeg = key.slice(prefix.length, key.length - suffix.length);
-    if (zoneSeg === FORECAST_NOZONE_ZONE || zoneSeg === "nozone") continue;
+    if (isForecastExcludedZone(zoneSeg)) continue;
     if (!Number.isFinite(kg)) continue;
     sum += kg;
   }
@@ -698,6 +700,7 @@ function collectFarmProductKeysAtYmd(
   const keys = new Set<string>();
   for (const row of zoneConfigs) {
     if (!zoneConfigIsActiveAtYmd(row, ymd)) continue;
+    if (isForecastExcludedZone(row.zone)) continue;
     const farmId = Number(row.farm_id);
     const productId = Number(row.grass_id);
     if (!Number.isFinite(farmId) || !Number.isFinite(productId) || farmId <= 0 || productId <= 0) {
@@ -708,7 +711,13 @@ function collectFarmProductKeysAtYmd(
   }
   for (const row of forecastRows) {
     if (row.farmId <= 0 || row.productId <= 0) continue;
+    if (isForecastExcludedZone(row.zone)) continue;
     if (farmProductFilter && !farmProductFilter(row.farmId, row.productId)) continue;
+    if (!farmProductHasMappedZoneConfigAtYmd(zoneConfigs, row.farmId, row.productId, ymd)) {
+      continue;
+    }
+    const zoneKey = forecastZoneKeyFromRow(row);
+    if (!isMappedForecastZoneKey(zoneKey)) continue;
     keys.add(`${row.farmId}|${row.productId}`);
   }
   return keys;
@@ -751,6 +760,101 @@ function farmProductKeyFromZoneKey(zoneKey: string): string | null {
   return `${farmId}|${productId}`;
 }
 
+/**
+ * Per-zone rolling balance at `asOf` — same rules as Inventory Forecast daily series:
+ * open at zone max cap, then `previous + regrowth − harvest`; manual balance on `balance_date`
+ * replaces that zone for that day only.
+ */
+export function computeInventoryStyleAvailableByZoneAtDate(
+  forecastRows: ForecastHarvestRow[],
+  zoneConfigs: ZoneConfigurationRow[],
+  regrowthConfig: RegrowthReferenceConfig,
+  overridesByZone: Record<string, InventoryAvailableOverrideEntry>,
+  asOf: Date,
+  farmProductFilter?: (farmId: number, productId: number) => boolean,
+): Map<string, number> {
+  const asOfDay = new Date(asOf.getFullYear(), asOf.getMonth(), asOf.getDate());
+  const loopStart = computeInventorySeriesLoopStartWithHistory(
+    asOfDay,
+    overridesByZone,
+    farmProductFilter,
+  );
+  const totalDays = diffDaysInclusive(loopStart, asOfDay);
+  const zonePrev = new Map<string, number>();
+
+  const rowsWithCapsByYmd = new Map<string, ForecastHarvestRow[]>();
+  const maxByZoneCache = new Map<string, Map<string, number>>();
+  const regrowthByZoneCache = new Map<string, Map<string, number>>();
+  const harvestByZoneCache = new Map<string, Map<string, number>>();
+
+  const rowsWithCapsFor = (ymd: string, date: Date): ForecastHarvestRow[] => {
+    const cached = rowsWithCapsByYmd.get(ymd);
+    if (cached) return cached;
+    const next = applyLatestZoneMaxKgToForecastRows(forecastRows, zoneConfigs, ymd);
+    rowsWithCapsByYmd.set(ymd, next);
+    return next;
+  };
+
+  const maxByZoneFor = (ymd: string, date: Date): Map<string, number> => {
+    const cached = maxByZoneCache.get(ymd);
+    if (cached) return cached;
+    const next = mergeZoneCapacityMapsAtDate(rowsWithCapsFor(ymd, date), zoneConfigs, date);
+    maxByZoneCache.set(ymd, next);
+    return next;
+  };
+
+  const regrowthFor = (ymd: string, date: Date): Map<string, number> => {
+    const cached = regrowthByZoneCache.get(ymd);
+    if (cached) return cached;
+    const next = computeRegrowthCreditedOnDate(
+      rowsWithCapsFor(ymd, date),
+      regrowthConfig,
+      date,
+      zoneConfigs,
+    ).availableByZone;
+    regrowthByZoneCache.set(ymd, next);
+    return next;
+  };
+
+  const harvestFor = (ymd: string, date: Date): Map<string, number> => {
+    const cached = harvestByZoneCache.get(ymd);
+    if (cached) return cached;
+    const next = harvestKgByZoneOnDate(rowsWithCapsFor(ymd, date), date);
+    harvestByZoneCache.set(ymd, next);
+    return next;
+  };
+
+  for (let i = 0; i < totalDays; i++) {
+    const date = addDays(loopStart, i);
+    const dateStr = ymdFromDate(date);
+    const maxByZone = maxByZoneFor(dateStr, date);
+    const regrowthByZone = regrowthFor(dateStr, date);
+    const harvestByZone = harvestFor(dateStr, date);
+    const zoneKeys = collectActiveZoneKeysForDay(maxByZone, overridesByZone, farmProductFilter);
+
+    for (const zoneKey of zoneKeys) {
+      const maxKg = maxByZone.get(zoneKey) ?? 0;
+      let prev = zonePrev.get(zoneKey);
+      if (prev === undefined) {
+        prev = maxKg > 0 ? maxKg : 0;
+      }
+
+      const dayRegrowth = regrowthByZone.get(zoneKey) ?? 0;
+      const dayHarvest = harvestByZone.get(zoneKey) ?? 0;
+      let rolling = Math.max(0, prev + dayRegrowth - dayHarvest);
+
+      const exactOverride = manualOverrideForZoneOnExactDate(overridesByZone, zoneKey, date);
+      if (exactOverride) {
+        rolling = Math.max(0, Number(exactOverride.availableKg) || 0);
+      }
+
+      zonePrev.set(zoneKey, rolling);
+    }
+  }
+
+  return zonePrev;
+}
+
 export function computeInventoryStyleFarmGrassDailySeriesWithBreakdown(
   forecastRows: ForecastHarvestRow[],
   zoneConfigs: ZoneConfigurationRow[],
@@ -769,7 +873,11 @@ export function computeInventoryStyleFarmGrassDailySeriesWithBreakdown(
     endDate < start
       ? start
       : new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
-  const loopStart = computeInventorySeriesLoopStart(start, overridesByZone, farmProductFilter);
+  const loopStart = computeInventorySeriesLoopStartWithHistory(
+    start,
+    overridesByZone,
+    farmProductFilter,
+  );
   const totalDays = diffDaysInclusive(loopStart, end);
   const days: RollingDailyAvailableDay[] = [];
   const byFarmProduct = new Map<string, Map<string, RollingDailyAvailableDay>>();
@@ -836,6 +944,9 @@ export function computeInventoryStyleFarmGrassDailySeriesWithBreakdown(
     const fpOverrideDisplayKg = new Map<string, number>();
     const fpHasExactOverride = new Set<string>();
 
+    const fpRawRollingKg = new Map<string, number>();
+    const fpCapCounted = new Set<string>();
+
     for (const zoneKey of zoneKeys) {
       const maxKg = maxByZone.get(zoneKey) ?? 0;
       let prev = zonePrev.get(zoneKey);
@@ -859,28 +970,38 @@ export function computeInventoryStyleFarmGrassDailySeriesWithBreakdown(
       zonePrev.set(zoneKey, rolling);
 
       const zoneRolling = Math.max(0, rolling);
-      if (maxKg > 0) capacityCapKg += maxKg;
       rawAvailableKg += zoneRolling;
 
-      let zoneDisplayKg: number;
-      if (exactOverride) {
-        zoneDisplayKg = zoneRolling;
-        availableKg += zoneRolling;
-      } else if (maxKg > 0) {
-        zoneDisplayKg = Math.min(zoneRolling, maxKg);
-        availableKg += zoneDisplayKg;
-      } else {
-        zoneDisplayKg = zoneRolling;
-        availableKg += zoneRolling;
+      const fpKey = farmProductKeyFromZoneKey(zoneKey);
+      if (fpKey != null) {
+        fpRawRollingKg.set(fpKey, (fpRawRollingKg.get(fpKey) ?? 0) + zoneRolling);
+        if (exactOverride) {
+          fpHasExactOverride.add(fpKey);
+          fpOverrideDisplayKg.set(
+            fpKey,
+            (fpOverrideDisplayKg.get(fpKey) ?? 0) + zoneRolling,
+          );
+        }
+      }
+    }
+
+    for (const [fpKey, fpRaw] of fpRawRollingKg) {
+      const [farmIdStr, productIdStr] = fpKey.split("|");
+      const farmId = Number(farmIdStr);
+      const productId = Number(productIdStr);
+      if (!Number.isFinite(farmId) || !Number.isFinite(productId)) continue;
+
+      const fpCapKg = sumConfiguredZoneCapKgForFarmProduct(maxByZone, farmId, productId);
+      if (fpCapKg > 0 && !fpCapCounted.has(fpKey)) {
+        capacityCapKg += fpCapKg;
+        fpCapCounted.add(fpKey);
       }
 
-      const fpKey = farmProductKeyFromZoneKey(zoneKey);
-      if (fpKey != null && exactOverride) {
-        fpHasExactOverride.add(fpKey);
-        fpOverrideDisplayKg.set(
-          fpKey,
-          (fpOverrideDisplayKg.get(fpKey) ?? 0) + zoneDisplayKg,
-        );
+      if (fpHasExactOverride.has(fpKey)) {
+        hasExactOverrideToday = true;
+        availableKg += Math.max(0, fpOverrideDisplayKg.get(fpKey) ?? 0);
+      } else if (fpCapKg > 0) {
+        availableKg += Math.min(fpRaw, fpCapKg);
       }
     }
 
@@ -898,10 +1019,12 @@ export function computeInventoryStyleFarmGrassDailySeriesWithBreakdown(
       const productId = Number(productIdStr);
       if (!Number.isFinite(farmId) || !Number.isFinite(productId)) continue;
 
-      const fpRegrowthKg = sumZoneMapKgForFarmProduct(regrowthByZone, farmId, productId);
-      const fpHarvestKg = sumZoneMapKgForFarmProduct(harvestByZone, farmId, productId);
       const fpCapKg = sumConfiguredZoneCapKgForFarmProduct(maxByZone, farmId, productId);
       const fpHasOverride = fpHasExactOverride.has(fpKey);
+      if (fpCapKg <= 0 && !fpHasOverride) continue;
+
+      const fpRegrowthKg = sumZoneMapKgForFarmProduct(regrowthByZone, farmId, productId);
+      const fpHarvestKg = sumZoneMapKgForFarmProduct(harvestByZone, farmId, productId);
 
       let fpAvailableKg: number;
       let fpPreviousKg: number;
@@ -909,11 +1032,20 @@ export function computeInventoryStyleFarmGrassDailySeriesWithBreakdown(
         fpAvailableKg = Math.max(0, fpOverrideDisplayKg.get(fpKey) ?? 0);
         fpPreviousKg = fpLastAvailableKg.get(fpKey) ?? fpCapKg;
       } else {
+        const fpConfigCapKg = sumConfiguredZoneCapKgForFarmProduct(
+          maxByZone,
+          farmId,
+          productId,
+        );
+        const fpOpeningCapKg = fpConfigCapKg > 0 ? fpConfigCapKg : fpCapKg;
         fpPreviousKg =
           (fpLastAvailableKg.get(fpKey) ?? 0) > 0 || i > 0
             ? (fpLastAvailableKg.get(fpKey) ?? 0)
-            : fpCapKg;
+            : fpOpeningCapKg;
         fpAvailableKg = Math.max(0, fpPreviousKg + fpRegrowthKg - fpHarvestKg);
+        if (fpCapKg > 0) {
+          fpAvailableKg = Math.min(fpAvailableKg, fpCapKg);
+        }
       }
 
       fpLastAvailableKg.set(fpKey, fpAvailableKg);
@@ -933,8 +1065,20 @@ export function computeInventoryStyleFarmGrassDailySeriesWithBreakdown(
       }
     }
 
+    const configCapacityCapKg = sumFarmProductCapacityCapsFromZoneConfigAtDate(
+      zoneConfigs,
+      date,
+      farmProductFilter,
+    );
+    const reportedCapacityCapKg =
+      configCapacityCapKg > 0 ? configCapacityCapKg : capacityCapKg;
+
     const aggregateBaseKg =
-      lastAvailableKg > 0 || i > 0 ? lastAvailableKg : capacityCapKg;
+      lastAvailableKg > 0 || i > 0
+        ? lastAvailableKg
+        : reportedCapacityCapKg > 0
+          ? reportedCapacityCapKg
+          : capacityCapKg;
 
     const displayAvailableKg = hasExactOverrideToday
       ? availableKg
@@ -954,7 +1098,7 @@ export function computeInventoryStyleFarmGrassDailySeriesWithBreakdown(
       harvestKg,
       beforeHarvestKg,
       rawAvailableKg,
-      capacityCapKg,
+      capacityCapKg: reportedCapacityCapKg,
       availableKg: displayAvailableKg,
       overlimitKg: 0,
     });

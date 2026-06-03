@@ -300,6 +300,18 @@ export default function AdminZoneConfigurationsPage() {
     [rowsAfterFarmGrassFilter, dateRangeFilter.from, dateRangeFilter.to],
   );
 
+  const totalMaxInventoryKg = useMemo(
+    () =>
+      visibleRows.reduce((sum, row) => {
+        const v =
+          typeof row.max_inventory_kg === "number"
+            ? row.max_inventory_kg
+            : toNumber(String(row.max_inventory_kg ?? ""));
+        return sum + (Number.isFinite(v) ? v : 0);
+      }, 0),
+    [visibleRows],
+  );
+
   const isMarkedSetupDate = useCallback(
     (date: Date) => rowsAfterFarmGrassFilter.some((row) => zoneConfigCoversDate(row, date)),
     [rowsAfterFarmGrassFilter],
@@ -623,6 +635,22 @@ export default function AdminZoneConfigurationsPage() {
                       </tr>
                     ) : null}
                   </tbody>
+                  {!loading && visibleRows.length > 0 ? (
+                    <tfoot>
+                      <tr className="border-t-2 border-border bg-muted/40">
+                        <td
+                          colSpan={7}
+                          className="px-4 py-3 text-right text-sm font-semibold text-foreground"
+                        >
+                          {t("stats.totalCapacity")}
+                        </td>
+                        <td className="px-4 py-3 text-right text-sm font-semibold tabular-nums text-foreground">
+                          {formatNumber(totalMaxInventoryKg)}
+                        </td>
+                        <td className="px-4 py-3" />
+                      </tr>
+                    </tfoot>
+                  ) : null}
                 </table>
               </div>
             </CardContent>

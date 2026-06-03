@@ -4,7 +4,11 @@ import {
 } from "@/features/forecasting/forecastingRegrowth";
 import type { ZoneConfigurationRow } from "@/features/admin/api/adminApi";
 import type { ForecastHarvestRow } from "@/features/forecasting/forecastingTypes";
-import { forecastHarvestRowInventoryKg } from "@/features/forecasting/forecastingInventoryConversion";
+import {
+  forecastHarvestRowInventoryKg,
+  isForecastExcludedZone,
+  isMappedForecastZoneKey,
+} from "@/features/forecasting/forecastingInventoryConversion";
 
 function toNum(v: string | number | null | undefined): number {
   const n = Number(v ?? 0);
@@ -175,7 +179,9 @@ export function getRegrowthDateFromHarvest(
 export function computeZoneCapacityMap(rows: ForecastHarvestRow[]): Map<string, number> {
   const byZone = new Map<string, number>();
   for (const row of rows) {
+    if (isForecastExcludedZone(row.zone)) continue;
     const key = forecastZoneKeyFromRow(row);
+    if (!isMappedForecastZoneKey(key)) continue;
     const maxKg = rowZoneMaxKg(row);
     if (maxKg <= 0) continue;
     byZone.set(key, Math.max(byZone.get(key) ?? 0, maxKg));
@@ -194,7 +200,9 @@ export function buildZoneConfigurationCapacityMapAtDate(
 
   for (const row of rows) {
     if (!zoneConfigIsActiveAtYmd(row, ymd)) continue;
+    if (isForecastExcludedZone(row.zone)) continue;
     const key = forecastZoneKeyFromParts(row.farm_id, String(row.zone ?? ""), row.grass_id);
+    if (!isMappedForecastZoneKey(key)) continue;
     if (seenKeys.has(key)) continue;
 
     const active = findActiveZoneConfiguration(rows, {
@@ -247,23 +255,38 @@ export function sumConfiguredZoneCapKgForFarmProduct(
   for (const [key, max] of maxByZone) {
     if (!key.startsWith(prefix) || !key.endsWith(suffix)) continue;
     const zoneSeg = key.slice(prefix.length, key.length - suffix.length);
-    if (zoneSeg === "nozone") continue;
+    if (isForecastExcludedZone(zoneSeg)) continue;
     const n = Number(max);
     if (Number.isFinite(n) && n > 0) sum += n;
   }
   return sum;
 }
 
+/** True when zone-config has at least one mapped (non–no-zone) row for farm + grass on `ymd`. */
+export function farmProductHasMappedZoneConfigAtYmd(
+  zoneConfigs: ZoneConfigurationRow[],
+  farmId: number,
+  productId: number,
+  ymd: string,
+): boolean {
+  for (const row of zoneConfigs) {
+    if (!zoneConfigIsActiveAtYmd(row, ymd)) continue;
+    if (Number(row.farm_id) !== farmId || Number(row.grass_id) !== productId) continue;
+    if (isForecastExcludedZone(row.zone)) continue;
+    return true;
+  }
+  return false;
+}
 
+/** Capacity keys for forecasting / inventory series — zone-config only (never harvest row fallback). */
 export function mergeZoneCapacityMapsAtDate(
-  rows: ForecastHarvestRow[],
+  _rows: ForecastHarvestRow[],
   zoneConfigs: ZoneConfigurationRow[],
   asOf: Date | string,
 ): Map<string, number> {
-  return mergeZoneCapacityMaps(
-    computeZoneCapacityMap(rows),
-    zoneConfigs.length > 0 ? buildZoneConfigurationCapacityMapAtDate(zoneConfigs, asOf) : new Map(),
-  );
+  return zoneConfigs.length > 0
+    ? buildZoneConfigurationCapacityMapAtDate(zoneConfigs, asOf)
+    : new Map();
 }
 
 /**
@@ -284,12 +307,14 @@ export function computeDepletedKgByZoneAtDate(
   ).getTime();
 
   for (const h of rows) {
+    if (isForecastExcludedZone(h.zone)) continue;
     const harvestDate = parseYmdLocal(normalizeYmd(h.harvestDate));
     if (!harvestDate) continue;
     const regrowDays = computeRegrowthDaysForHarvest(regrowthConfig, h);
     if (!Number.isFinite(regrowDays) || regrowDays <= 0) continue;
     const regrowDate = addDays(harvestDate, regrowDays);
     const key = forecastZoneKeyFromRow(h);
+    if (!isMappedForecastZoneKey(key)) continue;
     if (regrowDate.getTime() <= todayMs) continue;
     const elapsedDays = (todayMs - harvestDate.getTime()) / (1000 * 60 * 60 * 24);
     const progress = Math.min(Math.max(elapsedDays / regrowDays, 0), 1);

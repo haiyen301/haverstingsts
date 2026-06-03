@@ -33,6 +33,7 @@ import {
   localizeAlertTitleForDisplay,
   localizedFeedCategoryCopy,
 } from "@/features/alerts/localizeStoredAlertText";
+import { filterVisibleAlerts, isAlertVisibleInFeed } from "@/features/alerts/alertFeedVisibility";
 import { cn } from "@/lib/utils";
 import { formatDateDisplayDmy, parseStsPortalUtcDate } from "@/shared/lib/format/date";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
@@ -84,6 +85,19 @@ function thumbFor(alert: AlertFeedItem): string {
   const t = (alert.thumbUrl ?? "").trim();
   if (t) return t;
   return (alert.imageUrl ?? "").trim();
+}
+
+function alertCreatorMeta(
+  alert: AlertFeedItem,
+  t: ReturnType<typeof useTranslations<"MyAlerts">>,
+): string {
+  const platformLabel =
+    alert.sourcePlatform === "mobile" ? t("platformMobile") : t("platformWeb");
+  const name = (alert.createdByUser ?? "").trim();
+  if (name) {
+    return t("createdByOnPlatform", { name, platform: platformLabel });
+  }
+  return t("createdOnPlatform", { platform: platformLabel });
 }
 
 export default function MyAlertsPage() {
@@ -159,20 +173,23 @@ export default function MyAlertsPage() {
     setSelectedAlert((prev) => {
       if (!prev) return null;
       const fresh = alerts.find((a) => a.id === prev.id);
-      return fresh ?? null;
+      if (!fresh || !isAlertVisibleInFeed(fresh)) return null;
+      return fresh;
     });
   }, [alerts]);
+
+  const visibleAlerts = useMemo(() => filterVisibleAlerts(alerts), [alerts]);
 
   const grouped = useMemo(
     () =>
       categories.map((section) => ({
         ...section,
         Icon: ICON_MAP[section.icon] ?? Bell,
-        items: alerts
+        items: visibleAlerts
           .filter((alert) => alert.type === section.id)
           .sort((a, b) => alertTimestamp(b.createdAt) - alertTimestamp(a.createdAt)),
       })),
-    [alerts, categories],
+    [visibleAlerts, categories],
   );
 
   const groupedWithAlerts = useMemo(
@@ -180,14 +197,14 @@ export default function MyAlertsPage() {
     [grouped],
   );
 
-  const unreadCount = useMemo(() => alerts.filter((alert) => !alert.read).length, [alerts]);
+  const unreadCount = useMemo(() => visibleAlerts.filter((alert) => !alert.read).length, [visibleAlerts]);
   const unreadByType = useMemo(() => {
     const acc: Record<string, number> = {};
     for (const c of categories) {
-      acc[c.id] = alerts.filter((a) => a.type === c.id && !a.read).length;
+      acc[c.id] = visibleAlerts.filter((a) => a.type === c.id && !a.read).length;
     }
     return acc;
-  }, [alerts, categories]);
+  }, [visibleAlerts, categories]);
 
   const markRead = async (id: string): Promise<void> => {
     await markAlertRead(id);
@@ -219,10 +236,10 @@ export default function MyAlertsPage() {
 
   const orphanAlerts = useMemo(() => {
     const ids = new Set(categories.map((c) => c.id));
-    return alerts
+    return visibleAlerts
       .filter((a) => !ids.has(a.type))
       .sort((a, b) => alertTimestamp(b.createdAt) - alertTimestamp(a.createdAt));
-  }, [alerts, categories]);
+  }, [visibleAlerts, categories]);
 
   return (
     <RequireAuth>
@@ -358,30 +375,7 @@ export default function MyAlertsPage() {
                                 ) : null}
                                 <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground">
                                   <span>{formatFeedTime(alert.createdAt, locale)}</span>
-                                  {alert.pushMobile ? (
-                                    <Badge
-                                      variant="secondary"
-                                      className="text-[10px] text-[hsl(150_35%_16%)]!"
-                                    >
-                                      {t("channelMobile")}
-                                    </Badge>
-                                  ) : null}
-                                  {alert.pushWeb ? (
-                                    <Badge
-                                      variant="secondary"
-                                      className="text-[10px] text-[hsl(150_35%_16%)]!"
-                                    >
-                                      {t("channelWeb")}
-                                    </Badge>
-                                  ) : null}
-                                  {alert.pushEmail ? (
-                                    <Badge
-                                      variant="secondary"
-                                      className="text-[10px] text-[hsl(150_35%_16%)]!"
-                                    >
-                                      {t("channelEmail")}
-                                    </Badge>
-                                  ) : null}
+                                  <span>{alertCreatorMeta(alert, t)}</span>
                                 </div>
                               </div>
                               {alert.href ? (
@@ -450,6 +444,7 @@ export default function MyAlertsPage() {
                   <div>
                     <p className="text-sm font-semibold uppercase tracking-tight">{alertTitleDisplay(selectedAlert.title)}</p>
                     <p className="text-xs text-muted-foreground">{formatFeedTime(selectedAlert.createdAt, locale)}</p>
+                    <p className="text-xs text-muted-foreground">{alertCreatorMeta(selectedAlert, t)}</p>
                   </div>
                 </div>
                 <p className="whitespace-pre-wrap text-sm text-muted-foreground">{alertMessageDisplay(selectedAlert.message)}</p>

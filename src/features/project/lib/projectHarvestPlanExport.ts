@@ -78,6 +78,63 @@ export type HarvestPlanExportResolveContext = {
 
 export type ProjectHarvestLineStatus = "scheduled" | "harvested" | "delivered";
 
+/** GET `order_mode` for project detail harvest history (PHP `get_details`). */
+export const PROJECT_DETAIL_HARVEST_HISTORY_ORDER_MODE =
+  "project_detail_history" as const;
+
+export type ProjectDetailHarvestHistorySortable = {
+  status: ProjectHarvestLineStatus;
+  /** ISO yyyy-mm-dd — actual, else estimated (matches PHP `sort_date`). */
+  filterDate: string;
+  /** ISO yyyy-mm-dd — valid `delivery_harvest_date` when delivered. */
+  deliveryFilterDate: string;
+  id: string;
+};
+
+function harvestHistoryDaysFromToday(iso: string): number {
+  const t = iso.trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) return 999_999;
+  const [y, m, d] = t.split("-").map(Number);
+  const target = Date.UTC(y, m - 1, d);
+  const now = new Date();
+  const today = Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate(),
+  );
+  return Math.abs(Math.round((target - today) / 86_400_000));
+}
+
+/** Client-side re-sort after filters; mirrors `_project_detail_history_order_by` in PHP. */
+export function compareProjectDetailHarvestHistory(
+  a: ProjectDetailHarvestHistorySortable,
+  b: ProjectDetailHarvestHistorySortable,
+): number {
+  const aDelivered = a.status === "delivered" ? 1 : 0;
+  const bDelivered = b.status === "delivered" ? 1 : 0;
+  if (aDelivered !== bDelivered) return aDelivered - bDelivered;
+
+  if (aDelivered === 1) {
+    const ad = a.deliveryFilterDate.trim();
+    const bd = b.deliveryFilterDate.trim();
+    if (ad && bd && ad !== bd) return bd.localeCompare(ad);
+    if (ad && !bd) return -1;
+    if (!ad && bd) return 1;
+    return String(b.id).localeCompare(String(a.id));
+  }
+
+  const aProx = harvestHistoryDaysFromToday(a.filterDate);
+  const bProx = harvestHistoryDaysFromToday(b.filterDate);
+  if (aProx !== bProx) return aProx - bProx;
+
+  const ad = a.filterDate.trim();
+  const bd = b.filterDate.trim();
+  if (ad && bd && ad !== bd) return ad.localeCompare(bd);
+  if (ad && !bd) return -1;
+  if (!ad && bd) return 1;
+  return String(b.id).localeCompare(String(a.id));
+}
+
 /** Same rule as project detail harvest table status column. */
 export function deriveProjectHarvestStatusFromRecord(
   row: Record<string, unknown>,

@@ -1,5 +1,6 @@
 import { create } from "zustand";
 
+import type { ZoneConfigurationRow } from "@/features/admin/api/adminApi";
 import { STS_API_PATHS } from "@/shared/api/stsApiPaths";
 import {
   filterActiveCountryRows,
@@ -68,6 +69,8 @@ function upsertProjectInArray(prev: unknown[], project: unknown): unknown[] {
 
 const empty = {
   farmZones: [] as FarmZoneReferenceRow[],
+  /** Zone configuration rows (`farm_id` + `grass_id`) from `/api/zone_configurations`. */
+  zoneConfigurations: [] as ZoneConfigurationRow[],
   /** Key areas from admin `/api/keyareas` (id → title). */
   keyAreas: [] as KeyAreaReferenceRow[],
   farms: [] as unknown[],
@@ -97,6 +100,8 @@ const empty = {
 export type HarvestingDataState = {
   /** Zone reference rows from `/api/zones`. */
   farmZones: FarmZoneReferenceRow[];
+  /** Zone setup rows linking farms to grasses (`/api/zone_configurations`). */
+  zoneConfigurations: ZoneConfigurationRow[];
   keyAreas: KeyAreaReferenceRow[];
   farms: unknown[];
   /** Full project catalog (`GET /api/projects/react_get_all_projects`). */
@@ -132,6 +137,7 @@ export type HarvestingDataState = {
   setHarvestListGrassFilter: (value: string) => void;
   setHarvestListStatusFilter: (value: string) => void;
   setFarmZones: (farmZones: FarmZoneReferenceRow[]) => void;
+  setZoneConfigurations: (zoneConfigurations: ZoneConfigurationRow[]) => void;
   setKeyAreas: (keyAreas: KeyAreaReferenceRow[]) => void;
   setFarms: (farms: unknown[]) => void;
   setAllProjects: (allProjects: unknown[]) => void;
@@ -177,6 +183,7 @@ export const useHarvestingDataStore = create<HarvestingDataState>((set, get) => 
   bootstrapDone: false,
 
   setFarmZones: (farmZones) => set({ farmZones }),
+  setZoneConfigurations: (zoneConfigurations) => set({ zoneConfigurations }),
   setKeyAreas: (keyAreas) => set({ keyAreas }),
   setFarms: (farms) => set({ farms }),
   setAllProjects: (allProjects) => set({ allProjects }),
@@ -260,6 +267,7 @@ export const useHarvestingDataStore = create<HarvestingDataState>((set, get) => 
     }
     const entries = [
       ["farmZones", STS_API_PATHS.farmZones, undefined],
+      ["zoneConfigurations", STS_API_PATHS.zoneConfigurations, undefined],
       ["keyAreas", STS_API_PATHS.keyareas, undefined],
       ["staffs", STS_API_PATHS.staffs, undefined],
       ["farms", STS_API_PATHS.farms, undefined],
@@ -298,6 +306,7 @@ export const useHarvestingDataStore = create<HarvestingDataState>((set, get) => 
     }
 
     const farmZones = byKey.get("farmZones");
+    const zoneConfigurationsRaw = byKey.get("zoneConfigurations");
     const keyAreasRaw = byKey.get("keyAreas");
     const staffs = byKey.get("staffs");
     const farms = byKey.get("farms");
@@ -321,6 +330,7 @@ export const useHarvestingDataStore = create<HarvestingDataState>((set, get) => 
 
     set({
       farmZones: normalizeFarmZoneRows(farmZones),
+      zoneConfigurations: asArray(zoneConfigurationsRaw) as ZoneConfigurationRow[],
       keyAreas: normalizeKeyAreaRows(keyAreasRaw),
       staffs: asArray(staffs),
       farms: asArray(farms),
