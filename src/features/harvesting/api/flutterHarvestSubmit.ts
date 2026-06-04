@@ -5,7 +5,7 @@
  */
 
 import { STS_API_PATHS } from "@/shared/api/stsApiPaths";
-import { stsProxyPostFormData } from "@/shared/api/stsProxyClient";
+import { stsProxyPostFormDataEnvelope } from "@/shared/api/stsProxyClient";
 
 /** API base field names (match PHP `imageNamesNeedSaved` / Flutter keys). */
 export const HARVEST_DOC_PHOTO_FIELDS = [
@@ -164,14 +164,28 @@ export function buildFlutterHarvestFormData(
   return fd;
 }
 
+export type FlutterHarvestSaveResponse = {
+  harvest: Record<string, unknown>;
+  paceRecalc?: unknown;
+};
+
 export async function submitFlutterHarvest(
   input: FlutterNewHarvestInput,
   photos: HarvestPhotoFiles,
   removed?: HarvestingRemovedPayload,
-): Promise<unknown> {
+): Promise<FlutterHarvestSaveResponse> {
   const fd = buildFlutterHarvestFormData(input, photos, removed);
-  return stsProxyPostFormData<unknown>(
+  const json = await stsProxyPostFormDataEnvelope<Record<string, unknown>>(
     STS_API_PATHS.flutterAddHarvestSubRow,
     fd,
   );
+  const harvest =
+    json.data != null && typeof json.data === "object"
+      ? (json.data as Record<string, unknown>)
+      : {};
+  const paceRecalc = (json as Record<string, unknown>).pace_recalc;
+  return {
+    harvest,
+    ...(paceRecalc !== undefined ? { paceRecalc } : {}),
+  };
 }

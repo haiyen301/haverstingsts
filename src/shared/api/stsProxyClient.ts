@@ -266,6 +266,30 @@ export async function stsProxyPostFormData<T = unknown>(
   return json.data as T;
 }
 
+/** POST multipart/form-data; returns full JSON body after `success` (e.g. `pace_recalc`). */
+export async function stsProxyPostFormDataEnvelope<T = unknown>(
+  upstreamApiPath: string,
+  formData: FormData,
+): Promise<StsJsonResponse<T>> {
+  if (typeof window === "undefined") {
+    throw new Error("stsProxyPostFormDataEnvelope is client-only");
+  }
+  const url = getInternalStsProxyUrl(upstreamApiPath);
+  const res = await fetch(url, {
+    method: "POST",
+    credentials: SAME_ORIGIN,
+    body: formData,
+  });
+  let json: StsJsonResponse<T>;
+  try {
+    json = (await res.json()) as StsJsonResponse<T>;
+  } catch {
+    throw new Error("Invalid JSON response");
+  }
+  await assertStsSuccessOrThrow(json, res);
+  return json;
+}
+
 /** POST JSON via same-origin proxy (for endpoints expecting raw JSON body). */
 export async function stsProxyPostJson<T = unknown>(
   upstreamApiPath: string,

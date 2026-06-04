@@ -829,6 +829,8 @@
     "validationSelectKeyAreas": "กรุณาเลือกอย่างน้อยหนึ่งพื้นที่หลัก (Tees, Roughs, Fairways หรือ Greens)",
     "validationGrassAtLeastOneComplete": "กรุณากรอกข้อมูลหญ้าอย่างน้อย 1 แถวให้ครบทุกช่องที่จำเป็น",
     "validationGrassInvalidRows": "บางแถวของหญ้าข้อมูลไม่ครบหรือจำนวนไม่ถูกต้อง กรุณาแก้ไขหรือลบแถวนั้น",
+    "validationGrassDuplicateUom": "แต่ละชนิดหญ้าสามารถใช้ได้ครั้งเดียวต่อหน่วย (Kg หรือ M2) กรุณาลบหรือแก้ไขแถวที่ซ้ำ",
+    "grassUomTaken": "ใช้แล้ว",
     "missingTableIdForSave": "ไม่พบ table_id สำหรับการบันทึก กรุณาเปิดหน้ารายการโครงการแล้วลองใหม่",
     "saveFailed": "บันทึกไม่สำเร็จ",
     "deleteMissingIds": "ไม่พบ Row ID หรือ Table ID ไม่สามารถลบได้",
@@ -1118,7 +1120,9 @@
     "photoSlotThermostat": "เทอร์โมสแตต",
     "photoSlotPlate": "ป้ายทะเบียน",
     "photoSlotCutting": "กำลังตัด",
-    "photoSlotLoaded": "บรรทุกแล้ว"
+    "photoSlotLoaded": "บรรทุกแล้ว",
+    "saving": "กำลังบันทึก…",
+    "recalculatingForecast": "กำลังคำนวณ forecasting…"
   },
   "ProjectImport": {
     "title": "นำเข้าโครงการจาก Excel",

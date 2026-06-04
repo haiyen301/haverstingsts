@@ -75,6 +75,13 @@ import {
   getTruckNoteFromRow,
 } from "@/shared/lib/harvestPlanExtendedFields";
 
+type HarvestSavePhase = false | "saving" | "recalculating";
+
+function paceRecalcRanOnServer(paceRecalc: unknown): boolean {
+  if (!paceRecalc || typeof paceRecalc !== "object") return false;
+  return (paceRecalc as { skipped?: boolean }).skipped !== true;
+}
+
 const DOC_PHOTO_SLOTS: HarvestDocPhotoField[] = [
   "payment_img",
   "shipping_note_img",
@@ -999,12 +1006,16 @@ function HarvestInputPageInner() {
   const [pendingFilesRemoved, setPendingFilesRemoved] = useState<
     Partial<Record<HarvestDocPhotoField, string[]>>
   >({});
-  const [submitLoading, setSubmitLoading] = useState(false);
+  const [savePhase, setSavePhase] = useState<HarvestSavePhase>(false);
+  const [paceRecalcExpectedOnSubmit, setPaceRecalcExpectedOnSubmit] =
+    useState(false);
+  const submitLoading = savePhase !== false;
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [editLoadError, setEditLoadError] = useState<string | null>(null);
   const [editLoaded, setEditLoaded] = useState(!editId);
   /** Actual date when edit row was loaded — used to detect pace recalc trigger. */
   const [initialActualDateAtLoad, setInitialActualDateAtLoad] = useState("");
+  const [initialQuantityAtLoad, setInitialQuantityAtLoad] = useState("");
   const [editTableId, setEditTableId] = useState("");
   const [editTableName, setEditTableName] = useState("Harvesting");
   const [projectHarvestRows, setProjectHarvestRows] = useState<HarvestDeliveredRow[]>(
@@ -1221,6 +1232,7 @@ function HarvestInputPageInner() {
         const row = raw as Record<string, unknown>;
         setFormData(applyRowToFormState(row));
         setInitialActualDateAtLoad(toDateInput(row.actual_harvest_date));
+        setInitialQuantityAtLoad(String(row.quantity ?? "").trim());
         setUseEstimatedDateRange(Boolean(getEstimatedDateEndFromRow(row)));
         setEditTableId(String(row.table_id ?? "").trim());
         setEditTableName(String(row.table_name ?? "Harvesting").trim() || "Harvesting");
@@ -1724,7 +1736,21 @@ function HarvestInputPageInner() {
       return;
     }
 
-    setSubmitLoading(true);
+    const savedActualDatePre = normalizedFormData.actualDate.trim();
+    const savedQuantityPre = normalizedFormData.quantity.trim();
+    const actualDateChangedPre =
+      savedActualDatePre !== initialActualDateAtLoad.trim();
+    const quantityChangedPre =
+      savedQuantityPre !== initialQuantityAtLoad.trim();
+    const shouldRecalcPaceAfterActual =
+      Boolean(editId) &&
+      Boolean(savedActualDatePre) &&
+      (actualDateChangedPre || quantityChangedPre);
+
+    setPaceRecalcExpectedOnSubmit(
+      Boolean(editId) && Boolean(savedActualDatePre),
+    );
+    setSavePhase("saving");
     try {
       const imagesRemoved: Partial<
         Record<HarvestDocPhotoField, string[]>
@@ -1760,7 +1786,7 @@ function HarvestInputPageInner() {
       ).trim();
       const customerIdSubmit =
         formData.customerId.trim() || customerFromProject || undefined;
-      const savedHarvest = (await submitFlutterHarvest(
+      const saveResult = await submitFlutterHarvest(
         {
           id: editId ?? undefined,
           projectId: formData.project,
@@ -1791,25 +1817,27 @@ function HarvestInputPageInner() {
         },
         photos,
         removedPayload,
-      )) as Record<string, unknown>;
+      );
+      const savedHarvest = saveResult.harvest;
       updateHarvestLimitDescriptionsForSelection(formData.project);
-      const savedActualDate = normalizedFormData.actualDate.trim();
-      const shouldRecalcPaceAfterActual =
-        Boolean(editId) &&
-        Boolean(savedActualDate) &&
-        savedActualDate !== initialActualDateAtLoad.trim();
-      if (shouldRecalcPaceAfterActual) {
+      const paceRecalcFromSave = saveResult.paceRecalc;
+      if (
+        shouldRecalcPaceAfterActual &&
+        !paceRecalcRanOnServer(paceRecalcFromSave)
+      ) {
         const harvestIdForRecalc = String(savedHarvest?.id ?? editId ?? "").trim();
         if (harvestIdForRecalc && formData.project.trim() && formData.grass.trim()) {
+          setSavePhase("recalculating");
           try {
             await recalculatePaceQuantitiesAfterActualHarvest({
               harvestId: harvestIdForRecalc,
               projectId: formData.project.trim(),
               productId: formData.grass.trim(),
               uom: formData.uom.trim(),
+              farmId: formData.farm.trim() || undefined,
             });
           } catch {
-            /* Pace rebalance is best-effort; harvest save already succeeded. */
+            /* Server also runs recalc in flutter_add_new_sub_row when actual date is set. */
           }
         }
       }
@@ -1848,7 +1876,8 @@ function HarvestInputPageInner() {
         err instanceof Error ? err.message : t("saveFailed");
       setSubmitError(msg);
     } finally {
-      setSubmitLoading(false);
+      setSavePhase(false);
+      setPaceRecalcExpectedOnSubmit(false);
     }
   };
 
@@ -1932,6 +1961,15 @@ function HarvestInputPageInner() {
       [field]: [...slot.documentFileNames],
     }));
   };
+
+  const submitButtonLabel = useMemo(() => {
+    if (savePhase === "recalculating") return t("recalculatingForecast");
+    if (savePhase === "saving" && paceRecalcExpectedOnSubmit) {
+      return t("recalculatingForecast");
+    }
+    if (savePhase === "saving") return t("saving");
+    return editId ? t("saveChanges") : t("saveHarvest");
+  }, [editId, paceRecalcExpectedOnSubmit, savePhase, t]);
 
   const formDisabled =
     refLoading ||
@@ -2994,11 +3032,7 @@ function HarvestInputPageInner() {
                         disabled={formDisabled}
                         className="inline-flex h-11 min-w-[140px] flex-1 items-center justify-center rounded-lg bg-primary px-5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50 sm:flex-none"
                       >
-                        {submitLoading
-                          ? t("saving")
-                          : editId
-                            ? t("saveChanges")
-                            : t("saveHarvest")}
+                        {submitButtonLabel}
                       </button>
                     ) : null}
                   </div>

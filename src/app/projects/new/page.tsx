@@ -112,6 +112,37 @@ function deriveKeyAreasCsvFromGrassRows(
   return [...titles].join(",");
 }
 
+function grassUomKey(grass: string, type: string): string | null {
+  const grassId = grass.trim();
+  const uom = type.trim();
+  if (!grassId || !uom) return null;
+  return `${grassId}::${uom}`;
+}
+
+function isDuplicateGrassUom(
+  rows: GrassRow[],
+  rowId: string,
+  grass: string,
+  type: string,
+): boolean {
+  const key = grassUomKey(grass, type);
+  if (!key) return false;
+  return rows.some(
+    (row) => row.id !== rowId && grassUomKey(row.grass, row.type) === key,
+  );
+}
+
+function hasDuplicateGrassUomRows(rows: GrassRow[]): boolean {
+  const seen = new Set<string>();
+  for (const row of rows) {
+    const key = grassUomKey(row.grass, row.type);
+    if (!key) continue;
+    if (seen.has(key)) return true;
+    seen.add(key);
+  }
+  return false;
+}
+
 function normalizeProjectNameForCompare(v: unknown): string {
   return String(v ?? "")
     .toLowerCase()
@@ -699,6 +730,8 @@ export default function ProjectInputPage() {
     );
   });
 
+  const hasDuplicateGrassUom = hasDuplicateGrassUomRows(grassRows);
+
   const getTopFieldErrors = (): TopFieldErrors => {
     const errors: TopFieldErrors = {};
     const projectName = formData.projectName.trim();
@@ -934,8 +967,11 @@ export default function ProjectInputPage() {
     const hasCompleteGrassItem = grassRows.some(isGrassItemComplete);
     const noCompleteGrassError = t("validationGrassAtLeastOneComplete");
     const invalidGrassError = t("validationGrassInvalidRows");
+    const duplicateGrassError = t("validationGrassDuplicateUom");
     if (!hasCompleteGrassItem) {
       setGrassValidationError(noCompleteGrassError);
+    } else if (hasDuplicateGrassUom) {
+      setGrassValidationError(duplicateGrassError);
     } else if (hasInvalidGrassItem) {
       setGrassValidationError(invalidGrassError);
     } else {
@@ -966,6 +1002,11 @@ export default function ProjectInputPage() {
 
     if (!hasCompleteGrassItem) {
       setError(noCompleteGrassError);
+      scrollToField("project-grass-info");
+      return;
+    }
+    if (hasDuplicateGrassUom) {
+      setError(duplicateGrassError);
       scrollToField("project-grass-info");
       return;
     }
@@ -1828,6 +1869,12 @@ export default function ProjectInputPage() {
                           value={row.grass}
                           onChange={(e) => {
                             const v = e.target.value;
+                            if (
+                              v.trim() &&
+                              isDuplicateGrassUom(grassRows, row.id, v, row.type)
+                            ) {
+                              return;
+                            }
                             setGrassRows((prev) =>
                               prev.map((r) =>
                                 r.id === row.id
@@ -1844,11 +1891,24 @@ export default function ProjectInputPage() {
                           className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm text-foreground shadow-sm"
                         >
                           <option value="">{t("selectGrass")}</option>
-                          {productOptions.map((p) => (
-                            <option key={p.id} value={p.id}>
-                              {p.name}
-                            </option>
-                          ))}
+                          {productOptions.map((p) => {
+                            const optionDisabled = isDuplicateGrassUom(
+                              grassRows,
+                              row.id,
+                              p.id,
+                              row.type,
+                            );
+                            return (
+                              <option
+                                key={p.id}
+                                value={p.id}
+                                disabled={optionDisabled}
+                              >
+                                {p.name}
+                                {optionDisabled ? ` (${t("grassUomTaken")})` : ""}
+                              </option>
+                            );
+                          })}
                         </select>
                       </div>
                       <div className="min-w-0 space-y-1.5">
@@ -1907,30 +1967,36 @@ export default function ProjectInputPage() {
                           {t("kgOrM2")}
                         </span>
                         <div className="inline-grid w-auto shrink-0 grid-cols-[auto_auto] gap-2 bg-surface-filter-filled ">
-                          {(["Kg", "M2"] as const).map((u) => (
-                            <button
-                              key={`${row.id}-${u}`}
-                              type="button"
-                              onMouseDown={(e) => e.preventDefault()}
-                              onClick={() => {
-                                if (row.type === u) return;
-                                updateGrassRow(row.id, "type", u);
-                              }}
-                              className="relative w-max cursor-pointer text-left justify-self-start"
-                            >
-                              <span
-                                className={`flex min-h-10 min-w-10 items-center justify-center whitespace-nowrap rounded-md border px-3 text-sm transition-colors ${row.type === u
-                                    ? "border-primary bg-primary/5 text-primary"
-                                    : "border-input bg-card text-foreground shadow-sm"
-                                  }`}
+                          {(["Kg", "M2"] as const).map((u) => {
+                            const uomDisabled =
+                              row.grass.trim().length > 0 &&
+                              isDuplicateGrassUom(grassRows, row.id, row.grass, u);
+                            return (
+                              <button
+                                key={`${row.id}-${u}`}
+                                type="button"
+                                disabled={uomDisabled}
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => {
+                                  if (row.type === u || uomDisabled) return;
+                                  updateGrassRow(row.id, "type", u);
+                                }}
+                                className={`relative w-max text-left justify-self-start ${uomDisabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
                               >
-                                {u}
-                              </span>
-                              {row.type === u ? (
-                                <CheckBadge className="left-1 top-1 h-3 w-3" />
-                              ) : null}
-                            </button>
-                          ))}
+                                <span
+                                  className={`flex min-h-10 min-w-10 items-center justify-center whitespace-nowrap rounded-md border px-3 text-sm transition-colors ${row.type === u
+                                      ? "border-primary bg-primary/5 text-primary"
+                                      : "border-input bg-card text-foreground shadow-sm"
+                                    }`}
+                                >
+                                  {u}
+                                </span>
+                                {row.type === u ? (
+                                  <CheckBadge className="left-1 top-1 h-3 w-3" />
+                                ) : null}
+                              </button>
+                            );
+                          })}
                         </div>
                       </div>
                       <div className="min-w-0 space-y-1.5">

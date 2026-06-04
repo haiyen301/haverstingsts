@@ -830,6 +830,8 @@
     "validationSelectKeyAreas": "Please select at least one Key Area (Tees, Roughs, Fairways, or Greens).",
     "validationGrassAtLeastOneComplete": "Please fill in at least one complete grass item with all required fields.",
     "validationGrassInvalidRows": "Some grass rows are incomplete or quantity is invalid. Please complete or clear those rows.",
+    "validationGrassDuplicateUom": "Each grass type can only appear once per unit (Kg or M2). Please remove or change duplicate rows.",
+    "grassUomTaken": "already used",
     "missingTableIdForSave": "Missing table_id for save. Please open Projects list first, then try again.",
     "saveFailed": "Failed to save.",
     "deleteMissingIds": "Row ID or table ID missing. Cannot delete.",
@@ -1119,7 +1121,8 @@
     "photoSlotPlate": "Plate",
     "photoSlotCutting": "Cutting",
     "photoSlotLoaded": "Loaded",
-    "saving": "Saving..."
+    "saving": "Saving...",
+    "recalculatingForecast": "Updating forecast quantities…"
   },
   "ProjectImport": {
     "title": "Import Projects from Excel",

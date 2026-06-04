@@ -1,4 +1,8 @@
 {
+  "workbench.editorAssociations": {
+    "**/doc/**/*.md": "vscode.markdown.preview.editor"
+  },
+  "markdown.mermaid.enabled": true,
   "tailwindCSS.includeLanguages": {
     "typescript": "javascript",
     "typescriptreact": "javascript"

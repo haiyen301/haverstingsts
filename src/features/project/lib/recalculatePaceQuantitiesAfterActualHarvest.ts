@@ -17,7 +17,7 @@ export function computeRemainingRequiredQuantity(
 }
 
 /**
- * Quantity per remaining estimate row (B) = A ÷ N, one decimal.
+ * Quantity per remaining estimate row (B) = A ÷ N, three decimals (e.g. 313.333).
  */
 export function computeQuantityPerRemainingEstimateBatch(
   remainingQuantity: number,
@@ -26,7 +26,7 @@ export function computeQuantityPerRemainingEstimateBatch(
   const n = Math.max(0, Math.floor(remainingEstimateCount));
   if (n <= 0) return 0;
   const a = Math.max(0, remainingQuantity);
-  return Math.round((a / n) * 10) / 10;
+  return Math.round((a / n) * 1000) / 1000;
 }
 
 export type RecalculatePaceAfterActualParams = {
@@ -34,6 +34,8 @@ export type RecalculatePaceAfterActualParams = {
   projectId: string;
   productId: string;
   uom: string;
+  /** Optional — stored on pace_grass_batch_quantities when set. */
+  farmId?: string;
 };
 
 export type RecalculatePaceAfterActualResult = {
@@ -70,6 +72,7 @@ export async function recalculatePaceQuantitiesAfterActualHarvest(
     project_id: projectId,
     product_id: productId,
     uom,
+    ...(params.farmId?.trim() ? { farm_id: params.farmId.trim() } : {}),
   });
 
   return {

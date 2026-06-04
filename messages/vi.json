@@ -826,6 +826,8 @@
     "validationSelectKeyAreas": "Vui lòng chọn ít nhất một khu vực chính (Tees, Roughs, Fairways hoặc Greens).",
     "validationGrassAtLeastOneComplete": "Vui lòng điền đầy đủ ít nhất một dòng loại cỏ với các trường bắt buộc.",
     "validationGrassInvalidRows": "Một số dòng loại cỏ chưa đầy đủ hoặc số lượng không hợp lệ. Vui lòng hoàn thiện hoặc xóa các dòng đó.",
+    "validationGrassDuplicateUom": "Mỗi loại cỏ chỉ được nhập một lần cho mỗi đơn vị (Kg hoặc M2). Vui lòng xóa hoặc sửa các dòng trùng.",
+    "grassUomTaken": "đã dùng",
     "missingTableIdForSave": "Thiếu table_id để lưu. Vui lòng mở danh sách Dự án trước rồi thử lại.",
     "saveFailed": "Lưu thất bại.",
     "deleteMissingIds": "Thiếu Row ID hoặc Table ID. Không thể xóa.",
@@ -1115,7 +1117,9 @@
     "photoSlotThermostat": "Nhiệt kế",
     "photoSlotPlate": "Biển số",
     "photoSlotCutting": "Cắt cỏ",
-    "photoSlotLoaded": "Đã chất hàng"
+    "photoSlotLoaded": "Đã chất hàng",
+    "saving": "Đang lưu…",
+    "recalculatingForecast": "Đang tính toán forecasting…"
   },
   "ProjectImport": {
     "title": "Import dự án từ Excel",
