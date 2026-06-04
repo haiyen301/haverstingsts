@@ -1632,6 +1632,21 @@ export default function ProjectInputPage() {
                                     months: opt.months,
                                   })}
                                 </span>
+                                {opt.totalBatches > 0 ? (
+                                  <span
+                                    className={`text-xs leading-tight ${formData.projectPace === opt.value
+                                        ? "text-primary/80"
+                                        : "text-muted-foreground"
+                                      }`}
+                                  >
+                                    {t("projectPacePlanLine", {
+                                      weeks: opt.weeks,
+                                      harvestBatches: opt.harvestBatches,
+                                      harvestEveryWeeks: opt.harvestEveryWeeks,
+                                      totalBatches: opt.totalBatches,
+                                    })}
+                                  </span>
+                                ) : null}
                               </>
                             ) : null}
                           </span>

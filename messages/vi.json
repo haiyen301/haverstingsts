@@ -857,7 +857,7 @@
     "projectPaceLabel": "Nhịp độ dự án",
     "projectPaceHint": "(tùy chọn — dùng để sinh planned harvest khi chọn)",
     "projectPaceDurationLine": "{months} tháng",
-    "projectPacePlanLine": "{weeks} tuần · {harvestBatches} đợt/{harvestEveryWeeks} tuần · {totalBatches} đợt gặt",
+    "projectPacePlanLine": "{weeks} tuần ÷ {harvestEveryWeeks} × {harvestBatches} = {totalBatches} đợt gặt dự kiến",
     "projectPaceEmptyCatalog": "Chưa có cấu hình nhịp độ. Thêm tại Admin → Turf Operations → Project Pace.",
     "paceSlowOption": "Chậm — 9 tháng",
     "paceMediumOption": "Vừa — 6 tháng",
@@ -1573,6 +1573,7 @@
       "totalWeeksFormula": "{months} tháng × {weeksPerMonth} tuần",
       "totalBatches": "Tổng đợt gặt",
       "totalBatchesFormula": "{weeks} tuần ÷ {harvestEveryWeeks} × {harvestBatches} đợt",
+      "cadenceShort": "{harvestBatches} đợt gặt / {harvestEveryWeeks} tuần",
       "actions": "Thao tác"
     },
     "form": {
@@ -1581,9 +1582,9 @@
       "keyLockedHint": "Không đổi mã sau khi tạo (đã lưu trên dự án).",
       "title": "Tên hiển thị *",
       "months": "Thời lượng (tháng) *",
-      "harvestBatches": "Số đợt gặt *",
-      "harvestEveryWeeks": "Trên số tuần *",
-      "harvestHint": "Ví dụ: 1 đợt / 1 tuần nghĩa là một ngày harvest dự kiến mỗi tuần.",
+      "harvestBatches": "Số đợt gặt mỗi chu kỳ *",
+      "harvestEveryWeeks": "Chu kỳ (tuần) *",
+      "harvestHint": "Ví dụ: 1 đợt / 1 tuần = mỗi tuần một đợt gặt dự kiến. Tổng đợt = (tháng × 4 tuần ÷ chu kỳ) × đợt mỗi chu kỳ.",
       "weeksPreview": "{months} tháng × {weeksPerMonth} tuần = {weeks} tuần",
       "batchesPreview": "{weeks} tuần ÷ {harvestEveryWeeks} tuần/chu kỳ × {harvestBatches} đợt = {totalBatches} đợt gặt dự kiến"
     },

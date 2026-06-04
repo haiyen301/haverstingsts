@@ -199,7 +199,8 @@ export function HarvestScheduleDayEntryChip({
           {row.value}
         </p>
       ))}
-      <p className="mt-0.5 text-xs font-semibold tabular-nums text-primary">
+      <p className="mt-0.5 text-xs leading-snug tabular-nums text-primary">
+        <span className="font-semibold text-foreground/75">{t("harvestArea")}: </span>
         {entry.estimatedAreaM2.toLocaleString(locale)} m²
       </p>
     </>

@@ -57,10 +57,6 @@ function normalizePaceKey(raw: string): string {
     .replace(/^_+|_+$/g, "");
 }
 
-function formatHarvestCadence(row: ProjectPaceRow): string {
-  return `${row.harvest_batches} / ${row.harvest_every_weeks}`;
-}
-
 export default function AdminProjectPacesPage() {
   const t = useTranslations("AdminProjectPaces");
   const [rows, setRows] = useState<ProjectPaceRow[]>([]);
@@ -261,8 +257,10 @@ export default function AdminProjectPacesPage() {
                         <td className="px-4 py-3 font-medium">{row.title}</td>
                         <td className="px-4 py-3">{row.duration_months}</td>
                         <td className="px-4 py-3">
-                          {formatHarvestCadence(row)}{" "}
-                          <span className="text-muted-foreground">{t("table.weeksUnit")}</span>
+                          {t("table.cadenceShort", {
+                            harvestBatches: row.harvest_batches,
+                            harvestEveryWeeks: row.harvest_every_weeks,
+                          })}
                         </td>
                         <td className="px-4 py-3 text-right tabular-nums">
                           {(() => {

@@ -860,7 +860,7 @@
     "projectPaceLabel": "จังหวะโครงการ",
     "projectPaceHint": "(ไม่บังคับ — ใช้สร้างแผนเก็บเกี่ยวเมื่อเลือก)",
     "projectPaceDurationLine": "{months} เดือน",
-    "projectPacePlanLine": "{weeks} สัปดาห์ · {harvestBatches}/{harvestEveryWeeks} สัปดาห์ · {totalBatches} รอบเก็บ",
+    "projectPacePlanLine": "{weeks} สัปดาห์ ÷ {harvestEveryWeeks} × {harvestBatches} = {totalBatches} รอบเก็บตามแผน",
     "projectPaceEmptyCatalog": "ยังไม่มีการตั้งค่าจังหวะโครงการ เพิ่มที่ Admin → Turf Operations → Project Pace",
     "paceSlowOption": "ช้า — 9 เดือน",
     "paceMediumOption": "ปานกลาง — 6 เดือน",
@@ -1577,6 +1577,7 @@
       "totalWeeksFormula": "{months} เดือน × {weeksPerMonth} สัปดาห์",
       "totalBatches": "รอบเก็บรวม",
       "totalBatchesFormula": "{weeks} สัปดาห์ ÷ {harvestEveryWeeks} × {harvestBatches}",
+      "cadenceShort": "{harvestBatches} รอบเก็บ / {harvestEveryWeeks} สัปดาห์",
       "actions": "การทำงาน"
     },
     "form": {
@@ -1585,9 +1586,9 @@
       "keyLockedHint": "ไม่สามารถเปลี่ยนรหัสหลังสร้างแล้ว (บันทึกบนโครงการ)",
       "title": "ชื่อที่แสดง *",
       "months": "ระยะเวลา (เดือน) *",
-      "harvestBatches": "จำนวนรอบเก็บ *",
-      "harvestEveryWeeks": "ต่อจำนวนสัปดาห์ *",
-      "harvestHint": "ตัวอย่าง: 1 รอบ / 1 สัปดาห์ หมายถึงหนึ่งวันเก็บเกี่ยวตามแผนในแต่ละสัปดาห์",
+      "harvestBatches": "รอบเก็บต่อรอบ *",
+      "harvestEveryWeeks": "ความยาวรอบ (สัปดาห์) *",
+      "harvestHint": "ตัวอย่าง: 1 รอบ / 1 สัปดาห์ = หนึ่งรอบเก็บตามแผนทุกสัปดาห์ รวม = (เดือน × 4 สัปดาห์ ÷ รอบ) × รอบต่อรอบ",
       "weeksPreview": "{months} เดือน × {weeksPerMonth} สัปดาห์ = {weeks} สัปดาห์",
       "batchesPreview": "{weeks} สัปดาห์ ÷ {harvestEveryWeeks} สัปดาห์/รอบ × {harvestBatches} รอบ = {totalBatches} รอบเก็บตามแผน"
     },
