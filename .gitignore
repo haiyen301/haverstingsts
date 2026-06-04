@@ -10,6 +10,7 @@
 !.yarn/releases
 !.yarn/versions
 .cursor/
+.vscode
 
 # testing
 /coverage
@@ -48,4 +49,4 @@ backup/
 logs/
 var/
 
-src/app/test
+#src/app/test
