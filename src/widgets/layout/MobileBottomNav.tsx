@@ -3,7 +3,8 @@
 import { usePathname, useRouter } from "next/navigation";
 import { FolderKanban, LayoutDashboard, Leaf, MoreHorizontal, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { useState, type ComponentType } from "react";
+import { useEffect, useState, type ComponentType } from "react";
+import { createPortal } from "react-dom";
 import { useTranslations } from "next-intl";
 import type { SessionUser } from "@/shared/lib/sessionUser";
 import { canAccessModule } from "@/shared/auth/permissions";
@@ -79,6 +80,17 @@ export function MobileBottomNav({ moreSections, user = null }: MobileBottomNavPr
   const pathname = usePathname();
   const t = useTranslations("Nav");
   const [moreOpen, setMoreOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => setMounted(true), []);
+
+  useEffect(() => {
+    if (!moreOpen) return;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = "";
+    };
+  }, [moreOpen]);
 
   const primaryTabs: PrimaryNavEntry[] = [
     { path: "/dashboard", labelKey: "dashboard", icon: LayoutDashboard, module: "dashboard" },
@@ -119,80 +131,77 @@ export function MobileBottomNav({ moreSections, user = null }: MobileBottomNavPr
 
   return (
     <>
-      {moreOpen ? (
-        <div className="fixed inset-0 z-40 lg:hidden">
-          <button
-            type="button"
-            className="absolute inset-0 bg-black/50"
-            aria-label="Close"
-            onClick={() => setMoreOpen(false)}
-          />
-          <div
-            role="dialog"
-            aria-modal="true"
-            className="absolute inset-x-0 bottom-0 z-50 max-h-[min(78vh,640px)] rounded-t-2xl border border-sidebar-border bg-sidebar px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-3 text-sidebar-foreground shadow-lg"
-          >
-            <div className="mb-3 flex items-center justify-between">
-              <p className="text-sm font-semibold">{t("moreSheetTitle")}</p>
-              <button
-                type="button"
-                onClick={() => setMoreOpen(false)}
-                className="rounded-lg p-2 text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
-                aria-label="Close"
+      {mounted && moreOpen
+        ? createPortal(
+            <div className="fixed inset-0 z-120 lg:hidden">
+              <div
+                role="dialog"
+                aria-modal="true"
+                className="absolute inset-0 flex flex-col bg-sidebar text-sidebar-foreground shadow-2xl animate-in slide-in-from-right duration-300"
               >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-            <div className="max-h-[calc(min(78vh,640px)-4.5rem)] space-y-4 overflow-y-auto pb-2">
-              {moreSections.map((section) => {
-                const simpleItems = section.items.filter((item) => !item.tabs?.length);
-                const groupedItems = section.items.filter((item) => (item.tabs?.length ?? 0) > 0);
+                <div className="flex shrink-0 items-center justify-between border-b border-sidebar-border px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
+                  <p className="text-base font-semibold">{t("moreSheetTitle")}</p>
+                  <button
+                    type="button"
+                    onClick={() => setMoreOpen(false)}
+                    className="rounded-lg p-2 text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                    aria-label="Close"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+                <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+                  {moreSections.map((section) => {
+                    const simpleItems = section.items.filter((item) => !item.tabs?.length);
+                    const groupedItems = section.items.filter((item) => (item.tabs?.length ?? 0) > 0);
 
-                return (
-                  <div key={section.id}>
-                    <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/45">
-                      {section.title}
-                    </p>
+                    return (
+                      <div key={section.id}>
+                        <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/45">
+                          {section.title}
+                        </p>
 
-                    {simpleItems.length > 0 ? (
-                      <div className="mb-3 grid grid-cols-3 gap-2">
-                        {simpleItems.map((item) => (
-                          <MoreNavButton
-                            key={item.key}
-                            label={item.label}
-                            icon={item.icon}
-                            active={resolveActive(item.path, item.isActive)}
-                            onClick={() => go(item.path)}
-                          />
+                        {simpleItems.length > 0 ? (
+                          <div className="mb-3 grid grid-cols-3 gap-2">
+                            {simpleItems.map((item) => (
+                              <MoreNavButton
+                                key={item.key}
+                                label={item.label}
+                                icon={item.icon}
+                                active={resolveActive(item.path, item.isActive)}
+                                onClick={() => go(item.path)}
+                              />
+                            ))}
+                          </div>
+                        ) : null}
+
+                        {groupedItems.map((item) => (
+                          <div key={item.key} className="mb-3 last:mb-0">
+                            <p className="mb-1.5 px-1 text-xs font-semibold text-sidebar-foreground/70">
+                              {item.label}
+                            </p>
+                            <div className="grid grid-cols-3 gap-2">
+                              {(item.tabs ?? []).map((tab) => (
+                                <MoreNavButton
+                                  key={`${item.key}-${tab.path}`}
+                                  label={tab.label}
+                                  icon={tab.icon}
+                                  active={resolveActive(tab.path, tab.isActive)}
+                                  onClick={() => go(tab.path)}
+                                />
+                              ))}
+                            </div>
+                          </div>
                         ))}
                       </div>
-                    ) : null}
-
-                    {groupedItems.map((item) => (
-                      <div key={item.key} className="mb-3 last:mb-0">
-                        <p className="mb-1.5 px-1 text-xs font-semibold text-sidebar-foreground/70">
-                          {item.label}
-                        </p>
-                        <div className="grid grid-cols-3 gap-2">
-                          {(item.tabs ?? []).map((tab) => (
-                            <MoreNavButton
-                              key={`${item.key}-${tab.path}`}
-                              label={tab.label}
-                              icon={tab.icon}
-                              active={resolveActive(tab.path, tab.isActive)}
-                              onClick={() => go(tab.path)}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      ) : null}
+                    );
+                  })}
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
 
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-sidebar-border bg-sidebar pb-[env(safe-area-inset-bottom,0px)] lg:hidden">
         <div className="flex items-stretch justify-around">

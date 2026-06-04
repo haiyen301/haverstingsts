@@ -13,6 +13,7 @@ import {
 } from "@/features/admin/api/adminApi";
 import {
   estimatePaceDurationWeeks,
+  estimateTotalHarvestBatches,
   projectPaceConfigFromRow,
   WEEKS_PER_MONTH,
 } from "@/features/project/lib/generatePlannedHarvestsForNewProject";
@@ -43,7 +44,7 @@ function emptyForm(): FormState {
     pace_key: "",
     title: "",
     duration_months: "6",
-    harvest_batches: "2",
+    harvest_batches: "1",
     harvest_every_weeks: "1",
   };
 }
@@ -69,14 +70,36 @@ export default function AdminProjectPacesPage() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<FormState>(emptyForm());
 
-  const formWeeksPreview = useMemo(() => {
+  const formPlanPreview = useMemo(() => {
     const durationMonths = Number.parseInt(form.duration_months, 10);
-    if (!Number.isFinite(durationMonths) || durationMonths <= 0) return null;
+    const harvestBatches = Number.parseInt(form.harvest_batches, 10);
+    const harvestEveryWeeks = Number.parseInt(form.harvest_every_weeks, 10);
+    if (
+      !Number.isFinite(durationMonths) ||
+      durationMonths <= 0 ||
+      !Number.isFinite(harvestBatches) ||
+      harvestBatches <= 0 ||
+      !Number.isFinite(harvestEveryWeeks) ||
+      harvestEveryWeeks <= 0
+    ) {
+      return null;
+    }
+    const config = projectPaceConfigFromRow({
+      id: 0,
+      pace_key: "",
+      title: "",
+      duration_months: durationMonths,
+      harvest_batches: harvestBatches,
+      harvest_every_weeks: harvestEveryWeeks,
+    });
     return {
       months: durationMonths,
-      weeks: durationMonths * WEEKS_PER_MONTH,
+      weeks: estimatePaceDurationWeeks(config),
+      harvestBatches,
+      harvestEveryWeeks,
+      totalBatches: estimateTotalHarvestBatches(config),
     };
-  }, [form.duration_months]);
+  }, [form.duration_months, form.harvest_batches, form.harvest_every_weeks]);
 
   const loadRows = useCallback(async () => {
     setLoading(true);
@@ -222,6 +245,7 @@ export default function AdminProjectPacesPage() {
                       <th className="px-4 py-3 text-left font-medium">{t("table.months")}</th>
                       <th className="px-4 py-3 text-left font-medium">{t("table.harvestCadence")}</th>
                       <th className="px-4 py-3 text-right font-medium">{t("table.totalWeeks")}</th>
+                      <th className="px-4 py-3 text-right font-medium">{t("table.totalBatches")}</th>
                       <th className="px-4 py-3 text-right font-medium">{t("table.actions")}</th>
                     </tr>
                   </thead>
@@ -242,9 +266,8 @@ export default function AdminProjectPacesPage() {
                         </td>
                         <td className="px-4 py-3 text-right tabular-nums">
                           {(() => {
-                            const weeks = estimatePaceDurationWeeks(
-                              projectPaceConfigFromRow(row),
-                            );
+                            const paceConfig = projectPaceConfigFromRow(row);
+                            const weeks = estimatePaceDurationWeeks(paceConfig);
                             return (
                               <>
                                 <span className="font-medium">
@@ -257,6 +280,25 @@ export default function AdminProjectPacesPage() {
                                   {t("table.totalWeeksFormula", {
                                     months: row.duration_months,
                                     weeksPerMonth: WEEKS_PER_MONTH,
+                                  })}
+                                </span>
+                              </>
+                            );
+                          })()}
+                        </td>
+                        <td className="px-4 py-3 text-right tabular-nums">
+                          {(() => {
+                            const paceConfig = projectPaceConfigFromRow(row);
+                            const totalBatches =
+                              estimateTotalHarvestBatches(paceConfig);
+                            return (
+                              <>
+                                <span className="font-medium">{totalBatches}</span>
+                                <span className="mt-0.5 block text-xs text-muted-foreground">
+                                  {t("table.totalBatchesFormula", {
+                                    weeks: estimatePaceDurationWeeks(paceConfig),
+                                    harvestBatches: row.harvest_batches,
+                                    harvestEveryWeeks: row.harvest_every_weeks,
                                   })}
                                 </span>
                               </>
@@ -290,7 +332,7 @@ export default function AdminProjectPacesPage() {
                     ))}
                     {!loading && rows.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
+                        <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
                           {t("empty")}
                         </td>
                       </tr>
@@ -368,14 +410,24 @@ export default function AdminProjectPacesPage() {
               </Field>
             </div>
             <p className="text-xs text-muted-foreground">{t("form.harvestHint")}</p>
-            {formWeeksPreview ? (
-              <p className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
-                {t("form.weeksPreview", {
-                  months: formWeeksPreview.months,
-                  weeksPerMonth: WEEKS_PER_MONTH,
-                  weeks: formWeeksPreview.weeks,
-                })}
-              </p>
+            {formPlanPreview ? (
+              <div className="space-y-1 rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
+                <p>
+                  {t("form.weeksPreview", {
+                    months: formPlanPreview.months,
+                    weeksPerMonth: WEEKS_PER_MONTH,
+                    weeks: formPlanPreview.weeks,
+                  })}
+                </p>
+                <p className="font-medium text-foreground">
+                  {t("form.batchesPreview", {
+                    weeks: formPlanPreview.weeks,
+                    harvestBatches: formPlanPreview.harvestBatches,
+                    harvestEveryWeeks: formPlanPreview.harvestEveryWeeks,
+                    totalBatches: formPlanPreview.totalBatches,
+                  })}
+                </p>
+              </div>
             ) : null}
 
             <div className="flex justify-end gap-2">

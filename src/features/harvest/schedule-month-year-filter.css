@@ -1,0 +1,35 @@
+/* Override globals.css `select { background filled }` for uniform month/year control */
+.sts-schedule-month-year-filter.bg-surface-filter-empty,
+.sts-schedule-month-year-filter.bg-surface-filter-empty select {
+  background-color: hsl(var(--surface-filter-empty));
+}
+
+.sts-schedule-month-year-filter.bg-surface-filter-filled,
+.sts-schedule-month-year-filter.bg-surface-filter-filled select {
+  background-color: hsl(var(--surface-filter-filled));
+}
+
+.sts-schedule-month-year-filter--compact {
+  width: max-content;
+  max-width: 100%;
+}
+
+.sts-schedule-month-year-filter--compact .sts-schedule-month-year-filter__month,
+.sts-schedule-month-year-filter--compact .sts-schedule-month-year-filter__year {
+  width: max-content;
+}
+
+.sts-schedule-month-year-filter--compact select {
+  width: auto;
+  max-width: none;
+}
+
+.sts-schedule-month-year-filter--disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.sts-schedule-month-year-filter--disabled select {
+  cursor: not-allowed;
+}

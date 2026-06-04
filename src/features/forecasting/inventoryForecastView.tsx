@@ -49,6 +49,7 @@ import {
 } from "@/features/forecasting/inventoryRegrowthCalculator";
 import {
   applyLatestZoneMaxKgToForecastRows,
+  DEFAULT_FALLBACK_INVENTORY_KG_PER_M2,
   FORECAST_NOZONE_ZONE,
   isForecastExcludedZone,
   forecastHarvestRowEffectiveM2,
@@ -159,6 +160,78 @@ const FARM_SERIES_PALETTE = [
   "hsl(180, 60%, 40%)",
   "hsl(95, 50%, 45%)",
 ];
+
+function seriesPaletteColor(index: number, palette: readonly string[]): string {
+  if (index < palette.length) return palette[index];
+  const hue = Math.round((index * 137.508) % 360);
+  return `hsl(${hue}, 55%, 45%)`;
+}
+
+function buildSeriesColorMap(
+  labels: Iterable<string>,
+  palette: readonly string[],
+): Record<string, string> {
+  const sorted = Array.from(new Set(Array.from(labels).filter(Boolean))).sort((a, b) =>
+    a.localeCompare(b),
+  );
+  const map: Record<string, string> = {};
+  sorted.forEach((label, i) => {
+    map[label] = seriesPaletteColor(i, palette);
+  });
+  return map;
+}
+
+/** Same label sources as breakdown `seriesKeys`, from unfiltered data so hues stay stable. */
+function collectStableGrassSeriesLabels(
+  rows: ForecastHarvestRow[],
+  grasses: unknown[],
+  zoneConfigs: ZoneConfigurationRow[],
+  overridesByZone: Record<string, InventoryAvailableOverrideEntry>,
+): Set<string> {
+  const labels = new Set<string>();
+  for (const g of grasses) {
+    if (!g || typeof g !== "object") continue;
+    const rec = g as Record<string, unknown>;
+    const label = String(rec.title ?? rec.name ?? "").trim();
+    if (label) labels.add(label);
+  }
+  for (const r of rows) {
+    if (r.grassType) labels.add(r.grassType);
+  }
+  for (const row of zoneConfigs) {
+    const turf = String(row.turfgrass ?? "").trim();
+    if (turf) labels.add(turf);
+  }
+  for (const entry of Object.values(overridesByZone)) {
+    const label = String(entry.turfgrass ?? "").trim();
+    if (label) labels.add(label);
+  }
+  return labels;
+}
+
+function collectStableFarmSeriesLabels(
+  rows: ForecastHarvestRow[],
+  farmOptions: Array<{ value: string; label: string }>,
+  zoneConfigs: ZoneConfigurationRow[],
+  overridesByZone: Record<string, InventoryAvailableOverrideEntry>,
+): Set<string> {
+  const labels = new Set<string>();
+  for (const option of farmOptions) {
+    if (option.label) labels.add(option.label);
+  }
+  for (const r of rows) {
+    if (r.farm) labels.add(r.farm);
+  }
+  for (const row of zoneConfigs) {
+    const name = String(row.farm_name ?? "").trim();
+    if (name) labels.add(name);
+  }
+  for (const entry of Object.values(overridesByZone)) {
+    const label = String(entry.farmName ?? "").trim();
+    if (label) labels.add(label);
+  }
+  return labels;
+}
 
 function harvestTypeLabel(
   harvestType: ForecastHarvestRow["harvestType"],
@@ -861,6 +934,56 @@ function addMonths(date: Date, months: number): Date {
 }
 
 /** Weekly chart dates plus any manual balance dates inside the forecast window. */
+type ChartUnitMode = "sprig" | "sod";
+
+function sprigSodSegmentClass(active: boolean): string {
+  return cn(
+    "rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+    active ? "bg-card text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+  );
+}
+
+function representativeKgPerM2ForFarmProduct(
+  zoneConfigs: ZoneConfigurationRow[],
+  farmId: number,
+  productId: number,
+): number {
+  const byZone = kgPerM2ByNormalizedZoneForFarmProduct(zoneConfigs, farmId, productId);
+  const preferred = byZone["1"] ?? byZone["zone-1"] ?? byZone["zone 1"];
+  if (preferred && preferred > 0) return preferred;
+  const rates = Object.values(byZone).filter((rate) => rate > 0);
+  if (rates.length === 0) return DEFAULT_FALLBACK_INVENTORY_KG_PER_M2;
+  return rates.reduce((sum, rate) => sum + rate, 0) / rates.length;
+}
+
+function kgToChartM2(kg: number, kgPerM2: number): number {
+  if (kg <= 0) return 0;
+  const rate = kgPerM2 > 0 ? kgPerM2 : DEFAULT_FALLBACK_INVENTORY_KG_PER_M2;
+  return Math.max(0, Math.round(kg / rate));
+}
+
+function sumZoneCapacityM2AtDate(
+  zoneConfigs: ZoneConfigurationRow[],
+  asOf: Date,
+  farmProductFilter?: (farmId: number, productId: number) => boolean,
+): number {
+  const ymd = ymdFromDate(asOf);
+  let sum = 0;
+  for (const row of zoneConfigs) {
+    if (!zoneConfigIsActiveAtYmd(row, ymd)) continue;
+    if (isForecastExcludedZone(row.zone)) continue;
+    const farmId = Number(row.farm_id);
+    const productId = Number(row.grass_id);
+    if (!Number.isFinite(farmId) || !Number.isFinite(productId) || farmId <= 0 || productId <= 0) {
+      continue;
+    }
+    if (farmProductFilter && !farmProductFilter(farmId, productId)) continue;
+    const sizeM2 = Number(row.size_m2 ?? 0);
+    if (Number.isFinite(sizeM2) && sizeM2 > 0) sum += sizeM2;
+  }
+  return sum;
+}
+
 function collectForecastChartDateYmds(
   today: Date,
   forecastMonths: number,
@@ -967,6 +1090,8 @@ export function InventoryForecast({
   const forecastMonths = controlledForecastMonths ?? internalForecastMonths;
   const setForecastMonths = onForecastMonthsChange ?? setInternalForecastMonths;
   const [showBreakdownChart, setShowBreakdownChart] = useState(false);
+  const [chartUnitMode, setChartUnitMode] = useState<ChartUnitMode>("sprig");
+  const chartUnitLabel = chartUnitMode === "sprig" ? "kg" : "m²";
   const debouncedFarmIds = useDebouncedValue(selectedFarmIds, 300);
   const debouncedGrassIds = useDebouncedValue(
     useMemo(() => parseCsvList(harvestListGrassFilter), [harvestListGrassFilter]),
@@ -1132,6 +1257,22 @@ export function InventoryForecast({
     return Array.from(keys).sort((a, b) => a.localeCompare(b));
   }, [rollingDailyByFarmProduct, filteredRows, zoneConfigSnapshot, farmProductFilter]);
 
+  const farmProductKgPerM2 = useMemo(() => {
+    const out = new Map<string, number>();
+    for (const fpKey of farmProductGroupKeys) {
+      const [farmIdStr, productIdStr] = fpKey.split("|");
+      out.set(
+        fpKey,
+        representativeKgPerM2ForFarmProduct(
+          zoneConfigSnapshot,
+          Number(farmIdStr),
+          Number(productIdStr),
+        ),
+      );
+    }
+    return out;
+  }, [farmProductGroupKeys, zoneConfigSnapshot]);
+
   const totalMaxToday = useMemo(
     () =>
       Math.round(
@@ -1143,6 +1284,13 @@ export function InventoryForecast({
       ),
     [zoneConfigSnapshot, farmProductFilter],
   );
+
+  const totalMaxForChart = useMemo(() => {
+    if (chartUnitMode === "sprig") return totalMaxToday;
+    return Math.round(
+      sumZoneCapacityM2AtDate(zoneConfigSnapshot, getForecastToday(), farmProductFilter),
+    );
+  }, [chartUnitMode, totalMaxToday, zoneConfigSnapshot, farmProductFilter]);
 
   const zoneSeriesMeta = useMemo(() => {
     const out = new Map<string, string>();
@@ -1301,7 +1449,20 @@ export function InventoryForecast({
           farmProductFilter,
         ),
       );
-      const available = Math.max(0, Math.round(rolling?.availableKg ?? 0));
+      let available = Math.max(0, Math.round(rolling?.availableKg ?? 0));
+      let max = Math.max(0, totalMax);
+      if (chartUnitMode === "sod") {
+        available = 0;
+        for (const fpKey of farmProductGroupKeys) {
+          const day = rollingDailyByFarmProduct.get(fpKey)?.get(dateStr);
+          if (!day) continue;
+          available += kgToChartM2(
+            day.availableKg,
+            farmProductKgPerM2.get(fpKey) ?? DEFAULT_FALLBACK_INVENTORY_KG_PER_M2,
+          );
+        }
+        max = Math.round(sumZoneCapacityM2AtDate(zoneConfigSnapshot, forecastDate, farmProductFilter));
+      }
       const hint = buildInventoryAvailableHintModel({
         available,
         previousAvailable: Math.max(0, Math.round(rolling?.previousAvailableKg ?? 0)),
@@ -1319,7 +1480,7 @@ export function InventoryForecast({
       return {
         date: dateStr,
         available,
-        max: Math.max(0, totalMax),
+        max,
         overrideCount: hint.balanceOverrides.length,
         hint,
       };
@@ -1327,6 +1488,10 @@ export function InventoryForecast({
   }, [
     forecastMonths,
     rollingByDate,
+    rollingDailyByFarmProduct,
+    farmProductGroupKeys,
+    farmProductKgPerM2,
+    chartUnitMode,
     zoneConfigSnapshot,
     farmProductFilter,
     overridesByZone,
@@ -1356,8 +1521,8 @@ export function InventoryForecast({
   }, [maxAvailableForChart]);
 
   const showMaxCapacityBand = useMemo(
-    () => totalMaxToday > 0 && totalMaxToday <= yAxisMaxForAvailable * 5,
-    [totalMaxToday, yAxisMaxForAvailable],
+    () => totalMaxForChart > 0 && totalMaxForChart <= yAxisMaxForAvailable * 5,
+    [totalMaxForChart, yAxisMaxForAvailable],
   );
 
   const hasManualOverridesInForecast = useMemo(
@@ -1445,7 +1610,15 @@ export function InventoryForecast({
             ? farmProductFarmMeta.get(fpKey) ?? farmNameById.get(Number(fpKey.split("|")[0] ?? 0))
             : productGrassMeta.get(productId) ?? grassNameById.get(productId);
         if (!seriesKey) continue;
-        row[seriesKey] = Number(row[seriesKey] ?? 0) + day.availableKg;
+        const qtyKg = day.availableKg;
+        const qty =
+          chartUnitMode === "sod"
+            ? kgToChartM2(
+                qtyKg,
+                farmProductKgPerM2.get(fpKey) ?? DEFAULT_FALLBACK_INVENTORY_KG_PER_M2,
+              )
+            : qtyKg;
+        row[seriesKey] = Number(row[seriesKey] ?? 0) + qty;
       }
 
       for (const entry of Object.values(overridesByZone)) {
@@ -1486,6 +1659,8 @@ export function InventoryForecast({
     forecastMonths,
     farmProductGroupKeys,
     rollingDailyByFarmProduct,
+    farmProductKgPerM2,
+    chartUnitMode,
     seriesKeys,
     breakdownMode,
     productGrassMeta,
@@ -1981,27 +2156,23 @@ export function InventoryForecast({
   }, [selectedRegrowthKey, regrowthPlanDetailRows.length]);
 
   /** Stable colors from full dataset so hues do not shift when filters change (matches Harvesting Portal). */
-  const grassColors = useMemo(() => {
-    const all = Array.from(new Set(rows.map((r) => r.grassType).filter(Boolean))).sort((a, b) =>
-      a.localeCompare(b),
-    );
-    const map: Record<string, string> = {};
-    all.forEach((g, i) => {
-      map[g] = GRASS_SERIES_PALETTE[i % GRASS_SERIES_PALETTE.length];
-    });
-    return map;
-  }, [rows]);
+  const grassColors = useMemo(
+    () =>
+      buildSeriesColorMap(
+        collectStableGrassSeriesLabels(rows, grasses, zoneConfigSnapshot, overridesByZone),
+        GRASS_SERIES_PALETTE,
+      ),
+    [rows, grasses, zoneConfigSnapshot, overridesByZone],
+  );
 
-  const farmColors = useMemo(() => {
-    const all = Array.from(new Set(rows.map((r) => r.farm).filter(Boolean))).sort((a, b) =>
-      a.localeCompare(b),
-    );
-    const map: Record<string, string> = {};
-    all.forEach((f, i) => {
-      map[f] = FARM_SERIES_PALETTE[i % FARM_SERIES_PALETTE.length];
-    });
-    return map;
-  }, [rows]);
+  const farmColors = useMemo(
+    () =>
+      buildSeriesColorMap(
+        collectStableFarmSeriesLabels(rows, farmFilterOptions, zoneConfigSnapshot, overridesByZone),
+        FARM_SERIES_PALETTE,
+      ),
+    [rows, farmFilterOptions, zoneConfigSnapshot, overridesByZone],
+  );
 
   const seriesColor = (key: string) =>
     (breakdownMode === "farm" ? farmColors[key] : grassColors[key]) ?? GRASS_SERIES_PALETTE[0];
@@ -2016,7 +2187,7 @@ export function InventoryForecast({
     "min-w-[140px] max-w-[180px] rounded-md border border-input text-sm text-foreground hover:bg-btnhover/40";
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-bold">{t("title")}</h2>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -2072,7 +2243,25 @@ export function InventoryForecast({
         {isRecomputing ? (
           <div className="pointer-events-none absolute inset-0 z-10 rounded-xl bg-background/30" />
         ) : null}
-        <h3 className="mb-4 text-sm font-semibold">{t("charts.projectedInventory")}</h3>
+        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <h3 className="text-sm font-semibold">{t("charts.projectedInventory")}</h3>
+          <div className="flex shrink-0 gap-1 rounded-lg bg-muted p-0.5">
+            <button
+              type="button"
+              onClick={() => setChartUnitMode("sprig")}
+              className={sprigSodSegmentClass(chartUnitMode === "sprig")}
+            >
+              {t("charts.sprigKgToggle")}
+            </button>
+            <button
+              type="button"
+              onClick={() => setChartUnitMode("sod")}
+              className={sprigSodSegmentClass(chartUnitMode === "sod")}
+            >
+              {t("charts.sodM2Toggle")}
+            </button>
+          </div>
+        </div>
         <ResponsiveContainer width="100%" height={320}>
           <AreaChart data={forecastData}>
             <CartesianGrid strokeDasharray="3 3" stroke="hsl(214,18%,89%)" />
@@ -2094,14 +2283,14 @@ export function InventoryForecast({
                       <div className="flex items-center justify-between gap-4">
                         <span className="text-muted-foreground">{t("charts.available")}</span>
                         <span className="font-medium text-foreground">
-                          {point.available.toLocaleString()} kg
+                          {point.available.toLocaleString()} {chartUnitLabel}
                         </span>
                       </div>
                       <InventoryAvailableBalanceSummary model={point.hint} variant="chart" />
                       <div className="flex items-center justify-between gap-4 border-t border-border pt-2">
                         <span className="text-muted-foreground">{t("charts.maxCapacity")}</span>
                         <span className="font-medium text-foreground">
-                          {point.max.toLocaleString()} kg
+                          {point.max.toLocaleString()} {chartUnitLabel}
                         </span>
                       </div>
                     </div>
@@ -2225,7 +2414,7 @@ export function InventoryForecast({
                                   ) : null}
                                 </div>
                                 <span className="font-medium text-foreground">
-                                  {balance.toLocaleString()} kg
+                                  {balance.toLocaleString()} {chartUnitLabel}
                                 </span>
                               </div>
                             ) : null}

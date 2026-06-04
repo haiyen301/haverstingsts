@@ -111,6 +111,13 @@ export interface MondayProjectServerRow {
   main_contact_email?: string;
   main_contact_phone?: string;
   project_pace?: string;
+  /** `sts_projects.pace_grass_batch_quantities` — per-grass qty per harvest batch when pace is set. */
+  pace_grass_batch_quantities?: Array<{
+    grass_id: string;
+    quantity: string;
+    uom: string;
+    farm_id?: string;
+  }>;
   actual_completion_date?: string;
 }
 

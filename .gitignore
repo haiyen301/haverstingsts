@@ -47,5 +47,3 @@ package-lock.json
 backup/
 logs/
 var/
-
-src/app/test

@@ -63,6 +63,13 @@
   --color-primary: hsl(var(--primary));
   --primary-color: hsl(var(--primary));
   --color-secondary: hsl(var(--secondary));
+
+  /* Shared scrollbars (see global *::-webkit-scrollbar rules below) */
+  --scrollbar-size: 8px;
+  --scrollbar-track: hsl(0 0% 94%);
+  --scrollbar-thumb: hsl(0 0% 72%);
+  --scrollbar-thumb-hover: hsl(0 0% 58%);
+  --scrollbar-track-inset: 3px;
 }
 
 .dark {
@@ -168,6 +175,53 @@ body {
   background-color: hsl(var(--background));
   color: hsl(var(--foreground));
   font-family: var(--font-plus-jakarta-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+/*
+ * Shared scrollbars — neutral gray (macOS-style).
+ * Applied globally; opt out with `.sts-scrollbar-none` on a subtree if needed.
+ */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+
+*::-webkit-scrollbar {
+  width: var(--scrollbar-size);
+  height: var(--scrollbar-size);
+  background: transparent;
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+  border-radius: 9999px;
+  margin-block: var(--scrollbar-track-inset);
+  margin-inline: var(--scrollbar-track-inset);
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border: 2px solid var(--scrollbar-track);
+  border-radius: 9999px;
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}
+
+*::-webkit-scrollbar-corner {
+  background: var(--scrollbar-track);
+}
+
+.sts-scrollbar-none,
+.sts-scrollbar-none * {
+  scrollbar-width: none;
+}
+
+.sts-scrollbar-none::-webkit-scrollbar,
+.sts-scrollbar-none *::-webkit-scrollbar {
+  display: none;
 }
 
 input:focus-visible,

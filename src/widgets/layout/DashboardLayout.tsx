@@ -61,6 +61,12 @@ interface DashboardLayoutProps {
   children: ReactNode;
   /** When true, hides the left navigation (desktop sidebar and mobile chrome) for a full-width workspace. */
   hideAppNav?: boolean;
+  /** Initial desktop sidebar collapsed state (e.g. full-width calendar views). */
+  defaultSidebarCollapsed?: boolean;
+  /** Hide the top app header while the desktop sidebar is collapsed (e.g. harvest schedule calendar). */
+  hideAppHeaderWhenSidebarCollapsed?: boolean;
+  /** Remove main bottom padding (calendar uses full viewport height). */
+  flushMainPadding?: boolean;
 }
 
 type SidebarSectionId = "operations" | "harvesting" | "fleet" | "admin";
@@ -109,7 +115,13 @@ function isNonNull<T>(value: T | null): value is T {
   return value !== null;
 }
 
-export function DashboardLayout({ children, hideAppNav = false }: DashboardLayoutProps) {
+export function DashboardLayout({
+  children,
+  hideAppNav = false,
+  defaultSidebarCollapsed = false,
+  hideAppHeaderWhenSidebarCollapsed = false,
+  flushMainPadding = false,
+}: DashboardLayoutProps) {
   const t = useAppTranslations();
   const tn = useTranslations("SidebarNav");
   const th = useTranslations("AppHeader");
@@ -119,7 +131,11 @@ export function DashboardLayout({ children, hideAppNav = false }: DashboardLayou
   const user = useAuthUserStore((s) => s.user);
   const { farmOptions, selectedFarmIds: farmIds, selectedFarmLabels: selectedFarmLabelsAll, setSelectedFarmIds } =
     useSyncedFarmMultiSelect();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(defaultSidebarCollapsed);
+
+  useEffect(() => {
+    setSidebarCollapsed(defaultSidebarCollapsed);
+  }, [defaultSidebarCollapsed]);
   const [openSections, setOpenSections] = useState<Record<SidebarSectionId, boolean>>({
     operations: true,
     harvesting: true,
@@ -574,6 +590,10 @@ export function DashboardLayout({ children, hideAppNav = false }: DashboardLayou
     [locale],
   );
 
+  const appHeaderHidden =
+    hideAppHeaderWhenSidebarCollapsed && sidebarCollapsed;
+  const showAppHeader = !hideAppNav && !appHeaderHidden;
+
   return (
     <div className="flex min-h-screen text-foreground" suppressHydrationWarning>
       {!hideAppNav ? (
@@ -850,7 +870,7 @@ export function DashboardLayout({ children, hideAppNav = false }: DashboardLayou
       ) : null}
 
       <div className={`flex min-h-screen flex-1 flex-col ${mainMarginClass}`}>
-        {!hideAppNav ? (
+        {showAppHeader ? (
           <header className="sticky top-0 z-30 flex min-h-14 flex-wrap items-center gap-2 border-b border-border px-4 py-2 bg-background/80 backdrop-blur-md sm:gap-3 lg:h-14 lg:flex-nowrap lg:px-6 lg:py-0">
             {/* <div className="flex min-w-0 flex-1 items-center gap-2 lg:flex-none lg:gap-3">
               {user && canAccessModule(user, "my_alerts", "show") ? (
@@ -969,11 +989,15 @@ export function DashboardLayout({ children, hideAppNav = false }: DashboardLayou
         ) : null}
 
         <main
-          className={
+          className={cn(
+            "flex min-h-0 flex-1 flex-col",
             hideAppNav
-              ? "flex-1"
-              : "flex-1 pb-[calc(5rem+env(safe-area-inset-bottom,0px))] lg:pb-6"
-          }
+              ? undefined
+              : flushMainPadding
+                ? "pb-0"
+                : "pb-[calc(5rem+env(safe-area-inset-bottom,0px))] lg:pb-6",
+          )}
+          data-app-header-hidden={appHeaderHidden ? "true" : undefined}
         >
           {children}
         </main>

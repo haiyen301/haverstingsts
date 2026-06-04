@@ -76,6 +76,9 @@ export const STS_API_PATHS = {
   harvestSaveImportErrors: "/api/harvesting/save_harvest_import_errors",
   /** POST bulk update `project_harvesting_plan.description` for Limit / Over limit markers. */
   updateHarvestLimitDescriptions: "/api/harvesting/react_update_harvest_limit_descriptions",
+  /** POST recalc estimate quantities + pace_grass_batch_quantities after actual harvest date. */
+  recalculatePaceAfterActual:
+    "/api/harvesting/react_recalculate_pace_quantities_after_actual",
   /** GET `Timeline::index` — query: `from`, `to` (Y-m-d H:i:s), optional `include_unscheduled`, `unscheduled_limit`. */
   timeline: "/api/timeline",
   /** GET `Timeline::detail` — query: `id`. */

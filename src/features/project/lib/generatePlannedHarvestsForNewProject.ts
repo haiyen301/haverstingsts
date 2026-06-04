@@ -3,8 +3,11 @@ import type { ProjectPaceRow } from "@/features/admin/api/adminApi";
 
 /**
  * Planned harvest schedule when creating a project — pace config drives months,
- * weekly delivery cadence, split quantities across dates. Harvest kind follows
- * grass UoM: Kg → sprig, M² → sod.
+ * harvest cadence (batches per week), and per-batch quantity (total ÷ batch count).
+ * Harvest kind follows grass UoM: Kg → sprig, M² → sod.
+ *
+ * After actual harvest dates are saved on edit, quantities are rebalanced via
+ * `recalculatePaceQuantitiesAfterActualHarvest.ts` — see `doc/project-page-and-harvest-update.md`.
  */
 
 export type ProjectPaceForHarvestPlan = string;
@@ -34,6 +37,14 @@ export type PlannedHarvestSeed = {
   farmId?: string;
 };
 
+/** Stored on `sts_projects.pace_grass_batch_quantities` when project pace is set. */
+export type PaceGrassBatchQuantity = {
+  grass_id: string;
+  quantity: string;
+  uom: string;
+  farm_id?: string;
+};
+
 type HarvestKind = "SPRIG" | "SOD";
 
 const KG_PER_M2: Record<HarvestKind, number> = {
@@ -43,14 +54,12 @@ const KG_PER_M2: Record<HarvestKind, number> = {
 
 const DEFAULT_PACE_CONFIG: ProjectPaceConfig = {
   durationMonths: 6,
-  harvestBatches: 2,
+  harvestBatches: 1,
   harvestEveryWeeks: 1,
 };
 
 /** Business calendar: 1 month = 4 weeks (used for pace totals and planned-harvest span). */
 export const WEEKS_PER_MONTH = 4;
-
-const SPRIG_SHARE_WHEN_MIXED = 0.75;
 
 function addDays(d: Date, days: number): Date {
   const x = new Date(d);
@@ -97,20 +106,28 @@ export function projectPaceConfigFromRow(row: ProjectPaceRow): ProjectPaceConfig
   };
 }
 
-
 /** Weeks spanned by a pace duration — same rule as planned-harvest generation. */
 export function estimatePaceDurationWeeks(config: ProjectPaceConfig): number {
   const months = Math.max(1, config.durationMonths);
   return Math.max(1, months * WEEKS_PER_MONTH);
 }
 
-function deliveriesPerWeek(config: ProjectPaceConfig): number {
-  const weeks = Math.max(1, config.harvestEveryWeeks);
-  return config.harvestBatches / weeks;
+/** Full cadence cycles that fit in the project span (Admin: harvest_every_weeks). */
+export function estimatePaceHarvestCycles(config: ProjectPaceConfig): number {
+  const totalWeeks = estimatePaceDurationWeeks(config);
+  const cycleWeeks = Math.max(1, config.harvestEveryWeeks);
+  return Math.max(1, Math.floor(totalWeeks / cycleWeeks));
 }
 
-function maxDeliveriesPerWeek(config: ProjectPaceConfig): number {
-  return Math.max(1, Math.ceil(deliveriesPerWeek(config)));
+/**
+ * Total planned harvest rows per grass line — driven by Admin Project Pace:
+ * `duration_months` → weeks (×4), then
+ * `floor(weeks ÷ harvest_every_weeks) × harvest_batches`
+ * (e.g. 4 months = 16 weeks, 2 batches / 1 week → 16 × 2 = 32).
+ */
+export function estimateTotalHarvestBatches(config: ProjectPaceConfig): number {
+  const batchesPerCycle = Math.max(1, config.harvestBatches);
+  return Math.max(1, estimatePaceHarvestCycles(config) * batchesPerCycle);
 }
 
 function dayOffsetsForPace(config: ProjectPaceConfig): number[] {
@@ -120,6 +137,40 @@ function dayOffsetsForPace(config: ProjectPaceConfig): number[] {
   return Array.from({ length: batchCount }, (_, i) =>
     Math.min(spanDays - 1, Math.round((i * spanDays) / batchCount)),
   );
+}
+
+type BatchSlot = { weekIndex: number; dayOffset: number };
+
+function buildBatchSlots(
+  config: ProjectPaceConfig,
+  totalWeeks: number,
+  totalBatches: number,
+): BatchSlot[] {
+  const cycleWeeks = Math.max(1, config.harvestEveryWeeks);
+  const batchesPerCycle = Math.max(1, config.harvestBatches);
+  const dayOffsets = dayOffsetsForPace(config);
+  const slots: BatchSlot[] = [];
+
+  for (
+    let cycleStart = 0;
+    cycleStart < totalWeeks && slots.length < totalBatches;
+    cycleStart += cycleWeeks
+  ) {
+    const weekIndex = Math.min(cycleStart, Math.max(0, totalWeeks - 1));
+    for (let b = 0; b < batchesPerCycle && slots.length < totalBatches; b++) {
+      slots.push({
+        weekIndex,
+        dayOffset: dayOffsets[b % dayOffsets.length] ?? 0,
+      });
+    }
+  }
+
+  const lastWeek = Math.max(0, totalWeeks - 1);
+  while (slots.length < totalBatches) {
+    slots.push({ weekIndex: lastWeek, dayOffset: dayOffsets[0] ?? 0 });
+  }
+
+  return slots.slice(0, totalBatches);
 }
 
 type NormalisedReq = {
@@ -154,6 +205,35 @@ function normaliseRequirements(
     });
 }
 
+function quantityPerBatch(req: NormalisedReq, totalBatches: number): number {
+  const uom = displayUom(req.kind);
+  const raw =
+    uom === "Kg" ? req.totalKg / totalBatches : req.totalAreaM2 / totalBatches;
+  return Math.round(raw * 10) / 10;
+}
+
+/** Per-grass quantity for one harvest batch (total required ÷ pace total batches). */
+export function buildPaceGrassBatchQuantities(opts: {
+  paceConfig: ProjectPaceConfig;
+  grassRequirements: GrassRequirementForHarvestPlan[];
+}): PaceGrassBatchQuantity[] {
+  const totalBatches = estimateTotalHarvestBatches(opts.paceConfig);
+  const reqs = normaliseRequirements(opts.grassRequirements);
+  return reqs.map((req) => {
+    const uom = displayUom(req.kind);
+    const qty = quantityPerBatch(req, totalBatches);
+    const row: PaceGrassBatchQuantity = {
+      grass_id: req.productId,
+      quantity: String(qty),
+      uom,
+    };
+    if (req.farmId) {
+      row.farm_id = req.farmId;
+    }
+    return row;
+  });
+}
+
 /**
  * @param estimatedStartYmd — `YYYY-MM-DD`; anchor for the delivery schedule (demo: estimated start).
  */
@@ -169,145 +249,32 @@ export function generatePlannedHarvestsForNewProject(opts: {
   const start = new Date(startStr);
   if (Number.isNaN(start.getTime())) return [];
 
-  const months = Math.max(1, paceConfig.durationMonths);
-  const totalWeeks = months * WEEKS_PER_MONTH;
+  const totalWeeks = estimatePaceDurationWeeks(paceConfig);
   if (totalWeeks <= 0) return [];
 
-  const deliveriesPerWeekRate = deliveriesPerWeek(paceConfig);
-  const maxDeliveriesPerWeekLimit = maxDeliveriesPerWeek(paceConfig);
-  const dayOffsets = dayOffsetsForPace(paceConfig);
+  const totalBatches = estimateTotalHarvestBatches(paceConfig);
+  const slots = buildBatchSlots(paceConfig, totalWeeks, totalBatches);
 
   const reqs = normaliseRequirements(grassRequirements);
   if (!reqs.length) return [];
 
-  const sprigReqs = reqs.filter((r) => r.kind === "SPRIG");
-  const sodReqs = reqs.filter((r) => r.kind === "SOD");
-  const hasSprig = sprigReqs.length > 0;
-  const hasSod = sodReqs.length > 0;
-
-  let sprigDelPerWeek = 0;
-  let sodDelPerWeek = 0;
-  if (hasSprig && hasSod) {
-    sprigDelPerWeek = deliveriesPerWeekRate * SPRIG_SHARE_WHEN_MIXED;
-    sodDelPerWeek = deliveriesPerWeekRate * (1 - SPRIG_SHARE_WHEN_MIXED);
-  } else if (hasSprig) {
-    sprigDelPerWeek = deliveriesPerWeekRate;
-  } else if (hasSod) {
-    sodDelPerWeek = deliveriesPerWeekRate;
-  }
-
-  const totalSprigDeliveries = Math.max(1, Math.round(sprigDelPerWeek * totalWeeks));
-  const totalSodDeliveries = Math.max(
-    hasSod ? 1 : 0,
-    Math.round(sodDelPerWeek * totalWeeks),
-  );
-
-  function splitForType(
-    typeReqs: NormalisedReq[],
-    totalDeliveries: number,
-  ): Array<{
-    req: NormalisedReq;
-    perDeliveryKg: number;
-    perDeliveryAreaM2: number;
-    deliveries: number;
-  }> {
-    if (!typeReqs.length || totalDeliveries <= 0) return [];
-    const totalKg = typeReqs.reduce((s, r) => s + r.totalKg, 0);
-    return typeReqs.map((r) => {
-      const share = totalKg > 0 ? r.totalKg / totalKg : 1 / typeReqs.length;
-      const deliveries = Math.max(1, Math.round(share * totalDeliveries));
-      return {
-        req: r,
-        deliveries,
-        perDeliveryKg: r.totalKg / deliveries,
-        perDeliveryAreaM2: r.totalAreaM2 / deliveries,
-      };
-    });
-  }
-
-  const sprigSplit = splitForType(sprigReqs, totalSprigDeliveries);
-  const sodSplit = splitForType(sodReqs, totalSodDeliveries);
-
   const harvests: PlannedHarvestSeed[] = [];
 
-  const sprigQueue: Array<{
-    req: NormalisedReq;
-    perKg: number;
-    perArea: number;
-    remaining: number;
-  }> = sprigSplit.map((s) => ({
-    req: s.req,
-    perKg: s.perDeliveryKg,
-    perArea: s.perDeliveryAreaM2,
-    remaining: s.deliveries,
-  }));
-  const sodQueue: Array<{
-    req: NormalisedReq;
-    perKg: number;
-    perArea: number;
-    remaining: number;
-  }> = sodSplit.map((s) => ({
-    req: s.req,
-    perKg: s.perDeliveryKg,
-    perArea: s.perDeliveryAreaM2,
-    remaining: s.deliveries,
-  }));
-
-  let sprigAcc = 0;
-  let sodAcc = 0;
-
-  const pushHarvest = (
-    req: NormalisedReq,
-    perKg: number,
-    perArea: number,
-    date: Date,
-  ) => {
+  for (const req of reqs) {
     const uom = displayUom(req.kind);
-    const qty =
-      uom === "Kg"
-        ? Math.round(perKg * 10) / 10
-        : Math.round(perArea * 10) / 10;
-    harvests.push({
-      productId: req.productId,
-      quantity: String(qty),
-      uom,
-      harvestType: req.kind === "SPRIG" ? "sprig" : "sod",
-      estimatedHarvestDate: isoYmd(date),
-      farmId: req.farmId || undefined,
-    });
-  };
-
-  for (let w = 0; w < totalWeeks; w++) {
-    sprigAcc += sprigDelPerWeek;
-    sodAcc += sodDelPerWeek;
-
-    const weekDeliveries: HarvestKind[] = [];
-    while (sprigAcc >= 1 && weekDeliveries.length < maxDeliveriesPerWeekLimit) {
-      weekDeliveries.push("SPRIG");
-      sprigAcc -= 1;
+    const qty = quantityPerBatch(req, totalBatches);
+    for (const slot of slots) {
+      const date = addDays(start, slot.weekIndex * 7 + slot.dayOffset);
+      harvests.push({
+        productId: req.productId,
+        quantity: String(qty),
+        uom,
+        harvestType: req.kind === "SPRIG" ? "sprig" : "sod",
+        estimatedHarvestDate: isoYmd(date),
+        farmId: req.farmId || undefined,
+      });
     }
-    while (sodAcc >= 1 && weekDeliveries.length < maxDeliveriesPerWeekLimit) {
-      weekDeliveries.push("SOD");
-      sodAcc -= 1;
-    }
-
-    weekDeliveries.forEach((kind, idx) => {
-      const queue = kind === "SPRIG" ? sprigQueue : sodQueue;
-      const next = queue.find((q) => q.remaining > 0) ?? queue[0];
-      if (!next) return;
-      next.remaining = Math.max(0, next.remaining - 1);
-      const date = addDays(start, w * 7 + dayOffsets[idx % dayOffsets.length]);
-      pushHarvest(next.req, next.perKg, next.perArea, date);
-    });
   }
-
-  const flushDate = addDays(start, totalWeeks * 7);
-  [...sprigQueue, ...sodQueue].forEach((q) => {
-    while (q.remaining > 0) {
-      pushHarvest(q.req, q.perKg, q.perArea, flushDate);
-      q.remaining -= 1;
-    }
-  });
 
   return harvests;
 }
@@ -323,7 +290,7 @@ export function isProjectPaceForHarvestPlan(
       (row) => String(row.pace_key ?? "").trim().toLowerCase() === key,
     );
   }
-  return key === "slow" || key === "medium" || key === "fast";
+  return false;
 }
 
 /**

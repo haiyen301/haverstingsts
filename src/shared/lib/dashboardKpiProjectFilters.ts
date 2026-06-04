@@ -9,7 +9,31 @@ export type KpiDatePreset =
   | "lastWeek"
   | "lastMonth"
   | "lastQuarter"
+  | "thisWeek"
+  | "nextWeek"
+  | "nextMonth"
+  | "nextQuarter"
   | "custom";
+
+/** Dashboard KPI filter — default preset list (image: Today … Last quarter + Custom). */
+export const KPI_DATE_PRESET_DASHBOARD: readonly KpiDatePreset[] = [
+  "today",
+  "yesterday",
+  "lastWeek",
+  "lastMonth",
+  "lastQuarter",
+  "custom",
+] as const;
+
+/** Harvest schedule — forward-looking calendar windows. */
+export const KPI_DATE_PRESET_SCHEDULE: readonly KpiDatePreset[] = [
+  "today",
+  "thisWeek",
+  "nextWeek",
+  "nextMonth",
+  "nextQuarter",
+  "custom",
+] as const;
 
 export type KpiDeliveryDateFilter = {
   preset: KpiDatePreset;
@@ -98,6 +122,40 @@ function addDaysYmd(ymd: string, days: number): string {
   return dateToLocalYmd(addCalendarDays(d, days));
 }
 
+/** Monday-based calendar week; `weekOffset` 0 = current week, 1 = next week. */
+function calendarWeekRangeYmd(weekOffset: number): { start: string; end: string } {
+  const anchor = startOfLocalToday();
+  const start = startOfWeekMonday(anchor);
+  start.setDate(start.getDate() + weekOffset * 7);
+  const end = addCalendarDays(start, 6);
+  return { start: dateToLocalYmd(start), end: dateToLocalYmd(end) };
+}
+
+function startOfWeekMonday(d: Date): Date {
+  const date = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const day = date.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  date.setDate(date.getDate() + diff);
+  return date;
+}
+
+/** Calendar month; `monthOffset` 0 = current month, 1 = next month. */
+function calendarMonthRangeYmd(monthOffset: number): { start: string; end: string } {
+  const anchor = startOfLocalToday();
+  const start = new Date(anchor.getFullYear(), anchor.getMonth() + monthOffset, 1);
+  const end = new Date(anchor.getFullYear(), anchor.getMonth() + monthOffset + 1, 0);
+  return { start: dateToLocalYmd(start), end: dateToLocalYmd(end) };
+}
+
+/** Calendar quarter; `quarterOffset` 0 = current quarter, 1 = next quarter. */
+function calendarQuarterRangeYmd(quarterOffset: number): { start: string; end: string } {
+  const anchor = startOfLocalToday();
+  const qStartMonth = Math.floor(anchor.getMonth() / 3) * 3 + quarterOffset * 3;
+  const start = new Date(anchor.getFullYear(), qStartMonth, 1);
+  const end = new Date(anchor.getFullYear(), qStartMonth + 3, 0);
+  return { start: dateToLocalYmd(start), end: dateToLocalYmd(end) };
+}
+
 /** Resolves preset or custom filter to inclusive `[start, end]` YMD bounds. */
 export function kpiDateRangeFromFilter(filter: KpiDeliveryDateFilter): {
   start: string;
@@ -117,6 +175,14 @@ export function kpiDateRangeFromFilter(filter: KpiDeliveryDateFilter): {
       return { start: periodStartYmd("month"), end: today };
     case "lastQuarter":
       return { start: periodStartYmd("quarter"), end: today };
+    case "thisWeek":
+      return calendarWeekRangeYmd(0);
+    case "nextWeek":
+      return calendarWeekRangeYmd(1);
+    case "nextMonth":
+      return calendarMonthRangeYmd(1);
+    case "nextQuarter":
+      return calendarQuarterRangeYmd(1);
     case "custom": {
       const from = String(filter.customFrom ?? "").trim() || today;
       const to = String(filter.customTo ?? "").trim() || from;

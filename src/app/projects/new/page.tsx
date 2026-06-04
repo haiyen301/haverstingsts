@@ -42,6 +42,9 @@ import {
   projectTypeMessageKey,
 } from "@/features/project/lib/projectTypeDisplay";
 import {
+  buildPaceGrassBatchQuantities,
+  estimatePaceDurationWeeks,
+  estimateTotalHarvestBatches,
   generatePlannedHarvestsForNewProject,
   isProjectPaceForHarvestPlan,
   persistPlannedHarvestSeedsForProject,
@@ -359,8 +362,21 @@ export default function ProjectInputPage() {
         const value = String(row.pace_key ?? "").trim();
         if (!value) return null;
         const title = String(row.title ?? value).trim();
-        const months = Math.max(0, Number(row.duration_months) || 0);
-        return { value, title, months };
+        const paceConfig = projectPaceConfigFromRow(row);
+        const months = Math.max(0, paceConfig.durationMonths);
+        const weeks = estimatePaceDurationWeeks(paceConfig);
+        const totalBatches = estimateTotalHarvestBatches(paceConfig);
+        const harvestBatches = Math.max(1, paceConfig.harvestBatches);
+        const harvestEveryWeeks = Math.max(1, paceConfig.harvestEveryWeeks);
+        return {
+          value,
+          title,
+          months,
+          weeks,
+          totalBatches,
+          harvestBatches,
+          harvestEveryWeeks,
+        };
       })
       .filter((opt): opt is NonNullable<typeof opt> => opt != null);
 
@@ -369,7 +385,18 @@ export default function ProjectInputPage() {
       cur &&
       !fromCatalog.some((opt) => opt.value.toLowerCase() === cur.toLowerCase())
     ) {
-      return [{ value: cur, title: cur, months: 0 }, ...fromCatalog];
+      return [
+        {
+          value: cur,
+          title: cur,
+          months: 0,
+          weeks: 0,
+          totalBatches: 0,
+          harvestBatches: 1,
+          harvestEveryWeeks: 1,
+        },
+        ...fromCatalog,
+      ];
     }
     return fromCatalog;
   }, [formData.projectPace, projectPaceCatalogRows]);
@@ -988,6 +1015,27 @@ export default function ProjectInputPage() {
         ? formData.holes.trim() || "none"
         : "none";
       const editProjectId = editProjectIdForLabel.trim();
+      const paceKeyForSave = formData.projectPace.trim().toLowerCase();
+      const selectedPaceForSave = projectPaceCatalogRows.find(
+        (row) => String(row.pace_key ?? "").trim().toLowerCase() === paceKeyForSave,
+      );
+      const grassReqsForPace = grassRows
+        .filter(isGrassItemComplete)
+        .map((r) => ({
+          productId: r.grass.trim(),
+          uom: r.type,
+          amountRequired: Number.parseFloat(r.required) || 0,
+          farmId: r.farmId.trim(),
+        }));
+      const paceGrassBatchQuantities =
+        isProjectPaceForHarvestPlan(paceKeyForSave, projectPaceCatalogRows) &&
+        selectedPaceForSave &&
+        grassReqsForPace.length > 0
+          ? buildPaceGrassBatchQuantities({
+              paceConfig: projectPaceConfigFromRow(selectedPaceForSave),
+              grassRequirements: grassReqsForPace,
+            })
+          : [];
       const payload: Record<string, unknown> = {
         id: resolvedRowId,
         table_id: resolvedTableId,
@@ -1024,6 +1072,7 @@ export default function ProjectInputPage() {
             formData.projectPace === "none" || !formData.projectPace.trim()
               ? ""
               : formData.projectPace.trim().toLowerCase(),
+          pace_grass_batch_quantities: paceGrassBatchQuantities,
           actual_completion_date: formData.actualCompletionDate.trim(),
         },
       };
@@ -1060,29 +1109,18 @@ export default function ProjectInputPage() {
         | "critical"
         | undefined;
       if (!isEdit && canSeedPlannedHarvestsOnCreate && projectIdStr) {
-        const paceKey = formData.projectPace.trim().toLowerCase();
-        const selectedPace = projectPaceCatalogRows.find(
-          (row) => String(row.pace_key ?? "").trim().toLowerCase() === paceKey,
-        );
         if (
-          isProjectPaceForHarvestPlan(paceKey, projectPaceCatalogRows) &&
-          selectedPace
+          isProjectPaceForHarvestPlan(paceKeyForSave, projectPaceCatalogRows) &&
+          selectedPaceForSave &&
+          grassReqsForPace.length > 0
         ) {
           const anchorYmd =
             formData.estimateStartDate.trim() ||
             formData.actualStartDate.trim();
-          const grassReqs = grassRows
-            .filter(isGrassItemComplete)
-            .map((r) => ({
-              productId: r.grass.trim(),
-              uom: r.type,
-              amountRequired: Number.parseFloat(r.required) || 0,
-              farmId: r.farmId.trim(),
-            }));
           const seeds = generatePlannedHarvestsForNewProject({
-            paceConfig: projectPaceConfigFromRow(selectedPace),
+            paceConfig: projectPaceConfigFromRow(selectedPaceForSave),
             estimatedStartYmd: anchorYmd,
-            grassRequirements: grassReqs,
+            grassRequirements: grassReqsForPace,
           });
           if (seeds.length > 0) {
             setSavePhase("planned_harvests");
@@ -1542,16 +1580,18 @@ export default function ProjectInputPage() {
                           >
                             <span className="font-medium leading-tight">{opt.title}</span>
                             {opt.months > 0 ? (
-                              <span
-                                className={`text-xs leading-tight ${formData.projectPace === opt.value
-                                    ? "text-primary/80"
-                                    : "text-muted-foreground"
-                                  }`}
-                              >
-                                {t("projectPaceDurationLine", {
-                                  months: opt.months,
-                                })}
-                              </span>
+                              <>
+                                <span
+                                  className={`text-xs leading-tight ${formData.projectPace === opt.value
+                                      ? "text-primary/80"
+                                      : "text-muted-foreground"
+                                    }`}
+                                >
+                                  {t("projectPaceDurationLine", {
+                                    months: opt.months,
+                                  })}
+                                </span>
+                              </>
                             ) : null}
                           </span>
                           {formData.projectPace === opt.value ? <CheckBadge /> : null}

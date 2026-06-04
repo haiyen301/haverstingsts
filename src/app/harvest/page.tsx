@@ -16,6 +16,8 @@ import {
   Clock,
   Calendar,
   CalendarClock,
+  CalendarDays,
+  List,
 } from "lucide-react";
 
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
@@ -41,9 +43,16 @@ import {
 } from "@/shared/lib/tableSort";
 import { cn } from "@/lib/utils";
 import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
+import { HarvestListCalendarPanel } from "@/features/harvest/HarvestListCalendarPanel";
 import { stashHarvestDuplicateFromApiRow } from "@/features/harvesting/lib/harvestDuplicateDraft";
+import {
+  buildGrassFilterOptionsForFarms,
+  pruneGrassIdsToFarmZoneOptions,
+} from "@/shared/lib/grassFilterByFarmZone";
 
 const PER_PAGE = 30;
+
+type HarvestListViewMode = "list" | "calendar";
 
 function isValidHarvestDateString(v: unknown): v is string {
   if (typeof v !== "string") return false;
@@ -537,9 +546,7 @@ export default function HarvestListPage() {
   const farms = useHarvestingDataStore((s) => s.farms);
   const projects = useHarvestingDataStore((s) => s.projects);
   const grasses = useHarvestingDataStore((s) => s.grasses);
-  const pickGrassCatalogRowsFromStore = useHarvestingDataStore(
-    (s) => s.pickGrassCatalogRowsFromStore,
-  );
+  const zoneConfigurations = useHarvestingDataStore((s) => s.zoneConfigurations);
   const farmZones = useHarvestingDataStore((s) => s.farmZones);
   const refLoading = useHarvestingDataStore((s) => s.loading);
   const fetchAllHarvestingReferenceData = useHarvestingDataStore(
@@ -591,6 +598,7 @@ export default function HarvestListPage() {
   const [deliveryHarvestFrom, setDeliveryHarvestFrom] = useState("");
   const [deliveryHarvestTo, setDeliveryHarvestTo] = useState("");
   const [urlReady, setUrlReady] = useState(false);
+  const [viewMode, setViewMode] = useState<HarvestListViewMode>("list");
   const searchParamsKey = searchParams.toString();
 
   useLayoutEffect(() => {
@@ -939,19 +947,8 @@ export default function HarvestListPage() {
     setPage(1);
   };
 
-  const handleFarmPillChange = (farmId: string | null) => {
-    if (!farmId) {
-      setSelectedFarmIds([]);
-      setHarvestListGrassFilter("");
-      setHarvestListProjectFilter("");
-      setHarvestListStatusFilter("");
-      setPage(1);
-      return;
-    }
-    const next = new Set(farmFilterIds);
-    if (next.has(farmId)) next.delete(farmId);
-    else next.add(farmId);
-    setSelectedFarmIds(Array.from(next));
+  const handleFarmFilterChange = (farmIds: string[]) => {
+    setSelectedFarmIds(farmIds);
     setHarvestListGrassFilter("");
     setHarvestListProjectFilter("");
     setHarvestListStatusFilter("");
@@ -980,18 +977,46 @@ export default function HarvestListPage() {
   const statusSelectValues = parseCsvFilter(harvestListStatusFilter);
   const projectSelectValues = parseCsvFilter(harvestListProjectFilter);
 
-  const grassOptions = useMemo(
+  const grassLabelByProductId = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const g of grasses) {
+      if (!g || typeof g !== "object") continue;
+      const rec = g as Record<string, unknown>;
+      const id = String(rec.id ?? "").trim();
+      if (!id) continue;
+      const label = String(rec.title ?? rec.name ?? "").trim();
+      if (label) m.set(id, label);
+    }
+    return m;
+  }, [grasses]);
+
+  const grassFilterOptions = useMemo(
     () =>
-      mapRowsToSelectOptions(
-        pickGrassCatalogRowsFromStore({
-          mode: "all",
-          refYmds: [],
-          pinnedGrassIds: grassSelectValues,
-        }) as unknown[],
-        "title",
-      ),
-    [grasses, grassSelectValues, pickGrassCatalogRowsFromStore],
+      buildGrassFilterOptionsForFarms({
+        grasses: grasses as unknown[],
+        zoneConfigs: zoneConfigurations,
+        selectedFarmIds: farmFilterIds,
+        pinnedGrassIds: grassSelectValues,
+        catalogMode: "all",
+      }),
+    [grasses, zoneConfigurations, farmFilterIds, grassSelectValues],
   );
+
+  useEffect(() => {
+    if (farmFilterIds.length === 0 || grassSelectValues.length === 0) return;
+    const next = pruneGrassIdsToFarmZoneOptions(
+      grassSelectValues,
+      grassFilterOptions,
+    );
+    if (next.length !== grassSelectValues.length) {
+      setHarvestListGrassFilter(toCsvFilter(next));
+    }
+  }, [
+    farmFilterIds,
+    grassSelectValues,
+    grassFilterOptions,
+    setHarvestListGrassFilter,
+  ]);
 
   const hasActiveFilters =
     harvestListSearch.trim() !== "" ||
@@ -1012,11 +1037,31 @@ export default function HarvestListPage() {
   const statusIsOnly = (value: HarvestPortalStatus) =>
     statusFilterValues.length === 1 && statusFilterValues[0] === value;
 
+  const isCalendarView = viewMode === "calendar";
+
   return (
     <RequireAuth>
-      <DashboardLayout>
-        <div className="dashboard-harvesting-skin min-h-full min-w-0 flex-1 p-4 lg:p-8">
-          <div className="space-y-6">
+      <DashboardLayout
+        defaultSidebarCollapsed={isCalendarView}
+        hideAppHeaderWhenSidebarCollapsed={isCalendarView}
+        flushMainPadding={isCalendarView}
+      >
+        <div
+          className={cn(
+            "dashboard-harvesting-skin min-w-0 flex-1",
+            isCalendarView
+              ? "sts-hsc-viewport-fill sts-hsc-viewport-fill--mobile-page-scroll sts-hsc-viewport-fill--harvest-list-scroll flex min-h-0 flex-col overflow-visible"
+              : "min-h-full p-4 lg:p-8",
+          )}
+        >
+          <div
+            className={cn(
+              isCalendarView
+                ? "sts-hsc-harvest-list-calendar-page flex flex-col gap-2 overflow-visible px-2 py-2 sm:gap-2.5 sm:px-3 sm:py-2.5"
+                : "space-y-6",
+            )}
+          >
+            {!isCalendarView ? (
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 className="font-heading text-2xl font-bold text-foreground">
@@ -1059,37 +1104,9 @@ export default function HarvestListPage() {
                 ) : null}
               </div>
             </div>
-            
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => handleFarmPillChange(null)}
-                disabled={refLoading}
-                className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                  farmFilterIds.length === 0
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted text-muted-foreground hover:bg-muted/80"
-                } disabled:cursor-not-allowed disabled:opacity-50`}
-              >
-                {t("allFarms")}
-              </button>
-              {farmOptions.map((o) => (
-                <button
-                  key={o.id}
-                  type="button"
-                  onClick={() => handleFarmPillChange(o.id)}
-                  disabled={refLoading}
-                  className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                    farmFilterIds.includes(o.id)
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted text-muted-foreground hover:bg-muted/80"
-                  } disabled:cursor-not-allowed disabled:opacity-50`}
-                >
-                  {o.label}
-                </button>
-              ))}
-            </div>
+            ) : null}
 
+            {!isCalendarView ? (
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
               <button
                 type="button"
@@ -1176,10 +1193,14 @@ export default function HarvestListPage() {
                 </p>
               </button>
             </div>
+            ) : null}
 
-           
-
-            <div className="glass-card rounded-xl p-4">
+            <div
+              className={cn(
+                "glass-card shrink-0 rounded-xl",
+                isCalendarView ? "p-2 sm:p-2.5" : "p-4",
+              )}
+            >
               <div className="flex flex-wrap items-center gap-3">
                 <Filter className="h-4 w-4 shrink-0 text-muted-foreground" />
                 <div className="relative w-full min-w-0 md:w-auto md:min-w-[280px] md:flex-1">
@@ -1201,13 +1222,31 @@ export default function HarvestListPage() {
                 </div>
                 <div className="flex w-full min-w-0 items-center gap-1 sm:w-auto">
                   <MultiSelect
-                    options={grassOptions.map((g) => ({
-                      value: g.id,
-                      label: g.label,
-                    }))}
+                    options={farmOptions.map((f) => ({ value: f.id, label: f.label }))}
+                    values={farmFilterIds}
+                    onChange={handleFarmFilterChange}
+                    placeholder={t("allFarms")}
+                    disabled={refLoading}
+                    className={cn(
+                      "rounded-md border border-input min-w-[180px]",
+                      bgSurfaceFilter(farmFilterIds.length > 0),
+                    )}
+                    rightIcon={
+                      <>
+                        <AlignLeft className="h-3.5 w-3.5" />
+                        <ArrowDown className="h-3.5 w-3.5" />
+                      </>
+                    }
+                  />
+                </div>
+                <div className="flex w-full min-w-0 items-center gap-1 sm:w-auto">
+                  <MultiSelect
+                    options={grassFilterOptions}
                     values={grassSelectValues}
                     onChange={handleGrassFilterChange}
-                    placeholder={t("allGrassTypes", { count: grassOptions.length })}
+                    placeholder={t("allGrassTypes", {
+                      count: grassFilterOptions.length,
+                    })}
                     disabled={refLoading}
                     className={cn(
                       "rounded-md border border-input min-w-[220px]",
@@ -1281,6 +1320,48 @@ export default function HarvestListPage() {
               </div>
             </div>
 
+            <div
+              className={cn(
+                "flex flex-wrap items-center justify-between gap-3",
+                isCalendarView && "shrink-0",
+              )}
+            >
+              <div
+                className="inline-flex rounded-lg border border-border bg-muted/30 p-0.5"
+                role="group"
+                aria-label={t("viewModeLabel")}
+              >
+                <button
+                  type="button"
+                  onClick={() => setViewMode("list")}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors",
+                    viewMode === "list"
+                      ? "bg-card text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                  aria-pressed={viewMode === "list"}
+                >
+                  <List className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                  {t("viewList")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode("calendar")}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors",
+                    viewMode === "calendar"
+                      ? "bg-card text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                  aria-pressed={viewMode === "calendar"}
+                >
+                  <CalendarDays className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                  {t("viewCalendar")}
+                </button>
+              </div>
+            </div>
+
             {listError ? (
               <p className="text-sm text-destructive" role="alert">
                 {listError}
@@ -1292,7 +1373,22 @@ export default function HarvestListPage() {
               </p>
             ) : null}
 
-            {totalPages > 1 ? (
+            {viewMode === "calendar" ? (
+              <HarvestListCalendarPanel
+                fillViewport
+                className="min-h-0 flex-none"
+                detailHref={harvestDetailHref}
+                farmFilterIds={farmFilterIds}
+                farmOptions={farmOptions}
+                grassSelectValues={grassSelectValues}
+                grassLabelByProductId={grassLabelByProductId}
+                statusSelectValues={statusSelectValues}
+                projectSelectValues={projectSelectValues}
+                debouncedSearch={debouncedSearch}
+              />
+            ) : null}
+
+            {viewMode === "list" && totalPages > 1 ? (
               <div className="flex items-center justify-between">
                 <p className="text-sm text-foreground">
                   {t("rangeOfTotal", {
@@ -1324,7 +1420,8 @@ export default function HarvestListPage() {
               </div>
             ) : null}
 
-            <div className="glass-card overflow-x-auto overflow-y-visible rounded-xl">
+            {viewMode === "list" ? (
+            <div className="overflow-x-auto overflow-y-visible rounded-xl lg:glass-card">
               {listLoading ? (
                 <p className="p-6 text-sm text-muted-foreground">
                   {t("loadingEllipsis")}
@@ -1437,11 +1534,11 @@ export default function HarvestListPage() {
                     </table>
                   </div>
 
-                  <div className="divide-y divide-border/50 lg:hidden">
+                  <div className="flex flex-col gap-3 lg:hidden">
                     {sortedRows.map((harvest) => (
                       <div
                         key={harvest.id}
-                        className="cursor-pointer p-4 transition-colors hover:bg-muted/20"
+                        className="glass-card cursor-pointer rounded-xl p-4 transition-colors hover:bg-muted/20"
                         onClick={() => router.push(harvestDetailHref(harvest.id))}
                       >
                         <div className="mb-3 flex items-start justify-between gap-2">
@@ -1546,6 +1643,7 @@ export default function HarvestListPage() {
                 </>
               )}
             </div>
+            ) : null}
           </div>
         </div>
       </DashboardLayout>

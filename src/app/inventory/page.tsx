@@ -898,8 +898,8 @@ export default function InventoryPage() {
           
           {updateOpen ? (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-              <div className="max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-xl border border-border bg-white shadow-2xl">
-                <div className="flex items-center justify-between border-b border-border px-5 py-4">
+              <div className="flex max-h-[min(90vh,52rem)] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-border bg-white shadow-2xl">
+                <div className="flex shrink-0 items-center justify-between border-b border-border px-5 py-4">
                   <div>
                     <h2 className="text-lg font-semibold text-gray-900">{t("dialogTitle")}</h2>
                     <p className="mt-1 text-sm text-muted-foreground">
@@ -919,7 +919,7 @@ export default function InventoryPage() {
                   </button>
                 </div>
 
-                <div className="space-y-4 overflow-y-auto p-5">
+                <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
                   <div className="grid gap-4 sm:grid-cols-2">
                     <label className="space-y-2 text-sm">
                       <span className="font-medium text-foreground">{t("farm")}</span>
@@ -964,7 +964,7 @@ export default function InventoryPage() {
 
                   {selectedFarm ? (
                     updateZones.length > 0 ? (
-                      <div className="max-h-[52vh] overflow-x-auto overflow-y-auto rounded-lg border border-border">
+                      <div className="overflow-x-auto rounded-lg border border-border">
                         <table className="w-full text-sm">
                           <thead>
                             <tr className="">
@@ -1072,7 +1072,7 @@ export default function InventoryPage() {
                   )}
                 </div>
 
-                <div className="flex items-center justify-end gap-3 border-t border-border px-5 py-4">
+                <div className="flex shrink-0 items-center justify-end gap-3 border-t border-border px-5 py-4">
                   <button
                     type="button"
                     onClick={() => {

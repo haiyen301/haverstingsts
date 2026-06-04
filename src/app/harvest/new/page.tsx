@@ -26,6 +26,7 @@ import {
   parseHarvestDocImagesFromRow,
   type ParsedHarvestDocSlot,
 } from "@/features/harvesting/lib/parseHarvestDocImages";
+import { recalculatePaceQuantitiesAfterActualHarvest } from "@/features/project/lib/recalculatePaceQuantitiesAfterActualHarvest";
 import {
   getInternalStsProxyUrl,
   stsProxyGetHarvestingIndex,
@@ -222,7 +223,7 @@ function toDateInput(v: unknown): string {
 }
 
 function requiredUomForHarvestType(harvestType: HarvestTypeStorageKey): "Kg" | "M2" {
-  return harvestType === "sprig" ? "Kg" : "M2";
+  return harvestType === "sprig" || harvestType === "sod_to_sprig" ? "Kg" : "M2";
 }
 
 function applyHarvestTypeConstraint(
@@ -240,22 +241,26 @@ function applyHarvestTypeConstraint(
   };
 }
 
-/** Kg → sprig only; M2 → UoM only (user picks sod vs sod_to_sprig). */
+/** Kg → sprig | sod_to_sprig; M2 → sod only. */
 function applyUomConstraint(
   prev: HarvestFormState,
   uom: "Kg" | "M2",
 ): HarvestFormState {
   if (normUomKey(uom) === "kg") {
-    return applyHarvestTypeConstraint({ ...prev, uom: "Kg" }, "sprig");
+    const prevType = normalizeHarvestTypeStorageKey(prev.harvestType);
+    const keepType =
+      prevType === "sprig" || prevType === "sod_to_sprig" ? prevType : "";
+    if (normUomKey(prev.uom) === "kg" && prev.harvestType === keepType) {
+      return prev;
+    }
+    return { ...prev, uom: "Kg", harvestType: keepType };
   }
-  const nextHarvestType = "";
-  if (
-    normUomKey(prev.uom) === "m2" &&
-    prev.harvestType === nextHarvestType
-  ) {
+  const prevType = normalizeHarvestTypeStorageKey(prev.harvestType);
+  const keepType = prevType === "sod" ? prevType : "";
+  if (normUomKey(prev.uom) === "m2" && prev.harvestType === keepType) {
     return prev;
   }
-  return { ...prev, uom: "M2", harvestType: nextHarvestType };
+  return { ...prev, uom: "M2", harvestType: keepType };
 }
 
 function harvestTypeAllowedForUom(
@@ -264,9 +269,31 @@ function harvestTypeAllowedForUom(
 ): boolean {
   const uomKey = normUomKey(uom);
   if (!uomKey) return false;
-  if (uomKey === "kg") return harvestType === "sprig";
-  if (uomKey === "m2") return harvestType === "sod" || harvestType === "sod_to_sprig";
+  if (uomKey === "kg") {
+    return harvestType === "sprig" || harvestType === "sod_to_sprig";
+  }
+  if (uomKey === "m2") return harvestType === "sod";
   return false;
+}
+
+function deliveredRowMatchesSelection(
+  row: HarvestDeliveredRow,
+  formUomKey: string,
+  formHarvestType: HarvestTypeStorageKey | "",
+): boolean {
+  if (!formUomKey) return false;
+  const rowType = normalizeHarvestTypeStorageKey(row.loadType);
+  const rowUom = normUomKey(row.uom);
+  if (formHarvestType === "sod_to_sprig") {
+    return formUomKey === "kg" && rowType === "sod_to_sprig";
+  }
+  if (formHarvestType === "sprig") {
+    return formUomKey === "kg" && rowType !== "sod_to_sprig" && rowUom === "kg";
+  }
+  if (formHarvestType === "sod") {
+    return formUomKey === "m2" && rowType !== "sod_to_sprig" && rowUom === "m2";
+  }
+  return rowUom === formUomKey;
 }
 
 function clearQuantityUnitsFields(
@@ -281,8 +308,9 @@ function clearQuantityUnitsFields(
 function applyRowToFormState(r: Record<string, unknown>): HarvestFormState {
   const harvestType = normalizeHarvestTypeStorageKey(String(r.load_type ?? ""));
   const rawUom = String(r.uom ?? "").trim();
-  const uomStr =
-    rawUom || (harvestType ? requiredUomForHarvestType(harvestType) : "");
+  const uomStr = harvestType
+    ? requiredUomForHarvestType(harvestType)
+    : rawUom;
   const harvested = r.harvested_area;
   const harvestedStr = formatHarvestedAreaForForm(harvested);
   return {
@@ -415,6 +443,7 @@ type HarvestDeliveredRow = {
   projectId: string;
   productId: string;
   uom: string;
+  loadType: string;
   quantity: number;
 };
 
@@ -575,9 +604,10 @@ function parseHarvestDeliveredRow(raw: unknown): HarvestDeliveredRow | null {
   const projectId = String(row.project_id ?? "").trim();
   const productId = String(row.product_id ?? "").trim();
   const uom = String(row.uom ?? "").trim();
+  const loadType = String(row.load_type ?? row.harvest_type ?? "").trim();
   const quantity = parseNum(row.quantity);
   if (!projectId || !productId || quantity <= 0) return null;
-  return { id, projectId, productId, uom, quantity };
+  return { id, projectId, productId, uom, loadType, quantity };
 }
 
 type HarvestFieldErrors = Partial<
@@ -649,8 +679,7 @@ function getHarvestFieldErrors(
   if (!harvestType) {
     errors.harvestType = messages.selectHarvestType;
   } else if (
-    (harvestType === "sprig" && uomLower !== "kg") ||
-    (harvestType !== "sprig" && uomLower !== "m2")
+    normUomKey(formData.uom) !== normUomKey(requiredUomForHarvestType(harvestType))
   ) {
     errors.harvestType = messages.selectHarvestType;
   }
@@ -974,6 +1003,8 @@ function HarvestInputPageInner() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [editLoadError, setEditLoadError] = useState<string | null>(null);
   const [editLoaded, setEditLoaded] = useState(!editId);
+  /** Actual date when edit row was loaded — used to detect pace recalc trigger. */
+  const [initialActualDateAtLoad, setInitialActualDateAtLoad] = useState("");
   const [editTableId, setEditTableId] = useState("");
   const [editTableName, setEditTableName] = useState("Harvesting");
   const [projectHarvestRows, setProjectHarvestRows] = useState<HarvestDeliveredRow[]>(
@@ -1189,6 +1220,7 @@ function HarvestInputPageInner() {
         if (cancelled) return;
         const row = raw as Record<string, unknown>;
         setFormData(applyRowToFormState(row));
+        setInitialActualDateAtLoad(toDateInput(row.actual_harvest_date));
         setUseEstimatedDateRange(Boolean(getEstimatedDateEndFromRow(row)));
         setEditTableId(String(row.table_id ?? "").trim());
         setEditTableName(String(row.table_name ?? "Harvesting").trim() || "Harvesting");
@@ -1526,11 +1558,21 @@ function HarvestInputPageInner() {
     const formUomKey = normUomKey(formData.uom);
     return projectHarvestRows.reduce((sum, row) => {
       if (row.productId !== requirementForGrass.productId) return sum;
-      if (normUomKey(row.uom) !== formUomKey) return sum;
+      if (
+        !deliveredRowMatchesSelection(row, formUomKey, selectedHarvestTypeKey)
+      ) {
+        return sum;
+      }
       if (editId && row.id === editId) return sum;
       return sum + row.quantity;
     }, 0);
-  }, [editId, formData.uom, projectHarvestRows, requirementForGrass]);
+  }, [
+    editId,
+    formData.uom,
+    projectHarvestRows,
+    requirementForGrass,
+    selectedHarvestTypeKey,
+  ]);
 
   const maxAllowedQuantity = useMemo(() => {
     if (!requirementForGrass) return null;
@@ -1751,6 +1793,26 @@ function HarvestInputPageInner() {
         removedPayload,
       )) as Record<string, unknown>;
       updateHarvestLimitDescriptionsForSelection(formData.project);
+      const savedActualDate = normalizedFormData.actualDate.trim();
+      const shouldRecalcPaceAfterActual =
+        Boolean(editId) &&
+        Boolean(savedActualDate) &&
+        savedActualDate !== initialActualDateAtLoad.trim();
+      if (shouldRecalcPaceAfterActual) {
+        const harvestIdForRecalc = String(savedHarvest?.id ?? editId ?? "").trim();
+        if (harvestIdForRecalc && formData.project.trim() && formData.grass.trim()) {
+          try {
+            await recalculatePaceQuantitiesAfterActualHarvest({
+              harvestId: harvestIdForRecalc,
+              projectId: formData.project.trim(),
+              productId: formData.grass.trim(),
+              uom: formData.uom.trim(),
+            });
+          } catch {
+            /* Pace rebalance is best-effort; harvest save already succeeded. */
+          }
+        }
+      }
       if (!editId) {
         const newHarvestId = String(savedHarvest?.id ?? "").trim();
         const projectLabel =

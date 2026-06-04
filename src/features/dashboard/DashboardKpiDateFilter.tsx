@@ -10,20 +10,14 @@ import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
 import {
   type KpiDatePreset,
   type KpiDeliveryDateFilter,
+  KPI_DATE_PRESET_DASHBOARD,
   kpiDateRangeFromFilter,
 } from "@/shared/lib/dashboardKpiProjectFilters";
 import { DateRangePickerInlinePanel, DateRangeMobileSheet } from "@/shared/ui/date-picker";
 import { useMediaQuery } from "@/shared/hooks/useMediaQuery";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
 
-const PRESET_ORDER: KpiDatePreset[] = [
-  "today",
-  "yesterday",
-  "lastWeek",
-  "lastMonth",
-  "lastQuarter",
-  "custom",
-];
+export { KPI_DATE_PRESET_DASHBOARD, KPI_DATE_PRESET_SCHEDULE } from "@/shared/lib/dashboardKpiProjectFilters";
 
 function formatCustomRangeLabel(from?: string, to?: string): string {
   const fmt = (ymd: string) => {
@@ -40,12 +34,18 @@ function formatCustomRangeLabel(from?: string, to?: string): string {
 type DashboardKpiDateFilterProps = {
   value: KpiDeliveryDateFilter;
   onChange: (next: KpiDeliveryDateFilter) => void;
+  /** Preset options shown in the menu (order preserved). Defaults to dashboard KPI list. */
+  presets?: readonly KpiDatePreset[];
+  /** Preset treated as “no filter” for trigger highlight; defaults to `lastMonth` on dashboard presets. */
+  baselinePreset?: KpiDatePreset;
   className?: string;
 };
 
 export function DashboardKpiDateFilter({
   value,
   onChange,
+  presets = KPI_DATE_PRESET_DASHBOARD,
+  baselinePreset,
   className,
 }: DashboardKpiDateFilterProps) {
   const t = useAppTranslations();
@@ -55,6 +55,26 @@ export function DashboardKpiDateFilter({
   const [customPickerActive, setCustomPickerActive] = useState(false);
   const [customDraft, setCustomDraft] = useState<{ from?: string; to?: string }>({});
   const revertFilterRef = useRef<KpiDeliveryDateFilter>(value);
+
+  const presetOptions = useMemo(() => {
+    const seen = new Set<KpiDatePreset>();
+    const ordered: KpiDatePreset[] = [];
+    for (const preset of presets) {
+      if (seen.has(preset)) continue;
+      seen.add(preset);
+      ordered.push(preset);
+    }
+    return ordered;
+  }, [presets]);
+
+  const resolvedBaselinePreset = useMemo((): KpiDatePreset => {
+    if (baselinePreset && presetOptions.includes(baselinePreset)) {
+      return baselinePreset;
+    }
+    const nonCustom = presetOptions.filter((p) => p !== "custom");
+    if (nonCustom.includes("lastMonth")) return "lastMonth";
+    return nonCustom[nonCustom.length - 1] ?? "lastMonth";
+  }, [baselinePreset, presetOptions]);
 
   const presetLabel = (preset: KpiDatePreset): string => {
     switch (preset) {
@@ -68,6 +88,14 @@ export function DashboardKpiDateFilter({
         return t("Dashboard.periodMonth");
       case "lastQuarter":
         return t("Dashboard.periodQuarter");
+      case "thisWeek":
+        return t("Dashboard.periodThisWeek");
+      case "nextWeek":
+        return t("Dashboard.periodNextWeek");
+      case "nextMonth":
+        return t("Dashboard.periodNextMonth");
+      case "nextQuarter":
+        return t("Dashboard.periodNextQuarter");
       case "custom":
         return t("Dashboard.datePresetCustom");
       default:
@@ -77,7 +105,9 @@ export function DashboardKpiDateFilter({
 
   const committedRange = useMemo(() => kpiDateRangeFromFilter(value), [value]);
 
-  const triggerPrimaryLabel = presetLabel(value.preset);
+  const triggerPrimaryLabel = presetOptions.includes(value.preset)
+    ? presetLabel(value.preset)
+    : presetLabel(resolvedBaselinePreset);
 
   const popupRangeLabel = useMemo(() => {
     if (customPickerActive && (customDraft.from || customDraft.to)) {
@@ -95,7 +125,9 @@ export function DashboardKpiDateFilter({
     committedRange.end,
   ]);
 
-  const hasActiveFilter = value.preset !== "lastMonth" || Boolean(value.customFrom || value.customTo);
+  const hasActiveFilter =
+    value.preset !== resolvedBaselinePreset ||
+    Boolean(value.customFrom || value.customTo);
 
   const seedCustomDraft = (filter: KpiDeliveryDateFilter) => {
     const seedRange = kpiDateRangeFromFilter({
@@ -201,7 +233,7 @@ export function DashboardKpiDateFilter({
 
   const presetSidebar = (
     <div className="flex flex-col p-1">
-      {PRESET_ORDER.map((preset) => {
+      {presetOptions.map((preset) => {
         const isSelected =
           (customPickerActive && preset === "custom") ||
           (!customPickerActive && value.preset === preset);

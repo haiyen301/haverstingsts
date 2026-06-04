@@ -61,7 +61,7 @@ type Person = {
   roleId?: string | null;
   status: "Active" | "Inactive";
   odooId?: string | null;
-  /** Comma-separated `sts_farms.id` from `sts_users_meta.farm_user_id` (multi for Turf Farm Manager). */
+  /** Comma-separated `sts_farms.id` from `sts_users_meta.farm_user_id`. */
   farmUserId?: string | null;
   lastOnline?: string | null;
   avatarUrl?: string | null;
@@ -1214,21 +1214,11 @@ function PeopleSection({
                             const newTitle =
                               roleOptions.find((r) => r.id === newRoleId)?.title ??
                               undefined;
-                            setForm((f) => {
-                              let farmIds = f.farmIds;
-                              if (
-                                newTitle !== TURF_FARM_MANAGER_ROLE &&
-                                farmIds.length > 1
-                              ) {
-                                farmIds = farmIds.slice(0, 1);
-                              }
-                              return {
-                                ...f,
-                                roleId: newRoleId,
-                                role: newTitle,
-                                farmIds,
-                              };
-                            });
+                            setForm((f) => ({
+                              ...f,
+                              roleId: newRoleId,
+                              role: newTitle,
+                            }));
                           }}
                         >
                           <option value="" disabled>
@@ -1247,48 +1237,31 @@ function PeopleSection({
                           <label className="text-sm font-medium">
                             {form.role === TURF_FARM_MANAGER_ROLE
                               ? "Farms *"
-                              : "Farm"}
+                              : "Farms"}
                           </label>
                           <p className="text-xs text-muted-foreground">
                             Saved to{" "}
                             <code className="text-xs">sts_users_meta</code> as{" "}
-                            <code className="text-xs">farm_user_id</code>
-                            {form.role === TURF_FARM_MANAGER_ROLE
-                              ? " (comma-separated farm ids for SQL IN)."
-                              : "."}
+                            <code className="text-xs">farm_user_id</code>{" "}
+                            (comma-separated farm ids for SQL IN).
                           </p>
                           {farmsLoadError ? (
                             <p className="text-xs text-destructive">
                               {farmsLoadError}
                             </p>
                           ) : null}
-                          {form.role === TURF_FARM_MANAGER_ROLE ? (
-                            <MultiSelect
-                              options={farmMultiOptions}
-                              values={form.farmIds}
-                              onChange={(next) =>
-                                setForm((f) => ({ ...f, farmIds: next }))
-                              }
-                              placeholder="Select farms…"
-                              showFullSelectedLabels
-                              className={cn(farmSelectTriggerClass)}
-                              rightIcon={farmSelectChevron}
-                              disabled={!!farmsLoadError}
-                            />
-                          ) : (
-                            <MultiSelect
-                              options={farmMultiOptions}
-                              values={form.farmIds}
-                              onChange={(next) =>
-                                setForm((f) => ({ ...f, farmIds: next }))
-                              }
-                              placeholder="No farm assigned"
-                              maxSelections={1}
-                              className={cn(farmSelectTriggerClass)}
-                              rightIcon={farmSelectChevron}
-                              disabled={!!farmsLoadError}
-                            />
-                          )}
+                          <MultiSelect
+                            options={farmMultiOptions}
+                            values={form.farmIds}
+                            onChange={(next) =>
+                              setForm((f) => ({ ...f, farmIds: next }))
+                            }
+                            placeholder="Select farms…"
+                            showFullSelectedLabels
+                            className={cn(farmSelectTriggerClass)}
+                            rightIcon={farmSelectChevron}
+                            disabled={!!farmsLoadError}
+                          />
                         </div>
                       ) : null}
                       {editingId ? (

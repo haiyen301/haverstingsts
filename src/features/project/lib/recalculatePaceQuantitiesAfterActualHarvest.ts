@@ -1,0 +1,84 @@
+import { STS_API_PATHS } from "@/shared/api/stsApiPaths";
+import { stsProxyPostJson } from "@/shared/api/stsProxyClient";
+
+/**
+ * Recalculate remaining estimate harvest quantities after an actual harvest date
+ * is saved. See `doc/project-page-and-harvest-update.md`.
+ */
+
+/** Remaining quantity to spread across future estimate-only harvests (A). */
+export function computeRemainingRequiredQuantity(
+  totalRequired: number,
+  harvestedSum: number,
+): number {
+  const total = Math.max(0, totalRequired);
+  const harvested = Math.max(0, harvestedSum);
+  return Math.max(0, total - harvested);
+}
+
+/**
+ * Quantity per remaining estimate row (B) = A ÷ N, one decimal.
+ */
+export function computeQuantityPerRemainingEstimateBatch(
+  remainingQuantity: number,
+  remainingEstimateCount: number,
+): number {
+  const n = Math.max(0, Math.floor(remainingEstimateCount));
+  if (n <= 0) return 0;
+  const a = Math.max(0, remainingQuantity);
+  return Math.round((a / n) * 10) / 10;
+}
+
+export type RecalculatePaceAfterActualParams = {
+  harvestId: string;
+  projectId: string;
+  productId: string;
+  uom: string;
+};
+
+export type RecalculatePaceAfterActualResult = {
+  skipped?: boolean;
+  reason?: string;
+  remainingQuantity?: number;
+  remainingEstimateCount?: number;
+  quantityPerBatch?: number;
+  updatedHarvestIds?: number[];
+  paceGrassUpdated?: boolean;
+};
+
+export async function recalculatePaceQuantitiesAfterActualHarvest(
+  params: RecalculatePaceAfterActualParams,
+): Promise<RecalculatePaceAfterActualResult> {
+  const harvestId = params.harvestId.trim();
+  const projectId = params.projectId.trim();
+  const productId = params.productId.trim();
+  const uom = params.uom.trim();
+  if (!harvestId || !projectId || !productId || !uom) {
+    return { skipped: true, reason: "missing_params" };
+  }
+
+  const res = await stsProxyPostJson<{
+    skipped?: boolean;
+    reason?: string;
+    remaining_quantity?: number;
+    remaining_estimate_count?: number;
+    quantity_per_batch?: number;
+    updated_harvest_ids?: number[];
+    pace_grass_updated?: boolean;
+  }>(STS_API_PATHS.recalculatePaceAfterActual, {
+    harvest_id: harvestId,
+    project_id: projectId,
+    product_id: productId,
+    uom,
+  });
+
+  return {
+    skipped: res.skipped,
+    reason: res.reason,
+    remainingQuantity: res.remaining_quantity,
+    remainingEstimateCount: res.remaining_estimate_count,
+    quantityPerBatch: res.quantity_per_batch,
+    updatedHarvestIds: res.updated_harvest_ids,
+    paceGrassUpdated: res.pace_grass_updated,
+  };
+}
