@@ -11,7 +11,7 @@ export type GrassFilterSelectOption = { value: string; label: string };
 
 export type ZoneConfigGrassLinkRow = Pick<
   ZoneConfigurationRow,
-  "farm_id" | "grass_id" | "turfgrass"
+  "farm_id" | "grass_id" | "turfgrass" | "zone"
 >;
 
 export function buildGrassCatalogLabelById(catalog: unknown[]): Map<string, string> {

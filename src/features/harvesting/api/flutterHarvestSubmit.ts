@@ -37,6 +37,8 @@ export type FlutterNewHarvestInput = {
   deliveryHarvestDate: string;
   doSoNumber: string;
   truckNote: string;
+  /** Maps to `description` in `project_harvesting_plan` (Flutter parity). */
+  description?: string;
   shippingDispatchDetails?: string;
   generalNote?: string;
   licensePlate: string;
@@ -94,6 +96,7 @@ function buildRecordsJson(
     delivery_harvest_date: input.deliveryHarvestDate.trim() || null,
     shipment_required_date: input.shipmentRequiredDate?.trim() || null,
     truck_note: input.truckNote.trim() || null,
+    description: input.description?.trim() || null,
     shipping_dispatch_details: input.shippingDispatchDetails?.trim() || null,
     general_note: input.generalNote?.trim() || null,
     load_type: input.harvestType.trim() || null,
