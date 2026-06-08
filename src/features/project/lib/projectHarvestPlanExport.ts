@@ -165,7 +165,7 @@ export function filterProjectDetailHarvestHistoryRows<
   const filtered = rows.filter((h) => {
     if (grass && h.grass !== grass) return false;
     if (status && h.status !== status) return false;
-    if (loadTypeSet && !loadTypeSet.has(h.harvestTypeKey)) return false;
+    if (loadTypeSet && (!h.harvestTypeKey || !loadTypeSet.has(h.harvestTypeKey))) return false;
     if (!harvestMatchesPhaseFilter(h.status, phase)) return false;
     if (fromIso && h.filterDate && h.filterDate < fromIso) return false;
     if (toIso && h.filterDate && h.filterDate > toIso) return false;
