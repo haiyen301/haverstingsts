@@ -105,5 +105,13 @@ export const DEFAULT_ALERT_FEED_CONFIG: AlertFeedConfig = {
       push_web: true,
       push_email: false,
     },
+    {
+      id: "rb-inventory-update",
+      routeKey: "inventory_update",
+      categoryId: "inventory",
+      push_mobile: true,
+      push_web: true,
+      push_email: false,
+    },
   ],
 };

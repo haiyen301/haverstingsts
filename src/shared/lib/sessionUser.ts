@@ -19,6 +19,7 @@ export function removeAuthToken(): void {
 export type SessionStatus = {
   authenticated: boolean;
   userId?: number;
+  user?: SessionUser | null;
 };
 
 /** HttpOnly session + STS `users.id` (for maintenance bypass). */
@@ -32,11 +33,16 @@ export async function fetchSessionStatus(): Promise<SessionStatus> {
       cache: "no-store",
     });
     if (!res.ok) return { authenticated: false };
-    const j = (await res.json()) as { authenticated?: boolean; userId?: unknown };
+    const j = (await res.json()) as {
+      authenticated?: boolean;
+      userId?: unknown;
+      user?: SessionUser | null;
+    };
     const userId = parsePrivilegedAdminUserId(j.userId);
     return {
       authenticated: j.authenticated === true,
       userId,
+      user: j.user ?? null,
     };
   } catch {
     return { authenticated: false };

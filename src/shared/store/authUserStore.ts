@@ -8,6 +8,7 @@ import {
 import {
   AUTH_USER_PERSIST_STORAGE_KEY,
   clearHttpAuthCookie,
+  fetchSessionStatus,
   removeAuthToken,
   STORAGE_USER_KEY,
   type SessionUser,
@@ -88,4 +89,22 @@ export async function clearAuthSession(): Promise<void> {
 /** Snapshot for non-React code (e.g. guards). Prefer `useAuthUserStore` in UI. */
 export function getSessionUser(): SessionUser | null {
   return useAuthUserStore.getState().user;
+}
+
+/**
+ * Refreshes the client user store from the server (fresh role/permissions from DB).
+ * Safe to call on every page load for logged-in users.
+ */
+export async function syncSessionUserFromServer(): Promise<void> {
+  if (typeof window === "undefined") return;
+  const session = await fetchSessionStatus();
+  if (!session.authenticated || !session.user) return;
+
+  const current = useAuthUserStore.getState().user;
+  useAuthUserStore.getState().setUser({
+    ...(current ?? {}),
+    ...session.user,
+    permissions: session.user.permissions ?? current?.permissions,
+    is_admin: session.user.is_admin ?? current?.is_admin,
+  });
 }

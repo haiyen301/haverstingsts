@@ -4,7 +4,38 @@ import { stsProxyPostJson } from "@/shared/api/stsProxyClient";
 /**
  * Recalculate remaining estimate harvest quantities after an actual harvest date
  * is saved. See `doc/project-page-and-harvest-update.md`.
+ *
+ * Only projects with non-empty `sts_projects.pace_grass_batch_quantities` run recalc.
  */
+
+function parsePaceGrassBatchQuantitiesList(raw: unknown): unknown[] {
+  if (raw == null) return [];
+  if (typeof raw === "string") {
+    const s = raw.trim();
+    if (!s) return [];
+    try {
+      const decoded: unknown = JSON.parse(s);
+      return Array.isArray(decoded) ? decoded : [];
+    } catch {
+      return [];
+    }
+  }
+  return Array.isArray(raw) ? raw : [];
+}
+
+/** True when the project row has at least one grass entry in `pace_grass_batch_quantities`. */
+export function projectHasPaceGrassBatchQuantities(
+  projectRow: Record<string, unknown> | undefined,
+): boolean {
+  if (!projectRow) return false;
+  const list = parsePaceGrassBatchQuantitiesList(
+    projectRow.pace_grass_batch_quantities,
+  );
+  return list.some((item) => {
+    if (!item || typeof item !== "object") return false;
+    return String((item as Record<string, unknown>).grass_id ?? "").trim() !== "";
+  });
+}
 
 /** Remaining quantity to spread across future estimate-only harvests (A). */
 export function computeRemainingRequiredQuantity(
@@ -45,6 +76,8 @@ export type RecalculatePaceAfterActualResult = {
   remainingEstimateCount?: number;
   quantityPerBatch?: number;
   updatedHarvestIds?: number[];
+  /** Estimate-only rows soft-deleted when actual harvests already meet requirement (A ≤ 0). */
+  softDeletedHarvestIds?: number[];
   paceGrassUpdated?: boolean;
 };
 
@@ -66,6 +99,7 @@ export async function recalculatePaceQuantitiesAfterActualHarvest(
     remaining_estimate_count?: number;
     quantity_per_batch?: number;
     updated_harvest_ids?: number[];
+    soft_deleted_harvest_ids?: number[];
     pace_grass_updated?: boolean;
   }>(STS_API_PATHS.recalculatePaceAfterActual, {
     harvest_id: harvestId,
@@ -82,6 +116,7 @@ export async function recalculatePaceQuantitiesAfterActualHarvest(
     remainingEstimateCount: res.remaining_estimate_count,
     quantityPerBatch: res.quantity_per_batch,
     updatedHarvestIds: res.updated_harvest_ids,
+    softDeletedHarvestIds: res.soft_deleted_harvest_ids,
     paceGrassUpdated: res.pace_grass_updated,
   };
 }

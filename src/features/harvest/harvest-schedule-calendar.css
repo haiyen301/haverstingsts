@@ -610,9 +610,13 @@ main:has(.sts-hsc-viewport-fill--harvest-list-scroll) {
 }
 
 .sts-hsc-cell-sprout-icon {
-  width: 0.9rem;
-  height: 0.9rem;
+  display: block;
+  width: 0.75rem;
+  height: 1rem;
   flex-shrink: 0;
+  background-color: hsl(var(--primary));
+  mask: url(/assets/images/stsgrass.svg) no-repeat center / contain;
+  -webkit-mask: url(/assets/images/stsgrass.svg) no-repeat center / contain;
 }
 
 .sts-hsc-cell-sprout-label {

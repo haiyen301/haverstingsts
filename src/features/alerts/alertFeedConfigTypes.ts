@@ -3,6 +3,7 @@ export const ALERT_ROUTE_KEYS = [
   "harvest_import",
   "projects_new",
   "projects_import",
+  "inventory_update",
 ] as const;
 
 export type AlertRouteKey = (typeof ALERT_ROUTE_KEYS)[number];

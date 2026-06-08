@@ -35,10 +35,7 @@ import {
   zoneConfigurationMaxKg,
 } from "@/features/forecasting/inventoryRegrowthCalculator";
 import { zoneIdToLabelResolved } from "@/shared/lib/harvestReferenceData";
-import {
-  buildGrassFilterOptionsForFarms,
-  pruneGrassIdsToFarmZoneOptions,
-} from "@/shared/lib/grassFilterByFarmZone";
+import { useGrassFilterByFarm } from "@/shared/hooks/useGrassFilterByFarm";
 import { DatePicker } from "@/shared/ui/date-picker";
 import type { InventoryAvailableOverrideEntry } from "@/shared/store/inventoryAvailableOverrideStore";
 import {
@@ -54,6 +51,7 @@ import {
 import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
 import { MultiSelect } from "@/shared/ui/multi-select";
 import { cn } from "@/lib/utils";
+import { dispatchRouteAlert } from "@/features/alerts/dispatchRouteAlert";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 
 type InventoryRow = {
@@ -571,26 +569,14 @@ export default function InventoryPage() {
     });
     return map;
   }, [availableFarms]);
-  /** All farms → full catalog; specific farm → grasses from zone config (shared with Forecast). */
-  const grassFilterOptions = useMemo(
-    () =>
-      buildGrassFilterOptionsForFarms({
-        grasses: grasses as unknown[],
-        zoneConfigs: zoneConfigurations,
-        selectedFarmIds,
-        pinnedGrassIds: selectedGrassIds,
-        catalogMode: "all",
-      }),
-    [grasses, zoneConfigurations, selectedFarmIds, selectedGrassIds],
-  );
-
-  useEffect(() => {
-    if (selectedFarmIds.length === 0 || selectedGrassIds.length === 0) return;
-    const next = pruneGrassIdsToFarmZoneOptions(selectedGrassIds, grassFilterOptions);
-    if (next.length !== selectedGrassIds.length) {
-      setHarvestListGrassFilter(toCsvList(next));
-    }
-  }, [selectedFarmIds, selectedGrassIds, grassFilterOptions, setHarvestListGrassFilter]);
+  const { grassFilterOptions } = useGrassFilterByFarm({
+    grasses: grasses as unknown[],
+    zoneConfigs: zoneConfigurations,
+    selectedFarmIds,
+    selectedGrassIds,
+    onSelectedGrassIdsChange: setSelectedGrassIds,
+    catalogMode: "all",
+  });
 
   const grassIdToTurfgrass = useMemo(() => {
     const map = new Map<string, string>();
@@ -774,10 +760,21 @@ export default function InventoryPage() {
     try {
       await upsertOverrides(updates);
       onForecastMutation("overrides");
+      const farmLabel = farmNameById.get(selectedFarm) ?? selectedFarm;
       setNotice(t("savedOverrides", {
         count: updates.length,
-        farm: farmNameById.get(selectedFarm) ?? selectedFarm,
+        farm: farmLabel,
       }));
+      void dispatchRouteAlert({
+        routeKey: "inventory_update",
+        title: t("alertInventoryUpdatedTitle", { farm: farmLabel }),
+        message: t("alertInventoryUpdatedMessage", {
+          count: updates.length,
+          date: formatShortDate(updateDate),
+        }),
+        href: "/inventory",
+        sourceEntityId: selectedFarm,
+      });
       setBalanceUpdates({});
       setUpdateOpen(false);
     } catch (error) {

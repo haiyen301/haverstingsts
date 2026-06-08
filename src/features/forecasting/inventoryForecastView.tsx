@@ -61,10 +61,7 @@ import {
   type ZoneRegrowthBreakdown,
 } from "@/features/forecasting/regrowthAllocation";
 import { zoneIdToLabelResolved } from "@/shared/lib/harvestReferenceData";
-import {
-  buildGrassFilterOptionsForFarms,
-  pruneGrassIdsToFarmZoneOptions,
-} from "@/shared/lib/grassFilterByFarmZone";
+import { useGrassFilterByFarm } from "@/shared/hooks/useGrassFilterByFarm";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import {
   normalizeInventoryBalanceDateYmd,
@@ -943,6 +940,37 @@ function sprigSodSegmentClass(active: boolean): string {
   );
 }
 
+function ChartUnitModeToggle({
+  mode,
+  onChange,
+  kgLabel,
+  m2Label,
+}: {
+  mode: ChartUnitMode;
+  onChange: (mode: ChartUnitMode) => void;
+  kgLabel: string;
+  m2Label: string;
+}) {
+  return (
+    <div className="flex shrink-0 gap-1 rounded-lg bg-muted p-0.5">
+      <button
+        type="button"
+        onClick={() => onChange("sprig")}
+        className={sprigSodSegmentClass(mode === "sprig")}
+      >
+        {kgLabel}
+      </button>
+      <button
+        type="button"
+        onClick={() => onChange("sod")}
+        className={sprigSodSegmentClass(mode === "sod")}
+      >
+        {m2Label}
+      </button>
+    </div>
+  );
+}
+
 function representativeKgPerM2ForFarmProduct(
   zoneConfigs: ZoneConfigurationRow[],
   farmId: number,
@@ -1146,26 +1174,14 @@ export function InventoryForecast({
     [farmOptions],
   );
 
-  /** All farms → every grass type; specific farm(s) → grasses from zone configuration only. */
-  const grassFilterOptions = useMemo(
-    () =>
-      buildGrassFilterOptionsForFarms({
-        grasses: grasses as unknown[],
-        zoneConfigs: zoneConfigSnapshot,
-        selectedFarmIds,
-        pinnedGrassIds: selectedGrassIds,
-        catalogMode: "all",
-      }),
-    [grasses, selectedGrassIds, selectedFarmIds, zoneConfigSnapshot],
-  );
-
-  useEffect(() => {
-    if (selectedFarmIds.length === 0 || selectedGrassIds.length === 0) return;
-    const next = pruneGrassIdsToFarmZoneOptions(selectedGrassIds, grassFilterOptions);
-    if (next.length !== selectedGrassIds.length) {
-      setHarvestListGrassFilter(toCsvList(next));
-    }
-  }, [selectedFarmIds, selectedGrassIds, grassFilterOptions, setHarvestListGrassFilter]);
+  const { grassFilterOptions } = useGrassFilterByFarm({
+    grasses: grasses as unknown[],
+    zoneConfigs: zoneConfigSnapshot,
+    selectedFarmIds,
+    selectedGrassIds,
+    onSelectedGrassIdsChange: setSelectedGrassIds,
+    catalogMode: "all",
+  });
 
   const rowsWithLiveZoneCaps = useMemo(
     () => applyLatestZoneMaxKgToForecastRows(rows, zoneConfigSnapshot),
@@ -1867,11 +1883,17 @@ export function InventoryForecast({
     return mergedUpcoming;
   }, [filteredRows, forecastMonths, t, zoneLabel, zoneConfigSnapshot]);
 
+  const upcomingHarvestTotalKg = useMemo(
+    () => upcomingHarvests.reduce((sum, h) => sum + h.qty, 0),
+    [upcomingHarvests],
+  );
+
   const upcomingTotalsSummary = useMemo(() => {
-    const kgSum = upcomingHarvests.reduce((sum, h) => sum + h.qty, 0);
-    if (kgSum <= 0) return "";
-    return t("upcoming.summaryKg", { quantity: kgSum.toLocaleString() });
-  }, [upcomingHarvests, t]);
+    if (upcomingHarvestTotalKg <= 0) return "";
+    return t("upcoming.summaryKg", {
+      quantity: upcomingHarvestTotalKg.toLocaleString(),
+    });
+  }, [upcomingHarvestTotalKg, t]);
 
   const regrowthEvents = useMemo(() => {
     const today = getForecastToday();
@@ -2237,6 +2259,8 @@ export function InventoryForecast({
       <ForecastHorizonStrip
         forecastMonths={forecastMonths}
         onForecastMonthsChange={setForecastMonths}
+        upcomingHarvestCount={upcomingHarvests.length}
+        upcomingHarvestTotalKg={upcomingHarvestTotalKg}
       />
 
       <div className="relative rounded-xl border  border-border bg-card p-5">
@@ -2245,22 +2269,12 @@ export function InventoryForecast({
         ) : null}
         <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <h3 className="text-sm font-semibold">{t("charts.projectedInventory")}</h3>
-          <div className="flex shrink-0 gap-1 rounded-lg bg-muted p-0.5">
-            <button
-              type="button"
-              onClick={() => setChartUnitMode("sprig")}
-              className={sprigSodSegmentClass(chartUnitMode === "sprig")}
-            >
-              {t("charts.sprigKgToggle")}
-            </button>
-            <button
-              type="button"
-              onClick={() => setChartUnitMode("sod")}
-              className={sprigSodSegmentClass(chartUnitMode === "sod")}
-            >
-              {t("charts.sodM2Toggle")}
-            </button>
-          </div>
+          <ChartUnitModeToggle
+            mode={chartUnitMode}
+            onChange={setChartUnitMode}
+            kgLabel={t("charts.sprigKgToggle")}
+            m2Label={t("charts.sodM2Toggle")}
+          />
         </div>
         <ResponsiveContainer width="100%" height={320}>
           <AreaChart data={forecastData}>
@@ -2348,20 +2362,26 @@ export function InventoryForecast({
 
       {showBreakdownChart ? (
       <div className="rounded-xl border  border-border bg-card p-5">
-        <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
+        <div className="mb-1 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
           <h3 className="text-sm font-semibold">
             {breakdownMode === "farm"
               ? t("charts.projectedByFarm", { grass: selectedGrassSummary })
               : t("charts.projectedByGrass")}
           </h3>
-          <div className="flex flex-wrap items-center gap-3">
-            {seriesKeys.map((k) => (
-              <div key={k} className="flex items-center gap-1.5">
-                <span className="h-3 w-3 rounded-sm" style={{ backgroundColor: seriesColor(k) }} />
-                <span className="text-[11px] text-muted-foreground">{k}</span>
-              </div>
-            ))}
-          </div>
+          <ChartUnitModeToggle
+            mode={chartUnitMode}
+            onChange={setChartUnitMode}
+            kgLabel={t("charts.sprigKgToggle")}
+            m2Label={t("charts.sodM2Toggle")}
+          />
+        </div>
+        <div className="mb-4 flex flex-wrap items-center gap-3">
+          {seriesKeys.map((k) => (
+            <div key={k} className="flex items-center gap-1.5">
+              <span className="h-3 w-3 rounded-sm" style={{ backgroundColor: seriesColor(k) }} />
+              <span className="text-[11px] text-muted-foreground">{k}</span>
+            </div>
+          ))}
         </div>
         <p className="mb-4 text-xs text-muted-foreground">
           {breakdownMode === "farm"

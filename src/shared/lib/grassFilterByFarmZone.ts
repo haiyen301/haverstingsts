@@ -110,3 +110,11 @@ export function pruneGrassIdsToFarmZoneOptions(
   const allowed = new Set(options.map((o) => o.value));
   return selectedGrassIds.filter((id) => allowed.has(id));
 }
+
+/** Keep rows whose `productId` is configured for the selected farm(s); pass through when `allowedGrassIds` is null. */
+export function filterRowsByFarmZoneGrassSelection<
+  T extends { productId: string },
+>(rows: readonly T[], allowedGrassIds: Set<string> | null): T[] {
+  if (allowedGrassIds === null) return [...rows];
+  return rows.filter((row) => allowedGrassIds.has(row.productId));
+}

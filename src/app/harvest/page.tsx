@@ -45,10 +45,7 @@ import { cn } from "@/lib/utils";
 import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
 import { HarvestListCalendarPanel } from "@/features/harvest/HarvestListCalendarPanel";
 import { stashHarvestDuplicateFromApiRow } from "@/features/harvesting/lib/harvestDuplicateDraft";
-import {
-  buildGrassFilterOptionsForFarms,
-  pruneGrassIdsToFarmZoneOptions,
-} from "@/shared/lib/grassFilterByFarmZone";
+import { useGrassFilterByFarm } from "@/shared/hooks/useGrassFilterByFarm";
 
 const PER_PAGE = 30;
 
@@ -990,33 +987,14 @@ export default function HarvestListPage() {
     return m;
   }, [grasses]);
 
-  const grassFilterOptions = useMemo(
-    () =>
-      buildGrassFilterOptionsForFarms({
-        grasses: grasses as unknown[],
-        zoneConfigs: zoneConfigurations,
-        selectedFarmIds: farmFilterIds,
-        pinnedGrassIds: grassSelectValues,
-        catalogMode: "all",
-      }),
-    [grasses, zoneConfigurations, farmFilterIds, grassSelectValues],
-  );
-
-  useEffect(() => {
-    if (farmFilterIds.length === 0 || grassSelectValues.length === 0) return;
-    const next = pruneGrassIdsToFarmZoneOptions(
-      grassSelectValues,
-      grassFilterOptions,
-    );
-    if (next.length !== grassSelectValues.length) {
-      setHarvestListGrassFilter(toCsvFilter(next));
-    }
-  }, [
-    farmFilterIds,
-    grassSelectValues,
-    grassFilterOptions,
-    setHarvestListGrassFilter,
-  ]);
+  const { grassFilterOptions } = useGrassFilterByFarm({
+    grasses: grasses as unknown[],
+    zoneConfigs: zoneConfigurations,
+    selectedFarmIds: farmFilterIds,
+    selectedGrassIds: grassSelectValues,
+    onSelectedGrassIdsChange: (ids) => setHarvestListGrassFilter(toCsvFilter(ids)),
+    catalogMode: "all",
+  });
 
   const hasActiveFilters =
     harvestListSearch.trim() !== "" ||

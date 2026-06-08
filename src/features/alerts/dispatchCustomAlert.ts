@@ -1,6 +1,7 @@
 "use client";
 
 import { createAlert, type AlertSeverity } from "@/features/alerts/api/alertsApi";
+import { buildAlertPushPayload } from "@/features/alerts/buildAlertPushPayload";
 import { applyRecipientToCreateAlert } from "@/features/alerts/alertRecipientDispatch";
 import type { AlertRecipientRule } from "@/features/alerts/alertFeedConfigTypes";
 import { hasModulePermission } from "@/shared/auth/permissions";
@@ -8,7 +9,7 @@ import { useAuthUserStore } from "@/shared/store/authUserStore";
 
 /**
  * How to set push **intent** flags on the saved event (`push_mobile` / `push_web` / `push_email` in payload).
- * The browser does not send FCM/email itself; a backend worker reads these flags.
+ * STSPortal sends FCM/Pusher after save based on these flags and `source_platform`.
  *
  * - `'all'`: all three channels `true`.
  * - Object: each key is explicit — `true` / `false`; omitted keys count as `false`.
@@ -116,15 +117,15 @@ export async function dispatchCustomAlert(
       sourceEntityType: (input.sourceEntityType ?? "stsrenew_custom").trim() || "stsrenew_custom",
       sourceEntityId: (input.sourceEntityId ?? "").trim(),
       dedupeKey: input.dedupeKey,
-      pushPayload: {
-        thumb_url: thumb,
-        gallery_urls: (input.gallery_urls ?? []).slice(0, 12),
-        push_mobile: flags.push_mobile,
-        push_web: flags.push_web,
-        push_email: flags.push_email,
-        source_platform: "web" as const,
-        ...(rk ? { route_key: rk } : {}),
-      },
+      pushPayload: buildAlertPushPayload({
+        thumbUrl: thumb,
+        galleryUrls: (input.gallery_urls ?? []).slice(0, 12),
+        pushMobile: flags.push_mobile,
+        pushWeb: flags.push_web,
+        pushEmail: flags.push_email,
+        routeKey: rk || undefined,
+        action: "created",
+      }),
     };
     const withRecipients = applyRecipientToCreateAlert(base, input.recipient ?? { mode: "self" });
     await createAlert(withRecipients);

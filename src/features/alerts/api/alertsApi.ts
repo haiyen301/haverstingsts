@@ -17,6 +17,8 @@ export type AlertPushPayload = {
   route_key?: string;
   /** Where the alert was created: `web` or `mobile`. */
   source_platform?: "web" | "mobile";
+  /** `created` | `updated` | `deleted` — consumed by PHP `AlertMobilePush`. */
+  push_action?: "created" | "updated" | "deleted";
 };
 
 export type AlertFeedItem = {
@@ -95,6 +97,7 @@ export async function createAlert(input: CreateAlertInput): Promise<{ event_id: 
             push_email: Boolean(push.push_email),
             ...(rk ? { route_key: rk } : {}),
             ...(push.source_platform ? { source_platform: push.source_platform } : {}),
+            ...(push.push_action ? { push_action: push.push_action } : {}),
           };
         })()
       : undefined;
@@ -154,10 +157,11 @@ export type UpdateAlertInput = {
   icon?: string;
   imageUrl?: string;
   href?: string;
+  pushPayload?: AlertPushPayload;
 };
 
 export async function updateAlert(input: UpdateAlertInput): Promise<void> {
-  await stsProxyPostJson(STS_API_PATHS.alertUpdateEvent, {
+  const body: Record<string, unknown> = {
     id: Number(input.id),
     title: input.title,
     message: input.message,
@@ -165,12 +169,22 @@ export async function updateAlert(input: UpdateAlertInput): Promise<void> {
     icon: input.icon ?? "",
     image_url: input.imageUrl ?? "",
     href: input.href ?? "",
-  });
+  };
+  if (input.pushPayload) {
+    body.payload = input.pushPayload;
+  }
+  await stsProxyPostJson(STS_API_PATHS.alertUpdateEvent, body);
   emitAlertsUpdated();
 }
 
-export async function removeAlert(userAlertId: string): Promise<void> {
-  await stsProxyPostJson(STS_API_PATHS.alertRemove, { id: Number(userAlertId) });
+export async function removeAlert(
+  userAlertId: string,
+  options?: { pushMobile?: boolean },
+): Promise<void> {
+  await stsProxyPostJson(STS_API_PATHS.alertRemove, {
+    id: Number(userAlertId),
+    push_mobile: options?.pushMobile ?? true,
+  });
   emitAlertsUpdated();
 }
 

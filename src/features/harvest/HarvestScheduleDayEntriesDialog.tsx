@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type MouseEvent } from "react";
 import { createPortal } from "react-dom";
-import { Sprout, X } from "lucide-react";
+import { X } from "lucide-react";
 import { useTranslations } from "next-intl";
 
 import { HarvestScheduleDayEntryChip } from "./HarvestScheduleDayEntryChip";
@@ -150,7 +150,7 @@ export function HarvestScheduleDayEntriesDialog({
         title={mobileAriaLabel}
         aria-expanded={open}
       >
-        <Sprout className="sts-hsc-cell-sprout-icon" strokeWidth={2.25} aria-hidden />
+        <span className="sts-hsc-cell-sprout-icon" aria-hidden />
         <span className="sts-hsc-cell-sprout-label">
           <span className="sts-hsc-cell-sprout-hint">{t("calendarSproutHint")}</span>
           {extraOnDay > 0 ? (

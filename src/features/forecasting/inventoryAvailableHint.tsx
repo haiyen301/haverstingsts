@@ -15,6 +15,8 @@ export type InventoryBalanceOverrideDisplay = {
   farm: string;
   grass: string;
   availableKg: number;
+  /** System-calculated kg when the manual balance was saved. */
+  calculatedKg: number;
   savedDate: string;
 };
 
@@ -24,6 +26,8 @@ export type InventoryAvailableHintModel = {
   regrowthKg: number;
   harvestKg: number;
   calculatedAvailable: number;
+  /** Calendar day (YYYY-MM-DD) for formula labels. */
+  dateYmd?: string;
   /** Manual balance saved exactly on this date. */
   balanceOverrides: InventoryBalanceOverrideDisplay[];
 };
@@ -31,6 +35,31 @@ export type InventoryAvailableHintModel = {
 function formatNumber(value: number): string {
   const n = Number.isFinite(value) ? value : 0;
   return Math.round(n).toLocaleString();
+}
+
+function ymdAddDays(ymd: string, delta: number): string {
+  const match = String(ymd).trim().slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return ymd;
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  date.setDate(date.getDate() + delta);
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function formatDayMonth(ymd: string): string {
+  const match = String(ymd).trim().slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return ymd;
+  const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  return date.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+}
+
+function rolledAvailableKg(model: InventoryAvailableHintModel): number {
+  return Math.max(
+    0,
+    Math.round(model.previousAvailable + model.regrowthKg - model.harvestKg),
+  );
 }
 
 function mapOverrideEntryToDisplay(
@@ -53,6 +82,7 @@ function mapOverrideEntryToDisplay(
       grassFromEntry ||
       String(nameFallback?.grassNameById?.get(entry.grassId) ?? "").trim(),
     availableKg: Math.max(0, Math.round(Number(entry.availableKg) || 0)),
+    calculatedKg: Math.max(0, Math.round(Number(entry.calculatedKg) || 0)),
     savedDate: normalizeInventoryBalanceDateYmd(entry.date),
   };
 }
@@ -145,6 +175,7 @@ export function buildInventoryAvailableHintModel(params: {
     regrowthKg: params.regrowthKg,
     harvestKg: params.harvestKg,
     calculatedAvailable: params.calculatedAvailable,
+    dateYmd: params.dateYmd,
     balanceOverrides,
   };
 }
@@ -158,7 +189,13 @@ export function inventoryAvailableHintIsEmpty(model: InventoryAvailableHintModel
 
 export function formatInventoryBalanceOverrideLine(row: InventoryBalanceOverrideDisplay): string {
   const parts = [row.farm, row.grass, row.zone].filter(Boolean);
-  return `Balance: ${parts.join(" - ")} - ${formatNumber(row.availableKg)} kg`;
+  const label = parts.join(" · ");
+  if (row.calculatedKg > 0 && row.calculatedKg !== row.availableKg) {
+    const delta = row.availableKg - row.calculatedKg;
+    const sign = delta >= 0 ? "+" : "−";
+    return `${label}: system ${formatNumber(row.calculatedKg)} kg → manual ${formatNumber(row.availableKg)} kg (${sign}${formatNumber(Math.abs(delta))} kg)`;
+  }
+  return `${label}: manual balance ${formatNumber(row.availableKg)} kg`;
 }
 
 export function filterBalanceOverridesForSeries(
@@ -233,6 +270,78 @@ export function InventoryAvailableBalanceSummary({
   );
 }
 
+export function InventoryAvailableFormulaSummary({
+  model,
+  className,
+}: {
+  model: InventoryAvailableHintModel;
+  className?: string;
+}) {
+  const prev = Math.round(model.previousAvailable);
+  const regrowth = Math.round(model.regrowthKg);
+  const harvest = Math.round(model.harvestKg);
+  const result = Math.round(model.available);
+  const rolled = rolledAvailableKg(model);
+  const hasOverride = model.balanceOverrides.length > 0;
+  const overrideDelta = result - rolled;
+
+  const prevDateLabel = model.dateYmd
+    ? formatDayMonth(ymdAddDays(model.dateYmd, -1))
+    : "previous day";
+  const dayLabel = model.dateYmd ? formatDayMonth(model.dateYmd) : "this day";
+
+  return (
+    <div className={className ?? "space-y-2"}>
+      <p className="font-semibold text-slate-900">Available (credited) roll</p>
+      <div className="space-y-1 tabular-nums text-slate-700">
+        <div className="flex items-baseline justify-between gap-3">
+          <span className="text-slate-600">End of {prevDateLabel}</span>
+          <span>{formatNumber(prev)} kg</span>
+        </div>
+        <div className="flex items-baseline justify-between gap-3">
+          <span className="text-slate-600">+ Regrowth credited {dayLabel}</span>
+          <span className={regrowth > 0 ? "text-emerald-700" : "text-slate-500"}>
+            +{formatNumber(regrowth)} kg
+          </span>
+        </div>
+        <div className="flex items-baseline justify-between gap-3">
+          <span className="text-slate-600">− Harvest {dayLabel}</span>
+          <span className={harvest > 0 ? "text-red-700" : "text-slate-500"}>
+            −{formatNumber(harvest)} kg
+          </span>
+        </div>
+      </div>
+      <div className="space-y-1 border-t border-slate-200 pt-2 tabular-nums">
+        <p className="text-slate-700">
+          {formatNumber(prev)} + {formatNumber(regrowth)} − {formatNumber(harvest)} ={" "}
+          {formatNumber(rolled)} kg
+        </p>
+        {hasOverride ? (
+          <>
+            <p className="font-medium text-amber-900">
+              Manual balance on {dayLabel} replaces only the overridden zone(s); other zones in
+              the same farm + grass keep their rolled balance.
+            </p>
+            {overrideDelta !== 0 ? (
+              <p className="text-amber-800">
+                {formatNumber(rolled)} {overrideDelta >= 0 ? "+" : "−"}{" "}
+                {formatNumber(Math.abs(overrideDelta))} = {formatNumber(result)} kg
+              </p>
+            ) : null}
+            <p className="font-semibold text-emerald-800">
+              = Available (credited) {formatNumber(result)} kg
+            </p>
+          </>
+        ) : (
+          <p className="font-semibold text-emerald-800">
+            = Available (credited) {formatNumber(result)} kg
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function InventoryAvailableHintBody({
   model,
   className,
@@ -248,10 +357,11 @@ export function InventoryAvailableHintBody({
 
   return (
     <div className={className}>
-      <div className="space-y-1">
+      <div className="space-y-1 border-t border-slate-200 pt-2">
         <p className="font-semibold text-slate-900">Zone roll total</p>
         <p className="tabular-nums text-slate-700">
-          {formatNumber(model.calculatedAvailable)} kg (before aggregate display)
+          {formatNumber(model.calculatedAvailable)} kg (sum of per-zone rolls before aggregate
+          display)
         </p>
       </div>
     </div>
@@ -260,16 +370,19 @@ export function InventoryAvailableHintBody({
 
 export function InventoryAvailableHintPopover({
   model,
+  showFormula = false,
   ariaLabel = "Balance details",
   triggerClassName,
   contentClassName,
 }: {
   model: InventoryAvailableHintModel;
+  /** When true, always show the ? icon with the daily roll formula. */
+  showFormula?: boolean;
   ariaLabel?: string;
   triggerClassName?: string;
   contentClassName?: string;
 }) {
-  if (inventoryAvailableHintIsEmpty(model)) return null;
+  if (!showFormula && inventoryAvailableHintIsEmpty(model)) return null;
 
   const [open, setOpen] = useState(false);
   const closeTimerRef = useRef<number | null>(null);
@@ -325,7 +438,11 @@ export function InventoryAvailableHintPopover({
         onMouseEnter={openPanel}
         onMouseLeave={scheduleClose}
       >
-        <InventoryAvailableBalanceSummary model={model} className="mb-2 space-y-0.5" />
+        {showFormula ? <InventoryAvailableFormulaSummary model={model} className="mb-2" /> : null}
+        <InventoryAvailableBalanceSummary
+          model={model}
+          className={showFormula ? "mb-2 space-y-0.5 border-t border-slate-200 pt-2" : "mb-2 space-y-0.5"}
+        />
         <InventoryAvailableHintBody model={model} />
       </PopoverContent>
     </Popover>

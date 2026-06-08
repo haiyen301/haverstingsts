@@ -16,6 +16,9 @@ import {
 } from "lucide-react";
 
 import RequireAuth from "@/features/auth/RequireAuth";
+import { MyAlertsManagePanel } from "@/features/alerts/MyAlertsManagePanel";
+import { useModuleAccess } from "@/shared/auth/useModuleAccess";
+import { useAuthUserStore } from "@/shared/store/authUserStore";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -105,7 +108,11 @@ export default function MyAlertsPage() {
   const t = useTranslations("MyAlerts");
   const tHarvest = useTranslations("HarvestForm");
   const tProject = useTranslations("ProjectForm");
+  const tInventory = useTranslations("InventoryBalance");
   const locale = useLocale();
+  const user = useAuthUserStore((s) => s.user);
+  const { canCreate, canEdit, canDelete } = useModuleAccess("my_alerts");
+  const currentUserId = typeof user?.id === "number" ? user.id : undefined;
   const [categories, setCategories] = useState<AlertFeedCategory[]>(DEFAULT_ALERT_FEED_CONFIG.categories);
   const [alerts, setAlerts] = useState<AlertFeedItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -130,8 +137,8 @@ export default function MyAlertsPage() {
   );
 
   const alertTitleDisplay = useCallback(
-    (title: string) => localizeAlertTitleForDisplay(title, tHarvest, tProject),
-    [tHarvest, tProject],
+    (title: string) => localizeAlertTitleForDisplay(title, tHarvest, tProject, tInventory),
+    [tHarvest, tProject, tInventory],
   );
 
   const alertMessageDisplay = useCallback(
@@ -268,6 +275,19 @@ export default function MyAlertsPage() {
           </div>
           {loading ? <p className="text-sm text-muted-foreground">{t("loading")}</p> : null}
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
+
+          <MyAlertsManagePanel
+            categories={categories}
+            canCreate={canCreate}
+            canEdit={canEdit}
+            canDelete={canDelete}
+            currentUserId={currentUserId}
+            selectedAlert={selectedAlert}
+            onCreated={loadAlerts}
+            onUpdated={loadAlerts}
+            onDeleted={loadAlerts}
+            onClearSelected={() => setSelectedAlert(null)}
+          />
 
           <div className="space-y-6">
             {!loading && !error && groupedWithAlerts.length === 0 && orphanAlerts.length === 0 ? (

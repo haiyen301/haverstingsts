@@ -26,7 +26,10 @@ import {
   parseHarvestDocImagesFromRow,
   type ParsedHarvestDocSlot,
 } from "@/features/harvesting/lib/parseHarvestDocImages";
-import { recalculatePaceQuantitiesAfterActualHarvest } from "@/features/project/lib/recalculatePaceQuantitiesAfterActualHarvest";
+import {
+  projectHasPaceGrassBatchQuantities,
+  recalculatePaceQuantitiesAfterActualHarvest,
+} from "@/features/project/lib/recalculatePaceQuantitiesAfterActualHarvest";
 import {
   getInternalStsProxyUrl,
   stsProxyGetHarvestingIndex,
@@ -1742,13 +1745,23 @@ function HarvestInputPageInner() {
       savedActualDatePre !== initialActualDateAtLoad.trim();
     const quantityChangedPre =
       savedQuantityPre !== initialQuantityAtLoad.trim();
+    const selectedProjectForPace = findProjectRowBySelectId(
+      allProjects,
+      formData.project.trim(),
+    );
+    const projectHasPaceGrass = projectHasPaceGrassBatchQuantities(
+      selectedProjectForPace,
+    );
     const shouldRecalcPaceAfterActual =
       Boolean(editId) &&
       Boolean(savedActualDatePre) &&
+      projectHasPaceGrass &&
       (actualDateChangedPre || quantityChangedPre);
 
     setPaceRecalcExpectedOnSubmit(
-      Boolean(editId) && Boolean(savedActualDatePre),
+      Boolean(editId) &&
+        Boolean(savedActualDatePre) &&
+        projectHasPaceGrass,
     );
     setSavePhase("saving");
     try {
@@ -1841,8 +1854,8 @@ function HarvestInputPageInner() {
           }
         }
       }
-      if (!editId) {
-        const newHarvestId = String(savedHarvest?.id ?? "").trim();
+      {
+        const harvestIdForAlert = String(savedHarvest?.id ?? editId ?? "").trim();
         const projectLabel =
           String(
             selectedProjectRow?.title ??
@@ -1854,19 +1867,27 @@ function HarvestInputPageInner() {
         const qtyDisplay = normalizedFormData.quantity.trim();
         const uomDisplay = formData.uom.trim();
         const alertHref =
-          newHarvestId.length > 0
-            ? `/harvest/detail?id=${encodeURIComponent(newHarvestId)}&returnTo=${encodeURIComponent(returnTarget)}`
+          harvestIdForAlert.length > 0
+            ? `/harvest/detail?id=${encodeURIComponent(harvestIdForAlert)}&returnTo=${encodeURIComponent(returnTarget)}`
             : returnTarget;
         void dispatchRouteAlert({
           routeKey: "harvest_new",
-          title: t("alertNewHarvestTitle", { grass: grassLabel }),
-          message: t("alertNewHarvestMessage", {
-            project: projectLabel,
-            quantity: qtyDisplay,
-            uom: uomDisplay,
-          }),
+          title: editId
+            ? t("alertHarvestUpdatedTitle", { grass: grassLabel })
+            : t("alertNewHarvestTitle", { grass: grassLabel }),
+          message: editId
+            ? t("alertHarvestUpdatedMessage", {
+                project: projectLabel,
+                quantity: qtyDisplay,
+                uom: uomDisplay,
+              })
+            : t("alertNewHarvestMessage", {
+                project: projectLabel,
+                quantity: qtyDisplay,
+                uom: uomDisplay,
+              }),
           href: alertHref,
-          sourceEntityId: newHarvestId || formData.project.trim(),
+          sourceEntityId: harvestIdForAlert || formData.project.trim(),
         });
       }
       onForecastMutation("harvest");

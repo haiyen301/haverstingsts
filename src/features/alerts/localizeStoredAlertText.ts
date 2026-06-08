@@ -8,12 +8,19 @@ type TForm = (key: string, values?: Record<string, string | number>) => string;
 const NEW_PROJECT_TITLE = /^New project:\s*(.+)$/i;
 const PROJECT_UPDATED_TITLE = /^Project updated:\s*(.+)$/i;
 const NEW_HARVEST_TITLE = /^New harvest:\s*(.+)$/i;
+const HARVEST_UPDATED_TITLE = /^Harvest updated:\s*(.+)$/i;
+const INVENTORY_UPDATED_TITLE = /^Inventory updated:\s*(.+)$/i;
 
 const PLANNED_SAVED_EN = /\s*·\s*(\d+)\s+planned harvests?\s+saved/gi;
 const PLANNED_FAILED_EN =
   /\s*·\s*(\d+)\s+planned harvests?\s+failed to save(?:\s*\(([^)]*)\))?/gi;
 
-export function localizeAlertTitleForDisplay(title: string, tHarvest: TForm, tProject: TForm): string {
+export function localizeAlertTitleForDisplay(
+  title: string,
+  tHarvest: TForm,
+  tProject: TForm,
+  tInventory?: TForm,
+): string {
   const trimmed = title.trim();
   const mNew = NEW_PROJECT_TITLE.exec(trimmed);
   if (mNew?.[1]) return tProject("alertNewProjectTitle", { name: mNew[1].trim() });
@@ -21,6 +28,12 @@ export function localizeAlertTitleForDisplay(title: string, tHarvest: TForm, tPr
   if (mUp?.[1]) return tProject("alertProjectUpdatedTitle", { name: mUp[1].trim() });
   const mH = NEW_HARVEST_TITLE.exec(trimmed);
   if (mH?.[1]) return tHarvest("alertNewHarvestTitle", { grass: mH[1].trim() });
+  const mHu = HARVEST_UPDATED_TITLE.exec(trimmed);
+  if (mHu?.[1]) return tHarvest("alertHarvestUpdatedTitle", { grass: mHu[1].trim() });
+  const mInv = INVENTORY_UPDATED_TITLE.exec(trimmed);
+  if (mInv?.[1] && tInventory) {
+    return tInventory("alertInventoryUpdatedTitle", { farm: mInv[1].trim() });
+  }
   return title;
 }
 

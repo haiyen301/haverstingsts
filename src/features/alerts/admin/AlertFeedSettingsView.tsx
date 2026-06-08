@@ -7,6 +7,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { toast } from "react-toastify";
 
 import { createAlert } from "@/features/alerts/api/alertsApi";
+import { buildAlertPushPayload } from "@/features/alerts/buildAlertPushPayload";
 import { applyRecipientToCreateAlert } from "@/features/alerts/alertRecipientDispatch";
 import {
   fetchAlertFeedConfig,
@@ -374,6 +375,7 @@ export function AlertFeedSettingsView() {
       harvest_import: t("routes.harvest_import"),
       projects_new: t("routes.projects_new"),
       projects_import: t("routes.projects_import"),
+      inventory_update: t("routes.inventory_update"),
     }),
     [t],
   );
@@ -510,13 +512,14 @@ export function AlertFeedSettingsView() {
         icon: "bell",
         imageUrl: pushForm.thumbUrl.trim(),
         href: pushForm.href.trim(),
-        pushPayload: {
-          thumb_url: pushForm.thumbUrl.trim(),
-          gallery_urls,
-          push_mobile: pushForm.pushMobile,
-          push_web: pushForm.pushWeb,
-          push_email: pushForm.pushEmail,
-        },
+        pushPayload: buildAlertPushPayload({
+          thumbUrl: pushForm.thumbUrl.trim(),
+          galleryUrls: gallery_urls,
+          pushMobile: pushForm.pushMobile,
+          pushWeb: pushForm.pushWeb,
+          pushEmail: pushForm.pushEmail,
+          action: "created",
+        }),
       };
       await createAlert(applyRecipientToCreateAlert(base, composeRecipient));
       toast.success(t("pushCreated"), toastOpts);

@@ -5,6 +5,7 @@ import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages } from "next-intl/server";
 import { ThemeProvider } from "@/shared/theme/ThemeProvider";
 import { AppToasts } from "@/shared/ui/AppToasts";
+import { AuthUserSync } from "@/features/auth/AuthUserSync";
 import { MaintenanceGate } from "@/widgets/system/MaintenanceGate";
 import { TestServerBanner } from "@/widgets/system/TestServerBanner";
 import "./globals.css";
@@ -61,6 +62,7 @@ export default async function RootLayout({
         <NextIntlClientProvider locale={locale} messages={messages}>
           <ThemeProvider>
             <TestServerBanner />
+            <AuthUserSync />
             <Suspense fallback={null}>
               <MaintenanceGate />
             </Suspense>

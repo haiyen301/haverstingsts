@@ -941,7 +941,6 @@ export function computeInventoryStyleFarmGrassDailySeriesWithBreakdown(
     let regrowthKg = 0;
     let harvestKg = 0;
     let hasExactOverrideToday = false;
-    const fpOverrideDisplayKg = new Map<string, number>();
     const fpHasExactOverride = new Set<string>();
 
     const fpRawRollingKg = new Map<string, number>();
@@ -977,10 +976,6 @@ export function computeInventoryStyleFarmGrassDailySeriesWithBreakdown(
         fpRawRollingKg.set(fpKey, (fpRawRollingKg.get(fpKey) ?? 0) + zoneRolling);
         if (exactOverride) {
           fpHasExactOverride.add(fpKey);
-          fpOverrideDisplayKg.set(
-            fpKey,
-            (fpOverrideDisplayKg.get(fpKey) ?? 0) + zoneRolling,
-          );
         }
       }
     }
@@ -997,11 +992,14 @@ export function computeInventoryStyleFarmGrassDailySeriesWithBreakdown(
         fpCapCounted.add(fpKey);
       }
 
+      const fpTotal = Math.max(0, fpRaw);
       if (fpHasExactOverride.has(fpKey)) {
         hasExactOverrideToday = true;
-        availableKg += Math.max(0, fpOverrideDisplayKg.get(fpKey) ?? 0);
-      } else if (fpCapKg > 0) {
-        availableKg += Math.min(fpRaw, fpCapKg);
+      }
+      if (fpCapKg > 0) {
+        availableKg += Math.min(fpTotal, fpCapKg);
+      } else if (fpHasExactOverride.has(fpKey)) {
+        availableKg += fpTotal;
       }
     }
 
@@ -1025,11 +1023,12 @@ export function computeInventoryStyleFarmGrassDailySeriesWithBreakdown(
 
       const fpRegrowthKg = sumZoneMapKgForFarmProduct(regrowthByZone, farmId, productId);
       const fpHarvestKg = sumZoneMapKgForFarmProduct(harvestByZone, farmId, productId);
+      const fpRawTotal = Math.max(0, fpRawRollingKg.get(fpKey) ?? 0);
 
       let fpAvailableKg: number;
       let fpPreviousKg: number;
       if (fpHasOverride) {
-        fpAvailableKg = Math.max(0, fpOverrideDisplayKg.get(fpKey) ?? 0);
+        fpAvailableKg = fpCapKg > 0 ? Math.min(fpRawTotal, fpCapKg) : fpRawTotal;
         fpPreviousKg = fpLastAvailableKg.get(fpKey) ?? fpCapKg;
       } else {
         const fpConfigCapKg = sumConfiguredZoneCapKgForFarmProduct(

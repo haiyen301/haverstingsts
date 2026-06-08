@@ -61,9 +61,8 @@ export function resolveRouteAlertSettings(
  * Creates an in-app alert (STSPortal `/api/alerts/save`) using the category and push-channel flags
  * configured for `routeKey` in User Management → Alert settings (`data/alert-feed-config.json`).
  *
- * Outbound FCM / web push / SMTP is **not** sent from the browser: flags are stored on the event
- * payload (`push_mobile`, `push_web`, `push_email`, `route_key`) for a backend worker to consume
- * (see `doc/alerts-route-dispatch.md`).
+ * Outbound delivery runs on STSPortal after save: FCM when `push_mobile` is set (web origin),
+ * web feed / Pusher when `push_web` is set (mobile origin). See `doc/alerts-route-dispatch.md`.
  */
 export async function dispatchRouteAlert(
   input: DispatchRouteAlertInput,

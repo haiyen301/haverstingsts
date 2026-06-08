@@ -68,6 +68,17 @@
       "recipient": {
         "mode": "all_users"
       }
+    },
+    {
+      "id": "rb-inventory-update",
+      "routeKey": "inventory_update",
+      "categoryId": "inventory",
+      "push_mobile": true,
+      "push_web": true,
+      "push_email": false,
+      "recipient": {
+        "mode": "all_users"
+      }
     }
   ]
 }

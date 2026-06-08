@@ -2091,7 +2091,7 @@ export function DevForecastingAvailableSourceClient() {
                             >
                               {formatKg(day.available)}
                             </div>
-                            <InventoryAvailableHintPopover model={day.hint} />
+                            <InventoryAvailableHintPopover model={day.hint} showFormula />
                           </div>
                           {day.overlimit > 0 ? (
                             <div className="mt-1 text-[10px] font-medium text-amber-800">

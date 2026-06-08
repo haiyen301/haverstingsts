@@ -49,10 +49,8 @@ import { parseJsonMaybe, parseQuantityRequiredRows, parseSubitems } from "@/shar
 import { MultiSelect } from "@/shared/ui/multi-select";
 import { cn } from "@/lib/utils";
 import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
-import {
-  mapRowsToSelectOptions,
-  pickGrassCatalogRows,
-} from "@/shared/lib/harvestReferenceData";
+import { filterRowsByFarmZoneGrassSelection } from "@/shared/lib/grassFilterByFarmZone";
+import { useGrassFilterByFarm } from "@/shared/hooks/useGrassFilterByFarm";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
 import { SortableTh } from "@/components/ui/sortable-th";
 import { useTableColumnSort } from "@/shared/hooks/useTableColumnSort";
@@ -197,6 +195,27 @@ function dashboardDeliveryKgM2Split(rec: Record<string, unknown>): { kg: number;
   if (uom === "m2" || uom === "m²" || uom === "sqm") return { kg: 0, m2: qty };
   if (uom === "kg") return { kg: qty, m2: 0 };
   return { kg: 0, m2: 0 };
+}
+
+/** Integer pie labels that always sum to 100% (largest remainder). */
+function integerPercentsSummingTo100(values: number[]): number[] {
+  if (values.length === 0) return [];
+  const total = values.reduce((sum, v) => sum + v, 0);
+  if (total <= 0) return values.map(() => 0);
+
+  const raw = values.map((v) => (v / total) * 100);
+  const floors = raw.map((v) => Math.floor(v));
+  const remainder = 100 - floors.reduce((sum, v) => sum + v, 0);
+
+  const ranked = raw
+    .map((v, i) => ({ i, frac: v - Math.floor(v) }))
+    .sort((a, b) => b.frac - a.frac || a.i - b.i);
+
+  const result = [...floors];
+  for (let k = 0; k < remainder; k++) {
+    result[ranked[k].i] += 1;
+  }
+  return result;
 }
 
 function countryCodeToFlag(code: string): string {
@@ -708,7 +727,17 @@ export default function DashboardPage() {
   const activeCountriesRef = useHarvestingDataStore((s) => s.activeCountries);
   const productsRef = useHarvestingDataStore((s) => s.products);
   const grassesRef = useHarvestingDataStore((s) => s.grasses);
+  const zoneConfigurations = useHarvestingDataStore((s) => s.zoneConfigurations);
   const fetchAllHarvestingReferenceData = useHarvestingDataStore((s) => s.fetchAllHarvestingReferenceData);
+
+  const { grassFilterOptions, allowedGrassIdsForSelectedFarms } = useGrassFilterByFarm({
+    grasses: grassesRef as unknown[],
+    zoneConfigs: zoneConfigurations,
+    selectedFarmIds,
+    selectedGrassIds: grassFilterIds,
+    onSelectedGrassIdsChange: setGrassFilterIds,
+    catalogMode: "all",
+  });
 
   useEffect(() => {
     void fetchAllHarvestingReferenceData();
@@ -1216,13 +1245,16 @@ export default function DashboardPage() {
     }
 
     const toSeries = (map: Map<string, number>) =>
-      Array.from(map.entries())
-        .map(([productId, value]) => ({
-          productId,
-          grass: productNameById.get(productId) ?? productId,
-          value,
-        }))
-        .sort((a, b) => b.value - a.value);
+      filterRowsByFarmZoneGrassSelection(
+        Array.from(map.entries())
+          .map(([productId, value]) => ({
+            productId,
+            grass: productNameById.get(productId) ?? productId,
+            value,
+          }))
+          .sort((a, b) => b.value - a.value),
+        allowedGrassIdsForSelectedFarms,
+      );
 
     return {
       kg: toSeries(qtyByProductKg),
@@ -1240,6 +1272,7 @@ export default function DashboardPage() {
     kpiDateRange,
     kpiTrendBucketMode,
     dashboardAllowedFarmIds,
+    allowedGrassIdsForSelectedFarms,
   ]);
 
   /** GRASS KPI card matches chart cohort (portfolio filter): distinct grasses with kg and/or sod m² in window */
@@ -1264,7 +1297,13 @@ export default function DashboardPage() {
   }, [grassDistributionByUnit]);
 
   const grassDistributionData = useMemo(() => {
-    return deliveredByMonthMode === "sprig" ? grassDistributionByUnit.kg : grassDistributionByUnit.m2;
+    const raw =
+      deliveredByMonthMode === "sprig" ? grassDistributionByUnit.kg : grassDistributionByUnit.m2;
+    const displayPercents = integerPercentsSummingTo100(raw.map((item) => item.value));
+    return raw.map((item, index) => ({
+      ...item,
+      displayPercent: displayPercents[index],
+    }));
   }, [grassDistributionByUnit, deliveredByMonthMode]);
 
   const grassPieUnitLabel = deliveredByMonthMode === "sprig" ? "kg" : "m2";
@@ -1687,15 +1726,18 @@ export default function DashboardPage() {
     }
 
     const unitLabel = wantSprig ? ("kg" as const) : ("m2" as const);
-    return Array.from(byProduct.entries())
-      .map(([pid, amount]) => ({
-        productId: pid,
-        name: productNameById.get(pid) ?? pid,
-        amount,
-        unit: unitLabel,
-      }))
-      .filter((x) => x.amount > 0)
-      .sort((a, b) => b.amount - a.amount);
+    return filterRowsByFarmZoneGrassSelection(
+      Array.from(byProduct.entries())
+        .map(([pid, amount]) => ({
+          productId: pid,
+          name: productNameById.get(pid) ?? pid,
+          amount,
+          unit: unitLabel,
+        }))
+        .filter((x) => x.amount > 0)
+        .sort((a, b) => b.amount - a.amount),
+      allowedGrassIdsForSelectedFarms,
+    );
   }, [
     deliveredByMonthMode,
     productsRef,
@@ -1709,6 +1751,7 @@ export default function DashboardPage() {
     kpiDateRange,
     kpiTrendBucketMode,
     dashboardAllowedFarmIds,
+    allowedGrassIdsForSelectedFarms,
   ]);
 
   /** Per-farm horizontal bars: same KPI delivery window & qty rules as stacked bar (“Deliveries”). */
@@ -1966,18 +2009,14 @@ export default function DashboardPage() {
     return list;
   }, [farmsRef]);
 
-  const grassOptions = useMemo(() => {
-    const catalogRows = pickGrassCatalogRows({
-      catalog: grassesRef as unknown[],
-      mode: "all",
-      refYmds: [],
-      pinnedGrassIds: grassFilterIds,
-    });
-    return mapRowsToSelectOptions(catalogRows as unknown[], "title").map((o) => ({
-      id: o.id,
-      name: o.label,
-    }));
-  }, [grassesRef, grassFilterIds]);
+  const grassOptions = useMemo(
+    () =>
+      grassFilterOptions.map((o) => ({
+        id: o.value,
+        name: o.label,
+      })),
+    [grassFilterOptions],
+  );
 
   const filterTriggerIcon = (
     <>
@@ -2261,11 +2300,10 @@ export default function DashboardPage() {
                           cx="50%"
                           cy="50%"
                           outerRadius={100}
-                          label={(entry: unknown) =>
-                            `${String((entry as { grass?: string }).grass ?? "")} ${String(
-                              ((entry as { percent?: number }).percent ?? 0) * 100,
-                            ).slice(0, 2)}%`
-                          }
+                          label={(entry: unknown) => {
+                            const e = entry as { grass?: string; displayPercent?: number };
+                            return `${String(e.grass ?? "")} ${e.displayPercent ?? 0}%`;
+                          }}
                           labelLine={{
                             stroke: "hsl(var(--muted-foreground))",
                             strokeWidth: 0.5,
@@ -2500,10 +2538,7 @@ export default function DashboardPage() {
                     <div key={g.productId} className="rounded-lg bg-muted/30 p-3">
                       <p className="text-xs text-muted-foreground">{g.name}</p>
                       <p className="font-heading text-lg font-bold text-foreground">
-                        {g.amount >= 1000
-                          ? `${(g.amount / 1000).toFixed(1)}k`
-                          : g.amount.toLocaleString()}{" "}
-                        {g.unit === "kg" ? "kg" : "m²"}
+                        {formatKpiDeliveredQty(g.amount, g.unit === "kg" ? "kg" : "m²")}
                       </p>
                     </div>
                   ))}

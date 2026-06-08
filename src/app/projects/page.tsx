@@ -28,10 +28,8 @@ import { parseJsonMaybe, parseQuantityRequiredRows } from "@/shared/lib/parseJso
 import { resolveStaffAvatarImageUrl } from "@/features/project/lib/staffAvatarUrl";
 import { cn } from "@/lib/utils";
 import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
-import {
-  mapRowsToSelectOptions,
-  pickGrassCatalogRows,
-} from "@/shared/lib/harvestReferenceData";
+import { useGrassFilterByFarm } from "@/shared/hooks/useGrassFilterByFarm";
+import { mapRowsToSelectOptions } from "@/shared/lib/harvestReferenceData";
 import { fetchKeyAreas, type KeyAreaRow } from "@/features/admin/api/adminApi";
 
 function parseCsvParam(v: string | null): string[] {
@@ -305,11 +303,21 @@ export default function ProjectListPage() {
   const staffsRef = useHarvestingDataStore((s) => s.staffs);
   const productsRef = useHarvestingDataStore((s) => s.products);
   const grassesRef = useHarvestingDataStore((s) => s.grasses);
+  const zoneConfigurations = useHarvestingDataStore((s) => s.zoneConfigurations);
   const fetchAllHarvestingReferenceData = useHarvestingDataStore(
     (s) => s.fetchAllHarvestingReferenceData,
   );
   const referenceBootstrapDone = useHarvestingDataStore((s) => s.bootstrapDone);
   const referenceLoading = useHarvestingDataStore((s) => s.loading);
+
+  const { grassFilterOptions } = useGrassFilterByFarm({
+    grasses: grassesRef as unknown[],
+    zoneConfigs: zoneConfigurations,
+    selectedFarmIds: farmFilterIds,
+    selectedGrassIds: grassFilterIds,
+    onSelectedGrassIdsChange: setGrassFilterIds,
+    catalogMode: "all",
+  });
 
   useEffect(() => {
     const parsed = new URLSearchParams(searchParamsKey);
@@ -758,19 +766,15 @@ export default function ProjectListPage() {
     return list;
   }, [activeCountriesRef]);
 
-  /** Full grass catalog (Dashboard / Harvest parity) — not limited by zone config when farms are selected. */
-  const grassOptions = useMemo(() => {
-    const catalogRows = pickGrassCatalogRows({
-      catalog: grassesRef as unknown[],
-      mode: "all",
-      refYmds: [],
-      pinnedGrassIds: grassFilterIds,
-    });
-    return mapRowsToSelectOptions(catalogRows as unknown[], "title").map((o) => ({
-      id: o.id,
-      name: o.label,
-    }));
-  }, [grassesRef, grassFilterIds]);
+  /** Farm-scoped grass options (zone configuration); all farms → full catalog. */
+  const grassOptions = useMemo(
+    () =>
+      grassFilterOptions.map((o) => ({
+        id: o.value,
+        name: o.label,
+      })),
+    [grassFilterOptions],
+  );
 
   const projectOptions = useMemo(() => {
     const catalog = toRecArray(projectsRef);

@@ -1,28 +1,43 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
+import { buildAclSnapshotFromProfile } from "@/shared/auth/permissions";
 import { parsePrivilegedAdminUserId } from "@/shared/auth/privilegedAdminAccess";
 import {
+  AUTH_ACL_COOKIE_NAME,
   AUTH_COOKIE_NAME,
   AUTH_USER_ID_COOKIE_NAME,
 } from "@/shared/lib/authCookie";
 import { AUTH_COOKIE_OPTIONS } from "@/shared/server/stsAuthBearer";
-import { fetchTrustedAclByToken } from "@/shared/server/trustedAcl";
+import {
+  fetchCurrentUserProfileByToken,
+  fetchTrustedAclByToken,
+} from "@/shared/server/trustedAcl";
 
 export async function GET() {
   const token = (await cookies()).get(AUTH_COOKIE_NAME)?.value?.trim();
   if (!token) {
-    return NextResponse.json({ authenticated: false, userId: null });
+    return NextResponse.json({ authenticated: false, userId: null, user: null });
   }
 
-  const acl = await fetchTrustedAclByToken(token);
-  const userId = parsePrivilegedAdminUserId(acl?.userId) ?? null;
+  const [profile, acl] = await Promise.all([
+    fetchCurrentUserProfileByToken(token),
+    fetchTrustedAclByToken(token),
+  ]);
+  if (!profile || !acl) {
+    return NextResponse.json({ authenticated: false, userId: null, user: null });
+  }
+
+  const userId = parsePrivilegedAdminUserId(acl.userId) ?? null;
 
   const res = NextResponse.json({
     authenticated: true,
     userId,
+    user: profile,
   });
 
+  const aclSnapshot = buildAclSnapshotFromProfile(profile);
+  res.cookies.set(AUTH_ACL_COOKIE_NAME, JSON.stringify(aclSnapshot), AUTH_COOKIE_OPTIONS);
   if (userId != null) {
     res.cookies.set(AUTH_USER_ID_COOKIE_NAME, String(userId), AUTH_COOKIE_OPTIONS);
   }

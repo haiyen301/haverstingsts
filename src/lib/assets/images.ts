@@ -15,4 +15,5 @@ export const iconPaths = {
   edit: "/assets/images/edit-icon.svg",
   expand: "/assets/images/expand-icon.svg",
   collapse: "/assets/images/collapse-icon.svg",
+  stsGrass: "/assets/images/stsgrass.svg",
 } as const;

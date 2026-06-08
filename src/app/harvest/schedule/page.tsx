@@ -9,7 +9,8 @@ import RequireAuth from "@/features/auth/RequireAuth";
 import { HarvestScheduleCalendar } from "@/features/harvest/HarvestScheduleCalendar";
 import { useHarvestScheduleMonthData } from "@/features/harvest/useHarvestScheduleMonthData";
 import { useSyncedFarmMultiSelect } from "@/shared/hooks/useSyncedFarmMultiSelect";
-import { mapRowsToSelectOptions, pickGrassCatalogRows } from "@/shared/lib/harvestReferenceData";
+import { useGrassFilterByFarm } from "@/shared/hooks/useGrassFilterByFarm";
+import { mapRowsToSelectOptions } from "@/shared/lib/harvestReferenceData";
 import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { MultiSelect } from "@/shared/ui/multi-select";
@@ -30,9 +31,19 @@ export default function HarvestSchedulePage() {
   const { selectedFarmIds, setSelectedFarmIds } = useSyncedFarmMultiSelect();
   const farms = useHarvestingDataStore((s) => s.farms);
   const grasses = useHarvestingDataStore((s) => s.grasses);
+  const zoneConfigurations = useHarvestingDataStore((s) => s.zoneConfigurations);
   const fetchAllHarvestingReferenceData = useHarvestingDataStore(
     (s) => s.fetchAllHarvestingReferenceData,
   );
+
+  const { grassFilterOptions } = useGrassFilterByFarm({
+    grasses: grasses as unknown[],
+    zoneConfigs: zoneConfigurations,
+    selectedFarmIds,
+    selectedGrassIds: grassFilterIds,
+    onSelectedGrassIdsChange: setGrassFilterIds,
+    catalogMode: "all",
+  });
 
   const {
     filterMonth,
@@ -83,24 +94,10 @@ export default function HarvestSchedulePage() {
     return m;
   }, [grasses]);
 
-  const grassFilterOptions = useMemo(() => {
-    const picked = pickGrassCatalogRows({
-      catalog: grasses as unknown[],
-      mode: "all",
-      refYmds: [],
-      pinnedGrassIds: grassFilterIds,
-    });
-    return picked
-      .map((g) => {
-        if (!g || typeof g !== "object") return null;
-        const rec = g as Record<string, unknown>;
-        const id = String(rec.id ?? "").trim();
-        const label = String(rec.title ?? rec.name ?? "").trim() || id;
-        return id ? { value: id, label } : null;
-      })
-      .filter((x): x is { value: string; label: string } => x !== null)
-      .sort((a, b) => a.label.localeCompare(b.label));
-  }, [grasses, grassFilterIds]);
+  const grassFilterOptionsSorted = useMemo(
+    () => [...grassFilterOptions].sort((a, b) => a.label.localeCompare(b.label)),
+    [grassFilterOptions],
+  );
 
   const filtered = useMemo(
     () =>
@@ -145,7 +142,7 @@ export default function HarvestSchedulePage() {
         rightIcon={filterTriggerIcon}
       />
       <MultiSelect
-        options={grassFilterOptions}
+        options={grassFilterOptionsSorted}
         values={grassFilterIds}
         onChange={setGrassFilterIds}
         placeholder={t("allGrasses")}
