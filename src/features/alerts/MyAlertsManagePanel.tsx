@@ -236,7 +236,7 @@ export function MyAlertsManagePanel({
                 <label className="flex items-center gap-2 text-sm">
                   <Checkbox
                     checked={compose.pushMobile}
-                    onCheckedChange={(v) => setCompose((p) => ({ ...p, pushMobile: v === true }))}
+                    onChange={(e) => setCompose((p) => ({ ...p, pushMobile: e.target.checked }))}
                   />
                   {t("pushMobileLabel")}
                 </label>
@@ -311,8 +311,8 @@ export function MyAlertsManagePanel({
                 <label className="flex items-center gap-2 text-sm">
                   <Checkbox
                     checked={editForm.pushMobile}
-                    onCheckedChange={(v) =>
-                      setEditForm((p) => (p ? { ...p, pushMobile: v === true } : p))
+                    onChange={(e) =>
+                      setEditForm((p) => (p ? { ...p, pushMobile: e.target.checked } : p))
                     }
                   />
                   {t("pushMobileLabel")}
