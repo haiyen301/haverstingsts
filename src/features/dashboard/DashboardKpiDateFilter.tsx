@@ -6,7 +6,11 @@ import { CalendarDays, ChevronDown } from "lucide-react";
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
+import {
+  bgSurfaceFilter,
+  FILTER_COLOR_EMPTY_CLASS,
+  FILTER_COLOR_FILLED_CLASS,
+} from "@/shared/lib/surfaceFilter";
 import {
   type KpiDatePreset,
   type KpiDeliveryDateFilter,
@@ -268,15 +272,32 @@ export function DashboardKpiDateFilter({
           <button
             type="button"
             className={cn(
-              "inline-flex min-h-10 min-w-[180px] max-w-[300px] items-center justify-between gap-2 rounded-md border border-input px-3 py-2 text-sm text-foreground hover:bg-btnhover/40",
+              "inline-flex min-h-10 min-w-[180px] max-w-[300px] items-center justify-between gap-2 rounded-md border border-input px-3 py-2 text-sm hover:bg-btnhover/40",
               bgSurfaceFilter(hasActiveFilter),
             )}
           >
             <span className="inline-flex min-w-0 items-center gap-2">
-              <CalendarDays className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-              <span className="max-w-full truncate font-medium">{triggerPrimaryLabel}</span>
+              <CalendarDays
+                className={cn(
+                  "h-3.5 w-3.5 shrink-0",
+                  hasActiveFilter ? FILTER_COLOR_FILLED_CLASS : FILTER_COLOR_EMPTY_CLASS,
+                )}
+              />
+              <span
+                className={cn(
+                  "max-w-full truncate",
+                  hasActiveFilter ? FILTER_COLOR_FILLED_CLASS : FILTER_COLOR_EMPTY_CLASS,
+                )}
+              >
+                {triggerPrimaryLabel}
+              </span>
             </span>
-            <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <ChevronDown
+              className={cn(
+                "h-3.5 w-3.5 shrink-0",
+                hasActiveFilter ? FILTER_COLOR_FILLED_CLASS : FILTER_COLOR_EMPTY_CLASS,
+              )}
+            />
           </button>
         </PopoverTrigger>
         <PopoverContent

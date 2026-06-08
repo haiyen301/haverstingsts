@@ -1192,7 +1192,7 @@ export default function HarvestListPage() {
                       setPage(1);
                     }}
                     className={cn(
-                      "w-full rounded-lg border border-input py-2.5 pl-10 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring",
+                      "w-full rounded-lg border border-input py-2.5 pl-10 pr-4 text-sm focus-visible:ring-2 focus-visible:ring-ring",
                       bgSurfaceFilter(!!harvestListSearch.trim()),
                     )}
                     autoComplete="off"
@@ -1204,6 +1204,7 @@ export default function HarvestListPage() {
                     values={farmFilterIds}
                     onChange={handleFarmFilterChange}
                     placeholder={t("allFarms")}
+                    showAllOption
                     disabled={refLoading}
                     className={cn(
                       "rounded-md border border-input min-w-[180px]",
@@ -1225,6 +1226,7 @@ export default function HarvestListPage() {
                     placeholder={t("allGrassTypes", {
                       count: grassFilterOptions.length,
                     })}
+                    showAllOption
                     disabled={refLoading}
                     className={cn(
                       "rounded-md border border-input min-w-[220px]",
@@ -1250,6 +1252,7 @@ export default function HarvestListPage() {
                     placeholder={t("allStatuses", {
                       count: PORTAL_STATUS_ORDER.length,
                     })}
+                    showAllOption
                     className={cn(
                       "rounded-md border border-input min-w-[220px]",
                       bgSurfaceFilter(statusSelectValues.length > 0),
@@ -1274,6 +1277,7 @@ export default function HarvestListPage() {
                     placeholder={t("allProjectsCount", {
                       count: projectOptions.length,
                     })}
+                    showAllOption
                     className={cn(
                       "rounded-md border border-input min-w-[220px]",
                       bgSurfaceFilter(projectSelectValues.length > 0),

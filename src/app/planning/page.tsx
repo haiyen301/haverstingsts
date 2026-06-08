@@ -260,7 +260,7 @@ export default function PlanningPage() {
                   value={monthSelectValue}
                   onChange={(e) => changeMonth(e.target.value)}
                   className={cn(
-                    "rounded-md border border-input px-2 py-1 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+                    "rounded-md border border-input px-2 py-1 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
                     bgSurfaceFilter(true),
                   )}
                   aria-label={t("filterByMonthAria")}
@@ -275,7 +275,7 @@ export default function PlanningPage() {
                   value={yearSelectValue}
                   onChange={(e) => changeYear(e.target.value)}
                   className={cn(
-                    "rounded-md border border-input px-2 py-1 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
+                    "rounded-md border border-input px-2 py-1 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40",
                     bgSurfaceFilter(true),
                   )}
                   aria-label={t("filterByYearAria")}

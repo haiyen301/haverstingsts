@@ -1,6 +1,12 @@
 import * as XLSX from "xlsx";
 
 import {
+  filterHarvestHistoryForProjectDetail,
+  type HarvestPlanVisibilityCtx,
+  type ProjectDetailHarvestHistoryDisplayMode,
+  PROJECT_DETAIL_HARVEST_HISTORY_DISPLAY_MODE,
+} from "@/features/harvesting/lib/harvestPlanVisibility";
+import {
   farmNameByIdFromRows,
   findProjectRowBySelectId,
   harvestRecordZoneStoredValue,
@@ -8,7 +14,10 @@ import {
   zoneIdToLabel,
 } from "@/shared/lib/harvestReferenceData";
 import { formatDateDisplay, isValidDate } from "@/shared/lib/format/date";
-import { harvestTypeDisplayLabel } from "@/shared/lib/harvestType";
+import {
+  harvestTypeDisplayLabel,
+  type HarvestTypeStorageKey,
+} from "@/shared/lib/harvestType";
 
 /**
  * Columns offered on project detail harvest export (user-selected subset of
@@ -55,6 +64,7 @@ export const PROJECT_DETAIL_HARVEST_EXPORT_DEFAULT_SELECTED_KEYS: readonly Proje
     "uom",
     "harvested_area",
     "status",
+    "load_type",
   ];
 
 const PROJECT_DETAIL_HARVEST_EXPORT_DEFAULT_SELECTED_SET = new Set(
@@ -78,9 +88,7 @@ export type HarvestPlanExportResolveContext = {
 
 export type ProjectHarvestLineStatus = "scheduled" | "harvested" | "delivered";
 
-/** GET `order_mode` for project detail harvest history (PHP `get_details`). */
-export const PROJECT_DETAIL_HARVEST_HISTORY_ORDER_MODE =
-  "project_detail_history" as const;
+export type HarvestPhaseFilter = "all" | "upcoming" | "completed";
 
 export type ProjectDetailHarvestHistorySortable = {
   status: ProjectHarvestLineStatus;
@@ -90,6 +98,143 @@ export type ProjectDetailHarvestHistorySortable = {
   deliveryFilterDate: string;
   id: string;
 };
+
+export type ProjectDetailHarvestHistoryClientFilter = {
+  grass: string;
+  status: ProjectHarvestLineStatus | "";
+  loadTypes: readonly HarvestTypeStorageKey[];
+  phase: HarvestPhaseFilter;
+  dateFrom: string;
+  dateTo: string;
+};
+
+export type ProjectDetailHarvestHistoryFilterableRow =
+  ProjectDetailHarvestHistorySortable & {
+    grass: string;
+    harvestTypeKey: HarvestTypeStorageKey | "";
+  };
+
+/** GET `order_mode` for project detail harvest history (PHP `get_details`). */
+export const PROJECT_DETAIL_HARVEST_HISTORY_ORDER_MODE =
+  "project_detail_history" as const;
+
+export function normalizeProjectDetailHarvestDateFilter(v: string): string {
+  const s = v.trim().replace(/\//g, "-");
+  if (!s) return "";
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (!m) return "";
+  return `${m[1]}-${m[2]}-${m[3]}`;
+}
+
+export function harvestMatchesPhaseFilter(
+  status: ProjectHarvestLineStatus,
+  phase: HarvestPhaseFilter,
+): boolean {
+  if (phase === "all") return true;
+  if (phase === "upcoming") {
+    return status === "scheduled" || status === "harvested";
+  }
+  return status === "delivered";
+}
+
+export function hasActiveProjectDetailHarvestHistoryFilters(
+  filter: ProjectDetailHarvestHistoryClientFilter,
+): boolean {
+  return Boolean(
+    filter.grass.trim() ||
+      filter.status ||
+      filter.loadTypes.length > 0 ||
+      filter.phase !== "all" ||
+      normalizeProjectDetailHarvestDateFilter(filter.dateFrom) ||
+      normalizeProjectDetailHarvestDateFilter(filter.dateTo),
+  );
+}
+
+/** Client-side Harvest History filters (grass, status, load type, phase, date range). */
+export function filterProjectDetailHarvestHistoryRows<
+  T extends ProjectDetailHarvestHistoryFilterableRow,
+>(rows: T[], filter: ProjectDetailHarvestHistoryClientFilter): T[] {
+  const fromIso = normalizeProjectDetailHarvestDateFilter(filter.dateFrom);
+  const toIso = normalizeProjectDetailHarvestDateFilter(filter.dateTo);
+  const grass = filter.grass.trim();
+  const status = filter.status;
+  const loadTypeSet =
+    filter.loadTypes.length > 0 ? new Set(filter.loadTypes) : null;
+  const phase = filter.phase;
+
+  const filtered = rows.filter((h) => {
+    if (grass && h.grass !== grass) return false;
+    if (status && h.status !== status) return false;
+    if (loadTypeSet && !loadTypeSet.has(h.harvestTypeKey)) return false;
+    if (!harvestMatchesPhaseFilter(h.status, phase)) return false;
+    if (fromIso && h.filterDate && h.filterDate < fromIso) return false;
+    if (toIso && h.filterDate && h.filterDate > toIso) return false;
+    if ((fromIso || toIso) && !h.filterDate) return false;
+    return true;
+  });
+
+  if (!hasActiveProjectDetailHarvestHistoryFilters(filter)) return filtered;
+  return [...filtered].sort(compareProjectDetailHarvestHistory);
+}
+
+function harvestPlanRowsForProjectId(
+  planRows: Array<Record<string, unknown>>,
+  projectId: string,
+): Array<Record<string, unknown>> {
+  const normalizedProjectId = projectId.trim();
+  if (!normalizedProjectId) return planRows;
+  return planRows.filter(
+    (row) => String(row.project_id ?? "").trim() === normalizedProjectId,
+  );
+}
+
+export type ProjectDetailHarvestExportDisplayRow = {
+  id: string;
+  date: string;
+  status: ProjectHarvestLineStatus;
+};
+
+/**
+ * Build Excel rows in the same order as the filtered Harvest History table.
+ * Iterates display rows 1:1 so export count and order match the UI.
+ */
+export function buildProjectDetailHarvestExportRows(
+  filteredDisplayRows: ProjectDetailHarvestExportDisplayRow[],
+  planRows: Array<Record<string, unknown>>,
+  opts: {
+    projectId: string;
+    visibilityCtx: HarvestPlanVisibilityCtx;
+    displayMode?: ProjectDetailHarvestHistoryDisplayMode;
+    statusLabel: (status: ProjectHarvestLineStatus) => string;
+  },
+): Array<Record<string, unknown>> {
+  const displayMode =
+    opts.displayMode ?? PROJECT_DETAIL_HARVEST_HISTORY_DISPLAY_MODE;
+  const planById = new Map<string, Record<string, unknown>>();
+  for (const row of filterHarvestHistoryForProjectDetail(
+    harvestPlanRowsForProjectId(planRows, opts.projectId),
+    opts.visibilityCtx,
+    displayMode,
+  )) {
+    const id = String(row.id ?? "").trim();
+    if (id) planById.set(id, row);
+  }
+
+  const out: Array<Record<string, unknown>> = [];
+  for (const h of filteredDisplayRows) {
+    const id = String(h.id ?? "").trim();
+    if (!id) continue;
+    const plan = planById.get(id);
+    if (!plan) continue;
+    const date = String(h.date ?? "").trim();
+    out.push({
+      ...plan,
+      ...(date && date !== "-" ? { date } : {}),
+      status_label: opts.statusLabel(h.status),
+    });
+  }
+  return out;
+}
 
 function harvestHistoryDaysFromToday(iso: string): number {
   const t = iso.trim().slice(0, 10);

@@ -35,6 +35,7 @@ import {
   Trees,
   Truck,
   Users,
+  Warehouse,
   X,
 } from "lucide-react";
 
@@ -132,10 +133,16 @@ export function DashboardLayout({
   const { farmOptions, selectedFarmIds: farmIds, selectedFarmLabels: selectedFarmLabelsAll, setSelectedFarmIds } =
     useSyncedFarmMultiSelect();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(defaultSidebarCollapsed);
+  const [sidebarHoverExpanded, setSidebarHoverExpanded] = useState(false);
+  const sidebarExpanded = !sidebarCollapsed || sidebarHoverExpanded;
 
   useEffect(() => {
     setSidebarCollapsed(defaultSidebarCollapsed);
   }, [defaultSidebarCollapsed]);
+
+  useEffect(() => {
+    if (!sidebarCollapsed) setSidebarHoverExpanded(false);
+  }, [sidebarCollapsed]);
   const [openSections, setOpenSections] = useState<Record<SidebarSectionId, boolean>>({
     operations: true,
     harvesting: true,
@@ -405,6 +412,7 @@ export function DashboardLayout({
             isActive: (p) =>
               p.startsWith("/admin/projectTypes") ||
               p.startsWith("/admin/architects") ||
+              p.startsWith("/admin/farms") ||
               p.startsWith("/admin/zones") ||
               p.startsWith("/admin/zone-configurations") ||
               p.startsWith("/admin/regrowth") ||
@@ -425,6 +433,14 @@ export function DashboardLayout({
                 icon: Building2,
                 path: "/admin/architects",
                 module: "admin_architects",
+              },
+              {
+                value: "farms",
+                label: tn("adminFarms"),
+                icon: Warehouse,
+                path: "/admin/farms",
+                module: "admin_farms",
+                isActive: (p) => p === "/admin/farms" || p.startsWith("/admin/farms/"),
               },
               {
                 value: "zones",
@@ -566,7 +582,7 @@ export function DashboardLayout({
     [filteredSidebarSections, mobilePrimaryPaths],
   );
 
-  const sidebarWidthClass = sidebarCollapsed ? "lg:w-[5.25rem]" : "lg:w-72";
+  const sidebarWidthClass = sidebarExpanded ? "lg:w-72" : "lg:w-[5.25rem]";
   const mainMarginClass = hideAppNav
     ? "lg:ml-0"
     : sidebarCollapsed
@@ -598,19 +614,24 @@ export function DashboardLayout({
     <div className="flex min-h-screen text-foreground" suppressHydrationWarning>
       {!hideAppNav ? (
         <aside
+          onMouseEnter={() => {
+            if (sidebarCollapsed) setSidebarHoverExpanded(true);
+          }}
+          onMouseLeave={() => setSidebarHoverExpanded(false)}
           className={cn(
             "fixed inset-y-0 left-0 z-50 hidden shrink-0 flex-col border-r border-sidebar-border bg-sidebar text-sidebar-foreground lg:flex",
             sidebarWidthClass,
             "transition-[width] duration-200 ease-out",
+            sidebarCollapsed && sidebarHoverExpanded && "z-60 shadow-xl",
           )}
         >
           <div
             className={cn(
               "shrink-0 border-b border-sidebar-border",
-              sidebarCollapsed ? "px-2 py-4" : "pl-4 pr-0 py-5",
+              sidebarExpanded ? "pl-4 pr-0 py-5" : "px-2 py-4",
             )}
           >
-            {!sidebarCollapsed ? (
+            {sidebarExpanded ? (
               <div className="flex items-start gap-3">
                 <div className="flex min-w-0 flex-1 items-center gap-3">
                   <div
@@ -685,9 +706,9 @@ export function DashboardLayout({
 
           <nav
             aria-label={tn("sidebarAria")}
-            className="min-h-0 flex-1 overflow-y-auto px-2.5 py-3"
+            className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-2.5 py-3"
           >
-            {sidebarCollapsed ? (
+            {!sidebarExpanded ? (
               <div className="flex flex-col gap-0.5">
                 {flatSidebarItems.map((item) => {
                   const Icon = item.icon;
@@ -865,7 +886,7 @@ export function DashboardLayout({
             )}
           </nav>
 
-          <SidebarProfile compact={sidebarCollapsed} />
+          <SidebarProfile compact={!sidebarExpanded} />
         </aside>
       ) : null}
 
@@ -968,7 +989,7 @@ export function DashboardLayout({
                     setSelectedFarmIds(v === "all" ? [] : [v]);
                   }}
                   className={cn(
-                    "h-8 w-[150px] shrink-0 rounded-md border border-input px-2 py-1 text-xs shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-[rgb(31,122,76)]/35 text-foreground",
+                    "h-8 w-[150px] shrink-0 rounded-md border border-input px-2 py-1 text-xs shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-[rgb(31,122,76)]/35",
                     bgSurfaceFilter(Boolean(selectedFarmId)),
                   )}
                 >

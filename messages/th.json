@@ -58,6 +58,7 @@
     "alertSettings": "ตั้งค่าการแจ้งเตือน",
     "adminProjects": "โครงการ",
     "adminArchitects": "สถาปนิก",
+    "adminFarms": "ฟาร์ม",
     "adminZoneSetup": "ตั้งค่าโซน",
     "adminZoneConfiguration": "การตั้งค่าโซน",
     "adminRegrowthRules": "กฎการฟื้นตัว",
@@ -147,6 +148,7 @@
       "zones_api": "โซน",
       "zone_configurations_api": "การตั้งค่าโซน",
       "grasses_api": "หญ้า",
+      "farms_api": "ฟาร์ม",
       "keyareas_api": "พื้นที่สำคัญ",
       "project_paces_api": "จังหวะโครงการ",
       "countries_api": "ประเทศ",
@@ -483,7 +485,7 @@
     "title": "โครงการ",
     "newProject": "โครงการใหม่",
     "importExcel": "นำเข้า Excel",
-    "searchPlaceholder": "ค้นหาจากชื่อโครงการ ประเภทหญ้า ประเทศ,...",
+    "searchPlaceholder": "ค้นหาจากชื่อโครงการ สนามกอล์ฟ บริษัท ประเภทหญ้า,...",
     "allCountries": "ทุกประเทศ",
     "allProjects": "ทุกโครงการ",
     "allProjectsCount": "ทุกโครงการ ({count})",
@@ -943,6 +945,7 @@
     "filter": "ตัวกรอง",
     "allGrassTypes": "ทุกประเภทหญ้า",
     "allStatuses": "ทุกสถานะ",
+    "allLoadTypes": "ทุกประเภทโหลด",
     "filterHarvestStatus": "สถานะ",
     "harvestStatus_planned": "วางแผน",
     "harvestStatus_scheduled": "กำหนดแล้ว",
@@ -1491,6 +1494,38 @@
       "nameRequired": "ต้องระบุชื่อ"
     }
   },
+  "AdminFarms": {
+    "title": "ฟาร์ม",
+    "loading": "กำลังโหลด…",
+    "search": "ค้นหา",
+    "add": "เพิ่มฟาร์ม",
+    "edit": "แก้ไขฟาร์ม",
+    "save": "บันทึก",
+    "saving": "กำลังบันทึก…",
+    "cancel": "ยกเลิก",
+    "empty": "ไม่พบฟาร์ม",
+    "table": {
+      "id": "ID",
+      "farm": "ฟาร์ม",
+      "country": "ชื่อประเทศ",
+      "actions": "การดำเนินการ"
+    },
+    "form": {
+      "name": "ฟาร์ม *",
+      "country": "ประเทศ *",
+      "countryPlaceholder": "— เลือกประเทศ —",
+      "address": "ที่อยู่",
+      "hotline": "สายด่วน"
+    },
+    "errors": {
+      "nameRequired": "ต้องระบุชื่อฟาร์ม",
+      "countryRequired": "ต้องเลือกประเทศ",
+      "load": "โหลดรายการฟาร์มไม่ได้",
+      "save": "บันทึกไม่ได้",
+      "delete": "ลบไม่ได้"
+    },
+    "deleteConfirm": "ลบฟาร์มนี้หรือไม่? โซนและข้อมูลการเก็บเกี่ยวที่เชื่อมโยงอาจได้รับผลกระทบ"
+  },
   "AdminGrasses": {
     "title": "ประเภทหญ้า",
     "description": "กำหนดผลิตภัณฑ์หญ้าใน STSPortal (`sts_grasses`): คำอธิบาย และช่วง ตั้งแต่วันที่ / ถึงวันที่ (วันสุดท้ายที่ยังขาย หลังวันถึงถือว่าหยุดขาย)",
@@ -1959,6 +1994,7 @@
       "admin_people": "Admin — บุคลากร",
       "admin_project_types": "Admin — ประเภทโครงการ",
       "admin_architects": "Admin — สถาปนิก",
+      "admin_farms": "Admin — ฟาร์ม",
       "admin_zones": "Admin — โซน",
       "admin_regrowth": "Admin — การฟื้นตัว",
       "admin_grasses": "Admin — ประเภทหญ้า",

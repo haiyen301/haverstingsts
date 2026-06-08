@@ -2206,7 +2206,7 @@ export function InventoryForecast({
     </>
   );
   const multiSelectBaseClass =
-    "min-w-[140px] max-w-[180px] rounded-md border border-input text-sm text-foreground hover:bg-btnhover/40";
+    "min-w-[140px] max-w-[180px] rounded-md border border-input text-sm hover:bg-btnhover/40";
 
   return (
     <div className="space-y-6">
@@ -2223,6 +2223,7 @@ export function InventoryForecast({
           values={selectedFarmIds}
           onChange={setSelectedFarmIds}
           placeholder={t("filters.allFarms")}
+          showAllOption
           className={cn(multiSelectBaseClass, bgSurfaceFilter(selectedFarmIds.length > 0))}
           rightIcon={filterTriggerIcon}
         />
@@ -2231,6 +2232,7 @@ export function InventoryForecast({
           values={selectedGrassIds}
           onChange={setSelectedGrassIds}
           placeholder={t("filters.allGrasses")}
+          showAllOption
           className={cn(multiSelectBaseClass, bgSurfaceFilter(selectedGrassIds.length > 0))}
           rightIcon={filterTriggerIcon}
         />

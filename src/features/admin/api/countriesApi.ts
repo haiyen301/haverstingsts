@@ -1,7 +1,7 @@
 "use client";
 
 import { STS_API_PATHS } from "@/shared/api/stsApiPaths";
-import { stsProxyGet, stsProxyPostJson } from "@/shared/api/stsProxyClient";
+import { stsProxyGet, stsProxyGetWithParams, stsProxyPostJson } from "@/shared/api/stsProxyClient";
 
 export type CountryRow = {
   id: number;
@@ -40,6 +40,14 @@ export function isCountryActive(row: CountryRow): boolean {
 
 export async function fetchAdminCountries(): Promise<CountryRow[]> {
   const data = await stsProxyGet<unknown[]>(STS_API_PATHS.countries);
+  return Array.isArray(data) ? (data as CountryRow[]) : [];
+}
+
+/** Active countries only (`Countries::index?active_only=1`) — for farm/project dropdowns. */
+export async function fetchActiveCountries(): Promise<CountryRow[]> {
+  const data = await stsProxyGetWithParams<unknown[]>(STS_API_PATHS.countries, {
+    active_only: 1,
+  });
   return Array.isArray(data) ? (data as CountryRow[]) : [];
 }
 

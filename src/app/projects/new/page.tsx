@@ -55,6 +55,7 @@ import {
   pickGrassCatalogRows,
   todayYmdLocal,
 } from "@/shared/lib/harvestReferenceData";
+import { buildGrassFilterOptionsForFarms } from "@/shared/lib/grassFilterByFarmZone";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 import { AlertRouteCategoryBanner } from "@/features/alerts/AlertRouteCategoryBanner";
 import { dispatchRouteAlert } from "@/features/alerts/dispatchRouteAlert";
@@ -449,6 +450,8 @@ export default function ProjectInputPage() {
   const countries = useHarvestingDataStore((s) => s.countries);
   const staffs = useHarvestingDataStore((s) => s.staffs);
   const products = useHarvestingDataStore((s) => s.products);
+  const grasses = useHarvestingDataStore((s) => s.grasses);
+  const zoneConfigurations = useHarvestingDataStore((s) => s.zoneConfigurations);
   const farmsRaw = useHarvestingDataStore((s) => s.farms);
   const fetchAllHarvestingReferenceData = useHarvestingDataStore(
     (s) => s.fetchAllHarvestingReferenceData,
@@ -595,6 +598,36 @@ export default function ProjectInputPage() {
       .filter((x) => x.id && x.name);
   }, [products, formData.estimateStartDate, formData.actualStartDate, grassRows]);
 
+  const grassRefYmds = useMemo(() => {
+    const refs = [formData.estimateStartDate, formData.actualStartDate]
+      .map((s) => String(s ?? "").trim())
+      .filter((s) => /^\d{4}-\d{2}-\d{2}$/.test(s));
+    return refs.length ? refs : [todayYmdLocal()];
+  }, [formData.estimateStartDate, formData.actualStartDate]);
+
+  const grassesCatalog = useMemo(() => {
+    const grassArr = grasses as unknown[];
+    return grassArr.length > 0 ? grassArr : (products as unknown[]);
+  }, [grasses, products]);
+
+  const getGrassOptionsForRow = useCallback(
+    (row: GrassRow): { id: string; name: string }[] => {
+      const farmId = row.farmId.trim();
+      if (!farmId) return productOptions;
+      return buildGrassFilterOptionsForFarms({
+        grasses: grassesCatalog,
+        zoneConfigs: zoneConfigurations,
+        selectedFarmIds: [farmId],
+        pinnedGrassIds: row.grass.trim() ? [row.grass.trim()] : [],
+        catalogMode: "harvest_form_dates",
+        refYmds: grassRefYmds,
+      })
+        .map((o) => ({ id: o.value, name: o.label }))
+        .filter((x) => x.id && x.name);
+    },
+    [grassRefYmds, grassesCatalog, productOptions, zoneConfigurations],
+  );
+
   /** All farms (same as harvest entry) — grass supply is not limited to the project country. */
   const farmOptions = useMemo(() => {
     return (farmsRaw as unknown[])
@@ -693,6 +726,21 @@ export default function ProjectInputPage() {
   ) => {
     setGrassRows((prev) =>
       prev.map((row) => (row.id === id ? { ...row, [field]: value } : row)),
+    );
+  };
+
+  const updateGrassRowFarm = (id: string, farmId: string) => {
+    setGrassRows((prev) =>
+      prev.map((row) => {
+        if (row.id !== id) return row;
+        const next: GrassRow = { ...row, farmId };
+        if (!farmId.trim() || !next.grass.trim()) return next;
+        const allowed = getGrassOptionsForRow(next).map((o) => o.id);
+        if (!allowed.includes(next.grass.trim())) {
+          return { ...next, grass: "", keyAreaIds: [] };
+        }
+        return next;
+      }),
     );
   };
 
@@ -1879,6 +1927,23 @@ export default function ProjectInputPage() {
                       className="grid gap-3 rounded-lg border border-border bg-background p-3 sm:grid-cols-2 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1.3fr)_minmax(0,1fr)_auto_minmax(0,0.9fr)_auto] xl:items-end"
                     >
                       <div className="min-w-0 space-y-1.5">
+                        <label className="text-sm font-medium text-foreground">{t("farm")}</label>
+                        <select
+                          value={row.farmId}
+                          onChange={(e) =>
+                            updateGrassRowFarm(row.id, e.target.value)
+                          }
+                          className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm text-foreground shadow-sm"
+                        >
+                          <option value="">{tBase("HarvestForm.selectFarm")}</option>
+                          {farmOptions.map((f) => (
+                            <option key={f.id} value={f.id}>
+                              {f.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="min-w-0 space-y-1.5">
                         <label className="text-sm font-medium text-foreground">{t("grassType")}</label>
                         <select
                           value={row.grass}
@@ -1897,7 +1962,6 @@ export default function ProjectInputPage() {
                                       ...r,
                                       grass: v,
                                       keyAreaIds: v.trim() ? r.keyAreaIds : [],
-                                      farmId: v.trim() ? r.farmId : "",
                                     }
                                   : r,
                               ),
@@ -1906,7 +1970,7 @@ export default function ProjectInputPage() {
                           className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm text-foreground shadow-sm"
                         >
                           <option value="">{t("selectGrass")}</option>
-                          {productOptions.map((p) => {
+                          {getGrassOptionsForRow(row).map((p) => {
                             const optionDisabled = isDuplicateGrassUom(
                               grassRows,
                               row.id,
@@ -1956,26 +2020,6 @@ export default function ProjectInputPage() {
                           className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm text-foreground shadow-sm disabled:opacity-50"
                           rightIcon={<ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />}
                         />
-                      </div>
-                      <div className="min-w-0 space-y-1.5">
-                        <label className="text-sm font-medium text-foreground">{t("farm")}</label>
-                        <select
-                          value={row.farmId}
-                          onChange={(e) =>
-                            updateGrassRow(row.id, "farmId", e.target.value)
-                          }
-                          disabled={!row.grass.trim()}
-                          className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm text-foreground shadow-sm disabled:opacity-50"
-                        >
-                          <option value="">
-                            {row.grass.trim() ? t("farmOptional") : t("selectGrassFirst")}
-                          </option>
-                          {farmOptions.map((f) => (
-                            <option key={f.id} value={f.id}>
-                              {f.name}
-                            </option>
-                          ))}
-                        </select>
                       </div>
                       <div className="w-fit shrink-0 space-y-2">
                         <span className="block text-sm font-medium text-foreground">

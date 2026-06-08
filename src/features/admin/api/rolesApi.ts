@@ -13,6 +13,7 @@ export const QUICK_ROLE_MODULES = [
   "admin_people",
   "admin_project_types",
   "admin_architects",
+  "admin_farms",
   "admin_zones",
   "admin_regrowth",
   "admin_grasses",

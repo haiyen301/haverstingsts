@@ -465,7 +465,7 @@ function ActiveProjectsPageInner() {
   );
 
   const multiSelectBaseClass =
-    "min-w-0 w-full rounded-md border border-input text-sm text-foreground hover:bg-btnhover/40";
+    "min-w-0 w-full rounded-md border border-input text-sm hover:bg-btnhover/40";
 
   return (
     <RequireAuth>
@@ -509,6 +509,7 @@ function ActiveProjectsPageInner() {
                 values={countryFilterIds}
                 onChange={setCountryFilterIds}
                 placeholder={t("ActiveProjects.allCountries")}
+                showAllOption
                 className={cn(multiSelectBaseClass, bgSurfaceFilter(countryFilterIds.length > 0))}
                 rightIcon={filterTriggerIcon}
               />
@@ -517,6 +518,7 @@ function ActiveProjectsPageInner() {
                 values={farmFilterIds}
                 onChange={setSelectedFarmIds}
                 placeholder={t("ActiveProjects.allFarms")}
+                showAllOption
                 className={cn(multiSelectBaseClass, bgSurfaceFilter(farmFilterIds.length > 0))}
                 rightIcon={filterTriggerIcon}
               />
@@ -525,6 +527,7 @@ function ActiveProjectsPageInner() {
                 values={grassFilterIds}
                 onChange={setGrassFilterIds}
                 placeholder={t("ActiveProjects.allGrass")}
+                showAllOption
                 className={cn(multiSelectBaseClass, bgSurfaceFilter(grassFilterIds.length > 0))}
                 rightIcon={filterTriggerIcon}
               />

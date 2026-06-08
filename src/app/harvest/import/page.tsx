@@ -963,7 +963,7 @@ export default function HarvestImportPage() {
                         });
                       }}
                       className={cn(
-                        "w-full rounded-lg border border-input px-3 py-2 text-sm text-foreground",
+                        "w-full rounded-lg border border-input px-3 py-2 text-sm",
                         bgSurfaceFilter(Boolean((mapping?.[f.key] ?? "").trim())),
                       )}
                     >

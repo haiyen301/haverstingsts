@@ -1714,6 +1714,7 @@ export function DevForecastingAvailableSourceClient() {
                     values={selectedFarmIds}
                     onChange={setSelectedFarmIds}
                     placeholder="All farms"
+                    showAllOption
                     selectionSummary="compact"
                     className="rounded-lg"
                     formatSelectedCount={(count) => `${count} farms`}
@@ -1727,6 +1728,7 @@ export function DevForecastingAvailableSourceClient() {
                     values={selectedGrassIds}
                     onChange={setSelectedGrassIds}
                     placeholder="All grasses"
+                    showAllOption
                     selectionSummary="compact"
                     className="rounded-lg"
                     formatSelectedCount={(count) => `${count} grasses`}

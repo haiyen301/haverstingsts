@@ -5,6 +5,12 @@ import { useMemo, useState, type ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  FILTER_BG_FILLED_CLASS,
+  FILTER_BORDER_FILLED_CLASS,
+  FILTER_COLOR_EMPTY_CLASS,
+  FILTER_COLOR_FILLED_CLASS,
+} from "@/shared/lib/surfaceFilter";
 import { TruncatedText } from "@/shared/ui/truncated-text";
 
 export type MultiSelectOption = {
@@ -56,6 +62,10 @@ type MultiSelectProps = {
   /** Max removable chips shown in the dropdown; above this, show a compact summary instead. */
   maxSelectedChipsPreview?: number;
   formatManySelectedHint?: (count: number) => string;
+  /** Show an "All" option at the top of the dropdown; selecting it clears the filter. */
+  showAllOption?: boolean;
+  /** Label for the "All" option; defaults to `placeholder` when `showAllOption` is true. */
+  allOptionLabel?: string;
 };
 
 export function MultiSelect({
@@ -77,6 +87,8 @@ export function MultiSelect({
   compactBadgeNamePreview = 3,
   maxSelectedChipsPreview = 6,
   formatManySelectedHint,
+  showAllOption = false,
+  allOptionLabel,
 }: MultiSelectProps) {
   const [keyword, setKeyword] = useState("");
   const [open, setOpen] = useState(false);
@@ -177,6 +189,17 @@ export function MultiSelect({
     return selectedLabels.slice(0, count);
   }, [compactBadgeNamePreview, selectedLabels]);
   const compactBadgeRestCount = Math.max(0, selected - compactBadgePreviewLabels.length);
+  const filterTextClass =
+    selected === 0 ? FILTER_COLOR_EMPTY_CLASS : FILTER_COLOR_FILLED_CLASS;
+  const allLabel = allOptionLabel ?? placeholder;
+  const allSelected = values.length === 0;
+
+  const selectAll = () => {
+    onChange([]);
+    if (max === 1) {
+      setOpen(false);
+    }
+  };
 
   return (
     <Popover modal={false} open={open} onOpenChange={setOpen}>
@@ -186,7 +209,8 @@ export function MultiSelect({
           disabled={disabled}
           title={triggerTitle}
           className={cn(
-            "inline-flex w-full items-center justify-between gap-2 rounded-full border border-gray-300 px-3 text-xs text-gray-700 disabled:cursor-not-allowed disabled:opacity-60",
+            "inline-flex w-full items-center justify-between gap-2 rounded-full border px-3 text-xs disabled:cursor-not-allowed disabled:opacity-60",
+            selected === 0 ? "border-gray-300" : cn(FILTER_BG_FILLED_CLASS, FILTER_BORDER_FILLED_CLASS),
             expandTrigger
               ? "min-h-9 items-start py-2 leading-snug"
               : "h-10 items-center",
@@ -195,14 +219,19 @@ export function MultiSelect({
           )}
         >
           {expandTrigger ? (
-            <span className="min-w-0 flex-1 text-left whitespace-normal wrap-break-word">
+            <span
+              className={cn(
+                "min-w-0 flex-1 text-left whitespace-normal wrap-break-word",
+                filterTextClass,
+              )}
+            >
               {label}
             </span>
           ) : showCountBadge ? (
             <span className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden text-left">
               <TruncatedText
                 text={compactBadgePreviewLabels.join(", ") || label}
-                className="min-w-0 flex-1 text-foreground"
+                className={cn("min-w-0 flex-1", filterTextClass)}
               />
               {compactBadgeRestCount > 0 ? (
                 <span className="inline-flex shrink-0 items-center rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-medium tabular-nums text-primary">
@@ -213,19 +242,28 @@ export function MultiSelect({
           ) : showCompactAllNames ? (
             <TruncatedText
               text={selectedLabels.join(", ")}
-              className="min-w-0 flex-1 text-left text-foreground"
+              className={cn("min-w-0 flex-1 text-left", filterTextClass)}
             />
           ) : selected === 0 ? (
-            <span className="min-w-0 flex-1 truncate text-left text-muted-foreground">
+            <span
+              className={cn(
+                "min-w-0 flex-1 truncate text-left",
+                FILTER_COLOR_EMPTY_CLASS,
+              )}
+            >
               {label}
             </span>
           ) : (
-            <TruncatedText text={label} className="min-w-0 flex-1 text-left" />
+            <TruncatedText
+              text={label}
+              className={cn("min-w-0 flex-1 text-left", FILTER_COLOR_FILLED_CLASS)}
+            />
           )}
           {rightIcon ? (
             <span
               className={cn(
-                "inline-flex shrink-0 items-center gap-0.5 text-gray-800",
+                "inline-flex shrink-0 items-center gap-0.5",
+                filterTextClass,
                 expandTrigger && "self-start pt-0.5",
               )}
             >
@@ -294,7 +332,34 @@ export function MultiSelect({
           ) : null}
         </div>
         <div className="max-h-64 overflow-auto">
-          {filteredOptions.length === 0 ? (
+          {showAllOption ? (
+            <>
+              <button
+                type="button"
+                onClick={selectAll}
+                disabled={disabled}
+                className={cn(
+                  "flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm hover:bg-gray-100 disabled:opacity-40",
+                  allSelected && "bg-primary/5",
+                )}
+              >
+                <TruncatedText text={allLabel} className="min-w-0 flex-1 pr-2" />
+                <Check
+                  className={cn(
+                    "h-4 w-4 min-h-4 min-w-4 shrink-0 text-foreground",
+                    allSelected ? "opacity-100" : "opacity-0",
+                  )}
+                />
+              </button>
+              {filteredOptions.length > 0 ? (
+                <div className="my-1 border-t border-gray-200" />
+              ) : null}
+            </>
+          ) : null}
+          {!showAllOption && filteredOptions.length === 0 ? (
+            <p className="px-2 py-2 text-xs text-gray-500">No options found.</p>
+          ) : null}
+          {showAllOption && filteredOptions.length === 0 && normalizedKeyword ? (
             <p className="px-2 py-2 text-xs text-gray-500">No options found.</p>
           ) : null}
           {filteredOptions.map((opt) => {

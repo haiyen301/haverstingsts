@@ -258,6 +258,24 @@ export type GrassTypeSavePayload = {
   sales_to?: string | null;
 };
 
+/** Row from `sts_farms` (STSPortal `farms` table). */
+export type FarmRow = {
+  id: number;
+  name: string;
+  country_id: number;
+  country_name?: string | null;
+  hotline?: string | null;
+  address?: string | null;
+};
+
+export type FarmSavePayload = {
+  id?: number;
+  name: string;
+  country_id: number;
+  hotline?: string | null;
+  address?: string | null;
+};
+
 /** POST body for `/api/regrowth_rules/save` */
 export type RegrowthRulesSavePayload = {
   sod_days: number;
@@ -426,6 +444,20 @@ export async function saveGrassType(payload: GrassTypeSavePayload): Promise<Gras
 
 export async function removeGrassType(id: number): Promise<{ id: number }> {
   return stsProxyPostJson<{ id: number }>(STS_API_PATHS.grassesRemove, { id });
+}
+
+export async function fetchFarms(): Promise<FarmRow[]> {
+  const data = await stsProxyGet<unknown[]>(STS_API_PATHS.farms);
+  const rows = Array.isArray(data) ? (data as FarmRow[]) : [];
+  return [...rows].sort((a, b) => Number(a.id) - Number(b.id));
+}
+
+export async function saveFarm(payload: FarmSavePayload): Promise<FarmRow> {
+  return stsProxyPostJson<FarmRow>(STS_API_PATHS.farmsSave, payload);
+}
+
+export async function removeFarm(id: number): Promise<{ id: number }> {
+  return stsProxyPostJson<{ id: number }>(STS_API_PATHS.farmsRemove, { id });
 }
 
 export type KeyAreaRow = {

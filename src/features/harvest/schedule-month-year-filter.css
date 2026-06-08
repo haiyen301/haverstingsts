@@ -2,11 +2,13 @@
 .sts-schedule-month-year-filter.bg-surface-filter-empty,
 .sts-schedule-month-year-filter.bg-surface-filter-empty select {
   background-color: hsl(var(--surface-filter-empty));
+  color: hsl(var(--filter-color-empty));
 }
 
 .sts-schedule-month-year-filter.bg-surface-filter-filled,
 .sts-schedule-month-year-filter.bg-surface-filter-filled select {
   background-color: hsl(var(--surface-filter-filled));
+  color: hsl(var(--filter-color-filled));
 }
 
 .sts-schedule-month-year-filter--compact {

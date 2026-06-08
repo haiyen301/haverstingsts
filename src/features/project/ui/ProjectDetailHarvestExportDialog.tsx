@@ -81,7 +81,7 @@ export function ProjectDetailHarvestExportDialog({
   };
 
   const actionBtnClass =
-    "inline-flex h-9 items-center justify-center whitespace-nowrap rounded-md border border-border px-3 text-sm font-medium text-foreground ring-offset-background transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
+    "inline-flex h-9 items-center justify-center whitespace-nowrap rounded-md border border-border px-3 text-sm font-medium ring-offset-background transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
 
   return (
     <div
@@ -136,7 +136,7 @@ export function ProjectDetailHarvestExportDialog({
                 <li key={col}>
                   <label
                     className={cn(
-                      "flex cursor-pointer items-center gap-3 rounded-md border border-border px-3 py-2.5 text-sm text-foreground transition-colors hover:bg-muted/50",
+                      "flex cursor-pointer items-center gap-3 rounded-md border border-border px-3 py-2.5 text-sm transition-colors hover:bg-muted/50",
                       bgSurfaceFilter(checked),
                     )}
                   >

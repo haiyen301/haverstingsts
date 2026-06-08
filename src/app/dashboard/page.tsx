@@ -2026,7 +2026,7 @@ export default function DashboardPage() {
   );
 
   const multiSelectBaseClass =
-    "min-w-[140px] max-w-[180px] rounded-md border border-input text-sm text-foreground hover:bg-btnhover/40";
+    "min-w-[140px] max-w-[180px] rounded-md border border-input text-sm hover:bg-btnhover/40";
 
   return (
     <RequireAuth>
@@ -2044,6 +2044,7 @@ export default function DashboardPage() {
                 values={countryFilterIds}
                 onChange={setCountryFilterIds}
                 placeholder={t("Projects.allCountries")}
+                showAllOption
                 className={cn(multiSelectBaseClass, bgSurfaceFilter(countryFilterIds.length > 0))}
                 rightIcon={filterTriggerIcon}
               />
@@ -2052,6 +2053,7 @@ export default function DashboardPage() {
                 values={selectedFarmIds}
                 onChange={setSelectedFarmIds}
                 placeholder={t("Projects.allFarms")}
+                showAllOption
                 className={cn(multiSelectBaseClass, bgSurfaceFilter(selectedFarmIds.length > 0))}
                 rightIcon={filterTriggerIcon}
               />
@@ -2060,6 +2062,7 @@ export default function DashboardPage() {
                 values={grassFilterIds}
                 onChange={setGrassFilterIds}
                 placeholder={t("Projects.allGrass")}
+                showAllOption
                 className={cn(multiSelectBaseClass, bgSurfaceFilter(grassFilterIds.length > 0))}
                 rightIcon={filterTriggerIcon}
               />

@@ -92,6 +92,7 @@ export default function AdminRolesPage() {
       admin_people: t("modules.admin_people"),
       admin_project_types: t("modules.admin_project_types"),
       admin_architects: t("modules.admin_architects"),
+      admin_farms: t("modules.admin_farms"),
       admin_zones: t("modules.admin_zones"),
       admin_regrowth: t("modules.admin_regrowth"),
       admin_grasses: t("modules.admin_grasses"),

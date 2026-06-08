@@ -209,7 +209,7 @@ export default function InventoryImportPage() {
               onChange={(e) => setCountry(e.target.value)}
               placeholder={t("countryPlaceholder")}
               className={cn(
-                "w-full max-w-xs rounded-lg border border-input px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground",
+                "w-full max-w-xs rounded-lg border border-input px-3 py-2 text-sm",
                 bgSurfaceFilter(!!country.trim()),
               )}
             />

@@ -21,6 +21,7 @@ export default async function AdminPage() {
     { module: "admin_roles", path: "/admin/roles" },
     { module: "admin_project_types", path: "/admin/projectTypes" },
     { module: "admin_architects", path: "/admin/architects" },
+    { module: "admin_farms", path: "/admin/farms" },
     { module: "admin_zones", path: "/admin/zones" },
     { module: "admin_regrowth", path: "/admin/regrowth" },
     { module: "admin_grasses", path: "/admin/grasses" },

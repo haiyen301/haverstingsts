@@ -316,6 +316,8 @@ main:has(.sts-hsc-viewport-fill--harvest-list-scroll) {
   --sts-hsc-cell-day-header-h: 2.35rem;
   --sts-hsc-cell-events-min-h: 2.65rem;
   --sts-hsc-compact-chip-min-h: 3.65rem;
+  --sts-hsc-grid-line: hsl(var(--border) / 0.55);
+  --sts-hsc-harvest-border: hsl(var(--primary) / 0.6);
   display: flex;
   flex-direction: column;
   width: 100%;
@@ -326,7 +328,7 @@ main:has(.sts-hsc-viewport-fill--harvest-list-scroll) {
   border: 1px solid var(--sts-hsc-grid-line);
   border-radius: 0.5rem;
   overflow: visible;
-  background: var(--sts-hsc-grid-line);
+  background: hsl(var(--card));
 }
 
 .sts-hsc-month-grid--loading {
@@ -338,8 +340,8 @@ main:has(.sts-hsc-viewport-fill--harvest-list-scroll) {
 .sts-hsc-grid-row {
   display: grid;
   grid-template-columns: var(--sts-hsc-week-col-w) repeat(7, minmax(0, 1fr));
-  gap: 1px;
-  background: var(--sts-hsc-grid-line);
+  gap: 0;
+  background: hsl(var(--card));
 }
 
 .sts-hsc-grid-head {
@@ -351,9 +353,9 @@ main:has(.sts-hsc-viewport-fill--harvest-list-scroll) {
   flex: 1;
   min-height: 0;
   flex-direction: column;
-  gap: 1px;
+  gap: 0;
   overflow: visible;
-  background: var(--sts-hsc-grid-line);
+  background: hsl(var(--card));
 }
 
 .sts-hsc-grid-row {
@@ -376,6 +378,7 @@ main:has(.sts-hsc-viewport-fill--harvest-list-scroll) {
   max-width: var(--sts-hsc-week-col-w);
   padding-inline: 0;
   background: hsl(var(--muted) / 0.45);
+  box-shadow: inset 0 0 0 1px var(--sts-hsc-grid-line);
   font-size: clamp(0.5rem, 1.4vw, 0.65rem);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -396,13 +399,14 @@ main:has(.sts-hsc-viewport-fill--harvest-list-scroll) {
   text-transform: uppercase;
   color: hsl(var(--muted-foreground));
   background: hsl(var(--card));
+  box-shadow: inset 0 0 0 1px var(--sts-hsc-grid-line);
 }
 
 .sts-hsc-weekday--weekend {
   background: var(--sts-hsc-weekend-bg);
 }
 
-/* Day cell */
+/* Day cell — inset box-shadow draws grid lines (border: 0 avoids layout shift) */
 .sts-hsc-cell {
   position: relative;
   display: flex;
@@ -414,6 +418,7 @@ main:has(.sts-hsc-viewport-fill--harvest-list-scroll) {
   gap: 0.12rem;
   border: 0;
   background: hsl(var(--card));
+  box-shadow: inset 0 0 0 1px var(--sts-hsc-grid-line);
   padding: 0.2rem 0.15rem 0.2rem;
   text-align: left;
   overflow: hidden;
@@ -423,6 +428,8 @@ main:has(.sts-hsc-viewport-fill--harvest-list-scroll) {
 .sts-hsc-cell--weekend {
   background: var(--sts-hsc-weekend-bg);
 }
+
+
 
 .sts-hsc-cell-day-header {
   display: flex;
@@ -849,7 +856,6 @@ main:has(.sts-hsc-viewport-fill--harvest-list-scroll) {
   flex: 1 1 auto;
   min-height: 0;
   padding: 0.3rem 0.32rem 0.3rem 0.38rem;
-  border-left: 2px solid hsl(var(--primary) / 0.45);
   box-sizing: border-box;
   -webkit-font-smoothing: antialiased;
   cursor: default;

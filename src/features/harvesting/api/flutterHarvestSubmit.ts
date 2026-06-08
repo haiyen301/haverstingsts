@@ -75,6 +75,47 @@ function stripCommas(n: string): string {
   return n.replace(/,/g, "").trim();
 }
 
+/** Stored in `project_harvesting_plan.status` when `harvested_area` is copied from `quantity`. */
+export const AUTO_HARVEST_AREA_STATUS = "auto_harvest_area";
+
+function parsePositiveNumber(raw: string): number {
+  const n = Number.parseFloat(stripCommas(raw));
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function isSprigHarvestType(harvestType: string | undefined): boolean {
+  return String(harvestType ?? "").trim().toLowerCase() === "sprig";
+}
+
+/**
+ * When harvest area (m²) is empty, auto-fill and mark the row with `auto_harvest_area`.
+ * Sprig → `1`; other load types → `quantity`. Idempotent when `harvestedArea` is already set.
+ */
+export function resolveHarvestedAreaForSubmit(
+  harvestedArea: string | undefined,
+  quantity: string,
+  harvestType?: string,
+): { harvestedArea: string | undefined; status?: string } {
+  const existing = parsePositiveNumber(harvestedArea ?? "");
+  if (existing > 0) {
+    return { harvestedArea: stripCommas(harvestedArea ?? "") };
+  }
+  if (isSprigHarvestType(harvestType)) {
+    return {
+      harvestedArea: "1",
+      status: AUTO_HARVEST_AREA_STATUS,
+    };
+  }
+  const qty = stripCommas(quantity);
+  if (parsePositiveNumber(qty) <= 0) {
+    return { harvestedArea: undefined };
+  }
+  return {
+    harvestedArea: qty,
+    status: AUTO_HARVEST_AREA_STATUS,
+  };
+}
+
 function buildRecordsJson(
   input: FlutterNewHarvestInput,
   removed?: HarvestingRemovedPayload,
@@ -101,7 +142,6 @@ function buildRecordsJson(
     general_note: input.generalNote?.trim() || null,
     load_type: input.harvestType.trim() || null,
     country: (input.country ?? "").trim(),
-    status: (input.status ?? "").trim(),
     status_id: (input.statusId ?? "").trim(),
     customer_id: input.customerId?.trim() || null,
     do_so_date: input.doSoDate?.trim() || null,
@@ -118,6 +158,10 @@ function buildRecordsJson(
     license_plate: input.licensePlate.trim() || null,
     created_by: input.createdBy?.trim() || null,
   };
+
+  if (input.status !== undefined) {
+    newSub.status = input.status.trim() || null;
+  }
 
   const uploadTypes: Record<string, "single"> = {};
   for (const f of HARVEST_DOC_PHOTO_FIELDS) {
@@ -153,8 +197,22 @@ export function buildFlutterHarvestFormData(
   photos: HarvestPhotoFiles,
   removed?: HarvestingRemovedPayload,
 ): FormData {
+  const harvestedAreaResolved = resolveHarvestedAreaForSubmit(
+    input.harvestedArea,
+    input.quantity,
+    input.harvestType,
+  );
+  const mergedInput: FlutterNewHarvestInput = {
+    ...input,
+    harvestedArea: harvestedAreaResolved.harvestedArea,
+    ...(harvestedAreaResolved.status
+      ? { status: harvestedAreaResolved.status }
+      : input.status !== undefined
+        ? { status: input.status }
+        : {}),
+  };
   const fd = new FormData();
-  fd.append("records", buildRecordsJson(input, removed));
+  fd.append("records", buildRecordsJson(mergedInput, removed));
   for (const field of HARVEST_DOC_PHOTO_FIELDS) {
     const file = photos[field];
     if (file) {

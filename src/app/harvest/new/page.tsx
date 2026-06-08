@@ -18,6 +18,7 @@ import { onForecastMutation } from "@/features/forecasting/forecastDataSync";
 import { canAccessModule } from "@/shared/auth/permissions";
 import {
   HARVEST_DOC_PHOTO_FIELDS,
+  resolveHarvestedAreaForSubmit,
   submitFlutterHarvest,
   type HarvestDocPhotoField,
   type HarvestPhotoFiles,
@@ -45,8 +46,10 @@ import {
   parseFarmZoneEntries,
   projectSelectIdFromRow,
   resolveDefaultFarmSelectId,
+  todayYmdLocal,
   zoneIdToLabel,
 } from "@/shared/lib/harvestReferenceData";
+import { buildGrassFilterOptionsForFarms } from "@/shared/lib/grassFilterByFarmZone";
 import {
   defaultHarvestTypeForUom,
   normalizeHarvestTypeStorageKey,
@@ -199,7 +202,7 @@ const emptyForm = {
   harvestType: "",
   quantity: "",
   uom: "",
-  /** `harvested_area` — nhập riêng với quantity; payload M2 vẫn không gửi cột này (theo API). */
+  /** `harvested_area` (m²) — rỗng: sprig → 1, còn lại → quantity; `status=auto_harvest_area`. */
   harvestedArea: "",
   zone: "",
   farm: "",
@@ -970,21 +973,28 @@ function HarvestInputPageInner() {
     setFormData((prev) => ({ ...prev, project: resolvedProjectId }));
   }, [allProjects, bootstrapDone, formData.project]);
 
-  const grassRowsForSelect = useMemo(() => {
+  const grassesCatalog = useMemo(() => products as unknown[], [products]);
+
+  const grassRefYmds = useMemo(() => {
     const ymds = [
       toDateInput(formData.estimatedDate),
       toDateInput(formData.estimatedDateEnd),
       toDateInput(formData.actualDate),
       toDateInput(formData.actualHarvestEndDate),
     ].filter((s) => /^\d{4}-\d{2}-\d{2}$/.test(s));
-    return pickGrassesForHarvestGrassSelect(ymds, formData.grass);
+    return ymds.length > 0 ? ymds : [todayYmdLocal()];
   }, [
-    pickGrassesForHarvestGrassSelect,
-    products,
     formData.estimatedDate,
     formData.estimatedDateEnd,
     formData.actualDate,
     formData.actualHarvestEndDate,
+  ]);
+
+  const grassRowsForSelect = useMemo(() => {
+    return pickGrassesForHarvestGrassSelect(grassRefYmds, formData.grass);
+  }, [
+    pickGrassesForHarvestGrassSelect,
+    grassRefYmds,
     formData.grass,
   ]);
 
@@ -1019,6 +1029,7 @@ function HarvestInputPageInner() {
   /** Actual date when edit row was loaded — used to detect pace recalc trigger. */
   const [initialActualDateAtLoad, setInitialActualDateAtLoad] = useState("");
   const [initialQuantityAtLoad, setInitialQuantityAtLoad] = useState("");
+  const [statusAtLoad, setStatusAtLoad] = useState("");
   const [editTableId, setEditTableId] = useState("");
   const [editTableName, setEditTableName] = useState("Harvesting");
   const [projectHarvestRows, setProjectHarvestRows] = useState<HarvestDeliveredRow[]>(
@@ -1189,6 +1200,7 @@ function HarvestInputPageInner() {
       if (dupRow) {
         setFormData(applyRowToFormState(dupRow));
         setUseEstimatedDateRange(Boolean(getEstimatedDateEndFromRow(dupRow)));
+        setStatusAtLoad(String(dupRow.status ?? "").trim());
         setPhotos({});
         setExistingDocSlots({});
         setPendingImagesRemoved({});
@@ -1203,6 +1215,7 @@ function HarvestInputPageInner() {
       }
       setFormData({ ...emptyForm, project: initialProjectId });
       setUseEstimatedDateRange(false);
+      setStatusAtLoad("");
       setPhotos({});
       setExistingDocSlots({});
       setPendingImagesRemoved({});
@@ -1236,6 +1249,7 @@ function HarvestInputPageInner() {
         setFormData(applyRowToFormState(row));
         setInitialActualDateAtLoad(toDateInput(row.actual_harvest_date));
         setInitialQuantityAtLoad(String(row.quantity ?? "").trim());
+        setStatusAtLoad(String(row.status ?? "").trim());
         setUseEstimatedDateRange(Boolean(getEstimatedDateEndFromRow(row)));
         setEditTableId(String(row.table_id ?? "").trim());
         setEditTableName(String(row.table_name ?? "Harvesting").trim() || "Harvesting");
@@ -1425,10 +1439,32 @@ function HarvestInputPageInner() {
     [formData.grass, grassRowsForSelect, selectedProjectRequirements],
   );
 
-  const productOptions = useMemo(
-    () => mapRowsToSelectOptions(grassRowsForSelectByProject as unknown[], "title"),
-    [grassRowsForSelectByProject],
-  );
+  const productOptions = useMemo(() => {
+    const baseOptions = mapRowsToSelectOptions(
+      grassRowsForSelectByProject as unknown[],
+      "title",
+    );
+    const farmId = formData.farm.trim();
+    if (!farmId) return baseOptions;
+
+    const farmGrassOptions = buildGrassFilterOptionsForFarms({
+      grasses: grassesCatalog,
+      zoneConfigs: zoneConfigRows,
+      selectedFarmIds: [farmId],
+      pinnedGrassIds: formData.grass.trim() ? [formData.grass.trim()] : [],
+      catalogMode: "harvest_form_dates",
+      refYmds: grassRefYmds,
+    });
+    const allowedIds = new Set(farmGrassOptions.map((o) => o.value));
+    return baseOptions.filter((o) => allowedIds.has(o.id));
+  }, [
+    formData.farm,
+    formData.grass,
+    grassRefYmds,
+    grassesCatalog,
+    grassRowsForSelectByProject,
+    zoneConfigRows,
+  ]);
 
   useEffect(() => {
     const projectId = formData.project.trim();
@@ -1451,6 +1487,21 @@ function HarvestInputPageInner() {
       quantity: undefined,
     }));
   }, [formData.grass, formData.project, selectedProjectRequirements]);
+
+  useEffect(() => {
+    const farmId = formData.farm.trim();
+    if (!farmId) return;
+    const grass = formData.grass.trim();
+    if (!grass) return;
+    if (productOptions.some((o) => o.id === grass)) return;
+    setFormData((prev) => clearQuantityUnitsFields({ ...prev, grass: "" }));
+    setFieldErrors((prev) => ({
+      ...prev,
+      grass: undefined,
+      harvestType: undefined,
+      quantity: undefined,
+    }));
+  }, [formData.farm, formData.grass, productOptions]);
 
   useEffect(() => {
     if (accessDenied || editId || !editLoaded || !bootstrapDone) return;
@@ -1729,8 +1780,17 @@ function HarvestInputPageInner() {
       quantity: normalizeNonNegativeInput(formData.quantity),
       harvestedArea: formatHarvestedAreaForForm(formData.harvestedArea),
     };
-    setFormData(normalizedFormData);
-    const errors = getHarvestFieldErrors(normalizedFormData, validationMessages);
+    const harvestedAreaResolved = resolveHarvestedAreaForSubmit(
+      normalizedFormData.harvestedArea,
+      normalizedFormData.quantity,
+      normalizedFormData.harvestType,
+    );
+    const submitFormData: HarvestFormState = {
+      ...normalizedFormData,
+      harvestedArea: harvestedAreaResolved.harvestedArea ?? "",
+    };
+    setFormData(submitFormData);
+    const errors = getHarvestFieldErrors(submitFormData, validationMessages);
     setFieldErrors(errors);
     const firstErrKey = firstHarvestFieldErrorKey(errors);
     const firstErr = firstHarvestFieldError(errors);
@@ -1739,8 +1799,8 @@ function HarvestInputPageInner() {
       return;
     }
 
-    const savedActualDatePre = normalizedFormData.actualDate.trim();
-    const savedQuantityPre = normalizedFormData.quantity.trim();
+    const savedActualDatePre = submitFormData.actualDate.trim();
+    const savedQuantityPre = submitFormData.quantity.trim();
     const actualDateChangedPre =
       savedActualDatePre !== initialActualDateAtLoad.trim();
     const quantityChangedPre =
@@ -1785,11 +1845,13 @@ function HarvestInputPageInner() {
         : undefined;
 
       const harvestTypeSubmit =
-        normalizeHarvestTypeStorageKey(normalizedFormData.harvestType) ||
-        defaultHarvestTypeForUom(normalizedFormData.uom);
-      const quantitySubmit = normalizedFormData.quantity;
-      const haStripped = normalizedFormData.harvestedArea.replace(/,/g, "").trim();
-      const harvestedAreaPayload = haStripped || undefined;
+        normalizeHarvestTypeStorageKey(submitFormData.harvestType) ||
+        defaultHarvestTypeForUom(submitFormData.uom);
+      const quantitySubmit = submitFormData.quantity;
+      const harvestedAreaPayload = harvestedAreaResolved.harvestedArea;
+      const statusSubmit =
+        harvestedAreaResolved.status ??
+        (editId && statusAtLoad ? statusAtLoad : undefined);
       const selectedProjectRow = findProjectRowBySelectId(
         allProjects,
         formData.project.trim(),
@@ -1827,6 +1889,7 @@ function HarvestInputPageInner() {
           assignedTo: user?.id != null ? String(user.id) : "",
           createdBy: !editId && user?.id != null ? String(user.id) : undefined,
           harvestedArea: harvestedAreaPayload,
+          status: statusSubmit,
         },
         photos,
         removedPayload,
@@ -1864,7 +1927,7 @@ function HarvestInputPageInner() {
           ).trim() || formData.project.trim();
         const grassId = formData.grass.trim();
         const grassLabel = productNameById.get(grassId) || grassId;
-        const qtyDisplay = normalizedFormData.quantity.trim();
+        const qtyDisplay = submitFormData.quantity.trim();
         const uomDisplay = formData.uom.trim();
         const alertHref =
           harvestIdForAlert.length > 0

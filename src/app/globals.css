@@ -6,22 +6,22 @@
 /* Design tokens (HSL channels) — light baseline aligned with Harvesting Portal sidebar palette */
 :root {
   --background: 100 10% 97%;
-  --foreground: 150 35% 16%;
+  --foreground: 0 0% 20%;
 
   --card: 0 0% 100%;
-  --card-foreground: 150 35% 16%;
+  --card-foreground: 0 0% 20%;
 
   --popover: 0 0% 100%;
-  --popover-foreground: 150 35% 16%;
+  --popover-foreground: 0 0% 20%;
 
   --primary: 152 59% 30%;
   --primary-foreground: 0 0% 100%;
 
   --secondary: 74 43% 54%;
-  --secondary-foreground: 150 35% 16%;
+  --secondary-foreground: 0 0% 20%;
 
   --muted: 100 6% 94%;
-  --muted-foreground: 0 0% 45%;
+  --muted-foreground: 0 0% 20%;
   --btnhover: 0 0% 100%;
   --accent: 28 35% 56%;
   --accent-foreground: 0 0% 100%;
@@ -54,10 +54,14 @@
    * Lọc / chọn có giá trị:
    * - `surface-filter-empty`  → nền trắng (kênh màu --card / 0 0% 100%)
    * - `surface-filter-filled` → nền bề mặt app (kênh --background / tint xanh nhạt)
-   * Dùng class Tailwind `bg-surface-filter-empty` | `bg-surface-filter-filled` hoặc helper `bgSurfaceFilter()`.
+   * - `filter-color-empty`    → #222 (chưa chọn)
+   * - `filter-color-filled`   → #333 (đã chọn)
+   * Dùng helper `bgSurfaceFilter()` (nền + chữ) hoặc Tailwind `bg-surface-filter-*` + `text-filter-*`.
    */
   --surface-filter-empty: var(--card);
   --surface-filter-filled: var(--background);
+  --filter-color-empty: 0 0% 13.3%;
+  --filter-color-filled: 0 0% 20%;
 
   /* Legacy aliases used across existing pages */
   --color-primary: hsl(var(--primary));
@@ -74,11 +78,11 @@
 
 .dark {
   --background: 100 10% 97%;
-  --foreground: 150 35% 16%;
+  --foreground: 0 0% 20%;
 
   /* --card: 100 10% 97%; */
   --card: 0 0% 100%;
-  --card-foreground: 150 35% 16%;
+  --card-foreground: 0 0% 20%;
 
   --popover: 150 22% 12%;
   --popover-foreground: 100 10% 92%;
@@ -90,7 +94,7 @@
   --secondary-foreground: 100 10% 92%;
 
   --muted: 100 6% 94%;
-  --muted-foreground: 0 0% 45%;
+  --muted-foreground: 0 0% 20%;
 
   --accent: 28 30% 45%;
   --accent-foreground: 0 0% 100%;
@@ -121,6 +125,8 @@
 
   --surface-filter-empty: var(--card);
   --surface-filter-filled: var(--background);
+  --filter-color-empty: 0 0% 13.3%;
+  --filter-color-filled: 0 0% 20%;
 }
 
 @theme inline {
@@ -166,9 +172,11 @@
   --color-button-primary: hsl(var(--primary));
   --color-button-secondary: hsl(var(--secondary));
 
-  /* Filter / choice controls (see :root `--surface-filter-*` comment) */
+  /* Filter / choice controls (see :root `--surface-filter-*` / `--filter-color-*` comment) */
   --color-surface-filter-empty: hsl(var(--surface-filter-empty));
   --color-surface-filter-filled: hsl(var(--surface-filter-filled));
+  --color-filter-empty: hsl(var(--filter-color-empty));
+  --color-filter-filled: hsl(var(--filter-color-filled));
 }
 
 body {
@@ -265,17 +273,17 @@ input[type="number"] {
  */
 .dashboard-harvesting-skin {
   --background: 100 10% 97%;
-  --foreground: 150 35% 16%;
+  --foreground: 0 0% 20%;
   --card: 0 0% 100%;
-  --card-foreground: 150 35% 16%;
+  --card-foreground: 0 0% 20%;
   --popover: 0 0% 100%;
-  --popover-foreground: 150 35% 16%;
+  --popover-foreground: 0 0% 20%;
   --primary: 82 91% 41%;
   --primary-foreground: 0 0% 100%;
   --secondary: 100 8% 92%;
-  --secondary-foreground: 150 35% 16%;
+  --secondary-foreground: 0 0% 20%;
   --muted: 100 6% 94%;
-  --muted-foreground: 0 0% 45%;
+  --muted-foreground: 0 0% 20%;
   --accent: 28 35% 56%;
   --accent-foreground: 0 0% 100%;
   --destructive: 0 72% 51%;
@@ -292,6 +300,8 @@ input[type="number"] {
 
   --surface-filter-empty: var(--card);
   --surface-filter-filled: var(--background);
+  --filter-color-empty: 0 0% 13.3%;
+  --filter-color-filled: 0 0% 20%;
 
   color-scheme: light;
   background-color: hsl(var(--background));
@@ -313,26 +323,36 @@ input[type="number"] {
 input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="range"]):not([type="file"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="image"]):not([type="color"]),
 textarea {
   background-color: hsl(var(--surface-filter-empty));
+  color: hsl(var(--filter-color-empty));
+}
+
+input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="range"]):not([type="file"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="image"]):not([type="color"])::placeholder,
+textarea::placeholder {
+  color: hsl(var(--filter-color-empty));
 }
 
 input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="range"]):not([type="file"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="image"]):not([type="color"])[placeholder]:not(:placeholder-shown),
 textarea[placeholder]:not(:placeholder-shown) {
   background-color: hsl(var(--surface-filter-filled));
+  color: hsl(var(--filter-color-filled));
 }
 
 @supports selector(:blank) {
   input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="range"]):not([type="file"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="image"]):not([type="color"]):not(:blank),
   textarea:not(:blank) {
     background-color: hsl(var(--surface-filter-filled));
+    color: hsl(var(--filter-color-filled));
   }
 }
 
 select {
   background-color: hsl(var(--surface-filter-filled));
+  color: hsl(var(--filter-color-filled));
 }
 
 select:has(> option:checked[value=""]) {
   background-color: hsl(var(--surface-filter-empty));
+  color: hsl(var(--filter-color-empty));
 }
 
 input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="range"]):not([type="file"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="image"]):not([type="color"]):disabled,

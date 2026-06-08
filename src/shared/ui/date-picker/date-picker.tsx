@@ -5,6 +5,7 @@ import { format, isValid, parse, parseISO } from "date-fns";
 import { CalendarIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
 import { CALENDAR_MARKED_DAY_CLASS, Calendar } from "./calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "./popover";
 
@@ -150,7 +151,7 @@ export function DatePicker({
       <div
         className={cn(
           "grid h-10 w-full grid-cols-[1fr_auto] items-center overflow-hidden rounded-lg border border-border text-sm focus-within:ring-2 focus-within:ring-[#1F7A4C]",
-          inputValue ? "bg-surface-filter-filled" : "bg-surface-filter-empty",
+          bgSurfaceFilter(Boolean(inputValue)),
           hasError ? "border-red-500" : "border-gray-300",
           disabled ? "bg-muted text-muted-foreground" : "",
           className,
@@ -169,7 +170,7 @@ export function DatePicker({
           }}
           placeholder={placeholder}
           disabled={disabled}
-          className="h-full w-full bg-transparent px-3 text-left outline-none placeholder:text-gray-400 disabled:cursor-not-allowed"
+          className="h-full w-full bg-transparent px-3 text-left outline-none disabled:cursor-not-allowed"
           inputMode="numeric"
         />
         <PopoverTrigger asChild>

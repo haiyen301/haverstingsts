@@ -824,7 +824,7 @@ export default function ProjectListPage() {
   );
 
   const multiSelectBaseClass =
-    "min-w-[140px] max-w-[180px] rounded-md border border-input text-sm text-foreground hover:bg-btnhover/40";
+    "min-w-[140px] max-w-[180px] rounded-md border border-input text-sm hover:bg-btnhover/40";
 
   return (
     <RequireAuth>
@@ -885,7 +885,7 @@ export default function ProjectListPage() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className={cn(
-                  "h-10 w-full rounded-md border border-input pl-9 pr-3 text-sm text-foreground placeholder:text-muted-foreground",
+                  "h-10 w-full rounded-md border border-input pl-9 pr-3 text-sm",
                   bgSurfaceFilter(!!search.trim()),
                 )}
                 autoComplete="off"
@@ -896,6 +896,7 @@ export default function ProjectListPage() {
               values={countryFilterIds}
               onChange={setCountryFilterIds}
               placeholder={t("allCountries")}
+              showAllOption
               className={cn(multiSelectBaseClass, bgSurfaceFilter(countryFilterIds.length > 0))}
               rightIcon={filterTriggerIcon}
             />
@@ -913,6 +914,7 @@ export default function ProjectListPage() {
               values={farmFilterIds}
               onChange={setSelectedFarmIds}
               placeholder={t("allFarms")}
+              showAllOption
               className={cn(multiSelectBaseClass, bgSurfaceFilter(farmFilterIds.length > 0))}
               rightIcon={filterTriggerIcon}
             />
@@ -921,6 +923,7 @@ export default function ProjectListPage() {
               values={grassFilterIds}
               onChange={setGrassFilterIds}
               placeholder={t("allGrass")}
+              showAllOption
               className={cn(multiSelectBaseClass, bgSurfaceFilter(grassFilterIds.length > 0))}
               rightIcon={filterTriggerIcon}
             />
@@ -934,6 +937,7 @@ export default function ProjectListPage() {
               values={statusFilterValues}
               onChange={setStatusFilterValues}
               placeholder={t("allStatuses")}
+              showAllOption
               className={cn(multiSelectBaseClass, bgSurfaceFilter(statusFilterValues.length > 0))}
               rightIcon={filterTriggerIcon}
             />

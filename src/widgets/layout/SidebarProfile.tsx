@@ -273,20 +273,35 @@ export function SidebarProfile({ onNavigate, compact = false }: SidebarProfilePr
         compact ? "p-3" : "px-4 pb-4 pt-3"
       }`}
     >
-      <div className="space-y-2 pb-3">
-        <div>
-          <p
-            id="sidebar-language-label"
-            className="text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/45"
-          >
-            {t("languageLabel")}
-          </p>
-          <p id="sidebar-language-hint" className="sr-only">
-            {t("languageSwitchHint")}
-          </p>
-        </div>
+      <div className={`space-y-2 pb-3 ${compact ? "flex flex-col items-center" : ""}`}>
+        {!compact ? (
+          <div>
+            <p
+              id="sidebar-language-label"
+              className="text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/45"
+            >
+              {t("languageLabel")}
+            </p>
+            <p id="sidebar-language-hint" className="sr-only">
+              {t("languageSwitchHint")}
+            </p>
+          </div>
+        ) : (
+          <>
+            <p id="sidebar-language-label" className="sr-only">
+              {t("languageLabel")}
+            </p>
+            <p id="sidebar-language-hint" className="sr-only">
+              {t("languageSwitchHint")}
+            </p>
+          </>
+        )}
         <div
-          className="grid grid-cols-3 gap-2"
+          className={
+            compact
+              ? "flex w-full flex-col gap-1.5"
+              : "flex w-full gap-1 rounded-lg border border-sidebar-border bg-sidebar-accent/20 p-1"
+          }
           role="radiogroup"
           aria-labelledby="sidebar-language-label"
           aria-describedby="sidebar-language-hint"
@@ -300,10 +315,18 @@ export function SidebarProfile({ onNavigate, compact = false }: SidebarProfilePr
                 role="radio"
                 aria-checked={selected}
                 onClick={() => switchLocale(item)}
-                className={`flex min-h-11 flex-col items-center justify-center gap-1 rounded-lg border px-1.5 py-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background ${
-                  selected
-                    ? "border-primary/60 bg-primary/10 text-sidebar-foreground shadow-sm"
-                    : "border-sidebar-border bg-sidebar-accent/20 text-sidebar-foreground/80 hover:border-sidebar-foreground/25 hover:bg-sidebar-accent/40"
+                className={`flex items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background ${
+                  compact
+                    ? `h-9 w-full rounded-lg border ${
+                        selected
+                          ? "border-primary/60 bg-primary/10 text-sidebar-foreground shadow-sm"
+                          : "border-sidebar-border bg-sidebar-accent/20 text-sidebar-foreground/80 hover:border-sidebar-foreground/25 hover:bg-sidebar-accent/40"
+                      }`
+                    : `min-h-9 flex-1 gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium ${
+                        selected
+                          ? "bg-primary/15 text-sidebar-foreground shadow-sm ring-1 ring-primary/50"
+                          : "text-sidebar-foreground/80 hover:bg-sidebar-accent/40 hover:text-sidebar-foreground"
+                      }`
                 }`}
                 title={t(`languageNames.${item}`)}
                 aria-label={t(`languageNames.${item}`)}
@@ -311,14 +334,16 @@ export function SidebarProfile({ onNavigate, compact = false }: SidebarProfilePr
                 <img
                   src={`/flags/${LOCALE_FLAG_MAP[item].code}.svg`}
                   alt=""
-                  width={22}
-                  height={16}
-                  className={`h-4 w-[22px] shrink-0 rounded-sm object-cover ${
+                  width={20}
+                  height={15}
+                  className={`h-3.5 w-5 shrink-0 rounded-sm object-cover ${
                     selected ? "" : "opacity-80"
                   }`}
                   aria-hidden
                 />
-                <span className="leading-none tracking-tight">{t(`languages.${item}`)}</span>
+                {!compact ? (
+                  <span className="leading-none tracking-tight">{t(`languages.${item}`)}</span>
+                ) : null}
               </button>
             );
           })}

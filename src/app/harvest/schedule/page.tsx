@@ -129,7 +129,7 @@ export default function HarvestSchedulePage() {
   );
 
   const multiSelectBaseClass =
-    "h-9 w-auto shrink-0 min-w-[120px] max-w-[160px] rounded-md border border-input text-sm text-foreground hover:bg-btnhover/40";
+    "h-9 w-auto shrink-0 min-w-[120px] max-w-[160px] rounded-md border border-input text-sm hover:bg-btnhover/40";
 
   const scheduleToolbarFilters = (
     <>
@@ -138,6 +138,7 @@ export default function HarvestSchedulePage() {
         values={selectedFarmIds}
         onChange={setSelectedFarmIds}
         placeholder={tHarvest("allFarms")}
+        showAllOption
         className={cn(multiSelectBaseClass, bgSurfaceFilter(selectedFarmIds.length > 0))}
         rightIcon={filterTriggerIcon}
       />
@@ -146,6 +147,7 @@ export default function HarvestSchedulePage() {
         values={grassFilterIds}
         onChange={setGrassFilterIds}
         placeholder={t("allGrasses")}
+        showAllOption
         className={cn(multiSelectBaseClass, bgSurfaceFilter(grassFilterIds.length > 0))}
         rightIcon={filterTriggerIcon}
       />

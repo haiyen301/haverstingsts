@@ -244,7 +244,7 @@ export function HarvestScheduleDayEntryChip({
       <div
         ref={anchorRef}
         className={cn(
-          "sts-hsc-entry-chip sts-hsc-entry-chip--compact w-full min-w-0 rounded border border-border/60 bg-card text-left",
+          "sts-hsc-entry-chip sts-hsc-entry-chip--compact w-full min-w-0 bg-card text-left",
           open && "sts-hsc-entry-chip--tooltip-open",
         )}
         onMouseEnter={show}

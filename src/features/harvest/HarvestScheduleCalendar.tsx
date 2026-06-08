@@ -129,7 +129,7 @@ export const HarvestScheduleCalendar = memo(function HarvestScheduleCalendar({
             />
           </div>
 
-          <button
+          {/* <button
             type="button"
             onClick={goToToday}
             disabled={navigationDisabled}
@@ -137,7 +137,7 @@ export const HarvestScheduleCalendar = memo(function HarvestScheduleCalendar({
             aria-disabled={navigationDisabled}
           >
             {t("calendarToday")}
-          </button>
+          </button> */}
 
           <h2 className="sts-hsc-toolbar-month-title min-w-0 truncate font-heading text-sm font-bold capitalize text-foreground lg:text-lg">
             {monthTitle}

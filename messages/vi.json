@@ -58,6 +58,7 @@
     "alertSettings": "Cảnh báo (cấu hình)",
     "adminProjects": "Dự án",
     "adminArchitects": "Kiến trúc sư",
+    "adminFarms": "Nông trại",
     "adminZoneSetup": "Thiết lập khu vực",
     "adminZoneConfiguration": "Cấu hình khu vực",
     "adminRegrowthRules": "Quy tắc tái sinh",
@@ -147,6 +148,7 @@
       "zones_api": "Vùng (Zones)",
       "zone_configurations_api": "Cấu hình vùng",
       "grasses_api": "Loại cỏ",
+      "farms_api": "Nông trại",
       "keyareas_api": "Khu vực trọng điểm",
       "project_paces_api": "Nhịp độ dự án",
       "countries_api": "Quốc gia",
@@ -483,7 +485,7 @@
     "title": "Dự án",
     "newProject": "Dự án mới",
     "importExcel": "Nhập Excel",
-    "searchPlaceholder": "Tìm theo tên dự án, loại cỏ, quốc gia,...",
+    "searchPlaceholder": "Tìm theo tên dự án, sân golf, công ty, loại cỏ,...",
     "allCountries": "Tất cả quốc gia",
     "allProjects": "Tất cả dự án",
     "allProjectsCount": "Tất cả dự án ({count})",
@@ -940,6 +942,7 @@
     "filter": "Lọc",
     "allGrassTypes": "Tất cả loại cỏ",
     "allStatuses": "Mọi trạng thái",
+    "allLoadTypes": "Tất cả loại tải",
     "filterHarvestStatus": "Trạng thái",
     "harvestStatus_planned": "Kế hoạch",
     "harvestStatus_scheduled": "Đã lên lịch",
@@ -1487,6 +1490,38 @@
       "nameRequired": "Tên là bắt buộc."
     }
   },
+  "AdminFarms": {
+    "title": "Nông trại",
+    "loading": "Đang tải…",
+    "search": "Tìm kiếm",
+    "add": "Thêm nông trại",
+    "edit": "Sửa nông trại",
+    "save": "Lưu",
+    "saving": "Đang lưu…",
+    "cancel": "Hủy",
+    "empty": "Không có nông trại nào.",
+    "table": {
+      "id": "ID",
+      "farm": "Nông trại",
+      "country": "Tên quốc gia",
+      "actions": "Thao tác"
+    },
+    "form": {
+      "name": "Nông trại *",
+      "country": "Quốc gia *",
+      "countryPlaceholder": "— Chọn quốc gia —",
+      "address": "Địa chỉ",
+      "hotline": "Hotline"
+    },
+    "errors": {
+      "nameRequired": "Tên nông trại là bắt buộc.",
+      "countryRequired": "Quốc gia là bắt buộc.",
+      "load": "Không thể tải danh sách nông trại.",
+      "save": "Không thể lưu.",
+      "delete": "Không thể xóa."
+    },
+    "deleteConfirm": "Xóa nông trại này? Dữ liệu khu vực và thu hoạch liên quan có thể bị ảnh hưởng."
+  },
   "AdminGrasses": {
     "title": "Loại cỏ",
     "description": "Định nghĩa sản phẩm cỏ trên STSPortal (`sts_grasses`): mô tả và khoảng Từ ngày / Đến ngày (ngày cuối còn bán; sau ngày Đến thì coi như ngừng bán).",
@@ -1969,6 +2004,7 @@
       "admin_people": "Admin — Nhân sự",
       "admin_project_types": "Admin — Loại dự án",
       "admin_architects": "Admin — Kiến trúc sư",
+      "admin_farms": "Admin — Nông trại",
       "admin_zones": "Admin — Cấu hình khu vực",
       "admin_regrowth": "Admin — Tái sinh",
       "admin_grasses": "Admin — Loại cỏ",

@@ -98,12 +98,17 @@ import { cn } from "@/lib/utils";
 import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
 import { normalizeAppNavigationHref } from "@/shared/lib/appNavigationHref";
 import { DatePicker } from "@/shared/ui/date-picker";
+import { MultiSelect } from "@/shared/ui/multi-select";
 import {
-  compareProjectDetailHarvestHistory,
+  buildProjectDetailHarvestExportRows,
   deriveProjectHarvestStatusFromRecord,
+  filterProjectDetailHarvestHistoryRows,
+  hasActiveProjectDetailHarvestHistoryFilters,
+  normalizeProjectDetailHarvestDateFilter,
   PROJECT_DETAIL_HARVEST_HISTORY_ORDER_MODE,
   projectHarvestDisplayDateFromRecord,
   projectHarvestLineStatusLabel,
+  type HarvestPhaseFilter,
 } from "@/features/project/lib/projectHarvestPlanExport";
 import { ProjectDetailHarvestExportDialog } from "@/features/project/ui/ProjectDetailHarvestExportDialog";
 import { Swiper, SwiperSlide } from "swiper/react";
@@ -288,19 +293,6 @@ type GrassRow = {
 /** Project detail harvest list: scheduled → harvested → delivered only. */
 type HarvestLineStatus = "scheduled" | "harvested" | "delivered";
 
-type HarvestPhaseFilter = "all" | "upcoming" | "completed";
-
-function harvestMatchesPhaseFilter(
-  status: HarvestLineStatus,
-  phase: HarvestPhaseFilter,
-): boolean {
-  if (phase === "all") return true;
-  if (phase === "upcoming") {
-    return status === "scheduled" || status === "harvested";
-  }
-  return status === "delivered";
-}
-
 const HARVEST_STATUS_ROW_CLASSES: Record<HarvestLineStatus, string> = {
   scheduled: "text-accent",
   harvested: "text-info",
@@ -324,7 +316,7 @@ const HARVEST_TABLE_COLUMN_HEAD_CLASS =
   "bg-muted py-2.5 font-medium text-muted-foreground";
 
 const HARVEST_TABLE_CLASS =
-  "w-full min-w-[900px] table-fixed border-separate border-spacing-0 text-sm";
+  "w-full min-w-[980px] table-fixed border-separate border-spacing-0 text-sm";
 
 const HARVEST_TABLE_CELL_CLASS = "px-3 py-2.5";
 
@@ -333,11 +325,12 @@ function HarvestHistoryTableColGroup() {
     <colgroup>
       <col className="w-[10%]" />
       <col className="w-[14%]" />
-      <col className="w-[12%]" />
+      <col className="w-[11%]" />
       <col className="w-[10%]" />
-      <col className="w-[12%]" />
+      <col className="w-[11%]" />
+      <col className="w-[9%]" />
       <col className="w-[10%]" />
-      <col className="w-[14%]" />
+      <col className="w-[9%]" />
       <col className="w-[8%]" />
     </colgroup>
   );
@@ -645,14 +638,6 @@ function safeProjectsListHref(raw: string | null | undefined): string {
   return normalizeAppNavigationHref(s);
 }
 
-function normalizeDateFilterInput(v: string): string {
-  const s = v.trim().replace(/\//g, "-");
-  if (!s) return "";
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
-  if (!m) return "";
-  return `${m[1]}-${m[2]}-${m[3]}`;
-}
-
 function harvestLimitLabel(status: HarvestRow["limitStatus"]): string {
   if (status === "limit") return "Limit";
   if (status === "overLimit") return "Over limit";
@@ -832,6 +817,9 @@ export default function ProjectDetailPage() {
   const [harvestStatusFilter, setHarvestStatusFilter] = useState<"" | HarvestLineStatus>(
     "",
   );
+  const [harvestLoadTypeFilter, setHarvestLoadTypeFilter] = useState<
+    HarvestTypeStorageKey[]
+  >([]);
   const [harvestPhaseFilter, setHarvestPhaseFilter] =
     useState<HarvestPhaseFilter>("all");
   const [harvestDateFrom, setHarvestDateFrom] = useState("");
@@ -1277,37 +1265,52 @@ export default function ProjectDetailPage() {
     ).sort((a, b) => a.localeCompare(b));
   }, [harvestsWithProductNames]);
 
-  const hasActiveHarvestFilters = Boolean(
-    harvestGrassFilter.trim() ||
-      harvestStatusFilter ||
-      harvestPhaseFilter !== "all" ||
-      normalizeDateFilterInput(harvestDateFrom) ||
-      normalizeDateFilterInput(harvestDateTo),
+  const harvestLoadTypeOptions = useMemo(() => {
+    const order: HarvestTypeStorageKey[] = ["sod", "sprig", "sod_to_sprig"];
+    const present = new Set<HarvestTypeStorageKey>();
+    for (const h of harvestsWithProductNames) {
+      if (h.harvestTypeKey) present.add(h.harvestTypeKey);
+    }
+    return order
+      .filter((key) => present.has(key))
+      .map((key) => ({
+        value: key,
+        label: harvestTypeDisplayLabel(key),
+      }));
+  }, [harvestsWithProductNames]);
+
+  const harvestHistoryClientFilter = useMemo(
+    () => ({
+      grass: harvestGrassFilter,
+      status: harvestStatusFilter,
+      loadTypes: harvestLoadTypeFilter,
+      phase: harvestPhaseFilter,
+      dateFrom: harvestDateFrom,
+      dateTo: harvestDateTo,
+    }),
+    [
+      harvestDateFrom,
+      harvestDateTo,
+      harvestGrassFilter,
+      harvestLoadTypeFilter,
+      harvestPhaseFilter,
+      harvestStatusFilter,
+    ],
   );
 
-  const filteredHarvests = useMemo(() => {
-    const fromIso = normalizeDateFilterInput(harvestDateFrom);
-    const toIso = normalizeDateFilterInput(harvestDateTo);
-    const filtered = harvestsWithProductNames.filter((h) => {
-      if (harvestGrassFilter && h.grass !== harvestGrassFilter) return false;
-      if (harvestStatusFilter && h.status !== harvestStatusFilter) return false;
-      if (!harvestMatchesPhaseFilter(h.status, harvestPhaseFilter)) return false;
-      if (fromIso && h.filterDate && h.filterDate < fromIso) return false;
-      if (toIso && h.filterDate && h.filterDate > toIso) return false;
-      if ((fromIso || toIso) && !h.filterDate) return false;
-      return true;
-    });
-    if (!hasActiveHarvestFilters) return filtered;
-    return [...filtered].sort(compareProjectDetailHarvestHistory);
-  }, [
-    harvestDateFrom,
-    harvestDateTo,
-    harvestGrassFilter,
-    harvestPhaseFilter,
-    harvestStatusFilter,
-    harvestsWithProductNames,
-    hasActiveHarvestFilters,
-  ]);
+  const hasActiveHarvestFilters = useMemo(
+    () => hasActiveProjectDetailHarvestHistoryFilters(harvestHistoryClientFilter),
+    [harvestHistoryClientFilter],
+  );
+
+  const filteredHarvests = useMemo(
+    () =>
+      filterProjectDetailHarvestHistoryRows(
+        harvestsWithProductNames,
+        harvestHistoryClientFilter,
+      ),
+    [harvestHistoryClientFilter, harvestsWithProductNames],
+  );
 
   const harvestExportResolveContext = useMemo(
     () => ({
@@ -1332,48 +1335,17 @@ export default function ProjectDetailPage() {
   );
 
   const harvestRowsForExport = useMemo(() => {
-    if (!harvestSource) return [];
-    const filteredIds = new Set(
-      filteredHarvests.map((h) => String(h.id ?? "").trim()).filter(Boolean),
+    if (!harvestSource || filteredHarvests.length === 0) return [];
+    return buildProjectDetailHarvestExportRows(
+      filteredHarvests,
+      harvestSource.planRows,
+      {
+        projectId: harvestSource.projectId,
+        visibilityCtx: harvestVisibilityCtx,
+        displayMode: PROJECT_DETAIL_HARVEST_HISTORY_DISPLAY_MODE,
+        statusLabel: (status) => projectHarvestLineStatusLabel(t, status),
+      },
     );
-    if (filteredIds.size === 0) return [];
-    const orderIndex = new Map(
-      filteredHarvests.map((h, i) => [String(h.id ?? "").trim(), i]),
-    );
-    const exportFieldsById = new Map(
-      filteredHarvests.map((h) => {
-        const id = String(h.id ?? "").trim();
-        const d = String(h.date ?? "").trim();
-        return [
-          id,
-          {
-            date: d && d !== "-" ? d : "",
-            status: projectHarvestLineStatusLabel(t, h.status),
-          },
-        ] as const;
-      }),
-    );
-    return filterHarvestHistoryForProjectDetail(
-      harvestPlanRowsForProject(harvestSource.planRows, harvestSource.projectId),
-      harvestVisibilityCtx,
-      PROJECT_DETAIL_HARVEST_HISTORY_DISPLAY_MODE,
-    )
-      .filter((r) => filteredIds.has(String(r.id ?? "").trim()))
-      .sort(
-        (a, b) =>
-          (orderIndex.get(String(a.id ?? "").trim()) ?? 0) -
-          (orderIndex.get(String(b.id ?? "").trim()) ?? 0),
-      )
-      .map((r) => {
-        const id = String(r.id ?? "").trim();
-        const fields = exportFieldsById.get(id);
-        if (!fields) return r;
-        return {
-          ...r,
-          ...(fields.date ? { date: fields.date } : {}),
-          status_label: fields.status,
-        };
-      });
   }, [
     filteredHarvests,
     harvestSource,
@@ -1685,7 +1657,7 @@ export default function ProjectDetailPage() {
                     </h2>
                     <p className="mt-1.5 text-sm text-muted-foreground">
                       {t("harvestHistoryRecordCount", {
-                        count: harvests.length,
+                        count: filteredHarvests.length,
                       })}
                     </p>
                   </div>
@@ -1694,7 +1666,7 @@ export default function ProjectDetailPage() {
                       <button
                         type="button"
                         onClick={() => setHarvestExportOpen(true)}
-                        disabled={harvestRowsForExport.length === 0}
+                        disabled={filteredHarvests.length === 0}
                         className="inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-border bg-background px-3 text-sm font-medium text-foreground ring-offset-background transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0"
                         aria-label={t("exportExcel")}
                       >
@@ -1732,12 +1704,13 @@ export default function ProjectDetailPage() {
                         onClick={() => {
                           setHarvestGrassFilter("");
                           setHarvestStatusFilter("");
+                          setHarvestLoadTypeFilter([]);
                           setHarvestPhaseFilter("all");
                           setHarvestDateFrom("");
                           setHarvestDateTo("");
                         }}
                         className={cn(
-                          "inline-flex items-center rounded-md border border-border px-3 py-2 text-sm text-foreground hover:bg-muted",
+                          "inline-flex items-center rounded-md border border-border px-3 py-2 text-sm hover:bg-muted",
                           bgSurfaceFilter(true),
                         )}
                       >
@@ -1745,12 +1718,12 @@ export default function ProjectDetailPage() {
                       </button>
                     </div>
                   ) : null}
-                  <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
                       <select
                         value={harvestGrassFilter}
                         onChange={(e) => setHarvestGrassFilter(e.target.value)}
                         className={cn(
-                          "w-full rounded-md border border-input px-3 py-2 text-sm text-foreground",
+                          "w-full rounded-md border border-input px-3 py-2 text-sm",
                           bgSurfaceFilter(!!harvestGrassFilter.trim()),
                         )}
                         aria-label={t("grass")}
@@ -1768,7 +1741,7 @@ export default function ProjectDetailPage() {
                           setHarvestStatusFilter(e.target.value as "" | HarvestLineStatus)
                         }
                         className={cn(
-                          "w-full rounded-md border border-input px-3 py-2 text-sm text-foreground",
+                          "w-full rounded-md border border-input px-3 py-2 text-sm",
                           bgSurfaceFilter(Boolean(harvestStatusFilter)),
                         )}
                         aria-label={t("filterHarvestStatus")}
@@ -1778,14 +1751,28 @@ export default function ProjectDetailPage() {
                         <option value="harvested">{t("harvestStatus_harvested")}</option>
                         <option value="delivered">{t("harvestStatus_delivered")}</option>
                       </select>
+                      <MultiSelect
+                        options={harvestLoadTypeOptions}
+                        values={harvestLoadTypeFilter}
+                        onChange={(next) =>
+                          setHarvestLoadTypeFilter(next as HarvestTypeStorageKey[])
+                        }
+                        placeholder={t("allLoadTypes")}
+                        showAllOption
+                        selectionSummary="compact"
+                        className={cn(
+                          "h-[42px] w-full rounded-md border border-input text-sm",
+                          bgSurfaceFilter(harvestLoadTypeFilter.length > 0),
+                        )}
+                      />
                       <DatePicker
-                        value={normalizeDateFilterInput(harvestDateFrom)}
+                        value={normalizeProjectDetailHarvestDateFilter(harvestDateFrom)}
                         onChange={setHarvestDateFrom}
                         placeholder={t("fromDate")}
                         className="h-[42px]"
                       />
                       <DatePicker
-                        value={normalizeDateFilterInput(harvestDateTo)}
+                        value={normalizeProjectDetailHarvestDateFilter(harvestDateTo)}
                         onChange={setHarvestDateTo}
                         placeholder={t("toDate")}
                         className="h-[42px]"
@@ -1803,14 +1790,11 @@ export default function ProjectDetailPage() {
                     <>
                       <div className={HARVEST_TABLE_STICKY_CHROME_CLASS}>
                         <div
-                          className={cn(
-                            "flex justify-start px-6 py-2",
-                            bgSurfaceFilter(harvestPhaseFilter !== "all"),
-                          )}
+                          className="flex justify-start px-6 py-2"
                           role="tablist"
                           aria-label={t("harvestPhaseFilter")}
                         >
-                          <div className="inline-flex rounded-lg border border-border p-0.5">
+                          <div className="inline-flex rounded-lg border border-border bg-muted/30 p-0.5">
                             {HARVEST_PHASE_FILTER_OPTIONS.map((phase) => {
                               const active = harvestPhaseFilter === phase;
                               return (
@@ -1823,8 +1807,8 @@ export default function ProjectDetailPage() {
                                   className={cn(
                                     "rounded-md px-4 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors",
                                     active
-                                      ? "bg-primary text-primary-foreground shadow-sm"
-                                      : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                                      ? "bg-background text-foreground shadow-sm"
+                                      : "text-muted-foreground hover:text-foreground",
                                   )}
                                 >
                                   {harvestPhaseFilterLabel(t, phase)}
@@ -1909,6 +1893,14 @@ export default function ProjectDetailPage() {
                                   className={cn(
                                     HARVEST_TABLE_COLUMN_HEAD_CLASS,
                                     HARVEST_TABLE_CELL_CLASS,
+                                  )}
+                                >
+                                  {t("loadType")}
+                                </th>
+                                <th
+                                  className={cn(
+                                    HARVEST_TABLE_COLUMN_HEAD_CLASS,
+                                    HARVEST_TABLE_CELL_CLASS,
                                     "text-right",
                                   )}
                                 >
@@ -1979,18 +1971,18 @@ export default function ProjectDetailPage() {
                                   {areaDisplay}
                                 </td>
                                 <td className={HARVEST_TABLE_CELL_CLASS}>
-                                  <div className="flex flex-wrap items-center gap-1.5">
-                                    <span
-                                      className={`inline-flex items-center gap-1 text-xs font-medium ${HARVEST_STATUS_ROW_CLASSES[h.status] ?? "text-muted-foreground"}`}
-                                    >
-                                      <StatusIcon className="h-3.5 w-3.5" />
-                                      {projectHarvestLineStatusLabel(t, h.status)}
-                                    </span>
-                                    <HarvestHistoryLoadTypeBadge
-                                      label={h.harvestTypeLabel}
-                                      storageKey={h.harvestTypeKey}
-                                    />
-                                  </div>
+                                  <span
+                                    className={`inline-flex items-center gap-1 text-xs font-medium ${HARVEST_STATUS_ROW_CLASSES[h.status] ?? "text-muted-foreground"}`}
+                                  >
+                                    <StatusIcon className="h-3.5 w-3.5" />
+                                    {projectHarvestLineStatusLabel(t, h.status)}
+                                  </span>
+                                </td>
+                                <td className={HARVEST_TABLE_CELL_CLASS}>
+                                  <HarvestHistoryLoadTypeBadge
+                                    label={h.harvestTypeLabel}
+                                    storageKey={h.harvestTypeKey}
+                                  />
                                 </td>
                                 <td className={cn(HARVEST_TABLE_CELL_CLASS, "text-right")}>
                                   <div className="flex items-center justify-end gap-1">

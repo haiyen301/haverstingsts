@@ -58,6 +58,7 @@
     "alertSettings": "Alert settings",
     "adminProjects": "Projects",
     "adminArchitects": "Architects",
+    "adminFarms": "Farms",
     "adminZoneSetup": "Zone Setup",
     "adminZoneConfiguration": "Zone Configuration",
     "adminRegrowthRules": "Regrowth Rules",
@@ -147,6 +148,7 @@
       "zones_api": "Zones",
       "zone_configurations_api": "Zone configurations",
       "grasses_api": "Grasses",
+      "farms_api": "Farms",
       "keyareas_api": "Key areas",
       "project_paces_api": "Project pace",
       "countries_api": "Countries",
@@ -483,7 +485,7 @@
     "title": "Projects",
     "newProject": "New Project",
     "importExcel": "Import Excel",
-    "searchPlaceholder": "Searching name of project, grass, country,...",
+    "searchPlaceholder": "Search by project name, golf club, company, grass,...",
     "allCountries": "All countries",
     "allProjects": "All projects",
     "allProjectsCount": "All projects ({count})",
@@ -944,6 +946,7 @@
     "filter": "Filter",
     "allGrassTypes": "All grass types",
     "allStatuses": "All statuses",
+    "allLoadTypes": "All load types",
     "filterHarvestStatus": "Status",
     "harvestStatus_planned": "Planned",
     "harvestStatus_scheduled": "Scheduled",
@@ -1488,6 +1491,38 @@
       "nameRequired": "Name is required."
     }
   },
+  "AdminFarms": {
+    "title": "Farms",
+    "loading": "Loading…",
+    "search": "Search",
+    "add": "Add farm",
+    "edit": "Edit farm",
+    "save": "Save",
+    "saving": "Saving…",
+    "cancel": "Cancel",
+    "empty": "No farms found.",
+    "table": {
+      "id": "ID",
+      "farm": "Farm",
+      "country": "Country name",
+      "actions": "Actions"
+    },
+    "form": {
+      "name": "Farm *",
+      "country": "Country *",
+      "countryPlaceholder": "— Select country —",
+      "address": "Address",
+      "hotline": "Hotline"
+    },
+    "errors": {
+      "nameRequired": "Farm name is required.",
+      "countryRequired": "Country is required.",
+      "load": "Could not load farms.",
+      "save": "Could not save.",
+      "delete": "Could not delete."
+    },
+    "deleteConfirm": "Remove this farm? Linked zones and harvest data may be affected."
+  },
   "AdminGrasses": {
     "title": "Grass types",
     "description": "Define turf products in STSPortal (`sts_grasses`): notes and optional `sales_from` / `sales_to` (UI: Sales From / Sales To; last day you still sell; after `sales_to`, treat as discontinued).",
@@ -1970,6 +2005,7 @@
       "admin_people": "Admin — People",
       "admin_project_types": "Admin — Project Types",
       "admin_architects": "Admin — Architects",
+      "admin_farms": "Admin — Farms",
       "admin_zones": "Admin — Zones",
       "admin_regrowth": "Admin — Regrowth",
       "admin_grasses": "Admin — Grass types",
