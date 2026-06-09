@@ -17,6 +17,8 @@ type DateRangePickerInlinePanelProps = {
   onCancel: () => void;
   applyLabel: string;
   cancelLabel: string;
+  clearLabel?: string;
+  onClear?: () => void;
   selectingEndHint: string;
   className?: string;
   /** Strip outer chrome when nested inside another popover/card. */
@@ -78,6 +80,8 @@ export function DateRangePickerInlinePanel({
   onCancel,
   applyLabel,
   cancelLabel,
+  clearLabel,
+  onClear,
   selectingEndHint: _selectingEndHint,
   className,
   embedded = false,
@@ -155,6 +159,11 @@ export function DateRangePickerInlinePanel({
 
   const rangeInputs = formatRangeInput(draftRange);
   const canApply = Boolean(draftRange?.from && draftRange?.to);
+  const showClear = Boolean(
+    onClear &&
+      clearLabel &&
+      (draftRange?.from || draftRange?.to || value?.from || value?.to),
+  );
 
   const compactCalendarClassNames = compact
     ? {
@@ -256,6 +265,15 @@ export function DateRangePickerInlinePanel({
           </span>
         </div>
         <div className="flex shrink-0 items-center justify-end gap-2 sm:justify-start">
+          {showClear ? (
+            <button
+              type="button"
+              onClick={onClear}
+              className="inline-flex h-9 items-center justify-center rounded-md border border-input bg-background px-3 text-sm font-medium text-foreground hover:bg-muted/60 sm:px-4"
+            >
+              {clearLabel}
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={onCancel}

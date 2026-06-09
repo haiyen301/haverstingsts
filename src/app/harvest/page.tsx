@@ -11,6 +11,7 @@ import {
   AlignLeft,
   ArrowDown,
   Upload,
+  Download,
   Filter,
   CheckCircle2,
   Clock,
@@ -19,6 +20,7 @@ import {
   CalendarDays,
   List,
 } from "lucide-react";
+import { useLocale } from "next-intl";
 
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 import RequireAuth from "@/features/auth/RequireAuth";
@@ -43,11 +45,23 @@ import {
 } from "@/shared/lib/tableSort";
 import { cn } from "@/lib/utils";
 import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
+import {
+  DashboardKpiDateFilter,
+  KPI_DATE_PRESET_HARVEST,
+} from "@/features/dashboard/DashboardKpiDateFilter";
 import { HarvestListCalendarPanel } from "@/features/harvest/HarvestListCalendarPanel";
+import { HarvestListExportDialog } from "@/features/harvest/ui/HarvestListExportDialog";
+import type { HarvestListExportFilter } from "@/features/harvest/lib/harvestListExport";
 import { stashHarvestDuplicateFromApiRow } from "@/features/harvesting/lib/harvestDuplicateDraft";
 import { useGrassFilterByFarm } from "@/shared/hooks/useGrassFilterByFarm";
+import {
+  type KpiDatePreset,
+  type KpiDeliveryDateFilter,
+  kpiDateRangeFromFilter,
+} from "@/shared/lib/dashboardKpiProjectFilters";
 
 const PER_PAGE = 30;
+const HARVEST_DATE_FILTER_BASELINE: KpiDatePreset = "all";
 
 type HarvestListViewMode = "list" | "calendar";
 
@@ -218,12 +232,21 @@ function pickHarvestDisplayDate(r: Record<string, unknown>): string {
   return "";
 }
 
+function formatHarvestListDisplayDate(iso: string): string {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
 export type HarvestListRow = {
   id: string;
-  customer: string;
   estimatedDate: string;
   actualDate: string;
   deliveryDate: string;
+  portArrivalDate: string;
   date: string;
   projectId: string;
   project: string;
@@ -341,9 +364,6 @@ function HarvestListDesktopTableRow({
           />
         </span>
       </td>
-      <td className="relative z-0 hidden px-4 py-3 text-xs text-muted-foreground xl:table-cell">
-        <div className="harvest-row-content">{harvest.customer || "—"}</div>
-      </td>
       <td className="relative z-0 px-4 py-3 text-xs font-medium text-foreground">
         <div className="harvest-row-content text-left">
           {harvest.project ? harvest.project : "—"}
@@ -400,13 +420,12 @@ function HarvestListDesktopTableRow({
       </td>
       <td className="relative z-0 hidden px-4 py-3 text-xs text-muted-foreground xl:table-cell">
         <div className="harvest-row-content">
-          {harvest.deliveryDate
-            ? new Date(harvest.deliveryDate).toLocaleDateString("en-US", {
-                month: "short",
-                day: "numeric",
-                year: "numeric",
-              })
-            : "—"}
+          {formatHarvestListDisplayDate(harvest.deliveryDate)}
+        </div>
+      </td>
+      <td className="relative z-0 hidden px-4 py-3 text-xs text-muted-foreground xl:table-cell">
+        <div className="harvest-row-content">
+          {formatHarvestListDisplayDate(harvest.portArrivalDate)}
         </div>
       </td>
       <td className="relative z-0 hidden px-4 py-3 font-mono text-xs text-muted-foreground xl:table-cell">
@@ -496,7 +515,6 @@ function normalizeHarvestRow(raw: unknown): HarvestListRow | null {
   const qtyUom = uom;
   return {
     id: String(id),
-    customer: String(r.customer_name ?? r.customer ?? ""),
     estimatedDate: isValidHarvestDateString(r.estimated_harvest_date)
       ? String(r.estimated_harvest_date).trim().slice(0, 10)
       : "",
@@ -505,6 +523,9 @@ function normalizeHarvestRow(raw: unknown): HarvestListRow | null {
       : "",
     deliveryDate: isValidHarvestDateString(r.delivery_harvest_date)
       ? String(r.delivery_harvest_date).trim().slice(0, 10)
+      : "",
+    portArrivalDate: isValidHarvestDateString(r.shipment_required_date)
+      ? String(r.shipment_required_date).trim().slice(0, 10)
       : "",
     date: dateStr,
     projectId: String(r.project_id ?? "").trim(),
@@ -526,9 +547,11 @@ export default function HarvestListPage() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const locale = useLocale();
   const t = useTranslations("Harvest");
   const user = useAuthUserStore((s) => s.user);
   const canCreateHarvest = canAccessModule(user, "harvests", "create");
+  const canExportHarvest = canAccessModule(user, "harvests", "export");
   const [duplicateError, setDuplicateError] = useState<string | null>(null);
   const canEditHarvest = canAccessModule(user, "harvests", "edit");
   const canDeleteHarvest = canAccessModule(user, "harvests", "delete");
@@ -542,6 +565,7 @@ export default function HarvestListPage() {
   );
   const farms = useHarvestingDataStore((s) => s.farms);
   const projects = useHarvestingDataStore((s) => s.projects);
+  const allProjects = useHarvestingDataStore((s) => s.allProjects);
   const grasses = useHarvestingDataStore((s) => s.grasses);
   const zoneConfigurations = useHarvestingDataStore((s) => s.zoneConfigurations);
   const farmZones = useHarvestingDataStore((s) => s.farmZones);
@@ -592,11 +616,23 @@ export default function HarvestListPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [totalRecords, setTotalRecords] = useState<number | null>(null);
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [deliveryHarvestFrom, setDeliveryHarvestFrom] = useState("");
-  const [deliveryHarvestTo, setDeliveryHarvestTo] = useState("");
+  const [harvestDateFilter, setHarvestDateFilter] = useState<KpiDeliveryDateFilter>({
+    preset: HARVEST_DATE_FILTER_BASELINE,
+  });
   const [urlReady, setUrlReady] = useState(false);
   const [viewMode, setViewMode] = useState<HarvestListViewMode>("list");
+  const [exportOpen, setExportOpen] = useState(false);
+  const resumeGoogleSheetExport =
+    (searchParams.get("googleSheetExport") ?? "").trim() === "resume";
+  const googleSheetExportError = (searchParams.get("googleSheetError") ?? "").trim();
   const searchParamsKey = searchParams.toString();
+  const deliveryHarvestRange = useMemo(
+    () => kpiDateRangeFromFilter(harvestDateFilter),
+    [harvestDateFilter],
+  );
+  const hasActiveDateFilter = harvestDateFilter.preset !== HARVEST_DATE_FILTER_BASELINE;
+  const deliveryHarvestFrom = hasActiveDateFilter ? deliveryHarvestRange.start : "";
+  const deliveryHarvestTo = hasActiveDateFilter ? deliveryHarvestRange.end : "";
 
   useLayoutEffect(() => {
     const parsed = new URLSearchParams(searchParamsKey);
@@ -611,8 +647,17 @@ export default function HarvestListPage() {
     setHarvestListGrassFilter(grass);
     setHarvestListProjectFilter(project);
     setHarvestListStatusFilter(status);
-    setDeliveryHarvestFrom(parseUrlDeliveryYmd(parsed.get("deliveryFrom")));
-    setDeliveryHarvestTo(parseUrlDeliveryYmd(parsed.get("deliveryTo")));
+    const deliveryFrom = parseUrlDeliveryYmd(parsed.get("deliveryFrom"));
+    const deliveryTo = parseUrlDeliveryYmd(parsed.get("deliveryTo"));
+    if (deliveryFrom && deliveryTo) {
+      setHarvestDateFilter({
+        preset: "custom",
+        customFrom: deliveryFrom,
+        customTo: deliveryTo,
+      });
+    } else {
+      setHarvestDateFilter({ preset: HARVEST_DATE_FILTER_BASELINE });
+    }
     setPage(p);
     setDebouncedSearch(q.trim());
     setUrlReady(true);
@@ -624,6 +669,54 @@ export default function HarvestListPage() {
     setHarvestListSearch,
     setHarvestListStatusFilter,
   ]);
+
+  const clearGoogleSheetExportQuery = useCallback(() => {
+    const params = new URLSearchParams(searchParamsKey);
+    params.delete("googleSheetExport");
+    params.delete("googleSheetError");
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  }, [pathname, router, searchParamsKey]);
+
+  useEffect(() => {
+    if (resumeGoogleSheetExport) {
+      setExportOpen(true);
+    }
+  }, [resumeGoogleSheetExport]);
+
+  const exportFilter = useMemo<HarvestListExportFilter>(
+    () => ({
+      search: debouncedSearch,
+      farmIds: harvestListFarmFilter,
+      grassIds: harvestListGrassFilter,
+      projectIds: harvestListProjectFilter,
+      statusValues: harvestListStatusFilter,
+      deliveryHarvestFrom,
+      deliveryHarvestTo,
+      userId,
+      farmUserMeta,
+    }),
+    [
+      debouncedSearch,
+      deliveryHarvestFrom,
+      deliveryHarvestTo,
+      farmUserMeta,
+      harvestListFarmFilter,
+      harvestListGrassFilter,
+      harvestListProjectFilter,
+      harvestListStatusFilter,
+      userId,
+    ],
+  );
+
+  const exportResolveContext = useMemo(
+    () => ({
+      projects: allProjects.length > 0 ? allProjects : projects,
+      grasses,
+      locale,
+    }),
+    [allProjects, grasses, locale, projects],
+  );
 
   const returnTo = useMemo(() => {
     const params = new URLSearchParams();
@@ -851,6 +944,10 @@ export default function HarvestListPage() {
       if (harvestListGrassFilter.trim())
         commonParams.product_id = harvestListGrassFilter.trim();
       if (harvestListProjectFilter) commonParams.project_id = harvestListProjectFilter;
+      if (deliveryHarvestFrom && deliveryHarvestTo) {
+        commonParams.delivery_harvest_date_from = deliveryHarvestFrom;
+        commonParams.delivery_harvest_date_to = deliveryHarvestTo;
+      }
 
       const responses = await Promise.all(
         PORTAL_STATUS_ORDER.map(async (status) => {
@@ -899,6 +996,8 @@ export default function HarvestListPage() {
     harvestListProjectFilter,
     userId,
     farmUserMeta,
+    deliveryHarvestFrom,
+    deliveryHarvestTo,
   ]);
 
   useEffect(() => {
@@ -1001,7 +1100,8 @@ export default function HarvestListPage() {
     harvestListFarmFilter.trim() !== "" ||
     harvestListGrassFilter.trim() !== "" ||
     harvestListProjectFilter.trim() !== "" ||
-    harvestListStatusFilter.trim() !== "";
+    harvestListStatusFilter.trim() !== "" ||
+    hasActiveDateFilter;
 
   const clearAllFilters = () => {
     setHarvestListSearch("");
@@ -1009,6 +1109,12 @@ export default function HarvestListPage() {
     setHarvestListGrassFilter("");
     setHarvestListProjectFilter("");
     setHarvestListStatusFilter("");
+    setHarvestDateFilter({ preset: HARVEST_DATE_FILTER_BASELINE });
+    setPage(1);
+  };
+
+  const handleHarvestDateFilterChange = (next: KpiDeliveryDateFilter) => {
+    setHarvestDateFilter(next);
     setPage(1);
   };
 
@@ -1016,6 +1122,16 @@ export default function HarvestListPage() {
     statusFilterValues.length === 1 && statusFilterValues[0] === value;
 
   const isCalendarView = viewMode === "calendar";
+
+  const filterTriggerIcon = (
+    <>
+      <AlignLeft className="h-3.5 w-3.5 shrink-0" />
+      <ArrowDown className="h-3.5 w-3.5 shrink-0" />
+    </>
+  );
+
+  const multiSelectBaseClass =
+    "shrink-0 min-w-[140px] max-w-[200px] rounded-md border border-input text-sm hover:bg-btnhover/40";
 
   return (
     <RequireAuth>
@@ -1056,6 +1172,16 @@ export default function HarvestListPage() {
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
+                {canExportHarvest ? (
+                  <button
+                    onClick={() => setExportOpen(true)}
+                    className="flex items-center justify-center gap-2 rounded-lg border border-border bg-card px-4 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted/80"
+                    type="button"
+                  >
+                    <Download className="h-4 w-4" />
+                    {t("exportData")}
+                  </button>
+                ) : null}
                 {canImportHarvest ? (
                   <button
                     onClick={() => router.push("/harvest/import")}
@@ -1082,6 +1208,10 @@ export default function HarvestListPage() {
                 ) : null}
               </div>
             </div>
+            ) : null}
+
+            {googleSheetExportError ? (
+              <p className="text-sm text-destructive">{googleSheetExportError}</p>
             ) : null}
 
             {!isCalendarView ? (
@@ -1179,9 +1309,9 @@ export default function HarvestListPage() {
                 isCalendarView ? "p-2 sm:p-2.5" : "p-4",
               )}
             >
-              <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-3 overflow-x-auto overscroll-x-contain pb-0.5 [scrollbar-width:thin]">
                 <Filter className="h-4 w-4 shrink-0 text-muted-foreground" />
-                <div className="relative w-full min-w-0 md:w-auto md:min-w-[280px] md:flex-1">
+                <div className="relative w-[min(100%,280px)] shrink-0 sm:w-[240px]">
                   <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <input
                     type="text"
@@ -1198,103 +1328,82 @@ export default function HarvestListPage() {
                     autoComplete="off"
                   />
                 </div>
-                <div className="flex w-full min-w-0 items-center gap-1 sm:w-auto">
-                  <MultiSelect
-                    options={farmOptions.map((f) => ({ value: f.id, label: f.label }))}
-                    values={farmFilterIds}
-                    onChange={handleFarmFilterChange}
-                    placeholder={t("allFarms")}
-                    showAllOption
-                    disabled={refLoading}
-                    className={cn(
-                      "rounded-md border border-input min-w-[180px]",
-                      bgSurfaceFilter(farmFilterIds.length > 0),
-                    )}
-                    rightIcon={
-                      <>
-                        <AlignLeft className="h-3.5 w-3.5" />
-                        <ArrowDown className="h-3.5 w-3.5" />
-                      </>
-                    }
-                  />
-                </div>
-                <div className="flex w-full min-w-0 items-center gap-1 sm:w-auto">
-                  <MultiSelect
-                    options={grassFilterOptions}
-                    values={grassSelectValues}
-                    onChange={handleGrassFilterChange}
-                    placeholder={t("allGrassTypes", {
-                      count: grassFilterOptions.length,
-                    })}
-                    showAllOption
-                    disabled={refLoading}
-                    className={cn(
-                      "rounded-md border border-input min-w-[220px]",
-                      bgSurfaceFilter(grassSelectValues.length > 0),
-                    )}
-                    rightIcon={
-                      <>
-                        <AlignLeft className="h-3.5 w-3.5" />
-                        <ArrowDown className="h-3.5 w-3.5" />
-                      </>
-                    }
-                  />
-                </div>
-                <div className="flex w-full min-w-0 items-center gap-1 sm:w-auto">
-                  <MultiSelect
-                    options={PORTAL_STATUS_ORDER.map((s) => ({
-                      value: s,
-                      label: harvestStatusDisplayLabel(s, t),
-                    }))}
-                    values={statusSelectValues}
-                    onChange={handleStatusSelectChange}
-                    disabled={PORTAL_STATUS_ORDER.length === 0}
-                    placeholder={t("allStatuses", {
-                      count: PORTAL_STATUS_ORDER.length,
-                    })}
-                    showAllOption
-                    className={cn(
-                      "rounded-md border border-input min-w-[220px]",
-                      bgSurfaceFilter(statusSelectValues.length > 0),
-                    )}
-                    rightIcon={
-                      <>
-                        <AlignLeft className="h-3.5 w-3.5" />
-                        <ArrowDown className="h-3.5 w-3.5" />
-                      </>
-                    }
-                  />
-                </div>
-                <div className="flex w-full min-w-0 items-center gap-1 sm:w-auto">
-                  <MultiSelect
-                    options={projectOptions.map((p) => ({
-                      value: p.id,
-                      label: p.label,
-                    }))}
-                    values={projectSelectValues}
-                    onChange={handleProjectSelectChange}
-                    disabled={refLoading || projectOptions.length === 0}
-                    placeholder={t("allProjectsCount", {
-                      count: projectOptions.length,
-                    })}
-                    showAllOption
-                    className={cn(
-                      "rounded-md border border-input min-w-[220px]",
-                      bgSurfaceFilter(projectSelectValues.length > 0),
-                    )}
-                    rightIcon={
-                      <>
-                        <AlignLeft className="h-3.5 w-3.5" />
-                        <ArrowDown className="h-3.5 w-3.5" />
-                      </>
-                    }
-                  />
-                </div>
+                <MultiSelect
+                  options={farmOptions.map((f) => ({ value: f.id, label: f.label }))}
+                  values={farmFilterIds}
+                  onChange={handleFarmFilterChange}
+                  placeholder={t("allFarms")}
+                  showAllOption
+                  disabled={refLoading}
+                  className={cn(multiSelectBaseClass, bgSurfaceFilter(farmFilterIds.length > 0))}
+                  rightIcon={filterTriggerIcon}
+                />
+                <MultiSelect
+                  options={grassFilterOptions}
+                  values={grassSelectValues}
+                  onChange={handleGrassFilterChange}
+                  placeholder={t("allGrassTypes", {
+                    count: grassFilterOptions.length,
+                  })}
+                  showAllOption
+                  disabled={refLoading}
+                  className={cn(
+                    multiSelectBaseClass,
+                    "min-w-[160px] max-w-[220px]",
+                    bgSurfaceFilter(grassSelectValues.length > 0),
+                  )}
+                  rightIcon={filterTriggerIcon}
+                />
+                <MultiSelect
+                  options={PORTAL_STATUS_ORDER.map((s) => ({
+                    value: s,
+                    label: harvestStatusDisplayLabel(s, t),
+                  }))}
+                  values={statusSelectValues}
+                  onChange={handleStatusSelectChange}
+                  disabled={PORTAL_STATUS_ORDER.length === 0}
+                  placeholder={t("allStatuses", {
+                    count: PORTAL_STATUS_ORDER.length,
+                  })}
+                  showAllOption
+                  className={cn(
+                    multiSelectBaseClass,
+                    "min-w-[160px] max-w-[220px]",
+                    bgSurfaceFilter(statusSelectValues.length > 0),
+                  )}
+                  rightIcon={filterTriggerIcon}
+                />
+                <MultiSelect
+                  options={projectOptions.map((p) => ({
+                    value: p.id,
+                    label: p.label,
+                  }))}
+                  values={projectSelectValues}
+                  onChange={handleProjectSelectChange}
+                  disabled={refLoading || projectOptions.length === 0}
+                  placeholder={t("allProjectsCount", {
+                    count: projectOptions.length,
+                  })}
+                  showAllOption
+                  className={cn(
+                    multiSelectBaseClass,
+                    "min-w-[160px] max-w-[220px]",
+                    bgSurfaceFilter(projectSelectValues.length > 0),
+                  )}
+                  rightIcon={filterTriggerIcon}
+                />
+                <DashboardKpiDateFilter
+                  value={harvestDateFilter}
+                  onChange={handleHarvestDateFilterChange}
+                  presets={KPI_DATE_PRESET_HARVEST}
+                  baselinePreset={HARVEST_DATE_FILTER_BASELINE}
+                  className="shrink-0"
+                />
                 {hasActiveFilters ? (
                   <button
                     type="button"
                     onClick={clearAllFilters}
-                    className="rounded-lg px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                    className="shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
                   >
                     {t("clearAll")}
                   </button>
@@ -1421,9 +1530,6 @@ export default function HarvestListPage() {
                           <th className="py-3 pl-4 pr-2 text-left text-xs font-medium text-muted-foreground">
                             {t("id")}
                           </th>
-                          <th className="hidden xl:table-cell px-4 py-3 text-left text-xs font-medium text-muted-foreground">
-                            {t("customer")}
-                          </th>
                           <SortableTh
                             label={t("project")}
                             columnKey="project"
@@ -1482,6 +1588,12 @@ export default function HarvestListPage() {
                           </th>
                           <th className="hidden xl:table-cell px-4 py-3 text-left text-xs font-medium text-muted-foreground">
                             {t("delivery")}
+                          </th>
+                          <th
+                            className="hidden xl:table-cell px-4 py-3 text-left text-xs font-medium text-muted-foreground"
+                            title={t("portArrivalTitle")}
+                          >
+                            {t("portArrivalShort")}
                           </th>
                           <th className="hidden xl:table-cell px-4 py-3 text-left text-xs font-medium text-muted-foreground">
                             {t("doSo")}
@@ -1628,6 +1740,16 @@ export default function HarvestListPage() {
             ) : null}
           </div>
         </div>
+        {canExportHarvest ? (
+          <HarvestListExportDialog
+            open={exportOpen}
+            onClose={() => setExportOpen(false)}
+            filter={exportFilter}
+            resolveContext={exportResolveContext}
+            resumeGoogleSheetExport={resumeGoogleSheetExport}
+            onResumeHandled={clearGoogleSheetExportQuery}
+          />
+        ) : null}
       </DashboardLayout>
     </RequireAuth>
   );

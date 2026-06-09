@@ -28,6 +28,8 @@ type DateRangeMobileSheetProps = {
   doneLabel: string;
   closeLabel: string;
   clearLabel: string;
+  /** When set, Clear resets the committed filter (e.g. back to “all”) instead of only clearing the draft. */
+  onClear?: () => void;
   selectingEndHint: string;
 };
 
@@ -48,6 +50,7 @@ export function DateRangeMobileSheet({
   doneLabel,
   closeLabel,
   clearLabel,
+  onClear,
   selectingEndHint,
 }: DateRangeMobileSheetProps) {
   const committedRange = useMemo(() => toLocalDateRange(value), [value?.from, value?.to]);
@@ -82,10 +85,16 @@ export function DateRangeMobileSheet({
 
   const awaitingEndDate = Boolean(draftRange?.from && !draftRange?.to);
   const canApply = Boolean(draftRange?.from && draftRange?.to);
-  const canClear = Boolean(draftRange?.from || draftRange?.to);
+  const canClearDraft = Boolean(draftRange?.from || draftRange?.to);
+  const canClearCommitted = Boolean(value?.from || value?.to);
+  const showClear = onClear ? canClearDraft || canClearCommitted : canClearDraft;
   const rangeHeader = formatRangeHeader(draftRange);
 
   const handleClear = () => {
+    if (onClear) {
+      onClear();
+      return;
+    }
     handleRangeChange(undefined);
   };
 
@@ -146,7 +155,7 @@ export function DateRangeMobileSheet({
           <button
             type="button"
             onClick={handleClear}
-            disabled={!canClear}
+            disabled={!showClear}
             className="inline-flex h-10 w-full items-center justify-center rounded-md border border-input bg-background text-sm font-medium text-foreground hover:bg-muted/60 disabled:pointer-events-none disabled:opacity-40"
           >
             {clearLabel}

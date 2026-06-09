@@ -4,6 +4,7 @@ import { parseSubitems } from "@/shared/lib/parseJsonMaybe";
 export type KpiDeliveryPeriod = "week" | "month" | "quarter";
 
 export type KpiDatePreset =
+  | "all"
   | "today"
   | "yesterday"
   | "lastWeek"
@@ -14,6 +15,17 @@ export type KpiDatePreset =
   | "nextMonth"
   | "nextQuarter"
   | "custom";
+
+/** Harvest list — optional “no delivery date filter” + dashboard presets. */
+export const KPI_DATE_PRESET_HARVEST: readonly KpiDatePreset[] = [
+  "all",
+  "today",
+  "yesterday",
+  "lastWeek",
+  "lastMonth",
+  "lastQuarter",
+  "custom",
+] as const;
 
 /** Dashboard KPI filter — default preset list (image: Today … Last quarter + Custom). */
 export const KPI_DATE_PRESET_DASHBOARD: readonly KpiDatePreset[] = [
@@ -163,6 +175,8 @@ export function kpiDateRangeFromFilter(filter: KpiDeliveryDateFilter): {
 } {
   const today = todayYmd();
   switch (filter.preset) {
+    case "all":
+      return { start: "", end: "" };
     case "today":
       return { start: today, end: today };
     case "yesterday": {

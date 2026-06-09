@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useTranslations } from "next-intl";
-import { AlignLeft, ArrowDown, FolderOpen, Loader2, Plus, Search, Upload } from "lucide-react";
+import { useTranslations, useLocale } from "next-intl";
+import { AlignLeft, ArrowDown, Download, FolderOpen, Loader2, Plus, Search, Upload } from "lucide-react";
 
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 import RequireAuth from "@/features/auth/RequireAuth";
@@ -31,6 +31,8 @@ import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
 import { useGrassFilterByFarm } from "@/shared/hooks/useGrassFilterByFarm";
 import { mapRowsToSelectOptions } from "@/shared/lib/harvestReferenceData";
 import { fetchKeyAreas, type KeyAreaRow } from "@/features/admin/api/adminApi";
+import { ProjectListExportDialog } from "@/features/project/ui/ProjectListExportDialog";
+import type { ProjectListExportFilter } from "@/features/project/lib/projectListExport";
 
 function parseCsvParam(v: string | null): string[] {
   return String(v ?? "")
@@ -267,6 +269,7 @@ function mergeMondayRowsUnique(
 
 export default function ProjectListPage() {
   const t = useTranslations("Projects");
+  const locale = useLocale();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -275,6 +278,9 @@ export default function ProjectListPage() {
   const canCreateProjects = canAccessModule(user, "projects", "create");
   const canEditProjects = canAccessModule(user, "projects", "edit");
   const canImportProjects = canAccessModule(user, "projects", "import");
+  const canExportProjects =
+    canAccessModule(user, "harvests", "export") ||
+    canAccessModule(user, "projects", "export");
   const searchParamsKey = searchParams.toString();
   const [urlReady, setUrlReady] = useState(false);
   const [search, setSearch] = useState(() => searchParams.get("q") ?? "");
@@ -303,6 +309,7 @@ export default function ProjectListPage() {
   const staffsRef = useHarvestingDataStore((s) => s.staffs);
   const productsRef = useHarvestingDataStore((s) => s.products);
   const grassesRef = useHarvestingDataStore((s) => s.grasses);
+  const farmZonesRef = useHarvestingDataStore((s) => s.farmZones);
   const zoneConfigurations = useHarvestingDataStore((s) => s.zoneConfigurations);
   const fetchAllHarvestingReferenceData = useHarvestingDataStore(
     (s) => s.fetchAllHarvestingReferenceData,
@@ -366,6 +373,10 @@ export default function ProjectListPage() {
   );
   const [manualReloadSeq, setManualReloadSeq] = useState(() => (refreshParam ? 1 : 0));
   const [keyAreaCatalogRows, setKeyAreaCatalogRows] = useState<KeyAreaRow[]>([]);
+  const [exportOpen, setExportOpen] = useState(false);
+  const resumeGoogleSheetExport =
+    (searchParams.get("googleSheetExport") ?? "").trim() === "resume";
+  const googleSheetExportError = (searchParams.get("googleSheetError") ?? "").trim();
   const pageLoadedRef = useRef(0);
   const loadMoreLockRef = useRef(false);
   const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
@@ -408,6 +419,20 @@ export default function ProjectListPage() {
     }, 400);
     return () => clearTimeout(handle);
   }, [search]);
+
+  useEffect(() => {
+    if (resumeGoogleSheetExport) {
+      setExportOpen(true);
+    }
+  }, [resumeGoogleSheetExport]);
+
+  const clearGoogleSheetExportQuery = useCallback(() => {
+    const params = new URLSearchParams(searchParamsKey);
+    params.delete("googleSheetExport");
+    params.delete("googleSheetError");
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  }, [pathname, router, searchParamsKey]);
 
   useEffect(() => {
     if (!urlReady) return;
@@ -816,6 +841,61 @@ export default function ProjectListPage() {
   const countHeaderLoading =
     (!referenceBootstrapDone && referenceLoading) || loading;
 
+  const exportFilter = useMemo<ProjectListExportFilter>(
+    () => ({
+      search: debouncedSearch,
+      countryIds: countryFilterIds,
+      farmIds: farmFilterIds,
+      grassIds: grassFilterIds,
+      projectIds: projectFilterIds,
+      statusValues: statusFilterValues,
+    }),
+    [
+      debouncedSearch,
+      countryFilterIds,
+      farmFilterIds,
+      grassFilterIds,
+      projectFilterIds,
+      statusFilterValues,
+    ],
+  );
+
+  const exportResolveContext = useMemo(
+    () => ({
+      projects: projectsRef,
+      products: productsRef,
+      farms: farmsRef,
+      farmZones: farmZonesRef,
+      countries: countriesRef,
+      staffs: staffsRef,
+      locale,
+      projectStatusLabel: (status: string) => {
+        switch (status) {
+          case "Ongoing":
+            return t("statusOngoing");
+          case "Future":
+            return t("statusFuture");
+          case "Done":
+            return t("statusDone");
+          case "Warning":
+            return t("statusWarning");
+          default:
+            return status;
+        }
+      },
+    }),
+    [
+      countriesRef,
+      farmZonesRef,
+      farmsRef,
+      locale,
+      productsRef,
+      projectsRef,
+      staffsRef,
+      t,
+    ],
+  );
+
   const filterTriggerIcon = (
     <>
       <AlignLeft className="h-3.5 w-3.5 shrink-0" />
@@ -848,6 +928,16 @@ export default function ProjectListPage() {
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              {canExportProjects ? (
+                <button
+                  onClick={() => setExportOpen(true)}
+                  className="bg-background inline-flex h-10 items-center justify-center gap-2 rounded-md border border-input px-4 text-sm font-medium text-foreground transition-colors hover:bg-muted/50"
+                  type="button"
+                >
+                  <Download className="h-4 w-4 shrink-0" />
+                  {t("exportData")}
+                </button>
+              ) : null}
               {canImportProjects ? (
                 <button
                   onClick={() => router.push("/projects/import")}
@@ -874,6 +964,10 @@ export default function ProjectListPage() {
               ) : null}
             </div>
           </div>
+
+          {googleSheetExportError ? (
+            <p className="text-sm text-destructive">{googleSheetExportError}</p>
+          ) : null}
 
           {/* Search & filters — inline row like Harvesting Portal */}
           <div className="flex flex-wrap items-center gap-3">
@@ -1014,6 +1108,17 @@ export default function ProjectListPage() {
             </div>
           )}
         </div>
+        {canExportProjects ? (
+          <ProjectListExportDialog
+            open={exportOpen}
+            onClose={() => setExportOpen(false)}
+            filter={exportFilter}
+            harvestPlanRows={harvestPlanRows}
+            resolveContext={exportResolveContext}
+            resumeGoogleSheetExport={resumeGoogleSheetExport}
+            onResumeHandled={clearGoogleSheetExportQuery}
+          />
+        ) : null}
       </DashboardLayout>
     </RequireAuth>
   );

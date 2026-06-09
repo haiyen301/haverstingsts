@@ -21,7 +21,11 @@ import { DateRangePickerInlinePanel, DateRangeMobileSheet } from "@/shared/ui/da
 import { useMediaQuery } from "@/shared/hooks/useMediaQuery";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
 
-export { KPI_DATE_PRESET_DASHBOARD, KPI_DATE_PRESET_SCHEDULE } from "@/shared/lib/dashboardKpiProjectFilters";
+export {
+  KPI_DATE_PRESET_DASHBOARD,
+  KPI_DATE_PRESET_HARVEST,
+  KPI_DATE_PRESET_SCHEDULE,
+} from "@/shared/lib/dashboardKpiProjectFilters";
 
 function formatCustomRangeLabel(from?: string, to?: string): string {
   const fmt = (ymd: string) => {
@@ -82,6 +86,8 @@ export function DashboardKpiDateFilter({
 
   const presetLabel = (preset: KpiDatePreset): string => {
     switch (preset) {
+      case "all":
+        return t("Dashboard.dateRangeLabel");
       case "today":
         return t("Dashboard.datePresetToday");
       case "yesterday":
@@ -233,6 +239,14 @@ export function DashboardKpiDateFilter({
     setOpen(false);
   };
 
+  const handleCustomClear = () => {
+    onChange({ preset: resolvedBaselinePreset });
+    setCustomDraft({});
+    setCustomPickerActive(false);
+    setMobileCustomOpen(false);
+    setOpen(false);
+  };
+
   const showDesktopCustomPanel = !isMobileViewport && customPickerActive;
 
   const presetSidebar = (
@@ -327,6 +341,8 @@ export function DashboardKpiDateFilter({
                     onDraftChange={setCustomDraft}
                     onApply={handleCustomApply}
                     onCancel={handleCustomCancel}
+                    onClear={handleCustomClear}
+                    clearLabel={t("Dashboard.clearDate")}
                     applyLabel={t("Dashboard.dateRangeUpdate")}
                     cancelLabel={t("Common.cancel")}
                     selectingEndHint={t("Dashboard.dateRangeSelectingEnd")}
@@ -366,6 +382,7 @@ export function DashboardKpiDateFilter({
         doneLabel={t("Dashboard.dateRangeDone")}
         closeLabel={t("Common.close")}
         clearLabel={t("Dashboard.clearDate")}
+        onClear={handleCustomClear}
         selectingEndHint={t("Dashboard.dateRangeSelectingEnd")}
       />
     </div>

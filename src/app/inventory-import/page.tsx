@@ -1,10 +1,16 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Download, Upload } from "lucide-react";
 import * as XLSX from "xlsx";
 
 import RequireAuth from "@/features/auth/RequireAuth";
+import {
+  DEFAULT_COUNTRY_ID,
+  inventoryImportMissingColumnsMessage,
+  parseInventoryRawSheet,
+  type InventoryImportFileCountry,
+} from "@/features/inventory/lib/inventoryOnhandImport";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 import { cn } from "@/lib/utils";
@@ -12,9 +18,11 @@ import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
 
 type RowValue = Record<string, unknown>;
 
-function normalizeHeader(value: string): string {
-  return value.trim().toLowerCase().replace(/\s+/g, "");
-}
+const FILE_COUNTRY_OPTIONS: Array<{ value: InventoryImportFileCountry; labelKey: "fileCountryVn" | "fileCountryTh" }> =
+  [
+    { value: "vn", labelKey: "fileCountryVn" },
+    { value: "th", labelKey: "fileCountryTh" },
+  ];
 
 function toNumberString(value: string): string {
   const cleaned = value.trim();
@@ -39,7 +47,9 @@ export default function InventoryImportPage() {
       : tBase(`InventoryOnhandImport.${key}`);
 
   const [rawFileName, setRawFileName] = useState("");
+  const [rawBuffer, setRawBuffer] = useState<ArrayBuffer | null>(null);
   const [rows, setRows] = useState<RowValue[]>([]);
+  const [fileCountry, setFileCountry] = useState<InventoryImportFileCountry | "">("");
   const [country, setCountry] = useState("");
   const [error, setError] = useState("");
 
@@ -55,53 +65,57 @@ export default function InventoryImportPage() {
     }));
   }, [rows, normalizedCountry]);
 
+  const parseRawBuffer = useCallback(
+    (buffer: ArrayBuffer, fileName: string, selectedFileCountry: InventoryImportFileCountry) => {
+      setError("");
+      const workbook = XLSX.read(buffer, { type: "array" });
+      const firstSheetName = workbook.SheetNames[0];
+      const firstSheet = workbook.Sheets[firstSheetName];
+
+      if (!firstSheet) {
+        setRows([]);
+        setRawFileName(fileName);
+        setError(t("invalidSheet"));
+        return;
+      }
+
+      const parsed = parseInventoryRawSheet(firstSheet, selectedFileCountry);
+      if (parsed && "error" in parsed) {
+        setRows([]);
+        setRawFileName(fileName);
+        if (parsed.error === "invalidSheet") {
+          setError(t("invalidSheet"));
+          return;
+        }
+        const labels = inventoryImportMissingColumnsMessage(selectedFileCountry);
+        setError(
+          t("missingColumns", {
+            skuColumn: labels.skuLabel,
+            quantityColumn: labels.quantityLabel,
+          }),
+        );
+        return;
+      }
+
+      setRows(parsed.rows);
+      setRawFileName(fileName);
+    },
+    [t],
+  );
+
+  useEffect(() => {
+    if (!rawBuffer || !fileCountry) return;
+    parseRawBuffer(rawBuffer, rawFileName || "raw.xlsx", fileCountry);
+  }, [parseRawBuffer, rawBuffer, rawFileName, fileCountry]);
+
   const handleRawFile = async (file: File) => {
-    setError("");
-    const buffer = await file.arrayBuffer();
-    const workbook = XLSX.read(buffer, { type: "array" });
-    const firstSheetName = workbook.SheetNames[0];
-    const firstSheet = workbook.Sheets[firstSheetName];
-
-    if (!firstSheet || !firstSheet["!ref"]) {
-      setRows([]);
-      setRawFileName(file.name);
-      setError(t("invalidSheet"));
+    if (!fileCountry) {
+      setError(t("fileCountryRequired"));
       return;
     }
 
-    const range = XLSX.utils.decode_range(firstSheet["!ref"]);
-    const headerRow = XLSX.utils.sheet_to_json<(string | undefined)[]>(firstSheet, {
-      header: 1,
-      range: range.s.r,
-      blankrows: false,
-    })[0] ?? [];
-
-    const aliasColIndex = headerRow.findIndex((headerCell) => {
-      return normalizeHeader(String(headerCell ?? "")) === "alias";
-    });
-    const quantityColIndex = headerRow.findIndex((headerCell) => {
-      return normalizeHeader(String(headerCell ?? "")) === "quantity";
-    });
-
-    if (aliasColIndex < 0 || quantityColIndex < 0) {
-      setRows([]);
-      setRawFileName(file.name);
-      setError(t("missingColumns"));
-      return;
-    }
-
-    const outRows: RowValue[] = [];
-    for (let r = range.s.r + 1; r <= range.e.r; r += 1) {
-      const aliasCell = firstSheet[XLSX.utils.encode_cell({ r, c: aliasColIndex })];
-      const quantityCell = firstSheet[XLSX.utils.encode_cell({ r, c: quantityColIndex })];
-      outRows.push({
-        "Sku STS": aliasCell?.v ?? "",
-        "On Hand": quantityCell?.v ?? "",
-      });
-    }
-
-    setRows(outRows);
     setRawFileName(file.name);
+    setRawBuffer(await file.arrayBuffer());
   };
 
   const handleExport = () => {
@@ -135,13 +149,49 @@ export default function InventoryImportPage() {
           </div>
 
           <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-3">
-            <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-button-primary px-4 py-2 text-white hover:bg-[#196A40]">
+            <label className="block text-sm text-gray-700" htmlFor="file-country-select">
+              {t("fileCountryLabel")}
+            </label>
+            <select
+              id="file-country-select"
+              value={fileCountry}
+              onChange={(e) => {
+                const nextCountry = e.target.value as InventoryImportFileCountry | "";
+                setFileCountry(nextCountry);
+                setCountry(nextCountry ? DEFAULT_COUNTRY_ID[nextCountry] : "");
+                setError("");
+              }}
+              className={cn(
+                "w-full max-w-xs rounded-lg border border-input px-3 py-2 text-sm",
+                bgSurfaceFilter(!!fileCountry),
+              )}
+            >
+              <option value="">{t("fileCountryPlaceholder")}</option>
+              {FILE_COUNTRY_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {t(option.labelKey)}
+                </option>
+              ))}
+            </select>
+            {fileCountry ? (
+              <p className="text-xs text-gray-500">
+                {fileCountry === "vn" ? t("fileCountryHintVn") : t("fileCountryHintTh")}
+              </p>
+            ) : null}
+
+            <label
+              className={cn(
+                "inline-flex items-center gap-2 rounded-lg bg-button-primary px-4 py-2 text-white hover:bg-[#196A40]",
+                !fileCountry ? "cursor-not-allowed opacity-50 hover:bg-button-primary" : "cursor-pointer",
+              )}
+            >
               <Upload className="h-4 w-4" />
               {t("uploadRaw")}
               <input
                 type="file"
                 accept=".xlsx,.xls"
                 className="hidden"
+                disabled={!fileCountry}
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   if (file) void handleRawFile(file);
