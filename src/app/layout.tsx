@@ -25,6 +25,9 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "STS Portal",
   description: "STS Portal",
+  verification: {
+    google: "8FBXldOcyESsY3ADN2E6NQSfWggQKtM8QIvZsnY6pis",
+  },
   icons: {
     icon: [
       {
