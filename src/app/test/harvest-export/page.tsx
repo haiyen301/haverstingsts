@@ -1,11 +1,15 @@
 import { Suspense } from "react";
 
 import { HarvestExportDemoClient } from "./harvest-export-demo-client";
+import { HARVEST_EXPORT_DEMO_OAUTH_APP_NAME } from "./constants";
 
 export const metadata = {
-  title: "Harvest Export Demo | STS Portal",
+  title: HARVEST_EXPORT_DEMO_OAUTH_APP_NAME,
   description:
-    "Public demo of Harvest list export with sample data, filters, CSV, Excel, and Google Sheet.",
+    "Sports Turf Solutions Export — harvest list export demo with sample data, filters, CSV, Excel, and Google Sheet.",
+  openGraph: {
+    title: HARVEST_EXPORT_DEMO_OAUTH_APP_NAME,
+  },
 };
 
 export default function HarvestExportDemoPage() {

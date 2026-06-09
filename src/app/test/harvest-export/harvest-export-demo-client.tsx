@@ -15,6 +15,7 @@ import {
 } from "@/features/harvest/lib/harvestExportDemoData";
 import { filterHarvestExportDemoRows } from "@/features/harvest/lib/harvestExportDemoFilter";
 import type { HarvestListExportFilter } from "@/features/harvest/lib/harvestListExport";
+import { HARVEST_EXPORT_DEMO_OAUTH_APP_NAME } from "@/app/test/harvest-export/constants";
 import { HarvestExportDemoDialog } from "@/features/harvest/ui/HarvestExportDemoDialog";
 import { cn } from "@/lib/utils";
 import {
@@ -139,7 +140,7 @@ export function HarvestExportDemoClient() {
               Internal API demo
             </p>
             <h1 className="mt-1 text-2xl font-semibold text-foreground">
-              Harvest List Export
+              {HARVEST_EXPORT_DEMO_OAUTH_APP_NAME}
             </h1>
           </div>
           <span className="rounded-full border border-amber-300/60 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-900 dark:border-amber-700/50 dark:bg-amber-950/40 dark:text-amber-100">
@@ -167,6 +168,25 @@ export function HarvestExportDemoClient() {
           <p>
             All data shown here is <strong className="text-foreground">mock sample data</strong> for
             demonstration only.
+          </p>
+          <p className="text-xs">
+            <a
+              href="https://sportsturfsolutions.com/privacy-policy"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-primary hover:underline"
+            >
+              Privacy Policy
+            </a>
+            <span className="mx-2 text-muted-foreground">·</span>
+            <a
+              href="https://sportsturfsolutions.com/terms-of-service"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-primary hover:underline"
+            >
+              Terms of Service
+            </a>
           </p>
         </div>
       </header>
@@ -228,7 +248,9 @@ export function HarvestExportDemoClient() {
               }))}
               values={grassIds}
               onChange={setGrassIds}
-              placeholder={t("allGrasses")}
+              placeholder={t("allGrassTypes", {
+                count: DEMO_HARVEST_EXPORT_GRASSES.length,
+              })}
               showAllOption
               className={cn(
                 multiSelectBaseClass,
