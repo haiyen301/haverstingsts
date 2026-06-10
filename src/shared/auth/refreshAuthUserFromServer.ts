@@ -56,7 +56,10 @@ function buildUserFromServer(
 
   for (const key of PRESERVE_IF_MISSING_KEYS) {
     if (!(key in serverUser) && current && key in current) {
-      nextUser[key] = current[key];
+      const value = current[key];
+      if (typeof value === "string") {
+        nextUser[key] = value;
+      }
     }
   }
 
