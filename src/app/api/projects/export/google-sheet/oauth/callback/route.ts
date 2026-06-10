@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import {
+  buildStsRenewPublicRedirectUrl,
   getProjectListGoogleSheetConfig,
   GOOGLE_SHEET_EXPORT_RESUME_QUERY,
   GOOGLE_SHEET_EXPORT_RESUME_VALUE,
@@ -47,7 +48,10 @@ export async function GET(req: Request) {
     const auth = await resolveStsBearerFromRequest(req);
     if (!auth?.startsWith("Bearer ")) {
       return NextResponse.redirect(
-        new URL("/login?error=google_export_auth", req.url),
+        buildStsRenewPublicRedirectUrl(
+          "/login?error=google_export_auth",
+          requestOrigin(req),
+        ),
       );
     }
   }
@@ -57,11 +61,15 @@ export async function GET(req: Request) {
   const error = url.searchParams.get("error");
   const code = url.searchParams.get("code")?.trim();
 
+  const failRedirectBasePath = (): string => {
+    if (isPublicDemo) return DEMO_HARVEST_GOOGLE_SHEET_RETURN_PATH;
+    const raw = stateFromQuery?.returnTo?.trim() || "/projects";
+    const pathname = raw.split("?")[0]?.split("#")[0] || "/projects";
+    return pathname.startsWith("/") ? pathname : "/projects";
+  };
+
   const failRedirect = (message: string) => {
-    const target = new URL(
-      isPublicDemo ? DEMO_HARVEST_GOOGLE_SHEET_RETURN_PATH : "/projects",
-      req.url,
-    );
+    const target = buildStsRenewPublicRedirectUrl(failRedirectBasePath(), origin);
     target.searchParams.set("googleSheetExport", "error");
     target.searchParams.set("googleSheetError", message.slice(0, 200));
     const res = NextResponse.redirect(target);
@@ -97,7 +105,7 @@ export async function GET(req: Request) {
     };
 
     const returnTo = appendResumeQuery(stateFromQuery.returnTo || "/projects");
-    const res = NextResponse.redirect(new URL(returnTo, req.url));
+    const res = NextResponse.redirect(buildStsRenewPublicRedirectUrl(returnTo, origin));
     applyGoogleExportOAuthTokensCookie(res, merged);
     clearOAuthStateCookie(res);
     return res;

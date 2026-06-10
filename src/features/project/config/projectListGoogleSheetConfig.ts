@@ -90,8 +90,19 @@ function isLikelyPrivateHost(baseUrl: string): boolean {
   }
 }
 
+function isInternalRequestOrigin(baseUrl: string): boolean {
+  try {
+    const host = new URL(baseUrl).hostname;
+    if (host === "localhost" || host === "127.0.0.1") return true;
+    return isLikelyPrivateHost(baseUrl);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Public Next.js app base for OAuth — `NEXT_PUBLIC_STS_RENEW_APP_URL` first (not API IP).
+ * Never use an internal/proxy `requestOrigin` (e.g. localhost) in production when env is set.
  */
 export function resolveGoogleSheetOAuthPublicBaseUrl(
   requestOrigin?: string,
@@ -102,7 +113,14 @@ export function resolveGoogleSheetOAuthPublicBaseUrl(
   const fromStsEnv = getStsSiteRootUrl();
   if (fromStsEnv && !isLikelyPrivateHost(fromStsEnv)) return fromStsEnv;
 
-  return (requestOrigin ?? "").replace(/\/$/, "");
+  const origin = (requestOrigin ?? "").replace(/\/$/, "");
+  if (!origin) return "";
+
+  if (process.env.NODE_ENV === "production" && isInternalRequestOrigin(origin)) {
+    return "";
+  }
+
+  return origin;
 }
 
 export function resolveGoogleSheetOAuthRedirectUri(
@@ -110,6 +128,26 @@ export function resolveGoogleSheetOAuthRedirectUri(
 ): string {
   const base = resolveGoogleSheetOAuthPublicBaseUrl(requestOrigin);
   return buildGoogleSheetOAuthRedirectUri(base);
+}
+
+/**
+ * Build a browser redirect URL using `NEXT_PUBLIC_STS_RENEW_APP_URL` (not `req.url` origin).
+ * Required behind reverse proxy where the Node process sees `localhost`.
+ */
+export function buildStsRenewPublicRedirectUrl(
+  pathWithQuery: string,
+  requestOrigin?: string,
+): URL {
+  const base = resolveGoogleSheetOAuthPublicBaseUrl(requestOrigin);
+  const path = pathWithQuery.trim() || "/";
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  if (base) {
+    return new URL(normalizedPath, `${base.replace(/\/$/, "")}/`);
+  }
+  if (requestOrigin) {
+    return new URL(normalizedPath, `${requestOrigin.replace(/\/$/, "")}/`);
+  }
+  return new URL(normalizedPath, "http://local/");
 }
 
 export function getProjectListGoogleSheetConfig(
