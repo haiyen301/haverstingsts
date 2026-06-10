@@ -10,6 +10,7 @@ import {
   isGoogleExportOAuthConfigured,
   setOAuthStateCookie,
 } from "@/shared/server/googleExportOAuth";
+import { isPublicHarvestExportDemoOAuthReturnPath } from "@/features/harvest/lib/harvestExportDemoOAuthPaths";
 import { resolveStsBearerFromRequest } from "@/shared/server/stsAuthBearer";
 
 function requestOrigin(req: Request): string {
@@ -19,12 +20,18 @@ function requestOrigin(req: Request): string {
 
 /** Start Google OAuth — user is redirected to Google consent, then callback route. */
 export async function GET(req: Request) {
-  const auth = await resolveStsBearerFromRequest(req);
-  if (!auth?.startsWith("Bearer ")) {
-    return NextResponse.json(
-      { ok: false, message: "Authorization required." },
-      { status: 401 },
-    );
+  const url = new URL(req.url);
+  const returnTo = url.searchParams.get("returnTo")?.trim() || "/projects";
+
+  // STS login required except when returnTo is the public demo page only.
+  if (!isPublicHarvestExportDemoOAuthReturnPath(returnTo)) {
+    const auth = await resolveStsBearerFromRequest(req);
+    if (!auth?.startsWith("Bearer ")) {
+      return NextResponse.json(
+        { ok: false, message: "Authorization required." },
+        { status: 401 },
+      );
+    }
   }
 
   const origin = requestOrigin(req);
@@ -39,9 +46,6 @@ export async function GET(req: Request) {
       { status: 503 },
     );
   }
-
-  const url = new URL(req.url);
-  const returnTo = url.searchParams.get("returnTo")?.trim() || "/projects";
   const state = createOAuthState(returnTo);
   const authorizeUrl = buildGoogleOAuthAuthorizeUrl(config, state);
 
@@ -52,12 +56,22 @@ export async function GET(req: Request) {
 
 /** Return authorize URL as JSON (for SPA redirect without full page navigation to API). */
 export async function POST(req: Request) {
-  const auth = await resolveStsBearerFromRequest(req);
-  if (!auth?.startsWith("Bearer ")) {
-    return NextResponse.json(
-      { ok: false, message: "Authorization required." },
-      { status: 401 },
-    );
+  let returnTo = "/projects";
+  try {
+    const body = (await req.json()) as { returnTo?: string };
+    if (body.returnTo?.trim()) returnTo = body.returnTo.trim();
+  } catch {
+    /* optional body */
+  }
+
+  if (!isPublicHarvestExportDemoOAuthReturnPath(returnTo)) {
+    const auth = await resolveStsBearerFromRequest(req);
+    if (!auth?.startsWith("Bearer ")) {
+      return NextResponse.json(
+        { ok: false, message: "Authorization required." },
+        { status: 401 },
+      );
+    }
   }
 
   const origin = requestOrigin(req);
@@ -67,14 +81,6 @@ export async function POST(req: Request) {
       { ok: false, configured: false, message: "Google OAuth is not configured." },
       { status: 503 },
     );
-  }
-
-  let returnTo = "/projects";
-  try {
-    const body = (await req.json()) as { returnTo?: string };
-    if (body.returnTo?.trim()) returnTo = body.returnTo.trim();
-  } catch {
-    /* optional body */
   }
 
   const state = createOAuthState(returnTo);

@@ -25,7 +25,8 @@ function isMaintenanceExemptPath(pathname: string): boolean {
   if (pathname === "/forgot-password" || pathname === "/register") return true;
   if (pathname.startsWith("/_next")) return true;
   if (pathname.startsWith("/assets")) return true;
-  if (pathname.startsWith("/flags")) return true;
+  if (pathname.startsWith("/test/harvest-export")) return true;
+  if (pathname.startsWith("/api/test/harvest-export")) return true;
   if (pathname === "/favicon.ico") return true;
   return false;
 }

@@ -1,6 +1,7 @@
 import type { HarvestListGoogleSheetExportPayload } from "@/features/harvest/lib/harvestListExport";
+import { DEMO_HARVEST_GOOGLE_SHEET_RETURN_PATH } from "@/features/harvest/lib/harvestExportDemoOAuthPaths";
 
-export const DEMO_HARVEST_GOOGLE_SHEET_RETURN_PATH = "/test/harvest-export";
+export { DEMO_HARVEST_GOOGLE_SHEET_RETURN_PATH };
 
 export const PENDING_DEMO_HARVEST_GOOGLE_SHEET_EXPORT_KEY =
   "sts_pending_demo_harvest_google_sheet_export";
