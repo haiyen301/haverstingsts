@@ -28,6 +28,22 @@ function ymdFromDate(date: Date): string {
  * For a zone, pick the manual balance row whose `balance_date` is on or before `asOf`
  * and is the latest such row. This supports multiple dated rows per zone in `sts_inventory_balance`.
  */
+/** Manual balance saved exactly on `asOfYmd` (not before/after). */
+export function pickInventoryOverrideForExactDate(
+  overridesByStorageKey: Record<string, InventoryAvailableOverrideEntry>,
+  zoneKey: string,
+  asOfYmd: string,
+): InventoryAvailableOverrideEntry | null {
+  const ymd = normalizeYmd(asOfYmd);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return null;
+  for (const entry of Object.values(overridesByStorageKey)) {
+    if (entry.zoneKey !== zoneKey) continue;
+    if (normalizeYmd(entry.date) !== ymd) continue;
+    return entry;
+  }
+  return null;
+}
+
 export function pickInventoryOverrideForAsOf(
   overridesByStorageKey: Record<string, InventoryAvailableOverrideEntry>,
   zoneKey: string,

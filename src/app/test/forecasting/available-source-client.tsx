@@ -29,15 +29,21 @@ import {
 import {
   computeAllocatedAvailableByZoneAtDate,
   computeInventoryStyleFarmGrassDailySeries,
+  computeInventoryStyleZoneDailySnapshots,
   computeRegrowthCreditedOnDate,
   sumFarmProductCapacityCapsFromZoneConfigAtDate,
+  type ZoneInventoryDaySnapshot,
 } from "@/features/forecasting/forecastAvailableAtDate";
 import {
   forecastLogicalPlanRowId,
   forecastZoneKeyFromRow,
+  forecastZoneKeyFromParts,
+  findActiveZoneConfiguration,
   getRegrowthDateFromHarvest,
   mergeZoneCapacityMapsAtDate,
   sumConfiguredZoneCapKgForFarmProduct,
+  zoneConfigIsActiveAtYmd,
+  zoneConfigurationMaxKg,
 } from "@/features/forecasting/inventoryRegrowthCalculator";
 import { applyInventoryAvailableOverridesToZoneMap } from "@/features/forecasting/inventoryAvailableOverrides";
 import {
@@ -50,6 +56,7 @@ import {
   forecastHarvestRowUsesHarvestedAreaForMagnitude,
   harvestPlanEffectiveMagnitudeFromRaw,
   harvestPlanQuantityFromRaw,
+  isForecastExcludedZone,
   planRowUsesHarvestedAreaForMagnitude,
   resolvePlanRowUomFromRaw,
   resolveZone1InventoryKgPerM2,
@@ -164,6 +171,15 @@ type DailyZoneConfigConversionRow = {
   overMaxKg: number;
 };
 
+type DevZoneTimelineRow = {
+  zoneKey: string;
+  farmName: string;
+  turfgrass: string;
+  zone: string;
+  sizeM2: number;
+  maxKg: number;
+};
+
 type DailyRegrowthTimelineRow = {
   date: string;
   grossKg: number;
@@ -267,6 +283,162 @@ function parseYmdLocal(value: string): Date | null {
   const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
   return Number.isNaN(d.getTime()) ? null : d;
 }
+
+function formatShortDate(ymd: string | null | undefined): string {
+  if (!ymd) return "";
+  const m = String(ymd).trim().slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return String(ymd);
+  return `${m[3]}/${m[2]}/${m[1]}`;
+}
+
+function levelBarColor(pct: number): string {
+  if (pct > 70) return "hsl(152,55%,36%)";
+  if (pct > 40) return "hsl(35,92%,52%)";
+  return "hsl(0,72%,51%)";
+}
+
+function formatSignedKg(value: number, sign: "+" | "−" | ""): string {
+  const n = Math.round(Math.abs(Number.isFinite(value) ? value : 0));
+  if (n === 0) return "—";
+  if (sign === "+") return `+${n.toLocaleString()} kg`;
+  if (sign === "−") return `−${n.toLocaleString()} kg`;
+  return `${n.toLocaleString()} kg`;
+}
+
+function ZoneBalanceStepCell({
+  snapshot,
+  kind,
+}: {
+  snapshot: ZoneInventoryDaySnapshot;
+  kind: "previous" | "regrowth" | "harvest" | "system" | "manual" | "display";
+}) {
+  switch (kind) {
+    case "previous":
+      return (
+        <div className="tabular-nums text-slate-700">
+          {formatNumber(snapshot.previousKg)}
+          {snapshot.isOpeningDay ? (
+            <p className="mt-0.5 text-[10px] text-slate-400">open @ max</p>
+          ) : null}
+        </div>
+      );
+    case "regrowth":
+      return (
+        <div
+          className={`tabular-nums ${
+            snapshot.regrowthKg > 0 ? "font-medium text-emerald-700" : "text-slate-400"
+          }`}
+        >
+          {formatSignedKg(snapshot.regrowthKg, "+")}
+        </div>
+      );
+    case "harvest":
+      return (
+        <div
+          className={`tabular-nums ${
+            snapshot.harvestKg > 0 ? "font-medium text-amber-800" : "text-slate-400"
+          }`}
+        >
+          {formatSignedKg(snapshot.harvestKg, "−")}
+        </div>
+      );
+    case "system":
+      return (
+        <div>
+          {snapshot.exactManualSetToday && snapshot.rollingBeforeManualSetKg != null ? (
+            <p className="text-[10px] text-slate-500">
+              {formatNumber(snapshot.previousKg)}
+              {snapshot.regrowthKg > 0 ? ` + ${formatNumber(snapshot.regrowthKg)}` : ""}
+              {snapshot.harvestKg > 0 ? ` − ${formatNumber(snapshot.harvestKg)}` : ""}
+              {" = "}
+              {formatNumber(snapshot.rollingBeforeManualSetKg)}
+            </p>
+          ) : null}
+          <p className="font-semibold tabular-nums text-slate-900">
+            {formatNumber(snapshot.calculatedKg)}
+          </p>
+          {snapshot.exactManualSetToday ? (
+            <p className="mt-0.5 text-[10px] font-medium text-amber-800">
+              manual set → chain {formatNumber(snapshot.calculatedKg)}
+            </p>
+          ) : (
+            <p className="mt-0.5 text-[10px] text-slate-500">System</p>
+          )}
+        </div>
+      );
+    case "manual":
+      if (!snapshot.isManualOverrideActive || snapshot.manualOverrideKg == null) {
+        return <span className="text-slate-400">—</span>;
+      }
+      return (
+        <div>
+          <div className="flex items-center justify-center gap-1">
+            <span className="font-medium tabular-nums text-amber-900">
+              {formatNumber(snapshot.manualOverrideKg)}
+            </span>
+            <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-medium text-amber-700">
+              Manual
+            </span>
+          </div>
+          <p className="mt-0.5 text-[10px] text-slate-500">
+            {snapshot.exactManualSetToday
+              ? "saved today"
+              : snapshot.manualOverrideDate
+                ? `since ${formatShortDate(snapshot.manualOverrideDate)}`
+                : "configured"}
+          </p>
+          {!snapshot.exactManualSetToday ? (
+            <p className="mt-0.5 text-[10px] text-slate-400">
+              display fixed · system rolls on
+            </p>
+          ) : null}
+        </div>
+      );
+    case "display":
+      return (
+        <div>
+          <div className="flex items-center justify-center gap-1">
+            <span className="font-semibold tabular-nums text-slate-900">
+              {formatNumber(snapshot.effectiveKg)}
+            </span>
+            {snapshot.isManualOverrideActive ? (
+              <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-medium text-amber-700">
+                Manual
+              </span>
+            ) : null}
+          </div>
+          {snapshot.isManualOverrideActive ? (
+            <p className="mt-0.5 text-[10px] text-slate-500">
+              System {formatNumber(snapshot.calculatedKg)} kg
+            </p>
+          ) : null}
+          <div className="mt-1.5 flex items-center gap-1 px-0.5">
+            <div className="h-1.5 flex-1 rounded-full bg-slate-100">
+              <div
+                className="h-1.5 rounded-full"
+                style={{
+                  width: `${Math.min(100, snapshot.pct)}%`,
+                  backgroundColor: levelBarColor(snapshot.pct),
+                }}
+              />
+            </div>
+            <span className="w-7 text-right text-[10px] tabular-nums text-slate-500">
+              {snapshot.pct}%
+            </span>
+          </div>
+        </div>
+      );
+  }
+}
+
+const ZONE_BALANCE_STEPS = [
+  { key: "previous", label: "Previous" },
+  { key: "regrowth", label: "+ Regrowth" },
+  { key: "harvest", label: "− Harvest" },
+  { key: "system", label: "= System" },
+  { key: "manual", label: "Manual balance" },
+  { key: "display", label: "Display" },
+] as const;
 
 function toDisplayDate(ymd: string): string {
   const d = parseYmdLocal(ymd);
@@ -1435,6 +1607,69 @@ export function DevForecastingAvailableSourceClient() {
     return aggregateDailyRegrowthTimeline(allSources, zoneLabel);
   }, [regrowthAuditByDate, zoneLabel]);
 
+  const zoneTimelineRows = useMemo<DevZoneTimelineRow[]>(() => {
+    const seenKeys = new Set<string>();
+    const rows: DevZoneTimelineRow[] = [];
+    for (const config of zoneConfigs) {
+      if (!zoneConfigIsActiveAtYmd(config, horizonEndYmd)) continue;
+      if (isForecastExcludedZone(config.zone)) continue;
+      const farmId = Number(config.farm_id) || 0;
+      const grassId = Number(config.grass_id) || 0;
+      if (!farmProductFilter(farmId, grassId)) continue;
+      const zoneKey = forecastZoneKeyFromParts(
+        config.farm_id,
+        String(config.zone ?? ""),
+        config.grass_id,
+      );
+      if (seenKeys.has(zoneKey)) continue;
+      const active = findActiveZoneConfiguration(zoneConfigs, {
+        farmId,
+        zone: String(config.zone ?? ""),
+        productId: grassId,
+        ymd: horizonEndYmd,
+      });
+      if (!active) continue;
+      seenKeys.add(zoneKey);
+      rows.push({
+        zoneKey,
+        farmName: String(active.farm_name ?? "").trim(),
+        turfgrass: String(active.turfgrass ?? "").trim(),
+        zone: String(active.zone ?? "").trim(),
+        sizeM2: toNum(active.size_m2),
+        maxKg: zoneConfigurationMaxKg(active),
+      });
+    }
+    return rows.sort((a, b) => {
+      const farm = a.farmName.localeCompare(b.farmName);
+      if (farm !== 0) return farm;
+      const grass = a.turfgrass.localeCompare(b.turfgrass);
+      if (grass !== 0) return grass;
+      return a.zone.localeCompare(b.zone);
+    });
+  }, [zoneConfigs, horizonEndYmd, farmProductFilter]);
+
+  const zoneDailySnapshots = useMemo(
+    () =>
+      computeInventoryStyleZoneDailySnapshots(
+        filteredRows,
+        zoneConfigs,
+        regrowthConfig,
+        overridesByZone,
+        forecastDateObj,
+        horizonEndDateObj,
+        { farmProductFilter, applyRecovery: false },
+      ),
+    [
+      filteredRows,
+      zoneConfigs,
+      regrowthConfig,
+      overridesByZone,
+      forecastDateObj,
+      horizonEndDateObj,
+      farmProductFilter,
+    ],
+  );
+
   const overrideRows = useMemo(
     () =>
       Array.from(overrideResult.appliedByZone.entries()).map(([zoneKey, applied]) => ({
@@ -2111,179 +2346,106 @@ export function DevForecastingAvailableSourceClient() {
             <section className="rounded-lg border border-slate-200 bg-white">
               <div className="flex flex-col gap-1 border-b border-slate-200 p-4">
                 <h2 className="text-lg font-semibold text-slate-950">
-                  Daily regrowth timeline
+                  Daily zone balance timeline
                 </h2>
                 <p className="text-sm text-slate-600">
-                  Left to right by regrowth date, accumulated up to {toDisplayDate(horizonEndYmd)}.
+                  Mỗi zone: <span className="font-medium">Previous + regrowth − harvest = System</span>.
+                  Khi có cấu hình balance manual, ngày lưu sẽ{" "}
+                  <span className="font-medium">set lại chain System</span>; các ngày sau System vẫn
+                  cộng trừ tiếp nhưng <span className="font-medium">Display</span> giữ giá trị manual
+                  (giống /inventory). Scroll ngang theo ngày từ {toDisplayDate(forecastStartYmd)} đến{" "}
+                  {toDisplayDate(horizonEndYmd)}.
                 </p>
               </div>
-              <div className="overflow-x-auto p-4">
-                {dailyRegrowthTimeline.length === 0 ? (
+              <div className="space-y-6 p-4">
+                {zoneTimelineRows.length === 0 ? (
                   <div className="rounded-lg border border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500">
-                    No regrowth source rows for this selection.
+                    No zone configuration rows for this farm/grass selection.
                   </div>
                 ) : (
-                  <div className="flex min-w-max items-stretch gap-0 pb-2">
-                    {dailyRegrowthTimeline.map((row, index) => (
-                      <div
-                        key={row.date}
-                        className="relative flex w-[360px] shrink-0 flex-col pr-4"
-                      >
-                        <div className="relative mb-3 flex h-9 items-center">
-                          <div
-                            className={`absolute top-1/2 h-px bg-slate-200 ${
-                              index === 0 ? "left-4 right-0" : "left-0 right-0"
-                            }`}
-                          />
-                          <div className="relative z-10 flex h-9 w-9 items-center justify-center rounded-full border-2 border-emerald-500 bg-white text-xs font-semibold text-emerald-700 shadow-sm">
-                            {index + 1}
-                          </div>
-                        </div>
-
-                        <div className="flex min-h-[390px] flex-1 flex-col rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-                          <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
-                                Regrowth date
-                              </p>
-                              <p className="mt-1 font-semibold tabular-nums text-slate-950">
-                                {toDisplayDate(row.date)}
-                              </p>
-                              <p className="mt-1 text-xs text-slate-500">
-                                {row.sourceCount.toLocaleString()} source rows
-                              </p>
-                            </div>
-                            <span className="rounded-full bg-emerald-50 px-2 py-1 text-xs font-semibold tabular-nums text-emerald-700">
-                              {formatKg(row.creditedKg)}
-                            </span>
-                          </div>
-
-                          <div className="mt-3">
-                            <div className="h-2.5 rounded-full bg-slate-100">
-                              <div
-                                className="h-2.5 rounded-full bg-emerald-500"
-                                style={{ width: `${row.barPercent}%` }}
-                              />
-                            </div>
-                          </div>
-
-                          <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-2">
-                            <p className="text-xs font-medium text-slate-500">
-                              Harvest → regrowth (config days)
-                            </p>
-                            <div className="mt-1 space-y-1">
-                              {row.harvestDates.map((dateLabel) => (
-                                <p
-                                  key={`${row.date}-${dateLabel}`}
-                                  className="text-xs tabular-nums text-slate-700"
-                                >
-                                  {dateLabel}
-                                </p>
-                              ))}
-                            </div>
-                          </div>
-
-                          <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-2">
-                            <p className="text-xs font-medium text-amber-900">
-                              Zone config conversion
-                            </p>
-                            {row.zoneConfigConversions.length === 0 ? (
-                              <p className="mt-1 text-xs text-amber-800">
-                                No m² conversion on this day.
-                              </p>
-                            ) : (
-                              <div className="mt-2 space-y-2">
-                                {row.zoneConfigConversions.slice(0, 3).map((line) => (
-                                  <div
-                                    key={`${row.date}-${line.zoneLabel}-${line.configIds.join("-")}`}
-                                    className="rounded-md bg-white/70 p-2 text-xs text-amber-950"
-                                  >
-                                    <div className="font-semibold">
-                                      {line.zoneLabel}: {formatM2(line.inputM2)} ×{" "}
-                                      {formatKgPerM2(line.kgPerM2)} ={" "}
-                                      {formatKg(line.multipliedKg)}
-                                    </div>
-                                    <div className="mt-1 text-amber-800">
-                                      config size {formatM2(line.configSizeM2)} ×{" "}
-                                      {formatKgPerM2(line.kgPerM2)} ={" "}
-                                      {formatKg(line.configSizeCapacityKg)}; max{" "}
-                                      {formatKg(line.maxKg)}
-                                    </div>
-                                    <div className="mt-1 text-amber-800">
-                                      configs:{" "}
-                                      {line.configIds.length > 0
-                                        ? line.configIds.join(", ")
-                                        : "fallback"}{" "}
-                                      {line.configCount > 1
-                                        ? `(${line.configCount} rows combined)`
-                                        : ""}
-                                    </div>
-                                    {line.overMaxKg > 0 ? (
-                                      <div className="mt-1 font-medium text-red-700">
-                                        over max by {formatKg(line.overMaxKg)}
-                                      </div>
-                                    ) : null}
-                                  </div>
-                                ))}
-                                {row.zoneConfigConversions.length > 3 ? (
-                                  <p className="text-xs text-amber-800">
-                                    +{row.zoneConfigConversions.length - 3} more zone conversions
-                                  </p>
-                                ) : null}
-                              </div>
-                            )}
-                          </div>
-
-                          <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                            <div className="rounded-md bg-slate-50 p-2">
-                              <p className="text-slate-500">Gross</p>
-                              <p className="mt-1 font-medium tabular-nums text-slate-900">
-                                {formatKg(row.grossKg)}
-                              </p>
-                            </div>
-                            <div className="rounded-md bg-slate-50 p-2">
-                              <p className="text-slate-500">Running</p>
-                              <p className="mt-1 font-medium tabular-nums text-slate-900">
-                                {formatKg(row.cumulativeKg)}
-                              </p>
-                            </div>
-                          </div>
-
-                          {row.notCountedKg > 0 ? (
-                            <div className="mt-2 rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-700">
-                              Not counted: {formatKg(row.notCountedKg)}
-                            </div>
-                          ) : null}
-
-                          <div className="mt-3">
-                            <p className="text-xs font-medium text-slate-500">Plan ids</p>
-                            <div className="mt-1 flex flex-wrap gap-1">
-                              {row.planIds.slice(0, 5).map((planId) => (
-                                <span
-                                  key={`${row.date}-${planId}`}
-                                  className="rounded-full bg-slate-100 px-2 py-0.5 text-xs tabular-nums text-slate-700"
-                                >
-                                  {planId}
-                                </span>
-                              ))}
-                              {row.planIds.length > 5 ? (
-                                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-700">
-                                  +{row.planIds.length - 5}
-                                </span>
-                              ) : null}
-                            </div>
-                          </div>
-
-                          <div className="mt-auto pt-3">
-                            <p className="text-xs font-medium text-slate-500">Zones</p>
-                            <p className="mt-1 text-xs text-slate-700">
-                              {row.zones.join(", ") || "-"}
-                            </p>
-                          </div>
-                        </div>
+                  zoneTimelineRows.map((zoneRow) => (
+                    <div
+                      key={zoneRow.zoneKey}
+                      className="overflow-x-auto rounded-lg border border-slate-200"
+                    >
+                      <div className="border-b border-slate-200 bg-slate-50 px-3 py-2">
+                        <p className="text-sm font-semibold text-slate-900">
+                          {zoneRow.farmName || "—"} · {zoneRow.turfgrass || "—"} ·{" "}
+                          {zoneLabel(zoneRow.zone)}
+                        </p>
+                        <p className="text-[11px] text-slate-500">
+                          {formatNumber(zoneRow.sizeM2)} m² · max {formatNumber(zoneRow.maxKg)} kg
+                        </p>
                       </div>
-                    ))}
-                  </div>
+                      <table className="min-w-max border-separate border-spacing-0 text-xs">
+                        <thead>
+                          <tr>
+                            <th className="sticky left-0 z-20 w-[108px] min-w-[108px] border-b border-r border-slate-200 bg-slate-100 px-2 py-2 text-left font-semibold text-slate-600">
+                              Step
+                            </th>
+                            {forecastCalendarDays.map((day) => (
+                              <th
+                                key={`zone-step-day-${zoneRow.zoneKey}-${day.date}`}
+                                className={`w-[148px] min-w-[148px] border-b border-r border-slate-200 px-2 py-2 text-center font-medium ${
+                                  day.isToday
+                                    ? "bg-emerald-50 text-emerald-800"
+                                    : "bg-slate-50 text-slate-900"
+                                }`}
+                              >
+                                <div className="tabular-nums">{toDisplayDate(day.date)}</div>
+                                <div className="mt-0.5 text-[10px] font-normal text-slate-500">
+                                  {formatWeekdayShort(day.date)}
+                                </div>
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {ZONE_BALANCE_STEPS.map((step) => (
+                            <tr key={`${zoneRow.zoneKey}-${step.key}`}>
+                              <th className="sticky left-0 z-10 w-[108px] min-w-[108px] border-r border-slate-200 bg-white px-2 py-2.5 text-left font-semibold text-slate-600">
+                                {step.label}
+                              </th>
+                              {forecastCalendarDays.map((day) => {
+                                const snapshot =
+                                  zoneDailySnapshots.get(day.date)?.get(zoneRow.zoneKey) ?? null;
+                                if (!snapshot) {
+                                  return (
+                                    <td
+                                      key={`zone-step-${zoneRow.zoneKey}-${step.key}-${day.date}`}
+                                      className="w-[148px] min-w-[148px] border-r border-slate-200 px-2 py-2.5 text-center text-slate-400"
+                                    >
+                                      —
+                                    </td>
+                                  );
+                                }
+                                const toneClass =
+                                  step.key === "manual" && snapshot.isManualOverrideActive
+                                    ? "bg-amber-50/80"
+                                    : step.key === "display" && snapshot.isManualOverrideActive
+                                      ? "bg-amber-50/60"
+                                      : step.key === "system"
+                                        ? "bg-slate-50/80"
+                                        : step.key === "regrowth" && snapshot.regrowthKg > 0
+                                          ? "bg-emerald-50/50"
+                                          : step.key === "harvest" && snapshot.harvestKg > 0
+                                            ? "bg-amber-50/50"
+                                            : "bg-white";
+                                return (
+                                  <td
+                                    key={`zone-step-${zoneRow.zoneKey}-${step.key}-${day.date}`}
+                                    className={`w-[148px] min-w-[148px] border-r border-slate-200 px-2 py-2.5 text-center align-top ${toneClass}`}
+                                  >
+                                    <ZoneBalanceStepCell snapshot={snapshot} kind={step.key} />
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ))
                 )}
               </div>
             </section>

@@ -10,6 +10,10 @@ import {
   isForecastExcludedZone,
   isMappedForecastZoneKey,
 } from "@/features/forecasting/forecastingInventoryConversion";
+import {
+  applyInventoryAvailableOverrideToZone,
+  pickInventoryOverrideForAsOf,
+} from "@/features/forecasting/inventoryAvailableOverrides";
 import type { InventoryAvailableOverrideEntry } from "@/shared/store/inventoryAvailableOverrideStore";
 import {
   buildZoneConfigurationCapacityMapAtDate,
@@ -853,6 +857,180 @@ export function computeInventoryStyleAvailableByZoneAtDate(
   }
 
   return zonePrev;
+}
+
+export type ZoneInventoryDaySnapshot = {
+  previousKg: number;
+  regrowthKg: number;
+  harvestKg: number;
+  /** Rolling after +/- before exact-day manual replace (only when manual saved today). */
+  rollingBeforeManualSetKg: number | null;
+  /** Rolling system balance (same basis as /inventory `calculatedKg`). */
+  calculatedKg: number;
+  /** Display balance after manual override (same as /inventory `currentKg`). */
+  effectiveKg: number;
+  maxKg: number;
+  pct: number;
+  isManualOverrideActive: boolean;
+  manualOverrideDate: string | null;
+  manualOverrideKg: number | null;
+  exactManualSetToday: boolean;
+  isOpeningDay: boolean;
+};
+
+/**
+ * Per-zone balance for each day in `[startDate, endDate]` — same rules as `/inventory`:
+ * open at zone max, then `previous + regrowth − harvest`; manual balance on `balance_date`
+ * replaces display value; system subtitle uses rolling calculated kg.
+ */
+export function computeInventoryStyleZoneDailySnapshots(
+  forecastRows: ForecastHarvestRow[],
+  zoneConfigs: ZoneConfigurationRow[],
+  regrowthConfig: RegrowthReferenceConfig,
+  overridesByZone: Record<string, InventoryAvailableOverrideEntry>,
+  startDate: Date,
+  endDate: Date,
+  options?: {
+    farmProductFilter?: (farmId: number, productId: number) => boolean;
+    /** When false, manual kg stays fixed (inventory status table). Default false. */
+    applyRecovery?: boolean;
+  },
+): Map<string, Map<string, ZoneInventoryDaySnapshot>> {
+  const farmProductFilter = options?.farmProductFilter;
+  const applyRecovery = options?.applyRecovery ?? false;
+  const start = new Date(
+    startDate.getFullYear(),
+    startDate.getMonth(),
+    startDate.getDate(),
+  );
+  const end =
+    endDate < start
+      ? start
+      : new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate());
+  const loopStart = computeInventorySeriesLoopStartWithHistory(
+    start,
+    overridesByZone,
+    farmProductFilter,
+  );
+  const totalDays = diffDaysInclusive(loopStart, end);
+  const byDate = new Map<string, Map<string, ZoneInventoryDaySnapshot>>();
+  const zonePrev = new Map<string, number>();
+
+  const rowsWithCapsByYmd = new Map<string, ForecastHarvestRow[]>();
+  const maxByZoneCache = new Map<string, Map<string, number>>();
+  const regrowthByZoneCache = new Map<string, Map<string, number>>();
+  const harvestByZoneCache = new Map<string, Map<string, number>>();
+
+  const rowsWithCapsFor = (ymd: string, date: Date): ForecastHarvestRow[] => {
+    const cached = rowsWithCapsByYmd.get(ymd);
+    if (cached) return cached;
+    const next = applyLatestZoneMaxKgToForecastRows(forecastRows, zoneConfigs, ymd);
+    rowsWithCapsByYmd.set(ymd, next);
+    return next;
+  };
+
+  const maxByZoneFor = (ymd: string, date: Date): Map<string, number> => {
+    const cached = maxByZoneCache.get(ymd);
+    if (cached) return cached;
+    const next = mergeZoneCapacityMapsAtDate(rowsWithCapsFor(ymd, date), zoneConfigs, date);
+    maxByZoneCache.set(ymd, next);
+    return next;
+  };
+
+  const regrowthFor = (ymd: string, date: Date): Map<string, number> => {
+    const cached = regrowthByZoneCache.get(ymd);
+    if (cached) return cached;
+    const next = computeRegrowthCreditedOnDate(
+      rowsWithCapsFor(ymd, date),
+      regrowthConfig,
+      date,
+      zoneConfigs,
+    ).availableByZone;
+    regrowthByZoneCache.set(ymd, next);
+    return next;
+  };
+
+  const harvestFor = (ymd: string, date: Date): Map<string, number> => {
+    const cached = harvestByZoneCache.get(ymd);
+    if (cached) return cached;
+    const next = harvestKgByZoneOnDate(rowsWithCapsFor(ymd, date), date);
+    harvestByZoneCache.set(ymd, next);
+    return next;
+  };
+
+  for (let i = 0; i < totalDays; i++) {
+    const date = addDays(loopStart, i);
+    const dateStr = ymdFromDate(date);
+    const maxByZone = maxByZoneFor(dateStr, date);
+    const regrowthByZone = regrowthFor(dateStr, date);
+    const harvestByZone = harvestFor(dateStr, date);
+    const zoneKeys = collectActiveZoneKeysForDay(maxByZone, overridesByZone, farmProductFilter);
+    const daySnapshots = new Map<string, ZoneInventoryDaySnapshot>();
+
+    for (const zoneKey of zoneKeys) {
+      const maxKg = maxByZone.get(zoneKey) ?? 0;
+      let prev = zonePrev.get(zoneKey);
+      const isOpeningDay = prev === undefined;
+      if (prev === undefined) {
+        prev = maxKg > 0 ? maxKg : 0;
+      }
+
+      const previousKg = Math.round(Math.max(0, prev));
+      const dayRegrowth = Math.round(regrowthByZone.get(zoneKey) ?? 0);
+      const dayHarvest = Math.round(harvestByZone.get(zoneKey) ?? 0);
+      const rollingBeforeManualSetKg = Math.max(0, prev + dayRegrowth - dayHarvest);
+      let rolling = rollingBeforeManualSetKg;
+
+      const exactOverride = manualOverrideForZoneOnExactDate(overridesByZone, zoneKey, date);
+      const exactManualSetToday = !!exactOverride;
+      let rollingBeforeManualSet: number | null = null;
+      if (exactOverride) {
+        rollingBeforeManualSet = Math.round(rollingBeforeManualSetKg);
+        rolling = Math.max(0, Number(exactOverride.availableKg) || 0);
+      }
+
+      zonePrev.set(zoneKey, rolling);
+
+      if (date.getTime() < start.getTime()) continue;
+
+      const calculatedKg = Math.round(Math.min(maxKg, Math.max(0, rolling)));
+      const override = pickInventoryOverrideForAsOf(overridesByZone, zoneKey, date);
+      const applied = applyInventoryAvailableOverrideToZone({
+        calculatedKg: rolling,
+        maxKg,
+        asOf: date,
+        override,
+        overrideRecoveryDays: regrowthConfig.overrideRecoveryDays,
+        applyRecovery,
+      });
+      const effectiveKg = Math.round(
+        Math.max(0, applied ? applied.effectiveKg : rolling),
+      );
+      const pct = maxKg > 0 ? Math.round((effectiveKg / maxKg) * 100) : 0;
+
+      daySnapshots.set(zoneKey, {
+        previousKg,
+        regrowthKg: dayRegrowth,
+        harvestKg: dayHarvest,
+        rollingBeforeManualSetKg: rollingBeforeManualSet,
+        calculatedKg,
+        effectiveKg,
+        maxKg,
+        pct,
+        isManualOverrideActive: !!applied,
+        manualOverrideDate: applied?.override.date ?? null,
+        manualOverrideKg: applied ? Math.round(Math.max(0, applied.override.availableKg)) : null,
+        exactManualSetToday,
+        isOpeningDay,
+      });
+    }
+
+    if (date.getTime() >= start.getTime()) {
+      byDate.set(dateStr, daySnapshots);
+    }
+  }
+
+  return byDate;
 }
 
 export function computeInventoryStyleFarmGrassDailySeriesWithBreakdown(

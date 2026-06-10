@@ -306,33 +306,31 @@ function computeMondayStatus(
 }
 
 /**
- * Overall progress (parity with Flutter `MondayProjectCard._calculateProgress`):
- * average over each requirement line of `min(1, delivered / required)`.
+ * Overall progress: total delivered ÷ total required quantity × 100%.
  * Each line uses `calculateDeliveredQuantityDeliveryOnly` (valid `delivery_harvest_date` + UOM + project scope).
- * Not volume-weighted across lines so Kg vs m² lines contribute equally to the bar.
  */
 export function calculateOverallProjectProgress(
   subitems: SubItem[],
   requirements: QuantityRequiredProject[],
   harvestProjectId?: string,
 ): number {
-  let sumCompletion = 0;
-  let countedRows = 0;
+  let totalDelivered = 0;
+  let totalRequired = 0;
   for (const r of requirements) {
     const pid = String(r.product_id ?? "").trim();
     const required = effectiveRequiredQuantity(r);
     if (!pid || required <= 0) continue;
-    countedRows += 1;
+    totalRequired += required;
     const delivered = calculateDeliveredQuantityDeliveryOnly(
       subitems,
       r.product_id,
       inferRequirementUom(r) || String(r.uom ?? "").trim(),
       harvestProjectId,
     );
-    sumCompletion += Math.min(1, Math.max(0, delivered / required));
+    totalDelivered += delivered;
   }
-  if (countedRows <= 0) return 0;
-  return Math.round((sumCompletion / countedRows) * 100);
+  if (totalRequired <= 0) return 0;
+  return Math.round((totalDelivered / totalRequired) * 100);
 }
 
 /** List cards, detail page — same inputs as Monday `subitems` + `quantity_required_sprig_sod`. */

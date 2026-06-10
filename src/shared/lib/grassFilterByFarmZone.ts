@@ -87,15 +87,34 @@ export function buildGrassFilterOptionsForFarms(
 
   const options: GrassFilterSelectOption[] = [];
   const seen = new Set<string>();
-  for (const id of grassIdsFromZones) {
-    if (seen.has(id)) continue;
+  const pushOption = (id: string, turfLabel: string | null) => {
+    if (!id || seen.has(id)) return;
     seen.add(id);
+    options.push({
+      value: id,
+      label: catalogLabelById.get(id) ?? turfLabel ?? id,
+    });
+  };
+
+  for (const id of grassIdsFromZones) {
     const sample = args.zoneConfigs.find((row) => String(row.grass_id ?? "").trim() === id);
     const turf =
       sample?.turfgrass != null && String(sample.turfgrass).trim() !== ""
         ? String(sample.turfgrass).trim()
         : null;
-    options.push({ value: id, label: catalogLabelById.get(id) ?? turf ?? id });
+    pushOption(id, turf);
+  }
+
+  // Edit / URL pins: keep grass visible even when it is not in zone config for the farm.
+  for (const rawId of pinnedGrassIds) {
+    const id = String(rawId ?? "").trim();
+    if (!id) continue;
+    const sample = args.zoneConfigs.find((row) => String(row.grass_id ?? "").trim() === id);
+    const turf =
+      sample?.turfgrass != null && String(sample.turfgrass).trim() !== ""
+        ? String(sample.turfgrass).trim()
+        : null;
+    pushOption(id, turf);
   }
 
   return options.sort((a, b) => a.label.localeCompare(b.label));

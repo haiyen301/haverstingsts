@@ -77,7 +77,6 @@ import { useLocale } from "next-intl";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
 import { translateProjectType } from "@/features/project/lib/projectTypeDisplay";
 import {
-  calculateOverallProjectProgressFromRaw,
   formatGrassQuantityProgressLabel,
   formatGrassRequiredQuantityLabel,
   formatGrassRequirementDisplayName,
@@ -357,6 +356,8 @@ type HarvestRow = {
   zone: string;
   quantity: string;
   quantityValue: number;
+  /** Raw `harvested_area` (m²) for table totals. */
+  harvestedAreaValue: number;
   limitStatus: "limit" | "overLimit" | null;
   remainingQuantityDisplay: string | null;
   /** `harvested_area` formatted when UOM is Kg. */
@@ -395,6 +396,40 @@ function harvestDetailDisplayText(v: string | null | undefined): string {
 
 function harvestHistoryTableAreaDisplay(h: HarvestRow): string {
   return h.harvestedAreaM2Display ?? h.harvestedAreaDisplay ?? "—";
+}
+
+function harvestHistoryRowHasTableArea(h: HarvestRow): boolean {
+  return h.harvestedAreaM2Display != null || h.harvestedAreaDisplay != null;
+}
+
+function computeHarvestHistoryTableTotals(rows: HarvestRow[]): {
+  totalQuantityKg: number;
+  totalQuantityM2: number;
+  totalAreaM2: number;
+} {
+  let totalQuantityKg = 0;
+  let totalQuantityM2 = 0;
+  let totalAreaM2 = 0;
+
+  for (const h of rows) {
+    const qty = h.quantityValue;
+    if (qty > 0) {
+      const uomKey =
+        h.harvestTypeKey === "sod_to_sprig"
+          ? "kg"
+          : normalizeUomKey(h.uom);
+      if (uomKey === "m2") {
+        totalQuantityM2 += qty;
+      } else {
+        totalQuantityKg += qty;
+      }
+    }
+    if (harvestHistoryRowHasTableArea(h) && h.harvestedAreaValue > 0) {
+      totalAreaM2 += h.harvestedAreaValue;
+    }
+  }
+
+  return { totalQuantityKg, totalQuantityM2, totalAreaM2 };
 }
 
 function HarvestHistoryDetailField({
@@ -599,6 +634,7 @@ function mapHarvestRecordToHarvestRow(
         ? `${displayQty.toLocaleString()} ${displayUom}`.trim()
         : "-",
     quantityValue: displayQty,
+    harvestedAreaValue: ha,
     limitStatus: harvestLimitStatusFromDescription(r.description),
     remainingQuantityDisplay,
     harvestedAreaDisplay,
@@ -1230,14 +1266,12 @@ export default function ProjectDetailPage() {
   }, [deliveredQuantityRows, keyAreaMap, projectRow, productMap, t]);
 
   const overallPercent = useMemo(() => {
-    if (!projectRow) return 0;
-    const harvestProjectId = String(projectRow.project_id ?? "").trim() || undefined;
-    return calculateOverallProjectProgressFromRaw(
-      deliveredQuantityRows,
-      projectRow.quantity_required_sprig_sod,
-      harvestProjectId,
-    );
-  }, [deliveredQuantityRows, projectRow]);
+    if (grassRows.length === 0) return 0;
+    const totalRequired = grassRows.reduce((sum, row) => sum + row.required, 0);
+    const totalDelivered = grassRows.reduce((sum, row) => sum + row.delivered, 0);
+    if (totalRequired <= 0) return 0;
+    return Math.round((totalDelivered / totalRequired) * 100);
+  }, [grassRows]);
 
   const sortedGrassRows = useMemo(() => {
     return [...grassRows].sort((a, b) => {
@@ -1313,6 +1347,11 @@ export default function ProjectDetailPage() {
         harvestHistoryClientFilter,
       ),
     [harvestHistoryClientFilter, harvestsWithProductNames],
+  );
+
+  const harvestHistoryTableTotals = useMemo(
+    () => computeHarvestHistoryTableTotals(filteredHarvests),
+    [filteredHarvests],
   );
 
   const harvestExportResolveContext = useMemo(
@@ -2023,6 +2062,57 @@ export default function ProjectDetailPage() {
                             );
                           })}
                           </tbody>
+                          {filteredHarvests.length > 0 ? (
+                            <tfoot>
+                              <tr className="border-t-2 border-border bg-muted/40 font-semibold text-foreground">
+                                <td
+                                  colSpan={4}
+                                  className={cn(
+                                    HARVEST_TABLE_CELL_CLASS,
+                                    "text-sm text-foreground",
+                                  )}
+                                >
+                                  {t("harvestHistoryTableTotal")}
+                                </td>
+                                <td
+                                  className={cn(
+                                    HARVEST_TABLE_CELL_CLASS,
+                                    "text-right text-sm tabular-nums",
+                                  )}
+                                >
+                                  <span className="flex flex-col items-end gap-0.5 leading-snug">
+                                    {harvestHistoryTableTotals.totalQuantityKg > 0 ? (
+                                      <span>
+                                        {harvestHistoryTableTotals.totalQuantityKg.toLocaleString()}{" "}
+                                        Kg
+                                      </span>
+                                    ) : null}
+                                    {harvestHistoryTableTotals.totalQuantityM2 > 0 ? (
+                                      <span>
+                                        {harvestHistoryTableTotals.totalQuantityM2.toLocaleString()}{" "}
+                                        m²
+                                      </span>
+                                    ) : null}
+                                    {harvestHistoryTableTotals.totalQuantityKg <= 0 &&
+                                    harvestHistoryTableTotals.totalQuantityM2 <= 0
+                                      ? "—"
+                                      : null}
+                                  </span>
+                                </td>
+                                <td
+                                  className={cn(
+                                    HARVEST_TABLE_CELL_CLASS,
+                                    "text-right text-sm tabular-nums",
+                                  )}
+                                >
+                                  {harvestHistoryTableTotals.totalAreaM2 > 0
+                                    ? harvestHistoryTableTotals.totalAreaM2.toLocaleString()
+                                    : "—"}
+                                </td>
+                                <td colSpan={3} className={HARVEST_TABLE_CELL_CLASS} />
+                              </tr>
+                            </tfoot>
+                          ) : null}
                         </table>
                       </div>
                     </>

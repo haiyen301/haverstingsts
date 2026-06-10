@@ -319,8 +319,13 @@ function clearQuantityUnitsFields(
 }
 
 function applyRowToFormState(r: Record<string, unknown>): HarvestFormState {
-  const harvestType = normalizeHarvestTypeStorageKey(String(r.load_type ?? ""));
+  let harvestType = normalizeHarvestTypeStorageKey(
+    String(r.load_type ?? r.harvest_type ?? ""),
+  );
   const rawUom = String(r.uom ?? "").trim();
+  if (!harvestType && rawUom) {
+    harvestType = defaultHarvestTypeForUom(rawUom);
+  }
   const uomStr = harvestType
     ? requiredUomForHarvestType(harvestType)
     : rawUom;
@@ -1467,6 +1472,8 @@ function HarvestInputPageInner() {
   ]);
 
   useEffect(() => {
+    // Edit mode keeps grass/qty/uom from the loaded row (project requirements may have changed).
+    if (editId) return;
     const projectId = formData.project.trim();
     if (!projectId) return;
     const grass = formData.grass.trim();
@@ -1486,9 +1493,10 @@ function HarvestInputPageInner() {
       harvestType: undefined,
       quantity: undefined,
     }));
-  }, [formData.grass, formData.project, selectedProjectRequirements]);
+  }, [editId, formData.grass, formData.project, selectedProjectRequirements]);
 
   useEffect(() => {
+    if (!editLoaded) return;
     const farmId = formData.farm.trim();
     if (!farmId) return;
     const grass = formData.grass.trim();
@@ -1501,7 +1509,7 @@ function HarvestInputPageInner() {
       harvestType: undefined,
       quantity: undefined,
     }));
-  }, [formData.farm, formData.grass, productOptions]);
+  }, [editLoaded, formData.farm, formData.grass, productOptions]);
 
   useEffect(() => {
     if (accessDenied || editId || !editLoaded || !bootstrapDone) return;
@@ -1598,11 +1606,14 @@ function HarvestInputPageInner() {
     return selectedProjectRequirements.some((r) => r.productId === productId);
   }, [formData.grass, selectedProjectRequirements]);
 
-  /** Grass has project quantity rows (or edit with UoM) — enables harvest type / UoM controls. */
+  /** Grass has project quantity rows (or edit with saved qty line) — enables harvest type / UoM controls. */
   const quantityUnitsBasisReady = Boolean(
     formData.grass.trim() &&
       (grassHasQuantityRequirements ||
-        (editId && Boolean(normUomKey(formData.uom)))),
+        (editId &&
+          (Boolean(normUomKey(formData.uom)) ||
+            Boolean(normalizeHarvestTypeStorageKey(formData.harvestType)) ||
+            Boolean(formData.quantity.trim())))),
   );
 
   const selectedHarvestTypeKey = normalizeHarvestTypeStorageKey(
