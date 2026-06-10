@@ -9,6 +9,10 @@ export type ForecastHarvestRow = {
   customer?: string;
   harvestType: "sod" | "sprig" | "sod_for_sprig";
   harvestDate: string;
+  /** Ngày gặt thực tế — có giá trị thì không hiện trong Upcoming Harvests. */
+  actualHarvestDate?: string;
+  /** Ngày giao — có giá trị thì không hiện trong Upcoming Harvests. */
+  deliveryDate?: string;
   readyDate: string;
   /** Magnitude đã chuẩn hoá: Sod/Sod→Sprig/M² → m² từ `harvested_area`; Sprig/Kg → kg từ `quantity`. */
   quantity: number;

@@ -83,28 +83,18 @@ function parsePositiveNumber(raw: string): number {
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
-function isSprigHarvestType(harvestType: string | undefined): boolean {
-  return String(harvestType ?? "").trim().toLowerCase() === "sprig";
-}
-
 /**
- * When harvest area (m²) is empty, auto-fill and mark the row with `auto_harvest_area`.
- * Sprig → `1`; other load types → `quantity`. Idempotent when `harvestedArea` is already set.
+ * When harvest area (m²) is empty, auto-fill from `quantity` and mark the row with `auto_harvest_area`.
+ * Idempotent when `harvestedArea` is already set.
  */
 export function resolveHarvestedAreaForSubmit(
   harvestedArea: string | undefined,
   quantity: string,
-  harvestType?: string,
+  _harvestType?: string,
 ): { harvestedArea: string | undefined; status?: string } {
   const existing = parsePositiveNumber(harvestedArea ?? "");
   if (existing > 0) {
     return { harvestedArea: stripCommas(harvestedArea ?? "") };
-  }
-  if (isSprigHarvestType(harvestType)) {
-    return {
-      harvestedArea: "1",
-      status: AUTO_HARVEST_AREA_STATUS,
-    };
   }
   const qty = stripCommas(quantity);
   if (parsePositiveNumber(qty) <= 0) {

@@ -253,6 +253,21 @@ export function filterActiveCountryRows(countries: unknown[]): unknown[] {
   return countries.filter(isCountryRowActive);
 }
 
+const INACTIVE_GRASS_STATUS_VALUES = new Set(["inactive", "0", "false", "disabled"]);
+
+/** Whether `sts_grasses.status` is active (missing status defaults to active). */
+export function isGrassRowActive(row: unknown): boolean {
+  if (!row || typeof row !== "object") return false;
+  const r = row as Record<string, unknown>;
+  const status = String(r.status ?? "active").trim().toLowerCase();
+  return !INACTIVE_GRASS_STATUS_VALUES.has(status);
+}
+
+/** Grass catalog rows with `status = active` for dropdowns and forecasting filters. */
+export function filterActiveGrassRows(grasses: unknown[]): unknown[] {
+  return grasses.filter(isGrassRowActive);
+}
+
 function countryRowToSelectOption(row: unknown): CountrySelectOption | null {
   if (!row || typeof row !== "object") return null;
   const r = row as Record<string, unknown>;

@@ -22,7 +22,10 @@
     "grass": "หญ้า",
     "zone": "โซน",
     "country": "ประเทศ",
-    "company": "บริษัท"
+    "company": "บริษัท",
+    "confirmDeleteTitle": "ยืนยันการลบ",
+    "confirmDeleteMessage": "คุณแน่ใจหรือไม่ว่าต้องการลบ?",
+    "deleting": "กำลังลบ..."
   },
   "DeploymentBanner": {
     "testServerMessage": "นี่คือเซิร์ฟเวอร์ TEST"
@@ -1311,10 +1314,23 @@
     "warnDuplicateFile": "ข้อมูลซ้ำในไฟล์นำเข้าเดียวกัน จะข้าม",
     "errDynamicRowNotFound": "ไม่พบแถว sts_dynamic_table_dat สำหรับ project_id นี้ (ไม่มี id_row/table_id)",
     "logImportFailed": "นำเข้าไม่สำเร็จ",
+    "logImportSuccess": "นำเข้าสำเร็จ (harvest #{id})",
+    "importSuccessListTitle": "การเก็บเกี่ยวที่นำเข้าแล้ว ({count}) — คลิกเพื่อดูรายละเอียด",
+    "viewHarvestDetail": "ดูรายละเอียด",
     "summaryDone": "เสร็จสิ้น สำเร็จ: {ok}, ผิดพลาด: {bad}",
     "alertImportHarvestTitle": "นำเข้าเก็บเกี่ยว Excel: สร้าง {ok} แถว",
     "alertImportHarvestMessage": "สำเร็จ {ok} แถว ผิดพลาด/ข้าม {bad} แถว เปิดหน้านำเข้าเพื่อดูรายละเอียด",
     "showingTopRows": "กำลังแสดง {shown} แถวแรก / ทั้งหมด {total} แถว",
+    "importPickerTitle": "เลือกแถวที่จะนำเข้า",
+    "importPickerHint": "เลือกแถวที่ต้องการนำเข้า แถวที่มีคำเตือนจะถูกเน้นสีแต่ยังเลือกได้",
+    "importPickerWarnings": "คำเตือน",
+    "selectAll": "เลือกทั้งหมด",
+    "deselectAll": "ยกเลิกการเลือกทั้งหมด",
+    "selectWithoutWarnings": "เลือกแถวที่ไม่มีคำเตือน",
+    "selectedCount": "เลือกแล้ว {count} / {total}",
+    "confirmImport": "นำเข้าที่เลือก ({count})",
+    "cancel": "ยกเลิก",
+    "noRowsSelected": "กรุณาเลือกอย่างน้อยหนึ่งแถวเพื่อนำเข้า",
     "table": {
       "index": "#",
       "project": "โครงการ",
@@ -1607,7 +1623,12 @@
       "description": "คำอธิบาย",
       "salesFrom": "ตั้งแต่วันที่",
       "salesTo": "ถึงวันที่",
+      "status": "สถานะ",
       "actions": "การทำงาน"
+    },
+    "status": {
+      "active": "ใช้งาน",
+      "inactive": "ไม่ใช้งาน"
     },
     "form": {
       "title": "ชื่อ *",
@@ -1622,7 +1643,8 @@
       "titleRequired": "กรุณากรอกชื่อ",
       "load": "โหลดรายการประเภทหญ้าไม่ได้",
       "save": "บันทึกไม่ได้",
-      "delete": "ลบไม่ได้"
+      "delete": "ลบไม่ได้",
+      "statusToggle": "อัปเดตสถานะไม่ได้"
     },
     "deleteConfirm": "ลบประเภทหญ้านี้? การตั้งค่าโซนที่เชื่อมอาจต้องปรับ"
   },
@@ -2055,7 +2077,7 @@
       "export": "ส่งออก",
       "view_all_data": "ดูข้อมูลทั้งหมด"
     },
-    "viewAllDataRequiresShow": "ต้องเปิดสิทธิ์ ดู ในโมดูลเดียวกัน",
+    "viewAllDataRequiresShow": "การเลือก แก้ไข สร้าง ลบ นำเข้า ส่งออก หรือ ดูข้อมูลทั้งหมด จะเปิดสิทธิ์ ดู โดยอัตโนมัติ",
     "modules": {
       "my_alerts": "การแจ้งเตือนของฉัน",
       "projects": "โครงการ",

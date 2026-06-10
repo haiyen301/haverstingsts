@@ -1,9 +1,11 @@
 import { parseISO } from "date-fns";
 
 import { fetchMondayProjectRowsFromServer } from "@/entities/projects";
-import { effectiveHarvestDateYmd } from "@/shared/lib/harvestPlanDates";
+import {
+  effectiveHarvestDateYmd,
+  isValidHarvestDateString,
+} from "@/shared/lib/harvestPlanDates";
 import { stsProxyGetHarvestingIndex } from "@/shared/api/stsProxyClient";
-import { normalizeHarvestTypeStorageKey } from "@/shared/lib/harvestType";
 import { computeReadyDateYmdFromPlanRow } from "@/features/forecasting/computeReadyDateFromPlanRow";
 import {
   convertPlanRowQuantityToKgFromZones,
@@ -13,8 +15,9 @@ import {
   harvestPlanHarvestedAreaFromRaw,
   harvestPlanProductIdFromRaw,
   harvestPlanInventoryKgFromRaw,
-  harvestPlanQuantityFromRaw,
   harvestPlanScalarFromRaw,
+  resolveForecastPlanRowKgPerM2,
+  resolvePlanRowHarvestTypeForForecast,
   resolvePlanRowUomFromRaw,
   type ZoneInventoryFragment,
 } from "@/features/forecasting/forecastingInventoryConversion";
@@ -63,25 +66,6 @@ export function resolvePlanRowUom(raw: Record<string, unknown>): string {
   return resolvePlanRowUomFromRaw(raw);
 }
 
-function detectHarvestType(
-  raw: Record<string, unknown>,
-): "sod" | "sprig" | "sod_for_sprig" {
-  const candidates = [raw.harvest_type, raw.load_type, raw.turf_type, raw.type];
-  const normalized = candidates
-    .map((v) => normalizeHarvestTypeStorageKey(v))
-    .find(Boolean);
-  if (normalized === "sod_to_sprig") return "sod_for_sprig";
-  if (normalized === "sprig") return "sprig";
-  if (normalized === "sod") return "sod";
-
-  const uom = resolvePlanRowUom(raw).toLowerCase();
-  if (uom === "kg" || uom === "kgs" || uom === "kilogram" || uom === "kilograms") {
-    return "sprig";
-  }
-
-  return "sod";
-}
-
 /**
  * Map một dòng `project_harvesting_plan` (API harvesting index) → hàng forecast.
  * `readyDate` theo UOM Kg/M2 như `Grass_forecasting::processRegrowthByUom` (qua grassRegrowthPhp).
@@ -89,6 +73,7 @@ function detectHarvestType(
 export function harvestApiRowToForecastRow(
   raw: Record<string, unknown>,
   today: Date,
+  zoneConfigs?: ZoneConfigurationRow[],
 ): ForecastHarvestRow | null {
   const id = raw.id;
   if (id === undefined || id === null) return null;
@@ -105,20 +90,18 @@ export function harvestApiRowToForecastRow(
   const zone = String(raw.zone ?? "").trim();
   const project = String(raw.project_name ?? raw.project ?? "").trim();
   const customer = String(raw.customer_name ?? raw.customer ?? "").trim();
-  const harvestType = detectHarvestType(raw);
+  const harvestType = resolvePlanRowHarvestTypeForForecast(raw);
   const uom = resolvePlanRowUom(raw);
   const harvestedAreaM2 = harvestPlanHarvestedAreaFromRaw(raw);
   const quantity = harvestPlanEffectiveMagnitudeFromRaw(raw);
-  const inventoryKgEst = harvestPlanInventoryKgFromRaw(raw);
-  const kgPerM2Raw = Number(raw.kg_per_m2);
-  const kgPerM2 =
-    Number.isFinite(kgPerM2Raw) && kgPerM2Raw > 0
-      ? kgPerM2Raw
-      : harvestedAreaM2 > 0 && inventoryKgEst > 0
-        ? inventoryKgEst / harvestedAreaM2
-        : harvestType === "sprig" && harvestedAreaM2 > 0
-          ? harvestPlanQuantityFromRaw(raw) / harvestedAreaM2
-          : 0;
+  const inventoryKgEst = harvestPlanInventoryKgFromRaw(raw, {
+    zoneConfigs: zoneConfigs ?? [],
+  });
+  const kgPerM2 = resolveForecastPlanRowKgPerM2(raw, harvestType, {
+    zoneConfigs: zoneConfigs ?? [],
+    harvestedAreaM2,
+    inventoryKgEst,
+  });
 
   const readyDateYmd =
     computeReadyDateYmdFromPlanRow(raw, harvestDateYmd) ?? harvestDateYmd;
@@ -143,6 +126,12 @@ export function harvestApiRowToForecastRow(
     customer,
     harvestType,
     harvestDate: harvestDateYmd,
+    actualHarvestDate: isValidHarvestDateString(raw.actual_harvest_date)
+      ? String(raw.actual_harvest_date).trim().slice(0, 10)
+      : undefined,
+    deliveryDate: isValidHarvestDateString(raw.delivery_harvest_date)
+      ? String(raw.delivery_harvest_date).trim().slice(0, 10)
+      : undefined,
     readyDate: readyDateYmd,
     quantity,
     harvestedAreaM2,
@@ -303,7 +292,7 @@ export function rowsToMockHarvestRows(
       : rows;
 
   for (const r of orderedRows) {
-    const m = harvestApiRowToForecastRow(r, today);
+    const m = harvestApiRowToForecastRow(r, today, zoneConfigs);
     if (!m) continue;
 
     if (zoneConfigs && zoneConfigs.length > 0) {

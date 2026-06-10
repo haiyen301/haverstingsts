@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Upload, FlaskConical, CheckCircle2, Download } from "lucide-react";
+import { Upload, FlaskConical, CheckCircle2, Download, ExternalLink } from "lucide-react";
 import * as XLSX from "xlsx";
 
 import RequireAuth from "@/features/auth/RequireAuth";
@@ -105,7 +106,16 @@ type ImportLog = {
   status: "success" | "error";
   message: string;
   source: ExcelRow;
+  harvestId?: string;
+  projectName?: string;
+  farm?: string;
+  zone?: string;
+  grass?: string;
+  quantity?: string;
+  uom?: string;
 };
+
+const HARVEST_IMPORT_RETURN_TO = "/harvest/import";
 
 const FIELDS: { key: FieldKey }[] = [
   { key: "customerName" },
@@ -340,6 +350,10 @@ export default function HarvestImportPage() {
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<TestResult | null>(null);
   const [importing, setImporting] = useState(false);
+  const [importPickerOpen, setImportPickerOpen] = useState(false);
+  const [selectedImportRows, setSelectedImportRows] = useState<Set<number>>(
+    () => new Set(),
+  );
   const [downloadingErrors, setDownloadingErrors] = useState(false);
   const [importLogs, setImportLogs] = useState<ImportLog[]>([]);
   const [error, setError] = useState("");
@@ -483,6 +497,14 @@ export default function HarvestImportPage() {
   const { sortKey, sortDir, onSort } =
     useTableColumnSort<HarvestImportSortKey>("project");
 
+  const warningByRow = useMemo(() => {
+    const m = new Map<number, string[]>();
+    for (const w of testResult?.rowsWithWarnings ?? []) {
+      m.set(w.rowIndex, w.messages);
+    }
+    return m;
+  }, [testResult]);
+
   const sortedMappedRows = useMemo(() => {
     const list = [...mappedRows];
     list.sort((a, b) => {
@@ -574,6 +596,8 @@ export default function HarvestImportPage() {
     setSummary("");
     setTestResult(null);
     setImportLogs([]);
+    setImportPickerOpen(false);
+    setSelectedImportRows(new Set());
     const hash = await computeFileHash(file);
     setCurrentFileHash(hash);
     const lastHash = localStorage.getItem("stsrenew:harvest-import:last-file-hash") ?? "";
@@ -719,18 +743,55 @@ export default function HarvestImportPage() {
     }
   };
 
-  const handleImport = async () => {
+  const openImportPicker = () => {
+    if (!testResult) return;
+    setSelectedImportRows(new Set(mappedRows.map((r) => r.rowNumber)));
+    setImportPickerOpen(true);
+  };
+
+  const toggleImportRow = (rowNumber: number, checked: boolean) => {
+    setSelectedImportRows((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(rowNumber);
+      else next.delete(rowNumber);
+      return next;
+    });
+  };
+
+  const setAllImportRowsSelected = (checked: boolean) => {
+    if (checked) {
+      setSelectedImportRows(new Set(mappedRows.map((r) => r.rowNumber)));
+    } else {
+      setSelectedImportRows(new Set());
+    }
+  };
+
+  const selectImportRowsWithoutWarnings = () => {
+    const next = new Set<number>();
+    for (const r of mappedRows) {
+      if (!warningByRow.has(r.rowNumber)) next.add(r.rowNumber);
+    }
+    setSelectedImportRows(next);
+  };
+
+  const handleImport = async (rowNumbers: Set<number>) => {
     if (!canImportHarvest) {
       setError("You do not have permission to import harvest data.");
       return;
     }
     if (!testResult) return;
+    if (!rowNumbers.size) {
+      setError(t("noRowsSelected"));
+      return;
+    }
+    setImportPickerOpen(false);
     setImporting(true);
     setError("");
     setSummary("");
     const logs: ImportLog[] = [];
+    const rowsToImport = mappedRows.filter((r) => rowNumbers.has(r.rowNumber));
     try {
-      for (const r of mappedRows) {
+      for (const r of rowsToImport) {
         const projectId = resolveByLooseText(r.projectName, projectCandidates);
         const farmId = resolveByLooseText(r.farm, farmCandidates);
         const productId = resolveByLooseText(r.grass, productCandidates);
@@ -768,7 +829,7 @@ export default function HarvestImportPage() {
             throw new Error(t("errDynamicRowNotFound"));
           }
 
-          await submitFlutterHarvest(
+          const saveResult = await submitFlutterHarvest(
             {
               projectId,
               productId,
@@ -802,11 +863,21 @@ export default function HarvestImportPage() {
             },
             {},
           );
+          const harvestId = toStringSafe(saveResult.harvest?.id);
           logs.push({
             rowNumber: r.rowNumber,
             status: "success",
-            message: `Imported successfully (id_row=${dynamicRow.idRow}, table_id=${dynamicRow.tableId})`,
+            message: harvestId
+              ? t("logImportSuccess", { id: harvestId })
+              : `Imported successfully (id_row=${dynamicRow.idRow}, table_id=${dynamicRow.tableId})`,
             source: r.source,
+            harvestId: harvestId || undefined,
+            projectName: r.projectName,
+            farm: r.farm,
+            zone: r.zone,
+            grass: r.grass,
+            quantity: r.quantity,
+            uom: r.uom,
           });
         } catch (e) {
           logs.push({
@@ -840,6 +911,9 @@ export default function HarvestImportPage() {
 
   const errorCount = importLogs.filter((x) => x.status === "error").length;
   const importErrorLogs = importLogs.filter((x) => x.status === "error");
+  const importSuccessLogs = importLogs.filter(
+    (x) => x.status === "success" && x.harvestId,
+  );
 
   const downloadErrorRows = async () => {
     if (!importErrorLogs.length || downloadingErrors) return;
@@ -994,7 +1068,7 @@ export default function HarvestImportPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => void handleImport()}
+                  onClick={openImportPicker}
                   disabled={!testResult || importing}
                   className="inline-flex items-center gap-2 rounded-lg bg-button-primary px-4 py-2 text-white hover:bg-[#196A40] disabled:opacity-60"
                 >
@@ -1051,6 +1125,47 @@ export default function HarvestImportPage() {
                           </p>
                         ) : null}
                       </div>
+                    </div>
+                  ) : null}
+
+                  {importSuccessLogs.length ? (
+                    <div className="rounded-md border border-green-200 bg-green-50 p-3 text-sm">
+                      <p className="font-medium text-green-800">
+                        {t("importSuccessListTitle", { count: importSuccessLogs.length })}
+                      </p>
+                      <ul className="mt-2 space-y-2">
+                        {importSuccessLogs.map((log) => {
+                          const detailHref = `/harvest/detail?id=${encodeURIComponent(log.harvestId!)}&returnTo=${encodeURIComponent(HARVEST_IMPORT_RETURN_TO)}`;
+                          return (
+                            <li
+                              key={`s-${log.rowNumber}-${log.harvestId}`}
+                              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-green-200 bg-white px-3 py-2"
+                            >
+                              <div className="min-w-0 text-green-900">
+                                <p className="font-medium">
+                                  {t("rowPrefix", { row: log.rowNumber })}
+                                  {log.projectName ? ` · ${log.projectName}` : ""}
+                                </p>
+                                <p className="text-xs text-green-700">
+                                  {[log.farm, log.zone, log.grass]
+                                    .filter(Boolean)
+                                    .join(" · ")}
+                                  {log.quantity
+                                    ? ` · ${log.quantity}${log.uom ? ` ${log.uom}` : ""}`
+                                    : ""}
+                                </p>
+                              </div>
+                              <Link
+                                href={detailHref}
+                                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-green-300 px-3 py-1.5 text-sm font-medium text-green-800 hover:bg-green-100"
+                              >
+                                <ExternalLink className="h-3.5 w-3.5" />
+                                {t("viewHarvestDetail")}
+                              </Link>
+                            </li>
+                          );
+                        })}
+                      </ul>
                     </div>
                   ) : null}
                 </div>
@@ -1163,6 +1278,157 @@ export default function HarvestImportPage() {
 
           {error ? <p className="text-sm text-red-600">{error}</p> : null}
           {summary ? <p className="text-sm text-green-700">{summary}</p> : null}
+
+          {importPickerOpen ? (
+            <div
+              className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4"
+              role="presentation"
+              onClick={() => {
+                if (!importing) setImportPickerOpen(false);
+              }}
+            >
+              <div
+                className="flex max-h-[90vh] w-full max-w-5xl flex-col rounded-xl border border-gray-200 bg-white text-gray-900 shadow-xl"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="harvest-import-picker-title"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="border-b border-gray-200 px-5 py-4">
+                  <h2
+                    id="harvest-import-picker-title"
+                    className="text-lg font-semibold text-gray-900"
+                  >
+                    {t("importPickerTitle")}
+                  </h2>
+                  <p className="mt-1 text-sm text-gray-600">{t("importPickerHint")}</p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 border-b border-gray-100 px-5 py-3">
+                  <button
+                    type="button"
+                    onClick={() => setAllImportRowsSelected(true)}
+                    className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50"
+                  >
+                    {t("selectAll")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAllImportRowsSelected(false)}
+                    className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-50"
+                  >
+                    {t("deselectAll")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={selectImportRowsWithoutWarnings}
+                    className="rounded-lg border border-amber-300 px-3 py-1.5 text-sm text-amber-800 hover:bg-amber-50"
+                  >
+                    {t("selectWithoutWarnings")}
+                  </button>
+                  <span className="ml-auto text-sm text-gray-600">
+                    {t("selectedCount", { count: selectedImportRows.size, total: mappedRows.length })}
+                  </span>
+                </div>
+
+                <div className="min-h-0 flex-1 overflow-auto px-5 py-3">
+                  <table className="min-w-full text-sm">
+                    <thead className="sticky top-0 bg-gray-50 text-left">
+                      <tr>
+                        <th className="w-10 px-2 py-2">
+                          <input
+                            type="checkbox"
+                            checked={
+                              mappedRows.length > 0 &&
+                              selectedImportRows.size === mappedRows.length
+                            }
+                            ref={(el) => {
+                              if (!el) return;
+                              el.indeterminate =
+                                selectedImportRows.size > 0 &&
+                                selectedImportRows.size < mappedRows.length;
+                            }}
+                            onChange={(e) => setAllImportRowsSelected(e.target.checked)}
+                            aria-label={t("selectAll")}
+                          />
+                        </th>
+                        <th className="px-3 py-2 text-gray-700">{t("table.index")}</th>
+                        <th className="px-3 py-2 text-gray-700">{t("table.project")}</th>
+                        <th className="px-3 py-2 text-gray-700">{t("table.farm")}</th>
+                        <th className="px-3 py-2 text-gray-700">{t("table.zone")}</th>
+                        <th className="px-3 py-2 text-gray-700">{t("table.grass")}</th>
+                        <th className="px-3 py-2 text-gray-700">{t("table.type")}</th>
+                        <th className="px-3 py-2 text-gray-700">{t("table.qty")}</th>
+                        <th className="px-3 py-2 text-gray-700">{t("table.estAct")}</th>
+                        <th className="px-3 py-2 text-gray-700">{t("importPickerWarnings")}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sortedMappedRows.map((r) => {
+                        const warnings = warningByRow.get(r.rowNumber);
+                        const checked = selectedImportRows.has(r.rowNumber);
+                        return (
+                          <tr
+                            key={`pick-${r.rowNumber}`}
+                            className={cn(
+                              "border-t border-gray-100",
+                              warnings?.length ? "bg-amber-50/60" : undefined,
+                            )}
+                          >
+                            <td className="px-2 py-2">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={(e) =>
+                                  toggleImportRow(r.rowNumber, e.target.checked)
+                                }
+                                aria-label={t("rowPrefix", { row: r.rowNumber })}
+                              />
+                            </td>
+                            <td className="px-3 py-2">{r.rowNumber}</td>
+                            <td className="px-3 py-2">{r.projectName}</td>
+                            <td className="px-3 py-2">{r.farm}</td>
+                            <td className="px-3 py-2">{r.zone}</td>
+                            <td className="px-3 py-2">{r.grass}</td>
+                            <td className="px-3 py-2">{r.harvestType}</td>
+                            <td className="px-3 py-2">{r.quantity}</td>
+                            <td className="px-3 py-2">
+                              {r.estimatedDate || "—"} / {r.actualDate || "—"}
+                            </td>
+                            <td className="px-3 py-2 text-amber-700">
+                              {warnings?.length ? warnings.join("; ") : "—"}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="flex justify-end gap-2 border-t border-gray-200 px-5 py-4">
+                  <button
+                    type="button"
+                    onClick={() => setImportPickerOpen(false)}
+                    disabled={importing}
+                    className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50 disabled:opacity-60"
+                  >
+                    {t("cancel")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleImport(selectedImportRows)}
+                    disabled={importing || selectedImportRows.size === 0}
+                    className="inline-flex items-center gap-2 rounded-lg bg-button-primary px-4 py-2 text-sm text-white hover:bg-[#196A40] disabled:opacity-60"
+                  >
+                    <CheckCircle2 className="h-4 w-4" />
+                    {importing
+                      ? t("importing")
+                      : t("confirmImport", { count: selectedImportRows.size })}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
         )}
       </DashboardLayout>

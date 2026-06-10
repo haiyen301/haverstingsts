@@ -5,10 +5,10 @@ import {
   type StateStorage,
 } from "zustand/middleware";
 
+import { stripUserAcl } from "@/shared/auth/stripUserAcl";
 import {
   AUTH_USER_PERSIST_STORAGE_KEY,
   clearHttpAuthCookie,
-  fetchSessionStatus,
   removeAuthToken,
   STORAGE_USER_KEY,
   type SessionUser,
@@ -33,8 +33,16 @@ function getAuthPersistStorage(): StateStorage {
 
 type AuthUserState = {
   user: SessionUser | null;
+  /** false until `refreshAuthUserFromServer` succeeds — UI must not trust permissions before this. */
+  aclReady: boolean;
   setUser: (user: SessionUser | null) => void;
+  setAclReady: (ready: boolean) => void;
 };
+
+/** ACL is refreshed from server — do not persist stale role/permissions in localStorage. */
+function userProfileForPersist(user: SessionUser | null): SessionUser | null {
+  return stripUserAcl(user);
+}
 
 /** Runs after persist rehydration (client). Do not use `store.persist.onFinishHydration` at module scope — `persist` can be undefined during SSR / edge cases. */
 function migrateLegacyUserFromStsUserKey() {
@@ -44,7 +52,7 @@ function migrateLegacyUserFromStsUserKey() {
   const raw = window.localStorage.getItem(STORAGE_USER_KEY);
   if (!raw) return;
   try {
-    setUser(JSON.parse(raw) as SessionUser);
+    setUser(userProfileForPersist(JSON.parse(raw) as SessionUser));
     window.localStorage.removeItem(STORAGE_USER_KEY);
   } catch {
     /* ignore */
@@ -55,14 +63,29 @@ export const useAuthUserStore = create<AuthUserState>()(
   persist(
     (set) => ({
       user: null,
+      aclReady: false,
       setUser: (user) => set({ user }),
+      setAclReady: (aclReady) => set({ aclReady }),
     }),
     {
       name: AUTH_USER_PERSIST_STORAGE_KEY,
       storage: createJSONStorage(getAuthPersistStorage),
-      partialize: (state) => ({ user: state.user }),
+      partialize: (state) => ({ user: userProfileForPersist(state.user) }),
+      merge: (persisted, current) => {
+        const p = persisted as Partial<AuthUserState> | undefined;
+        return {
+          ...current,
+          user: userProfileForPersist(p?.user ?? null),
+          aclReady: false,
+        };
+      },
       onRehydrateStorage: () => (_state, error) => {
         if (error) return;
+        const { setAclReady, setUser, user } = useAuthUserStore.getState();
+        setAclReady(false);
+        if (user) {
+          setUser(stripUserAcl(user));
+        }
         migrateLegacyUserFromStsUserKey();
       },
     },
@@ -82,6 +105,7 @@ export async function clearAuthSession(): Promise<void> {
   } catch {
     /* ignore */
   }
+  useAuthUserStore.getState().setAclReady(false);
   useAuthUserStore.getState().setUser(null);
   useHarvestingDataStore.getState().reset();
 }
@@ -91,20 +115,19 @@ export function getSessionUser(): SessionUser | null {
   return useAuthUserStore.getState().user;
 }
 
-/**
- * Refreshes the client user store from the server (fresh role/permissions from DB).
- * Safe to call on every page load for logged-in users.
- */
-export async function syncSessionUserFromServer(): Promise<void> {
-  if (typeof window === "undefined") return;
-  const session = await fetchSessionStatus();
-  if (!session.authenticated || !session.user) return;
+export function isAclReady(): boolean {
+  return useAuthUserStore.getState().aclReady;
+}
 
-  const current = useAuthUserStore.getState().user;
-  useAuthUserStore.getState().setUser({
-    ...(current ?? {}),
-    ...session.user,
-    permissions: session.user.permissions ?? current?.permissions,
-    is_admin: session.user.is_admin ?? current?.is_admin,
-  });
+export {
+  refreshAuthUserFromServer,
+  type RefreshAuthUserResult,
+} from "@/shared/auth/refreshAuthUserFromServer";
+
+/** @deprecated Prefer `refreshAuthUserFromServer`. */
+export async function syncSessionUserFromServer(): Promise<void> {
+  const { refreshAuthUserFromServer } = await import(
+    "@/shared/auth/refreshAuthUserFromServer"
+  );
+  await refreshAuthUserFromServer();
 }

@@ -202,7 +202,7 @@ const emptyForm = {
   harvestType: "",
   quantity: "",
   uom: "",
-  /** `harvested_area` (m²) — rỗng: sprig → 1, còn lại → quantity; `status=auto_harvest_area`. */
+  /** `harvested_area` (m²) — rỗng → quantity; `status=auto_harvest_area`. */
   harvestedArea: "",
   zone: "",
   farm: "",
@@ -1744,14 +1744,24 @@ function HarvestInputPageInner() {
 
   useEffect(() => {
     setHarvestedAreaManual(false);
-  }, [formData.farm, formData.grass, formData.uom, formData.zone]);
+  }, [formData.farm, formData.grass, formData.harvestType, formData.uom, formData.zone]);
 
   useEffect(() => {
-    if (!autoHarvestAreaInfo || harvestedAreaManual) return;
-    const nextHarvestedArea =
-      autoHarvestAreaInfo.harvestedAreaM2 > 0
-        ? autoHarvestAreaInfo.harvestedAreaM2.toFixed(2)
-        : "";
+    if (harvestedAreaManual || formData.uom.trim().toLowerCase() !== "kg") return;
+
+    let nextHarvestedArea = "";
+    if (autoHarvestAreaInfo) {
+      nextHarvestedArea =
+        autoHarvestAreaInfo.harvestedAreaM2 > 0
+          ? autoHarvestAreaInfo.harvestedAreaM2.toFixed(2)
+          : "";
+    } else if (normalizeHarvestTypeStorageKey(formData.harvestType) === "sprig") {
+      const qty = parseNum(formData.quantity);
+      nextHarvestedArea = qty > 0 ? String(qty) : "";
+    } else {
+      return;
+    }
+
     setFormData((prev) => {
       if (prev.uom.trim().toLowerCase() !== "kg") return prev;
       if (prev.harvestedArea === nextHarvestedArea) return prev;
@@ -1761,7 +1771,13 @@ function HarvestInputPageInner() {
       };
     });
     setFieldErrors((prev) => ({ ...prev, harvestedArea: undefined }));
-  }, [autoHarvestAreaInfo, harvestedAreaManual]);
+  }, [
+    autoHarvestAreaInfo,
+    formData.harvestType,
+    formData.quantity,
+    formData.uom,
+    harvestedAreaManual,
+  ]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();

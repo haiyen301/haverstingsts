@@ -28,10 +28,13 @@ export async function fetchSessionStatus(): Promise<SessionStatus> {
     return { authenticated: false };
   }
   try {
-    const res = await fetch(INTERNAL_API.authentication.session, {
-      credentials: "same-origin",
-      cache: "no-store",
-    });
+    const res = await fetch(
+      `${INTERNAL_API.authentication.session}?_ts=${Date.now()}`,
+      {
+        credentials: "same-origin",
+        cache: "no-store",
+      },
+    );
     if (!res.ok) return { authenticated: false };
     const j = (await res.json()) as {
       authenticated?: boolean;

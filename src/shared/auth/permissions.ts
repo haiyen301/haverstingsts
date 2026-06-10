@@ -1,4 +1,5 @@
 import type { SessionUser } from "@/shared/lib/sessionUser";
+import { isAclReady } from "@/shared/store/authUserStore";
 
 export type PermissionAction =
   | "show"
@@ -112,6 +113,9 @@ export function canAccessModule(
   moduleName: PermissionModule,
   action: PermissionAction = "show",
 ): boolean {
+  if (typeof window !== "undefined" && !isAclReady()) {
+    return false;
+  }
   return hasModulePermission(moduleName, user, action);
 }
 

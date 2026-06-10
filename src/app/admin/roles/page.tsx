@@ -10,15 +10,21 @@ import { cn } from "@/lib/utils";
 import { CheckBadge } from "@/shared/ui/check-badge";
 import {
   fetchRoles,
+  moduleAllowsAction,
+  modulesForAction,
+  modulesForViewAll,
   QUICK_ROLE_MODULES,
   removeRole,
   ROLE_ACTIONS,
   saveRole,
   VIEW_ALL_DATA_ACTION,
+  moduleSupportsViewAll,
   type RoleAction,
   type RoleModule,
   type RoleRow,
 } from "@/features/admin/api/rolesApi";
+import { refreshAuthUserFromServer } from "@/shared/auth/refreshAuthUserFromServer";
+import { ConfirmDeleteDialog } from "@/shared/ui/ConfirmDeleteDialog";
 
 const inputClass =
   "flex h-9 w-full min-w-0 rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground shadow-sm outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/35";
@@ -51,14 +57,40 @@ function permissionKey(action: RolePermissionAction, moduleName: RoleModule): st
   return `${action}_${moduleName}`;
 }
 
+const ACTIONS_THAT_REQUIRE_SHOW: RolePermissionAction[] = [
+  "can_edit",
+  "can_create",
+  "can_delete",
+  "can_import",
+  "can_export",
+  VIEW_ALL_DATA_ACTION,
+];
+
+function clearModulePermissions(
+  permissions: Record<string, string>,
+  moduleName: RoleModule,
+): void {
+  ROLE_ACTIONS.forEach((action) => {
+    if (moduleAllowsAction(moduleName, action)) {
+      permissions[permissionKey(action, moduleName)] = "";
+    }
+  });
+  if (moduleSupportsViewAll(moduleName)) {
+    permissions[permissionKey(VIEW_ALL_DATA_ACTION, moduleName)] = "";
+  }
+}
+
 export default function AdminRolesPage() {
   const t = useTranslations("AdminRoles");
+  const tCommon = useTranslations("Common");
   const [roles, setRoles] = useState<RoleRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<FormState>(emptyForm());
   const [saving, setSaving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<RoleRow | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -129,9 +161,9 @@ export default function AdminRolesPage() {
       next[key] = checked ? "1" : "";
 
       if (action === "can_show" && !checked) {
-        next[permissionKey(VIEW_ALL_DATA_ACTION, moduleName)] = "";
+        clearModulePermissions(next, moduleName);
       }
-      if (action === VIEW_ALL_DATA_ACTION && checked) {
+      if (checked && ACTIONS_THAT_REQUIRE_SHOW.includes(action)) {
         next[permissionKey("can_show", moduleName)] = "1";
       }
 
@@ -142,10 +174,13 @@ export default function AdminRolesPage() {
   const setActionForAllModules = (action: RoleAction, checked: boolean) => {
     setForm((prev) => {
       const next = { ...prev.permissions };
-      QUICK_ROLE_MODULES.forEach((moduleName) => {
+      modulesForAction(action).forEach((moduleName) => {
         next[permissionKey(action, moduleName)] = checked ? "1" : "";
         if (action === "can_show" && !checked) {
-          next[permissionKey(VIEW_ALL_DATA_ACTION, moduleName)] = "";
+          clearModulePermissions(next, moduleName);
+        }
+        if (checked && ACTIONS_THAT_REQUIRE_SHOW.includes(action)) {
+          next[permissionKey("can_show", moduleName)] = "1";
         }
       });
       return { ...prev, permissions: next };
@@ -153,7 +188,10 @@ export default function AdminRolesPage() {
   };
 
   const isActionAllChecked = (action: RolePermissionAction): boolean => {
-    return QUICK_ROLE_MODULES.every(
+    const modules =
+      action === VIEW_ALL_DATA_ACTION ? modulesForViewAll() : modulesForAction(action);
+    if (modules.length === 0) return false;
+    return modules.every(
       (moduleName) => form.permissions[permissionKey(action, moduleName)] === "1",
     );
   };
@@ -161,10 +199,9 @@ export default function AdminRolesPage() {
   const setViewAllDataForAllModules = (checked: boolean) => {
     setForm((prev) => {
       const next = { ...prev.permissions };
-      QUICK_ROLE_MODULES.forEach((moduleName) => {
-        const showKey = permissionKey("can_show", moduleName);
+      modulesForViewAll().forEach((moduleName) => {
         if (checked) {
-          next[showKey] = "1";
+          next[permissionKey("can_show", moduleName)] = "1";
           next[permissionKey(VIEW_ALL_DATA_ACTION, moduleName)] = "1";
         } else {
           next[permissionKey(VIEW_ALL_DATA_ACTION, moduleName)] = "";
@@ -193,6 +230,7 @@ export default function AdminRolesPage() {
         next[idx] = saved;
         return next;
       });
+      void refreshAuthUserFromServer();
       setOpen(false);
       setForm(emptyForm());
     } finally {
@@ -200,9 +238,16 @@ export default function AdminRolesPage() {
     }
   };
 
-  const handleDelete = async (id: number) => {
-    await removeRole(id);
-    setRoles((prev) => prev.filter((r) => r.id !== id));
+  const onConfirmDelete = async () => {
+    if (!deleteTarget || deleting) return;
+    try {
+      setDeleting(true);
+      await removeRole(deleteTarget.id);
+      setRoles((prev) => prev.filter((r) => r.id !== deleteTarget.id));
+      setDeleteTarget(null);
+    } finally {
+      setDeleting(false);
+    }
   };
 
   return (
@@ -234,14 +279,15 @@ export default function AdminRolesPage() {
                         <td className="px-4 py-3 font-medium">{r.title}</td>
                         <td className="px-4 py-3 text-xs text-muted-foreground">
                           {ROLE_ACTIONS.map((action) => {
-                            const count = QUICK_ROLE_MODULES.filter(
+                            const applicableModules = modulesForAction(action);
+                            const count = applicableModules.filter(
                               (moduleName) => r.permissions?.[permissionKey(action, moduleName)] === "1",
                             ).length;
                             const actionKey = action.slice(4) as RoleActionLabelKey;
                             return t("permissionCount", {
                               action: t(`actions.${actionKey}`),
                               count,
-                              total: QUICK_ROLE_MODULES.length,
+                              total: applicableModules.length,
                             });
                           }).join(" | ")}
                         </td>
@@ -253,7 +299,7 @@ export default function AdminRolesPage() {
                             <button
                               type="button"
                               className={cn(btnGhost, "text-destructive")}
-                              onClick={() => void handleDelete(r.id)}
+                              onClick={() => setDeleteTarget(r)}
                             >
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
@@ -363,80 +409,83 @@ export default function AdminRolesPage() {
                           <td className="px-4 py-3">{moduleLabels[moduleName]}</td>
                           {ROLE_ACTIONS.map((action) => {
                             const key = permissionKey(action, moduleName);
+                            const allowed = moduleAllowsAction(moduleName, action);
                             const checked = form.permissions[key] === "1";
                             const actionKey = action.slice(4) as RoleActionLabelKey;
                             return (
                               <td key={key} className="px-4 py-2 text-center align-middle">
-                                <label className="relative inline-block cursor-pointer">
-                                  <input
-                                    type="checkbox"
-                                    className="sr-only"
-                                    checked={checked}
-                                    onChange={(e) => togglePermission(action, moduleName, e.target.checked)}
-                                  />
-                                  <span
-                                    className={`inline-flex h-8 w-20 items-center justify-center rounded-md border px-2 text-xs font-medium capitalize transition-colors ${
-                                      checked
-                                        ? "border-primary bg-primary/5 text-primary"
-                                        : "border-input bg-card text-foreground shadow-sm"
-                                    }`}
-                                  >
-                                    {t(`actions.${actionKey}`)}
-                                  </span>
-                                  {checked ? (
-                                    <CheckBadge
-                                      className="left-1 top-1 h-3.5 w-3.5"
-                                      iconClassName="h-2.5 w-2.5"
+                                {allowed ? (
+                                  <label className="relative inline-block cursor-pointer">
+                                    <input
+                                      type="checkbox"
+                                      className="sr-only"
+                                      checked={checked}
+                                      onChange={(e) =>
+                                        togglePermission(action, moduleName, e.target.checked)
+                                      }
                                     />
-                                  ) : null}
-                                </label>
+                                    <span
+                                      className={`inline-flex h-8 w-20 items-center justify-center rounded-md border px-2 text-xs font-medium capitalize transition-colors ${
+                                        checked
+                                          ? "border-primary bg-primary/5 text-primary"
+                                          : "border-input bg-card text-foreground shadow-sm"
+                                      }`}
+                                    >
+                                      {t(`actions.${actionKey}`)}
+                                    </span>
+                                    {checked ? (
+                                      <CheckBadge
+                                        className="left-1 top-1 h-3.5 w-3.5"
+                                        iconClassName="h-2.5 w-2.5"
+                                      />
+                                    ) : null}
+                                  </label>
+                                ) : (
+                                  <span className="text-muted-foreground">—</span>
+                                )}
                               </td>
                             );
                           })}
                           <td className="px-4 py-2 text-center align-middle">
-                            {(() => {
-                              const viewAllKey = permissionKey(VIEW_ALL_DATA_ACTION, moduleName);
-                              const viewAllChecked = form.permissions[viewAllKey] === "1";
-                              const showChecked =
-                                form.permissions[permissionKey("can_show", moduleName)] === "1";
-                              return (
-                                <label
-                                  className={cn(
-                                    "relative inline-block",
-                                    showChecked ? "cursor-pointer" : "cursor-not-allowed opacity-50",
-                                  )}
-                                >
-                                  <input
-                                    type="checkbox"
-                                    className="sr-only"
-                                    checked={viewAllChecked}
-                                    disabled={!showChecked}
-                                    onChange={(e) =>
-                                      togglePermission(
-                                        VIEW_ALL_DATA_ACTION,
-                                        moduleName,
-                                        e.target.checked,
-                                      )
-                                    }
-                                  />
-                                  <span
-                                    className={`inline-flex h-8 min-w-24 items-center justify-center rounded-md border px-2 text-xs font-medium transition-colors ${
-                                      viewAllChecked
-                                        ? "border-primary bg-primary/5 text-primary"
-                                        : "border-input bg-card text-foreground shadow-sm"
-                                    }`}
-                                  >
-                                    {t("actions.view_all_data")}
-                                  </span>
-                                  {viewAllChecked ? (
-                                    <CheckBadge
-                                      className="left-1 top-1 h-3.5 w-3.5"
-                                      iconClassName="h-2.5 w-2.5"
+                            {moduleSupportsViewAll(moduleName) ? (
+                              (() => {
+                                const viewAllKey = permissionKey(VIEW_ALL_DATA_ACTION, moduleName);
+                                const viewAllChecked = form.permissions[viewAllKey] === "1";
+                                return (
+                                  <label className="relative inline-block cursor-pointer">
+                                    <input
+                                      type="checkbox"
+                                      className="sr-only"
+                                      checked={viewAllChecked}
+                                      onChange={(e) =>
+                                        togglePermission(
+                                          VIEW_ALL_DATA_ACTION,
+                                          moduleName,
+                                          e.target.checked,
+                                        )
+                                      }
                                     />
-                                  ) : null}
-                                </label>
-                              );
-                            })()}
+                                    <span
+                                      className={`inline-flex h-8 min-w-24 items-center justify-center rounded-md border px-2 text-xs font-medium transition-colors ${
+                                        viewAllChecked
+                                          ? "border-primary bg-primary/5 text-primary"
+                                          : "border-input bg-card text-foreground shadow-sm"
+                                      }`}
+                                    >
+                                      {t("actions.view_all_data")}
+                                    </span>
+                                    {viewAllChecked ? (
+                                      <CheckBadge
+                                        className="left-1 top-1 h-3.5 w-3.5"
+                                        iconClassName="h-2.5 w-2.5"
+                                      />
+                                    ) : null}
+                                  </label>
+                                );
+                              })()
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
                           </td>
                         </tr>
                       ))}
@@ -456,6 +505,21 @@ export default function AdminRolesPage() {
             </Card>
           </div>
         ) : null}
+
+        <ConfirmDeleteDialog
+          open={deleteTarget != null}
+          title={tCommon("confirmDeleteTitle")}
+          message={tCommon("confirmDeleteMessage")}
+          cancelLabel={tCommon("cancel")}
+          confirmLabel={tCommon("delete")}
+          deleting={deleting}
+          deletingLabel={tCommon("deleting")}
+          onCancel={() => {
+            if (!deleting) setDeleteTarget(null);
+          }}
+          onConfirm={() => void onConfirmDelete()}
+          titleId="delete-role-title"
+        />
       </DashboardLayout>
     </RequireAuth>
   );

@@ -12,6 +12,7 @@ import {
 } from "@/features/admin/api/adminApi";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { ConfirmDeleteDialog } from "@/shared/ui/ConfirmDeleteDialog";
 
 const segment = "project" as const;
 
@@ -82,6 +83,7 @@ function CatalogSwitch({
 
 export function ProjectTypesCatalogTab() {
   const t = useTranslations("AdminFormCatalog");
+  const tCommon = useTranslations("Common");
   const [rows, setRows] = useState<ProjectFormCatalogRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -89,6 +91,8 @@ export function ProjectTypesCatalogTab() {
   const [newName, setNewName] = useState("");
   const [editKey, setEditKey] = useState<number | null>(null);
   const [editVal, setEditVal] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<ProjectFormCatalogRow | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const load = useCallback(async () => {
     const data = await fetchProjectFormCatalog();
@@ -297,11 +301,7 @@ export function ProjectTypesCatalogTab() {
                                     type="button"
                                     className={cn(btnGhost, "text-destructive")}
                                     disabled={busy}
-                                    onClick={() =>
-                                      void withBusy(async () => {
-                                        await removeProjectFormCatalogRow(row.id, segment);
-                                      })
-                                    }
+                                    onClick={() => setDeleteTarget(row)}
                                   >
                                     <Trash2 className="h-3.5 w-3.5" />
                                   </button>
@@ -319,6 +319,35 @@ export function ProjectTypesCatalogTab() {
           </Card>
         </>
       ) : null}
+
+      <ConfirmDeleteDialog
+        open={deleteTarget != null}
+        title={tCommon("confirmDeleteTitle")}
+        message={tCommon("confirmDeleteMessage")}
+        cancelLabel={tCommon("cancel")}
+        confirmLabel={tCommon("delete")}
+        deleting={deleting}
+        deletingLabel={tCommon("deleting")}
+        onCancel={() => {
+          if (!deleting) setDeleteTarget(null);
+        }}
+        onConfirm={() => {
+          if (!deleteTarget || deleting) return;
+          void (async () => {
+            try {
+              setDeleting(true);
+              await removeProjectFormCatalogRow(deleteTarget.id, segment);
+              setDeleteTarget(null);
+              await load();
+            } catch (e) {
+              setError(e instanceof Error ? e.message : t("requestFailed"));
+            } finally {
+              setDeleting(false);
+            }
+          })();
+        }}
+        titleId="delete-project-type-title"
+      />
     </div>
   );
 }

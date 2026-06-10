@@ -41,6 +41,68 @@ export type RoleAction = (typeof ROLE_ACTIONS)[number];
 export type RoleModule = (typeof QUICK_ROLE_MODULES)[number];
 export type RolePermissionKey = `${RoleAction}_${RoleModule}`;
 
+const FULL_MODULE_ACTIONS: RoleAction[] = [...ROLE_ACTIONS];
+
+/** Per-module allowed actions in the roles UI (others get the full set). */
+export const MODULE_ALLOWED_ACTIONS: Record<RoleModule, RoleAction[]> = {
+  my_alerts: FULL_MODULE_ACTIONS,
+  projects: FULL_MODULE_ACTIONS,
+  forecasting: ["can_show","can_export",],
+  inventory: ["can_show", "can_edit", "can_create", "can_delete","can_export"],
+  harvest_schedule: ["can_show","can_export"],
+  harvests: FULL_MODULE_ACTIONS,
+  admin_people: FULL_MODULE_ACTIONS,
+  admin_project_types: FULL_MODULE_ACTIONS,
+  admin_architects: FULL_MODULE_ACTIONS,
+  admin_farms: FULL_MODULE_ACTIONS,
+  admin_zones: FULL_MODULE_ACTIONS,
+  admin_regrowth: FULL_MODULE_ACTIONS,
+  admin_grasses: FULL_MODULE_ACTIONS,
+  admin_key_areas: FULL_MODULE_ACTIONS,
+  admin_project_paces: FULL_MODULE_ACTIONS,
+  admin_countries: FULL_MODULE_ACTIONS,
+  dashboard: ["can_show","can_export"],
+};
+
+/** Modules that expose the "view all data" permission in the roles UI. */
+export const MODULE_SUPPORTS_VIEW_ALL: Record<RoleModule, boolean> = {
+  my_alerts: true,
+  projects: true,
+  forecasting: true,
+  inventory: true,
+  harvest_schedule: true,
+  harvests: true,
+  admin_people: true,
+  admin_project_types: true,
+  admin_architects: true,
+  admin_farms: true,
+  admin_zones: true,
+  admin_regrowth: true,
+  admin_grasses: true,
+  admin_key_areas: true,
+  admin_project_paces: true,
+  admin_countries: true,
+  dashboard: true,
+};
+
+export function moduleAllowsAction(moduleName: RoleModule, action: RoleAction): boolean {
+  return MODULE_ALLOWED_ACTIONS[moduleName].includes(action);
+}
+
+export function moduleSupportsViewAll(moduleName: RoleModule): boolean {
+  return MODULE_SUPPORTS_VIEW_ALL[moduleName];
+}
+
+/** Modules that support a given action (for quick-toggle "select all"). */
+export function modulesForAction(action: RoleAction): RoleModule[] {
+  return QUICK_ROLE_MODULES.filter((moduleName) => moduleAllowsAction(moduleName, action));
+}
+
+/** Modules that support view-all in the roles UI. */
+export function modulesForViewAll(): RoleModule[] {
+  return QUICK_ROLE_MODULES.filter((moduleName) => moduleSupportsViewAll(moduleName));
+}
+
 export type RoleRow = {
   id: number;
   title: string;

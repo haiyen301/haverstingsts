@@ -15,6 +15,7 @@ import {
   type KpiDatePreset,
   type KpiDeliveryDateFilter,
   KPI_DATE_PRESET_DASHBOARD,
+  KPI_DATE_PRESET_FORECAST,
   kpiDateRangeFromFilter,
 } from "@/shared/lib/dashboardKpiProjectFilters";
 import { DateRangePickerInlinePanel, DateRangeMobileSheet } from "@/shared/ui/date-picker";
@@ -23,6 +24,7 @@ import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
 
 export {
   KPI_DATE_PRESET_DASHBOARD,
+  KPI_DATE_PRESET_FORECAST,
   KPI_DATE_PRESET_HARVEST,
   KPI_DATE_PRESET_SCHEDULE,
 } from "@/shared/lib/dashboardKpiProjectFilters";
@@ -81,6 +83,7 @@ export function DashboardKpiDateFilter({
     }
     const nonCustom = presetOptions.filter((p) => p !== "custom");
     if (nonCustom.includes("lastMonth")) return "lastMonth";
+    if (nonCustom.includes("next3Months")) return "next3Months";
     return nonCustom[nonCustom.length - 1] ?? "lastMonth";
   }, [baselinePreset, presetOptions]);
 
@@ -106,6 +109,14 @@ export function DashboardKpiDateFilter({
         return t("Dashboard.periodNextMonth");
       case "nextQuarter":
         return t("Dashboard.periodNextQuarter");
+      case "next1Month":
+        return t("Dashboard.forecastNextMonth");
+      case "next3Months":
+        return t("Dashboard.forecastNextNMonths", { months: 3 });
+      case "next6Months":
+        return t("Dashboard.forecastNextNMonths", { months: 6 });
+      case "next12Months":
+        return t("Dashboard.forecastNextNMonths", { months: 12 });
       case "custom":
         return t("Dashboard.datePresetCustom");
       default:

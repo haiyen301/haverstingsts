@@ -296,18 +296,34 @@ function projectTitleById(projects: unknown[] | undefined, projectId: string): s
   return "";
 }
 
+function buildProjectCountryById(projects: unknown[] | undefined): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const row of projects ?? []) {
+    if (!row || typeof row !== "object") continue;
+    const rec = row as Record<string, unknown>;
+    const id = String(rec.id ?? "").trim();
+    const countryId = String(rec.country_id ?? "").trim();
+    if (id && countryId) map.set(id, countryId);
+  }
+  return map;
+}
+
 function buildProjectMetaMap(
   mondayRows: MondayProjectServerRow[],
   ctx: ProjectListExportResolveContext,
 ): Map<string, ProjectListExportProjectMeta> {
   const map = new Map<string, ProjectListExportProjectMeta>();
+  const projectCountryById = buildProjectCountryById(ctx.projects);
   for (const row of mondayRows) {
     const projectId = String((row as Record<string, unknown>).project_id ?? "").trim();
     if (!projectId || map.has(projectId)) continue;
     const status = resolveMondayCardStatusForListFilter(row);
     const statusLabel = ctx.projectStatusLabel?.(status) ?? status;
     const picId = String((row as Record<string, unknown>).pic ?? "").trim();
-    const countryId = String((row as Record<string, unknown>).country_id ?? "").trim();
+    const countryId =
+      String((row as Record<string, unknown>).country_id ?? "").trim() ||
+      projectCountryById.get(projectId) ||
+      "";
     map.set(projectId, {
       projectId,
       projectName:
@@ -327,6 +343,7 @@ function buildProjectMetaMap(
 function filterMondayRowsForExport(
   rows: MondayProjectServerRow[],
   filter: ProjectListExportFilter,
+  projectCountryById: Map<string, string> = new Map(),
 ): MondayProjectServerRow[] {
   const {
     countryIds: countryFilterIds,
@@ -377,9 +394,12 @@ function filterMondayRowsForExport(
     const rec = data as Record<string, unknown>;
     const recProjectId = String(rec.project_id ?? "").trim();
     const visibleByServerRow = recProjectId !== "";
+    const rowCountryId =
+      String(rec.country_id ?? "").trim() ||
+      (recProjectId ? projectCountryById.get(recProjectId) ?? "" : "");
     const countryOk =
       countryFilterIds.length === 0 ||
-      countryFilterIds.includes(String(rec.country_id ?? "").trim()) ||
+      countryFilterIds.includes(rowCountryId) ||
       (recProjectId ? allowedProjectIdsByCountry.has(recProjectId) : false);
     const farmOk =
       farmFilterIds.length === 0 ||
@@ -414,6 +434,7 @@ async function fetchAllMondayProjectRowsForExport(
       page,
       perPage,
       status: statusQuery || undefined,
+      countryId: filter.countryIds.length ? filter.countryIds.join(",") : undefined,
       sortBy: "project_id",
       sortDir: "desc",
       listPaged: true,
@@ -459,7 +480,8 @@ export async function buildProjectListExportRows(
   ctx: ProjectListExportResolveContext,
 ): Promise<Array<Record<string, unknown>>> {
   const mondayRows = await fetchAllMondayProjectRowsForExport(filter);
-  const filteredProjects = filterMondayRowsForExport(mondayRows, filter);
+  const projectCountryById = buildProjectCountryById(ctx.projects);
+  const filteredProjects = filterMondayRowsForExport(mondayRows, filter, projectCountryById);
   const allowedProjectIds = new Set(
     filteredProjects
       .map((r) => String((r as Record<string, unknown>).project_id ?? "").trim())

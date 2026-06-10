@@ -60,7 +60,11 @@ import {
   computeRegrowthAllocationForFarmProductDate,
   type ZoneRegrowthBreakdown,
 } from "@/features/forecasting/regrowthAllocation";
-import { zoneIdToLabelResolved } from "@/shared/lib/harvestReferenceData";
+import {
+  filterActiveGrassRows,
+  isGrassRowActive,
+  zoneIdToLabelResolved,
+} from "@/shared/lib/harvestReferenceData";
 import { useGrassFilterByFarm } from "@/shared/hooks/useGrassFilterByFarm";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import {
@@ -84,10 +88,16 @@ import {
   toCsvList,
   useSyncedFarmMultiSelect,
 } from "@/shared/hooks/useSyncedFarmMultiSelect";
+import { ForecastHorizonStrip } from "@/features/forecasting/ForecastHorizonStrip";
 import {
-  ForecastHorizonStrip,
-  type ForecastHorizonMonths,
-} from "@/features/forecasting/ForecastHorizonStrip";
+  DashboardKpiDateFilter,
+  KPI_DATE_PRESET_FORECAST,
+} from "@/features/dashboard/DashboardKpiDateFilter";
+import {
+  type KpiDeliveryDateFilter,
+  forecastSpanMonthsFromFilter,
+  kpiDateRangeFromFilter,
+} from "@/shared/lib/dashboardKpiProjectFilters";
 
 type ForecastPoint = {
   date: string;
@@ -184,22 +194,27 @@ function collectStableGrassSeriesLabels(
   grasses: unknown[],
   zoneConfigs: ZoneConfigurationRow[],
   overridesByZone: Record<string, InventoryAvailableOverrideEntry>,
+  inactiveGrassIdSet: ReadonlySet<string>,
 ): Set<string> {
   const labels = new Set<string>();
   for (const g of grasses) {
     if (!g || typeof g !== "object") continue;
+    if (!isGrassRowActive(g)) continue;
     const rec = g as Record<string, unknown>;
     const label = String(rec.title ?? rec.name ?? "").trim();
     if (label) labels.add(label);
   }
   for (const r of rows) {
+    if (inactiveGrassIdSet.has(String(r.productId))) continue;
     if (r.grassType) labels.add(r.grassType);
   }
   for (const row of zoneConfigs) {
+    if (inactiveGrassIdSet.has(String(row.grass_id))) continue;
     const turf = String(row.turfgrass ?? "").trim();
     if (turf) labels.add(turf);
   }
   for (const entry of Object.values(overridesByZone)) {
+    if (inactiveGrassIdSet.has(String(entry.grassId))) continue;
     const label = String(entry.turfgrass ?? "").trim();
     if (label) labels.add(label);
   }
@@ -1014,13 +1029,17 @@ function sumZoneCapacityM2AtDate(
 
 function collectForecastChartDateYmds(
   today: Date,
-  forecastMonths: number,
+  horizonEnd: Date,
   overridesByZone: Record<string, InventoryAvailableOverrideEntry>,
   farmProductFilter: (farmId: number, productId: number) => boolean,
 ): string[] {
-  const horizonEnd = addMonths(today, forecastMonths);
   const dates = new Set<string>();
-  const totalWeeks = Math.max(1, Math.round(forecastMonths * 4.33));
+  const spanMonths = Math.max(
+    1,
+    (horizonEnd.getFullYear() - today.getFullYear()) * 12 +
+      (horizonEnd.getMonth() - today.getMonth()),
+  );
+  const totalWeeks = Math.max(1, Math.round(spanMonths * 4.33));
 
   for (let w = 0; w < totalWeeks; w++) {
     dates.add(ymdFromDate(addDays(today, w * 7)));
@@ -1080,18 +1099,31 @@ function formatSprigRangeForReference(
   return `${p} - ${t} kg/m²`;
 }
 
+const DEFAULT_FORECAST_DATE_FILTER: KpiDeliveryDateFilter = { preset: "next3Months" };
+
 type InventoryForecastProps = {
-  forecastMonths?: ForecastHorizonMonths;
-  onForecastMonthsChange?: (months: ForecastHorizonMonths) => void;
+  forecastDateFilter?: KpiDeliveryDateFilter;
+  onForecastDateFilterChange?: (filter: KpiDeliveryDateFilter) => void;
 };
 
 export function InventoryForecast({
-  forecastMonths: controlledForecastMonths,
-  onForecastMonthsChange,
+  forecastDateFilter: controlledForecastDateFilter,
+  onForecastDateFilterChange,
 }: InventoryForecastProps = {}) {
   const t = useTranslations("ForecastInventory");
   const farmZones = useHarvestingDataStore((s) => s.farmZones);
   const grasses = useHarvestingDataStore((s) => s.grasses);
+  const activeGrasses = useMemo(() => filterActiveGrassRows(grasses), [grasses]);
+  const inactiveGrassIdSet = useMemo(() => {
+    const set = new Set<string>();
+    for (const g of grasses) {
+      if (!g || typeof g !== "object") continue;
+      if (isGrassRowActive(g)) continue;
+      const id = String((g as Record<string, unknown>).id ?? "").trim();
+      if (id) set.add(id);
+    }
+    return set;
+  }, [grasses]);
   const harvestListGrassFilter = useHarvestingDataStore((s) => s.harvestListGrassFilter);
   const setHarvestListGrassFilter = useHarvestingDataStore((s) => s.setHarvestListGrassFilter);
   const {
@@ -1114,9 +1146,18 @@ export function InventoryForecast({
     setSelectedFarmIds,
     farmOptions,
   } = useSyncedFarmMultiSelect();
-  const [internalForecastMonths, setInternalForecastMonths] = useState<ForecastHorizonMonths>(3);
-  const forecastMonths = controlledForecastMonths ?? internalForecastMonths;
-  const setForecastMonths = onForecastMonthsChange ?? setInternalForecastMonths;
+  const [internalForecastDateFilter, setInternalForecastDateFilter] =
+    useState<KpiDeliveryDateFilter>(DEFAULT_FORECAST_DATE_FILTER);
+  const forecastDateFilter = controlledForecastDateFilter ?? internalForecastDateFilter;
+  const setForecastDateFilter = onForecastDateFilterChange ?? setInternalForecastDateFilter;
+  const forecastDateRange = useMemo(
+    () => kpiDateRangeFromFilter(forecastDateFilter),
+    [forecastDateFilter],
+  );
+  const forecastSpanMonths = useMemo(
+    () => forecastSpanMonthsFromFilter(forecastDateFilter),
+    [forecastDateFilter],
+  );
   const [showBreakdownChart, setShowBreakdownChart] = useState(false);
   const [chartUnitMode, setChartUnitMode] = useState<ChartUnitMode>("sprig");
   const chartUnitLabel = chartUnitMode === "sprig" ? "kg" : "m²";
@@ -1151,7 +1192,7 @@ export function InventoryForecast({
       startTransition(() => setShowBreakdownChart(true));
     });
     return () => cancel(id as number);
-  }, [hasSnapshot, forecastMonths, debouncedFarmIds, debouncedGrassIds]);
+  }, [hasSnapshot, forecastDateFilter, debouncedFarmIds, debouncedGrassIds]);
 
   const zoneLabel = useCallback(
     (zoneId: string) => zoneIdToLabelResolved(zoneId, farmZones, t("events.noZoneName")),
@@ -1169,13 +1210,22 @@ export function InventoryForecast({
   const setSelectedGrassIds = (ids: string[]) =>
     setHarvestListGrassFilter(toCsvList(ids));
 
+  useEffect(() => {
+    if (inactiveGrassIdSet.size === 0) return;
+    const current = parseCsvList(harvestListGrassFilter);
+    const pruned = current.filter((id) => !inactiveGrassIdSet.has(id));
+    if (pruned.length !== current.length) {
+      setHarvestListGrassFilter(toCsvList(pruned));
+    }
+  }, [inactiveGrassIdSet, harvestListGrassFilter, setHarvestListGrassFilter]);
+
   const farmFilterOptions = useMemo(
     () => farmOptions.map((o) => ({ value: o.id, label: o.label })),
     [farmOptions],
   );
 
   const { grassFilterOptions } = useGrassFilterByFarm({
-    grasses: grasses as unknown[],
+    grasses: activeGrasses,
     zoneConfigs: zoneConfigSnapshot,
     selectedFarmIds,
     selectedGrassIds,
@@ -1193,12 +1243,14 @@ export function InventoryForecast({
       rowsWithLiveZoneCaps.filter((r) => {
         const farmIdStr = String(r.farmId);
         const productIdStr = String(r.productId);
+        if (inactiveGrassIdSet.has(productIdStr)) return false;
         if (debouncedFarmIds.length > 0 && !debouncedFarmIdSet.has(farmIdStr)) return false;
         if (debouncedGrassIds.length > 0 && !debouncedGrassIdSet.has(productIdStr)) return false;
         return true;
       }),
     [
       rowsWithLiveZoneCaps,
+      inactiveGrassIdSet,
       debouncedFarmIds,
       debouncedFarmIdSet,
       debouncedGrassIds,
@@ -1208,17 +1260,18 @@ export function InventoryForecast({
 
   const farmProductFilter = useCallback(
     (farmId: number, productId: number) => {
+      if (inactiveGrassIdSet.has(String(productId))) return false;
       if (debouncedFarmIds.length > 0 && !debouncedFarmIdSet.has(String(farmId))) return false;
       if (debouncedGrassIds.length > 0 && !debouncedGrassIdSet.has(String(productId))) return false;
       return true;
     },
-    [debouncedFarmIds, debouncedFarmIdSet, debouncedGrassIds, debouncedGrassIdSet],
+    [inactiveGrassIdSet, debouncedFarmIds, debouncedFarmIdSet, debouncedGrassIds, debouncedGrassIdSet],
   );
 
-  const forecastHorizonEnd = useMemo(
-    () => addMonths(getForecastToday(), forecastMonths),
-    [forecastMonths],
-  );
+  const forecastHorizonEnd = useMemo(() => {
+    const endYmd = forecastDateRange.end;
+    return parseYmdLocal(endYmd) ?? addMonths(getForecastToday(), forecastSpanMonths);
+  }, [forecastDateRange.end, forecastSpanMonths]);
 
   /** Same rolling daily basis as dev Daily harvest / available calendar. */
   const dailySeriesResult = useForecastDailySeries({
@@ -1316,13 +1369,14 @@ export function InventoryForecast({
       out.set(zoneKey, r.grassType);
     }
     for (const entry of Object.values(overridesByZone)) {
+      if (inactiveGrassIdSet.has(String(entry.grassId))) continue;
       if (selectedFarmIds.length > 0 && !selectedFarmIdSet.has(String(entry.farmId))) continue;
       if (selectedGrassIds.length > 0 && !selectedGrassIdSet.has(String(entry.grassId))) continue;
       if (!entry.zoneKey || !entry.turfgrass) continue;
       if (!out.has(entry.zoneKey)) out.set(entry.zoneKey, entry.turfgrass);
     }
     return out;
-  }, [filteredRows, overridesByZone, selectedFarmIds, selectedFarmIdSet, selectedGrassIds, selectedGrassIdSet]);
+  }, [filteredRows, overridesByZone, inactiveGrassIdSet, selectedFarmIds, selectedFarmIdSet, selectedGrassIds, selectedGrassIdSet]);
 
   const zoneFarmMeta = useMemo(() => {
     const out = new Map<string, string>();
@@ -1331,13 +1385,14 @@ export function InventoryForecast({
       if (!out.has(zoneKey)) out.set(zoneKey, r.farm);
     }
     for (const entry of Object.values(overridesByZone)) {
+      if (inactiveGrassIdSet.has(String(entry.grassId))) continue;
       if (selectedFarmIds.length > 0 && !selectedFarmIdSet.has(String(entry.farmId))) continue;
       if (selectedGrassIds.length > 0 && !selectedGrassIdSet.has(String(entry.grassId))) continue;
       if (!entry.zoneKey || !entry.farmName) continue;
       if (!out.has(entry.zoneKey)) out.set(entry.zoneKey, entry.farmName);
     }
     return out;
-  }, [filteredRows, overridesByZone, selectedFarmIds, selectedFarmIdSet, selectedGrassIds, selectedGrassIdSet]);
+  }, [filteredRows, overridesByZone, inactiveGrassIdSet, selectedFarmIds, selectedFarmIdSet, selectedGrassIds, selectedGrassIdSet]);
 
   const breakdownMode: "grass" | "farm" =
     selectedGrassIds.length > 0 ? "farm" : "grass";
@@ -1398,7 +1453,7 @@ export function InventoryForecast({
         out.set(grassId, option.label);
       }
     }
-    for (const g of grasses) {
+    for (const g of activeGrasses) {
       if (!g || typeof g !== "object") continue;
       const rec = g as Record<string, unknown>;
       const grassId = Number(rec.id);
@@ -1409,6 +1464,7 @@ export function InventoryForecast({
     for (const row of zoneConfigSnapshot) {
       if (!zoneConfigIsActiveAtYmd(row, todayYmd)) continue;
       if (isForecastExcludedZone(row.zone)) continue;
+      if (inactiveGrassIdSet.has(String(row.grass_id))) continue;
       const grassId = Number(row.grass_id);
       if (!Number.isFinite(grassId) || grassId <= 0 || out.has(grassId)) continue;
       const turf = String(row.turfgrass ?? "").trim();
@@ -1418,10 +1474,11 @@ export function InventoryForecast({
       if (r.productId > 0 && r.grassType) out.set(r.productId, r.grassType);
     }
     for (const entry of Object.values(overridesByZone)) {
+      if (inactiveGrassIdSet.has(String(entry.grassId))) continue;
       if (entry.grassId > 0 && entry.turfgrass) out.set(entry.grassId, entry.turfgrass.trim());
     }
     return out;
-  }, [grassFilterOptions, grasses, zoneConfigSnapshot, filteredRows, overridesByZone]);
+  }, [grassFilterOptions, activeGrasses, inactiveGrassIdSet, zoneConfigSnapshot, filteredRows, overridesByZone]);
 
   /** Grass labels for breakdown chart — zone-config + catalog first (same as grass filter). */
   const productGrassMeta = useMemo(() => {
@@ -1441,7 +1498,7 @@ export function InventoryForecast({
     const today = getForecastToday();
     const chartDates = collectForecastChartDateYmds(
       today,
-      forecastMonths,
+      forecastHorizonEnd,
       overridesByZone,
       farmProductFilter,
     );
@@ -1502,7 +1559,7 @@ export function InventoryForecast({
       };
     });
   }, [
-    forecastMonths,
+    forecastHorizonEnd,
     rollingByDate,
     rollingDailyByFarmProduct,
     farmProductGroupKeys,
@@ -1558,6 +1615,7 @@ export function InventoryForecast({
         if (r.farm) set.add(r.farm);
       }
       for (const entry of Object.values(overridesByZone)) {
+        if (inactiveGrassIdSet.has(String(entry.grassId))) continue;
         if (selectedFarmIds.length > 0 && !selectedFarmIdSet.has(String(entry.farmId))) continue;
         if (selectedGrassIds.length > 0 && !selectedGrassIdSet.has(String(entry.grassId))) continue;
         const label =
@@ -1576,6 +1634,7 @@ export function InventoryForecast({
       if (r.grassType) set.add(r.grassType);
     }
     for (const entry of Object.values(overridesByZone)) {
+      if (inactiveGrassIdSet.has(String(entry.grassId))) continue;
       if (selectedFarmIds.length > 0 && !selectedFarmIdSet.has(String(entry.farmId))) continue;
       if (selectedGrassIds.length > 0 && !selectedGrassIdSet.has(String(entry.grassId))) continue;
       const label =
@@ -1594,6 +1653,7 @@ export function InventoryForecast({
     productGrassMeta,
     grassNameById,
     overridesByZone,
+    inactiveGrassIdSet,
     selectedFarmIds,
     selectedFarmIdSet,
     selectedGrassIds,
@@ -1604,7 +1664,7 @@ export function InventoryForecast({
     const today = getForecastToday();
     const chartDates = collectForecastChartDateYmds(
       today,
-      forecastMonths,
+      forecastHorizonEnd,
       overridesByZone,
       farmProductFilter,
     );
@@ -1638,6 +1698,7 @@ export function InventoryForecast({
       }
 
       for (const entry of Object.values(overridesByZone)) {
+        if (inactiveGrassIdSet.has(String(entry.grassId))) continue;
         if (selectedFarmIds.length > 0 && !selectedFarmIdSet.has(String(entry.farmId))) continue;
         if (selectedGrassIds.length > 0 && !selectedGrassIdSet.has(String(entry.grassId))) continue;
         if (normalizeInventoryBalanceDateYmd(entry.date) !== overrideYmd) continue;
@@ -1672,7 +1733,7 @@ export function InventoryForecast({
 
     return points;
   }, [
-    forecastMonths,
+    forecastHorizonEnd,
     farmProductGroupKeys,
     rollingDailyByFarmProduct,
     farmProductKgPerM2,
@@ -1686,6 +1747,7 @@ export function InventoryForecast({
     hintsByDate,
     grassNameById,
     farmNameById,
+    inactiveGrassIdSet,
     selectedFarmIds,
     selectedFarmIdSet,
     selectedGrassIds,
@@ -1702,9 +1764,11 @@ export function InventoryForecast({
 
   const upcomingHarvests = useMemo(() => {
     const today = getForecastToday();
-    const end = addMonths(today, forecastMonths);
+    const end = forecastHorizonEnd;
     const result = filteredRows
       .filter((h) => {
+        if (h.actualHarvestDate || h.deliveryDate) return false;
+
         const normalized = normalizeYmd(h.harvestDate);
         const d = parseYmdLocal(normalized);
         if (!d) {
@@ -1881,7 +1945,7 @@ export function InventoryForecast({
       // );
     }
     return mergedUpcoming;
-  }, [filteredRows, forecastMonths, t, zoneLabel, zoneConfigSnapshot]);
+  }, [filteredRows, forecastHorizonEnd, t, zoneLabel, zoneConfigSnapshot]);
 
   const upcomingHarvestTotalKg = useMemo(
     () => upcomingHarvests.reduce((sum, h) => sum + h.qty, 0),
@@ -1897,7 +1961,7 @@ export function InventoryForecast({
 
   const regrowthEvents = useMemo(() => {
     const today = getForecastToday();
-    const end = addMonths(today, forecastMonths);
+    const end = forecastHorizonEnd;
     const candidates = filteredRows
       .map((h) => {
         const regrowDateObj = getRegrowthDateFromHarvest(h, regrowthConfig);
@@ -1956,7 +2020,7 @@ export function InventoryForecast({
     const finalEvents: RegrowthFinalLine[] = [];
 
     for (const ev of candidates) {
-      // Same horizon as charts + upcoming harvests: today .. today + forecastMonths
+      // Same horizon as charts + upcoming harvests: today .. forecastHorizonEnd
       if (ev.dateObj <= today || ev.dateObj > end) continue;
 
       finalEvents.push({
@@ -2140,7 +2204,7 @@ export function InventoryForecast({
   }, [
     filteredRows,
     rollingDailyByFarmProduct,
-    forecastMonths,
+    forecastHorizonEnd,
     regrowthConfig,
     t,
     zoneConfigSnapshot,
@@ -2167,7 +2231,7 @@ export function InventoryForecast({
 
   useEffect(() => {
     setSelectedRegrowthKey(null);
-  }, [debouncedFarmIds, debouncedGrassIds, forecastMonths]);
+  }, [debouncedFarmIds, debouncedGrassIds, forecastDateFilter]);
 
   useEffect(() => {
     if (!selectedRegrowthKey || regrowthPlanDetailRows.length === 0) return;
@@ -2181,10 +2245,16 @@ export function InventoryForecast({
   const grassColors = useMemo(
     () =>
       buildSeriesColorMap(
-        collectStableGrassSeriesLabels(rows, grasses, zoneConfigSnapshot, overridesByZone),
+        collectStableGrassSeriesLabels(
+          rows,
+          activeGrasses,
+          zoneConfigSnapshot,
+          overridesByZone,
+          inactiveGrassIdSet,
+        ),
         GRASS_SERIES_PALETTE,
       ),
-    [rows, grasses, zoneConfigSnapshot, overridesByZone],
+    [rows, activeGrasses, zoneConfigSnapshot, overridesByZone, inactiveGrassIdSet],
   );
 
   const farmColors = useMemo(
@@ -2213,7 +2283,7 @@ export function InventoryForecast({
       <div>
         <h2 className="text-2xl font-bold">{t("title")}</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          {t("subtitle", { months: forecastMonths })}
+          {t("subtitle", { months: forecastSpanMonths })}
         </p>
       </div>
 
@@ -2235,6 +2305,12 @@ export function InventoryForecast({
           showAllOption
           className={cn(multiSelectBaseClass, bgSurfaceFilter(selectedGrassIds.length > 0))}
           rightIcon={filterTriggerIcon}
+        />
+        <DashboardKpiDateFilter
+          value={forecastDateFilter}
+          onChange={setForecastDateFilter}
+          presets={KPI_DATE_PRESET_FORECAST}
+          baselinePreset="next3Months"
         />
       </div>
 
@@ -2259,8 +2335,7 @@ export function InventoryForecast({
       {hasSnapshot ? (
       <>
       <ForecastHorizonStrip
-        forecastMonths={forecastMonths}
-        onForecastMonthsChange={setForecastMonths}
+        horizonEnd={forecastHorizonEnd}
         upcomingHarvestCount={upcomingHarvests.length}
         upcomingHarvestTotalKg={upcomingHarvestTotalKg}
       />

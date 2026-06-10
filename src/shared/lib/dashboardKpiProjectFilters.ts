@@ -14,6 +14,10 @@ export type KpiDatePreset =
   | "nextWeek"
   | "nextMonth"
   | "nextQuarter"
+  | "next1Month"
+  | "next3Months"
+  | "next6Months"
+  | "next12Months"
   | "custom";
 
 /** Harvest list — optional “no delivery date filter” + dashboard presets. */
@@ -44,6 +48,15 @@ export const KPI_DATE_PRESET_SCHEDULE: readonly KpiDatePreset[] = [
   "nextWeek",
   "nextMonth",
   "nextQuarter",
+  "custom",
+] as const;
+
+/** Forecasting — forward-looking horizon from today. */
+export const KPI_DATE_PRESET_FORECAST: readonly KpiDatePreset[] = [
+  "next1Month",
+  "next3Months",
+  "next6Months",
+  "next12Months",
   "custom",
 ] as const;
 
@@ -168,6 +181,13 @@ function calendarQuarterRangeYmd(quarterOffset: number): { start: string; end: s
   return { start: dateToLocalYmd(start), end: dateToLocalYmd(end) };
 }
 
+/** Forward-looking window from today through today + `months` calendar months. */
+function forwardMonthsRangeYmd(months: number): { start: string; end: string } {
+  const anchor = startOfLocalToday();
+  const end = new Date(anchor.getFullYear(), anchor.getMonth() + months, anchor.getDate());
+  return { start: dateToLocalYmd(anchor), end: dateToLocalYmd(end) };
+}
+
 /** Resolves preset or custom filter to inclusive `[start, end]` YMD bounds. */
 export function kpiDateRangeFromFilter(filter: KpiDeliveryDateFilter): {
   start: string;
@@ -197,6 +217,14 @@ export function kpiDateRangeFromFilter(filter: KpiDeliveryDateFilter): {
       return calendarMonthRangeYmd(1);
     case "nextQuarter":
       return calendarQuarterRangeYmd(1);
+    case "next1Month":
+      return forwardMonthsRangeYmd(1);
+    case "next3Months":
+      return forwardMonthsRangeYmd(3);
+    case "next6Months":
+      return forwardMonthsRangeYmd(6);
+    case "next12Months":
+      return forwardMonthsRangeYmd(12);
     case "custom": {
       const from = String(filter.customFrom ?? "").trim() || today;
       const to = String(filter.customTo ?? "").trim() || from;
@@ -216,6 +244,16 @@ export function kpiTrendBucketModeForRange(startYmd: string, endYmd: string): Kp
   if (spanDays <= 8) return "day";
   if (spanDays <= 45) return "week";
   return "month";
+}
+
+/** Approximate month span for forecast subtitle / chart density. */
+export function forecastSpanMonthsFromFilter(filter: KpiDeliveryDateFilter): number {
+  const { start, end } = kpiDateRangeFromFilter(filter);
+  const s = ymdToLocalDate(start);
+  const e = ymdToLocalDate(end);
+  if (!s || !e) return 3;
+  const months = (e.getFullYear() - s.getFullYear()) * 12 + (e.getMonth() - s.getMonth());
+  return Math.max(1, months);
 }
 
 export function kpiPresetToLegacyPeriod(preset: KpiDatePreset): KpiDeliveryPeriod | null {

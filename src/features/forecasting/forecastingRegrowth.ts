@@ -4,6 +4,7 @@ import {
   forecastHarvestRowInventoryKg,
   forecastHarvestRowPlanQuantityKg,
   forecastHarvestRowUsesHarvestedAreaForMagnitude,
+  isSprigKgEstimateOnlyForecastRow,
 } from "@/features/forecasting/forecastingInventoryConversion";
 import { safeDivideStrictPhp } from "@/shared/lib/grassRegrowthPhp";
 
@@ -131,12 +132,13 @@ export function regrowthReferenceFromRuleRows(
 
 /**
  * kg/m² cho bảng regrowth SPRIG — khớp harvest list & PHP `safeDivideStrict`:
- * ưu tiên `kgPerM2` từ plan/API; không thì **kg quantity ÷ harvestedAreaM2**.
- * Sod / Sod→Sprig / M²: không dùng `row.quantity` (đó là m²) — trả 0 nếu thiếu kgPerM2.
+ * - Estimate-only Sprig/Kg: chỉ `row.kgPerM2` từ Zone Configuration (không quantity÷area)
+ * - Đã gặt: ưu tiên `row.kgPerM2`, không thì quantity ÷ harvestedAreaM2
  */
 export function harvestDensityKgPerM2ForRegrowth(row: ForecastHarvestRow): number {
-  const fromApi = row.kgPerM2;
-  if (fromApi != null && Number.isFinite(fromApi) && fromApi > 0) return fromApi;
+  const fromRow = row.kgPerM2;
+  if (fromRow != null && Number.isFinite(fromRow) && fromRow > 0) return fromRow;
+  if (isSprigKgEstimateOnlyForecastRow(row)) return 0;
   if (forecastHarvestRowUsesHarvestedAreaForMagnitude(row)) return 0;
   return safeDivideStrictPhp(
     forecastHarvestRowPlanQuantityKg(row),

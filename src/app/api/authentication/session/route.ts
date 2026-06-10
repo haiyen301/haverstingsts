@@ -1,6 +1,8 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
+export const dynamic = "force-dynamic";
+
 import { buildAclSnapshotFromProfile } from "@/shared/auth/permissions";
 import { parsePrivilegedAdminUserId } from "@/shared/auth/privilegedAdminAccess";
 import {
@@ -30,13 +32,29 @@ export async function GET() {
 
   const userId = parsePrivilegedAdminUserId(acl.userId) ?? null;
 
+  const aclSnapshot = buildAclSnapshotFromProfile(profile);
+
+  const profilePermissions =
+    profile &&
+    typeof profile === "object" &&
+    "permissions" in profile &&
+    profile.permissions &&
+    typeof profile.permissions === "object" &&
+    !Array.isArray(profile.permissions)
+      ? (profile.permissions as Record<string, unknown>)
+      : {};
+
   const res = NextResponse.json({
     authenticated: true,
     userId,
-    user: profile,
+    user: {
+      ...profile,
+      role_id: (profile as Record<string, unknown>).role_id,
+      role_title: (profile as Record<string, unknown>).role_title,
+      permissions: { ...profilePermissions, ...acl.permissions },
+      is_admin: acl.is_admin,
+    },
   });
-
-  const aclSnapshot = buildAclSnapshotFromProfile(profile);
   res.cookies.set(AUTH_ACL_COOKIE_NAME, JSON.stringify(aclSnapshot), AUTH_COOKIE_OPTIONS);
   if (userId != null) {
     res.cookies.set(AUTH_USER_ID_COOKIE_NAME, String(userId), AUTH_COOKIE_OPTIONS);

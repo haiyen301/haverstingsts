@@ -132,7 +132,7 @@ export async function fetchMondayProjectRowsFromServer(params?: {
   module?: string;
   /** Filter by normalized card status (Ongoing|Future|Done|Warning). */
   status?: string;
-  /** Filter by `country_id` (same as ProjectListItem country pill / Zustand countries). */
+  /** Filter by `country_id` (same as ProjectListItem country pill / Zustand countries). Comma-separated for multiple. */
   countryId?: string;
   /** Server sort: country_id, status bucket, first grass product_id, or numeric project_id. */
   sortBy?: "country" | "status" | "grass" | "project_id";

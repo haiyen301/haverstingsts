@@ -23,6 +23,7 @@ async function fetchCurrentUserUpstreamPayload(token: string): Promise<unknown |
   const candidates = getStsApiUrlCandidates(CURRENT_USER_API_PATH);
   const upstream = await fetchJsonWithBaseUrlFallback(candidates, {
     method: "GET",
+    cache: "no-store",
     headers: {
       Accept: "application/json",
       Authorization: `Bearer ${token}`,

@@ -2,28 +2,42 @@
 
 import { useEffect } from "react";
 
-import {
-  syncSessionUserFromServer,
-  useAuthUserStore,
-} from "@/shared/store/authUserStore";
+import { refreshAuthUserFromServer } from "@/shared/auth/refreshAuthUserFromServer";
+import { useAuthUserStore } from "@/shared/store/authUserStore";
 
 /**
- * On each page load, re-fetch role/permissions from the server so UI matches DB
- * without requiring logout/login after an admin updates roles.
+ * Mount trong root layout — mỗi lần load/refresh trang gọi refreshAuthUserFromServer.
  */
 export function AuthUserSync() {
   useEffect(() => {
-    const run = () => {
-      void syncSessionUserFromServer();
+    const runRefresh = () => {
+      void refreshAuthUserFromServer().catch(() => {
+        useAuthUserStore.getState().setAclReady(false);
+      });
     };
 
     const store = useAuthUserStore;
-    if (store.persist.hasHydrated()) {
-      run();
+    const persist = store.persist;
+
+    if (!persist) {
+      runRefresh();
       return;
     }
 
-    return store.persist.onFinishHydration(run);
+    const unsubHydration = persist.onFinishHydration(runRefresh);
+    runRefresh();
+
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        runRefresh();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+
+    return () => {
+      unsubHydration();
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, []);
 
   return null;

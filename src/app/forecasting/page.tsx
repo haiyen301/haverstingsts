@@ -4,12 +4,14 @@ import { useState } from "react";
 
 import RequireAuth from "@/features/auth/RequireAuth";
 
-import type { ForecastHorizonMonths } from "@/features/forecasting/ForecastHorizonStrip";
 import { InventoryForecast } from "@/features/forecasting/inventoryForecastView";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
+import type { KpiDeliveryDateFilter } from "@/shared/lib/dashboardKpiProjectFilters";
 
 export default function ForecastingPage() {
-  const [forecastMonths, setForecastMonths] = useState<ForecastHorizonMonths>(3);
+  const [forecastDateFilter, setForecastDateFilter] = useState<KpiDeliveryDateFilter>({
+    preset: "next3Months",
+  });
 
   return (
     <RequireAuth>
@@ -17,8 +19,8 @@ export default function ForecastingPage() {
         <main className="min-h-screen bg-gray-50">
           <div className="mx-auto w-full max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
             <InventoryForecast
-              forecastMonths={forecastMonths}
-              onForecastMonthsChange={setForecastMonths}
+              forecastDateFilter={forecastDateFilter}
+              onForecastDateFilterChange={setForecastDateFilter}
             />
           </div>
         </main>

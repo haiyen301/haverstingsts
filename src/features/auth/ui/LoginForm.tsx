@@ -25,6 +25,7 @@ import {
   clearMaintenanceReturnPath,
   getMaintenanceReturnPath,
 } from "@/shared/auth/maintenanceReturnPath";
+import { refreshAuthUserFromServer } from "@/shared/auth/refreshAuthUserFromServer";
 import { useAuthUserStore } from "@/shared/store/authUserStore";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
 
@@ -138,6 +139,8 @@ export default function LoginForm() {
       const { token: _omit, ...profile } = data;
       useAuthUserStore.getState().setUser(profile as SessionUser);
       enableMaintenancePolling();
+
+      await refreshAuthUserFromServer();
 
       const sessionOk = await fetchSessionAuthenticated();
       if (!sessionOk) {

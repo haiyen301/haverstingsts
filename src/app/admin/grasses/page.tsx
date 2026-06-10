@@ -62,6 +62,13 @@ function truncatePlainText(raw: string | null | undefined, maxLen: number): stri
   return `${s.slice(0, Math.max(0, maxLen - 1))}…`;
 }
 
+const INACTIVE_STATUS_VALUES = new Set(["inactive", "0", "false", "disabled"]);
+
+function isGrassActive(status: string | null | undefined): boolean {
+  const s = String(status ?? "active").trim().toLowerCase();
+  return !INACTIVE_STATUS_VALUES.has(s);
+}
+
 export default function AdminGrassesPage() {
   const t = useTranslations("AdminGrasses");
   const [rows, setRows] = useState<GrassTypeRow[]>([]);
@@ -70,6 +77,7 @@ export default function AdminGrassesPage() {
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<FormState>(emptyForm());
+  const [statusPendingId, setStatusPendingId] = useState<number | null>(null);
   const fetchAllHarvestingReferenceData = useHarvestingDataStore(
     (s) => s.fetchAllHarvestingReferenceData,
   );
@@ -146,6 +154,34 @@ export default function AdminGrassesPage() {
     }
   };
 
+  const handleToggleStatus = async (row: GrassTypeRow) => {
+    const id = Number(row.id);
+    if (!Number.isFinite(id) || id <= 0) return;
+    const nextStatus = isGrassActive(row.status) ? "inactive" : "active";
+    try {
+      setStatusPendingId(id);
+      setError(null);
+      const saved = await saveGrassType({
+        id,
+        title: String(row.title ?? ""),
+        country: row.country ?? null,
+        description: row.description ?? null,
+        sales_from: row.sales_from ?? null,
+        sales_to: row.sales_to ?? null,
+        status: nextStatus,
+      });
+      setRows((prev) => {
+        const next = prev.map((r) => (Number(r.id) === id ? saved : r));
+        return next.sort((a, b) => String(a.title).localeCompare(String(b.title)));
+      });
+      void fetchAllHarvestingReferenceData();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t("errors.statusToggle"));
+    } finally {
+      setStatusPendingId(null);
+    }
+  };
+
   const handleDelete = async (row: GrassTypeRow) => {
     const id = Number(row.id);
     if (!Number.isFinite(id) || id <= 0) return;
@@ -197,6 +233,9 @@ export default function AdminGrassesPage() {
                       <th className="px-4 py-3 text-left font-medium whitespace-nowrap">
                         {t("table.salesTo")}
                       </th>
+                      <th className="px-4 py-3 text-left font-medium whitespace-nowrap">
+                        {t("table.status")}
+                      </th>
                       <th className="px-4 py-3 text-right font-medium">{t("table.actions")}</th>
                     </tr>
                   </thead>
@@ -214,6 +253,46 @@ export default function AdminGrassesPage() {
                         </td> */}
                         <td className="px-4 py-3 whitespace-nowrap">{formatDateCell(row.sales_from)}</td>
                         <td className="px-4 py-3 whitespace-nowrap">{formatDateCell(row.sales_to)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              role="switch"
+                              aria-checked={isGrassActive(row.status)}
+                              className={cn(
+                                "relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                isGrassActive(row.status)
+                                  ? "bg-lime-500"
+                                  : "bg-muted-foreground/40",
+                                (saving || statusPendingId === Number(row.id)) &&
+                                  "cursor-not-allowed opacity-60",
+                              )}
+                              disabled={saving || statusPendingId === Number(row.id)}
+                              onClick={() => void handleToggleStatus(row)}
+                            >
+                              <span
+                                className={cn(
+                                  "inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform",
+                                  isGrassActive(row.status) ? "translate-x-5" : "translate-x-1",
+                                )}
+                              />
+                            </button>
+                            <span
+                              className={cn(
+                                "text-xs font-medium",
+                                isGrassActive(row.status)
+                                  ? "text-foreground"
+                                  : "text-muted-foreground",
+                              )}
+                            >
+                              {statusPendingId === Number(row.id)
+                                ? t("saving")
+                                : isGrassActive(row.status)
+                                  ? t("status.active")
+                                  : t("status.inactive")}
+                            </span>
+                          </div>
+                        </td>
                         <td className="px-4 py-3">
                           <div className="flex items-center justify-end gap-1">
                             <button type="button" className={btnGhost} onClick={() => openEdit(row)}>
@@ -236,7 +315,7 @@ export default function AdminGrassesPage() {
                     ))}
                     {!loading && rows.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">
+                        <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">
                           {t("empty")}
                         </td>
                       </tr>

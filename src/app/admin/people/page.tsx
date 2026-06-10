@@ -14,7 +14,9 @@ import {
   X,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
+import { canAccessModule } from "@/shared/auth/permissions";
 import RequireAuth from "@/features/auth/RequireAuth";
+import { useAuthUserStore } from "@/shared/store/authUserStore";
 import { fetchRoles } from "@/features/admin/api/rolesApi";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 import { Card, CardContent } from "@/components/ui/card";
@@ -22,6 +24,7 @@ import { MultiSelect } from "@/shared/ui/multi-select";
 import { cn } from "@/lib/utils";
 import { Checkbox } from "@/shared/ui/checkbox";
 import { CheckBadge } from "@/shared/ui/check-badge";
+import { ConfirmDeleteDialog } from "@/shared/ui/ConfirmDeleteDialog";
 import { STS_API_PATHS } from "@/shared/api/stsApiPaths";
 import { INTERNAL_API } from "@/shared/api/stsLogin";
 import {
@@ -461,6 +464,11 @@ function PeopleSection({
   togglePersonStatus: (id: string) => Promise<void>;
 }) {
   const t = useTranslations("AdminPeople");
+  const tCommon = useTranslations("Common");
+  const user = useAuthUserStore((s) => s.user);
+  const canCreatePeople = canAccessModule(user, "admin_people", "create");
+  const canEditPeople = canAccessModule(user, "admin_people", "edit");
+  const canDeletePeople = canAccessModule(user, "admin_people", "delete");
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<"all" | PersonType>("all");
   const [accessFilter, setAccessFilter] = useState<"all" | "login" | "directory">("all");
@@ -473,6 +481,8 @@ function PeopleSection({
   const [statusPendingId, setStatusPendingId] = useState<string | null>(null);
   const [farmOptions, setFarmOptions] = useState<FarmOption[]>([]);
   const [farmsLoadError, setFarmsLoadError] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Person | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [resetEmailSending, setResetEmailSending] = useState(false);
   const [resetEmailFeedback, setResetEmailFeedback] = useState<{
     kind: "success" | "error";
@@ -703,10 +713,12 @@ function PeopleSection({
           {t("description")}{" "}
           <code className="text-xs">odooId</code> field.
         </p>
-        <button type="button" className={btnOutline} onClick={openCreate}>
-          <Plus className="h-4 w-4" />
-          {t("addPerson")}
-        </button>
+        {canCreatePeople ? (
+          <button type="button" className={btnOutline} onClick={openCreate}>
+            <Plus className="h-4 w-4" />
+            {t("addPerson")}
+          </button>
+        ) : null}
       </div>
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
@@ -917,22 +929,24 @@ function PeopleSection({
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1">
-                        <button
-                          type="button"
-                          className={btnGhost}
-                          onClick={() => openEdit(p)}
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          type="button"
-                          className={cn(btnGhost, "text-destructive")}
-                          onClick={() => {
-                            void deletePerson(p.id);
-                          }}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
+                        {canEditPeople ? (
+                          <button
+                            type="button"
+                            className={btnGhost}
+                            onClick={() => openEdit(p)}
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                        ) : null}
+                        {canDeletePeople ? (
+                          <button
+                            type="button"
+                            className={cn(btnGhost, "text-destructive")}
+                            onClick={() => setDeleteTarget(p)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        ) : null}
                       </div>
                     </td>
                   </tr>
@@ -1426,6 +1440,32 @@ function PeopleSection({
           </div>
         </div>
       ) : null}
+
+      <ConfirmDeleteDialog
+        open={deleteTarget != null}
+        title={tCommon("confirmDeleteTitle")}
+        message={tCommon("confirmDeleteMessage")}
+        cancelLabel={tCommon("cancel")}
+        confirmLabel={tCommon("delete")}
+        deleting={deleting}
+        deletingLabel={tCommon("deleting")}
+        onCancel={() => {
+          if (!deleting) setDeleteTarget(null);
+        }}
+        onConfirm={() => {
+          if (!deleteTarget || deleting) return;
+          void (async () => {
+            try {
+              setDeleting(true);
+              await deletePerson(deleteTarget.id);
+              setDeleteTarget(null);
+            } finally {
+              setDeleting(false);
+            }
+          })();
+        }}
+        titleId="delete-person-title"
+      />
     </>
   );
 }

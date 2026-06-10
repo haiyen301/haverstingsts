@@ -469,6 +469,11 @@ export default function ProjectListPage() {
       .join(",");
   }, [statusFilterValues]);
 
+  const buildCountryQuery = useCallback(() => {
+    if (countryFilterIds.length === 0) return undefined;
+    return countryFilterIds.join(",");
+  }, [countryFilterIds]);
+
   useEffect(() => {
     let cancelled = false;
     pageLoadedRef.current = 0;
@@ -481,12 +486,14 @@ export default function ProjectListPage() {
         setTotalRecords(null);
         setHasMore(true);
         const statusQuery = buildStatusQuery();
+        const countryQuery = buildCountryQuery();
         const res = await fetchMondayProjectRowsFromServer({
           module: "project",
           search: debouncedSearch || undefined,
           page: 1,
           perPage: PROJECT_LIST_PAGE_SIZE,
           status: statusQuery || undefined,
+          countryId: countryQuery,
           sortBy: "project_id",
           sortDir: "desc",
           listPaged: true,
@@ -514,7 +521,7 @@ export default function ProjectListPage() {
     return () => {
       cancelled = true;
     };
-  }, [debouncedSearch, statusFilterValues, buildStatusQuery, manualReloadSeq]);
+  }, [debouncedSearch, statusFilterValues, countryFilterIds, buildStatusQuery, buildCountryQuery, manualReloadSeq]);
 
   useEffect(() => {
     let cancelled = false;
@@ -550,12 +557,14 @@ export default function ProjectListPage() {
         setLoadingMore(true);
         const nextPage = pageLoadedRef.current + 1;
         const statusQuery = buildStatusQuery();
+        const countryQuery = buildCountryQuery();
         void fetchMondayProjectRowsFromServer({
           module: "project",
           search: debouncedSearch || undefined,
           page: nextPage,
           perPage: PROJECT_LIST_PAGE_SIZE,
           status: statusQuery || undefined,
+          countryId: countryQuery,
           sortBy: "project_id",
           sortDir: "desc",
           listPaged: true,
@@ -594,7 +603,17 @@ export default function ProjectListPage() {
     obs.observe(el);
     return () => obs.disconnect();
     // Re-bind after each append so a still-visible sentinel triggers the next page.
-  }, [loading, hasMore, debouncedSearch, buildStatusQuery, rows.length]);
+  }, [loading, hasMore, debouncedSearch, countryFilterIds, buildStatusQuery, buildCountryQuery, rows.length]);
+
+  const projectCountryById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const r of toRecArray(projectsRef)) {
+      const id = String(r.id ?? "").trim();
+      const countryId = String(r.country_id ?? "").trim();
+      if (id && countryId) map.set(id, countryId);
+    }
+    return map;
+  }, [projectsRef]);
 
   /**
    * Flutter monday_screen.dart parity:
@@ -679,9 +698,12 @@ export default function ProjectListPage() {
       const rec = data as Record<string, unknown>;
       const recProjectId = String(rec.project_id ?? "").trim();
       const visibleByServerRow = recProjectId !== "";
+      const rowCountryId =
+        String(rec.country_id ?? "").trim() ||
+        (recProjectId ? projectCountryById.get(recProjectId) ?? "" : "");
       const countryOk =
         countryFilterIds.length === 0 ||
-        countryFilterIds.includes(String(rec.country_id ?? "").trim()) ||
+        countryFilterIds.includes(rowCountryId) ||
         (recProjectId ? allowedProjectIdsByCountry.has(recProjectId) : false);
       const farmOk =
         farmFilterIds.length === 0 ||
@@ -696,7 +718,7 @@ export default function ProjectListPage() {
         projectFilterIds.includes(String(rec.project_id ?? "").trim());
       return visibleByServerRow && countryOk && farmOk && grassOk && projectOk;
     });
-  }, [rowsWithHarvestPlan, countryFilterIds, farmFilterIds, grassFilterIds, projectFilterIds]);
+  }, [rowsWithHarvestPlan, countryFilterIds, farmFilterIds, grassFilterIds, projectFilterIds, projectCountryById, rows]);
 
   const projectTitleMap = useMemo(() => {
     const map = new Map<string, string>();

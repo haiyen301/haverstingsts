@@ -3,6 +3,7 @@ import {
   findActiveZoneConfiguration,
   ymdFromDateLocal,
 } from "@/features/forecasting/inventoryRegrowthCalculator";
+import { isValidHarvestDateString } from "@/shared/lib/harvestPlanDates";
 import { normalizeHarvestTypeStorageKey } from "@/shared/lib/harvestType";
 import type { ForecastHarvestRow } from "./forecastingTypes";
 
@@ -125,6 +126,117 @@ function planRowHarvestTypeKeyFromRaw(
     rawPlanRow.type,
   ];
   return candidates.map((v) => normalizeHarvestTypeStorageKey(v)).find(Boolean) ?? null;
+}
+
+export function resolvePlanRowHarvestTypeForForecast(
+  rawPlanRow: Record<string, unknown>,
+): "sod" | "sprig" | "sod_for_sprig" {
+  const key = planRowHarvestTypeKeyFromRaw(rawPlanRow);
+  if (key === "sod_to_sprig") return "sod_for_sprig";
+  if (key === "sprig") return "sprig";
+  if (key === "sod") return "sod";
+  if (isKgUom(resolvePlanRowUomFromRaw(rawPlanRow))) return "sprig";
+  return "sod";
+}
+
+/** Sprig/Kg plan with only `estimated_harvest_date` (no actual harvest yet). */
+export function isSprigKgEstimateOnlyPlanRow(
+  rawPlanRow: Record<string, unknown>,
+): boolean {
+  if (resolvePlanRowHarvestTypeForForecast(rawPlanRow) !== "sprig") return false;
+  if (!isKgUom(resolvePlanRowUomFromRaw(rawPlanRow))) return false;
+  if (isValidHarvestDateString(rawPlanRow.actual_harvest_date)) return false;
+  return isValidHarvestDateString(rawPlanRow.estimated_harvest_date);
+}
+
+/** Sprig/Kg forecast row not yet harvested (estimate / effective date only). */
+export function isSprigKgEstimateOnlyForecastRow(row: ForecastHarvestRow): boolean {
+  if (row.harvestType !== "sprig") return false;
+  if (!isKgUom(String(row.uom ?? ""))) return false;
+  if (isValidHarvestDateString(row.actualHarvestDate)) return false;
+  return isValidHarvestDateString(row.harvestDate);
+}
+
+/** Sprig estimate-only: Yield (kg/m²) by farm + grass only — same across all zones. */
+function resolveFarmGrassYieldKgPerM2FromZoneConfig(
+  zoneConfigs: ZoneConfigurationRow[],
+  farmId: number,
+  productId: number,
+): number {
+  if (farmId <= 0 || productId <= 0 || !zoneConfigs.length) return 0;
+
+  for (const cfg of zoneConfigs) {
+    if (Number(cfg.farm_id) !== farmId || Number(cfg.grass_id) !== productId) {
+      continue;
+    }
+    if (isForecastExcludedZone(String(cfg.zone ?? ""))) continue;
+    const yieldKgPerM2 = toNumber(cfg.inventory_kg_per_m2);
+    if (yieldKgPerM2 > 0) return yieldKgPerM2;
+  }
+
+  return 0;
+}
+
+/**
+ * Resolve kg/m² for forecast/regrowth:
+ * - Sprig/Kg + estimate only → **only** Zone Configuration Yield (farm + grass); no fallbacks
+ * - Sprig/Kg + actual date → `quantity ÷ harvested_area` (legacy)
+ * - Otherwise → API `kg_per_m2`, then generic fallbacks
+ */
+export function resolveForecastPlanRowKgPerM2(
+  rawPlanRow: Record<string, unknown>,
+  harvestType: "sod" | "sprig" | "sod_for_sprig",
+  options: {
+    zoneConfigs?: ZoneConfigurationRow[];
+    harvestedAreaM2?: number;
+    inventoryKgEst?: number;
+  } = {},
+): number {
+  const zoneConfigs = options.zoneConfigs ?? [];
+
+  /** Estimate only: zone-config Yield only — never API `kg_per_m2` or quantity÷area. */
+  if (isSprigKgEstimateOnlyPlanRow(rawPlanRow)) {
+    if (zoneConfigs.length === 0) return 0;
+    const farmId = toNumber(rawPlanRow.farm_id);
+    const productId = harvestPlanProductIdFromRaw(rawPlanRow);
+    return resolveFarmGrassYieldKgPerM2FromZoneConfig(
+      zoneConfigs,
+      farmId,
+      productId,
+    );
+  }
+
+  const kgPerM2Raw = Number(rawPlanRow.kg_per_m2);
+  if (Number.isFinite(kgPerM2Raw) && kgPerM2Raw > 0) return kgPerM2Raw;
+
+  const harvestedAreaM2 =
+    options.harvestedAreaM2 ?? harvestPlanHarvestedAreaFromRaw(rawPlanRow);
+  const isSprigKg =
+    harvestType === "sprig" && isKgUom(resolvePlanRowUomFromRaw(rawPlanRow));
+  const hasActualHarvestDate = isValidHarvestDateString(
+    rawPlanRow.actual_harvest_date,
+  );
+
+  /** Actual harvest: Sprig/Kg always uses plan quantity ÷ harvested area (m²). */
+  if (isSprigKg && hasActualHarvestDate) {
+    if (harvestedAreaM2 > 0) {
+      return harvestPlanQuantityFromRaw(rawPlanRow) / harvestedAreaM2;
+    }
+    return 0;
+  }
+
+  const inventoryKgEst =
+    options.inventoryKgEst ??
+    harvestPlanInventoryKgFromRaw(rawPlanRow, { zoneConfigs });
+
+  if (harvestedAreaM2 > 0 && inventoryKgEst > 0) {
+    return inventoryKgEst / harvestedAreaM2;
+  }
+  if (harvestType === "sprig" && harvestedAreaM2 > 0) {
+    return harvestPlanQuantityFromRaw(rawPlanRow) / harvestedAreaM2;
+  }
+
+  return 0;
 }
 
 function planRowHasNoHarvestZone(rawPlanRow: Record<string, unknown>): boolean {

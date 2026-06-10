@@ -247,6 +247,8 @@ export type GrassTypeRow = {
   sales_from?: string | null;
   sales_to?: string | null;
   description?: string | null;
+  /** `active` | `inactive` — column from migration `AddStatusToStsGrasses`. */
+  status?: string | null;
 };
 
 export type GrassTypeSavePayload = {
@@ -256,6 +258,7 @@ export type GrassTypeSavePayload = {
   description?: string | null;
   sales_from?: string | null;
   sales_to?: string | null;
+  status?: string | null;
 };
 
 /** Row from `sts_farms` (STSPortal `farms` table). */

@@ -22,7 +22,10 @@
     "grass": "Grass",
     "zone": "Zone",
     "country": "Country",
-    "company": "Company"
+    "company": "Company",
+    "confirmDeleteTitle": "Confirm Delete",
+    "confirmDeleteMessage": "Are you sure you want to delete?",
+    "deleting": "Deleting..."
   },
   "DeploymentBanner": {
     "testServerMessage": "This is the TEST server"
@@ -1308,10 +1311,23 @@
     "warnDuplicateFile": "Duplicate row inside this import file, will be skipped.",
     "errDynamicRowNotFound": "Cannot find sts_dynamic_table_dat row for this project_id (missing id_row/table_id).",
     "logImportFailed": "Import failed",
+    "logImportSuccess": "Imported successfully (harvest #{id})",
+    "importSuccessListTitle": "Imported harvests ({count}) — click to view details",
+    "viewHarvestDetail": "View detail",
     "summaryDone": "Done. Success: {ok}, Error: {bad}.",
     "alertImportHarvestTitle": "Harvest Excel import: {ok} row(s) created",
     "alertImportHarvestMessage": "{ok} succeeded, {bad} failed or skipped. Open Import for row details.",
     "showingTopRows": "Showing top {shown} rows / {total} rows.",
+    "importPickerTitle": "Select rows to import",
+    "importPickerHint": "Choose which rows to import. Rows with warnings are highlighted but can still be selected.",
+    "importPickerWarnings": "Warnings",
+    "selectAll": "Select all",
+    "deselectAll": "Deselect all",
+    "selectWithoutWarnings": "Select rows without warnings",
+    "selectedCount": "Selected {count} / {total}",
+    "confirmImport": "Import selected ({count})",
+    "cancel": "Cancel",
+    "noRowsSelected": "Please select at least one row to import.",
     "table": {
       "index": "#",
       "project": "Project",
@@ -1604,7 +1620,12 @@
       "description": "Description",
       "salesFrom": "Sales From",
       "salesTo": "Sales To",
+      "status": "Status",
       "actions": "Actions"
+    },
+    "status": {
+      "active": "Active",
+      "inactive": "Inactive"
     },
     "form": {
       "title": "Name *",
@@ -1619,7 +1640,8 @@
       "titleRequired": "Name is required.",
       "load": "Could not load grass types.",
       "save": "Could not save.",
-      "delete": "Could not delete."
+      "delete": "Could not delete.",
+      "statusToggle": "Could not update status."
     },
     "deleteConfirm": "Remove this grass type? Linked zone configuration may need updating."
   },
@@ -2066,7 +2088,7 @@
       "export": "export",
       "view_all_data": "view all data"
     },
-    "viewAllDataRequiresShow": "Requires Show on the same module.",
+    "viewAllDataRequiresShow": "Edit, Create, Delete, Import, Export, or View all data automatically enables Show.",
     "modules": {
       "my_alerts": "My Alerts",
       "projects": "Projects",
