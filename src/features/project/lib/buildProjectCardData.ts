@@ -21,6 +21,29 @@ import {
   inferRequirementUom,
 } from "./effectiveRequirementQuantity";
 import { formatProjectTypeForDisplay } from "./projectTypeDisplay";
+import { normalizeHarvestTypeStorageKey } from "@/shared/lib/harvestType";
+
+/** Kg → sprig; M2 / m² → sod (legacy fallback when `load_type` is absent). */
+export function sprigSodLabelFromUom(uom: string | undefined): "sprig" | "sod" {
+  const n = String(uom ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/²|³/g, (ch) => (ch === "²" ? "2" : "3"));
+  if (n === "m2" || n === "sqm") return "sod";
+  return "sprig";
+}
+
+/** Display label for grass requirement `load_type`; falls back to UOM inference. */
+export function formatGrassLoadTypeDisplayLabel(
+  loadTypeRaw: unknown,
+  uomFallback?: string,
+): string {
+  const key = normalizeHarvestTypeStorageKey(loadTypeRaw);
+  if (key === "sod") return "Sod";
+  if (key === "sprig") return "Sprig";
+  if (key === "sod_to_sprig") return "Sod To Sprig";
+  return sprigSodLabelFromUom(uomFallback);
+}
 
 function normalizeStatus(v: unknown): ProjectStatus {
   const s = String(v ?? "").toLowerCase();
@@ -94,41 +117,31 @@ export function resolveReactHarvestingImageUrl(fileNameOrUrl: string): string {
   return `${domain}${STS_PUBLIC_PATHS.reactHarvesting}/${s}`;
 }
 
-/** Kg → sprig; M2 / m² → sod (card grass requirement label). */
-export function sprigSodLabelFromUom(uom: string | undefined): "sprig" | "sod" {
-  const n = String(uom ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/²|³/g, (ch) => (ch === "²" ? "2" : "3"));
-  if (n === "m2" || n === "sqm") return "sod";
-  return "sprig";
-}
-
 export function formatGrassRequirementDisplayName(
   grassName: string,
   keyAreaName: string | undefined,
   uom: string | undefined,
+  loadTypeRaw?: unknown,
 ): string {
   const grass = grassName.trim() || "N/A";
   const area = keyAreaName?.trim();
-  const kind = sprigSodLabelFromUom(uom);
+  const kind = formatGrassLoadTypeDisplayLabel(loadTypeRaw, uom);
   if (!area) return `${grass} - ${kind}`;
   return `${grass} - ${area} - ${kind}`;
 }
 
-/** Required qty + UOM + harvest kind (e.g. `5,678 M2 (sod)`). */
+/** Required qty + UOM (e.g. `5,678 M2`). */
 export function formatGrassRequiredQuantityLabel(
   required: number,
   uomRaw: string | undefined,
 ): string {
   const uom = formatRequirementUomDisplay(uomRaw) || inferRequirementUom({ uom: uomRaw });
-  const kind = sprigSodLabelFromUom(uomRaw || uom);
   const qty = Math.max(0, required).toLocaleString();
-  if (uom) return `${qty} ${uom} (${kind})`;
-  return `${qty} (${kind})`;
+  if (uom) return `${qty} ${uom}`;
+  return qty;
 }
 
-/** Delivered / required + UOM + harvest kind + line progress (card & detail). */
+/** Delivered / required + UOM + line progress (card & detail). */
 export function formatGrassQuantityProgressLabel(
   delivered: number,
   required: number,
@@ -138,11 +151,12 @@ export function formatGrassQuantityProgressLabel(
   const uom =
     formatRequirementUomDisplay(uomRaw) ||
     inferRequirementUom({ uom: uomRaw });
-  const kind = sprigSodLabelFromUom(uomRaw || uom);
   const del = Math.max(0, delivered).toLocaleString();
   const req = Math.max(0, required).toLocaleString();
-  const unitPart = uom ? `${uom} (${kind})` : `(${kind})`;
-  return `${del} / ${req} ${unitPart} — ${progressPct}%`;
+  const unitPart = uom ? uom : "";
+  return unitPart
+    ? `${del} / ${req} ${unitPart} — ${progressPct}%`
+    : `${del} / ${req} — ${progressPct}%`;
 }
 
 function normalizeRequirements(raw: unknown): QuantityRequiredProject[] {
@@ -165,6 +179,7 @@ function normalizeRequirements(raw: unknown): QuantityRequiredProject[] {
       quantity_m2: x.quantity_m2 as string | number | null | undefined,
       quantity_kg: x.quantity_kg as string | number | null | undefined,
       uom: String(x.uom ?? "").trim() || undefined,
+      load_type: String(x.load_type ?? "").trim() || undefined,
       zone_id: String(x.zone_id ?? "").trim() || undefined,
       key_area_id: x.key_area_id as string | number | undefined,
       farm_id: x.farm_id as string | number | undefined,
@@ -433,10 +448,12 @@ export function buildProjectDataFromServerRow(
     const productName = options.getProductNameById?.(r.product_id) || r.product_id || "N/A";
     const keyAreaName = options.getKeyAreaNameById?.(r.key_area_id);
     const uom = inferRequirementUom(r) || String(r.uom ?? "").trim();
+    const loadType = String(r.load_type ?? "").trim() || undefined;
 
     return {
-      name: formatGrassRequirementDisplayName(productName, keyAreaName, uom),
+      name: formatGrassRequirementDisplayName(productName, keyAreaName, uom, loadType),
       uom: uom || undefined,
+      load_type: loadType,
       required: requiredQty,
       delivered: deliveredQty,
       remaining,

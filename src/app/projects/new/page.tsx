@@ -63,15 +63,44 @@ import { CheckBadge } from "@/shared/ui/check-badge";
 import { MultiSelect } from "@/shared/ui/multi-select";
 import { getInternalStsProxyUrl } from "@/shared/api/stsProxyClient";
 import { STS_API_PATHS } from "@/shared/api/stsApiPaths";
+import {
+  defaultHarvestTypeForUom,
+  normalizeHarvestTypeStorageKey,
+  type HarvestTypeStorageKey,
+} from "@/shared/lib/harvestType";
 
 interface GrassRow {
   id: string;
   grass: string;
   keyAreaIds: string[];
-  type: string;
+  loadType: HarvestTypeStorageKey;
   required: string;
   delivered: string;
   farmId: string;
+}
+
+const GRASS_LOAD_TYPE_OPTIONS: readonly {
+  value: HarvestTypeStorageKey;
+  labelKey: "loadTypeSprig" | "loadTypeSod" | "loadTypeSodToSprig";
+  uom: "Kg" | "M2";
+  uomLabel: string;
+}[] = [
+  { value: "sprig", labelKey: "loadTypeSprig", uom: "Kg", uomLabel: "kg" },
+  { value: "sod", labelKey: "loadTypeSod", uom: "M2", uomLabel: "m2" },
+  { value: "sod_to_sprig", labelKey: "loadTypeSodToSprig", uom: "Kg", uomLabel: "kg" },
+];
+
+function uomForGrassLoadType(loadType: HarvestTypeStorageKey): "Kg" | "M2" {
+  return loadType === "sod" ? "M2" : "Kg";
+}
+
+function resolveGrassLoadTypeFromApiRow(
+  row: Record<string, unknown>,
+): HarvestTypeStorageKey {
+  const fromLoadType = normalizeHarvestTypeStorageKey(row.load_type);
+  if (fromLoadType) return fromLoadType;
+  const uomRaw = String(row.uom ?? "").trim();
+  return defaultHarvestTypeForUom(uomRaw || "Kg");
 }
 
 function parseKeyAreaIds(raw: unknown): string[] {
@@ -113,30 +142,31 @@ function deriveKeyAreasCsvFromGrassRows(
   return [...titles].join(",");
 }
 
-function grassUomKey(grass: string, type: string): string | null {
+function grassLoadTypeKey(grass: string, loadType: string): string | null {
   const grassId = grass.trim();
-  const uom = type.trim();
-  if (!grassId || !uom) return null;
-  return `${grassId}::${uom}`;
+  const lt = loadType.trim();
+  if (!grassId || !lt) return null;
+  return `${grassId}::${lt}`;
 }
 
-function isDuplicateGrassUom(
+function isDuplicateGrassLoadType(
   rows: GrassRow[],
   rowId: string,
   grass: string,
-  type: string,
+  loadType: HarvestTypeStorageKey,
 ): boolean {
-  const key = grassUomKey(grass, type);
+  const key = grassLoadTypeKey(grass, loadType);
   if (!key) return false;
   return rows.some(
-    (row) => row.id !== rowId && grassUomKey(row.grass, row.type) === key,
+    (row) =>
+      row.id !== rowId && grassLoadTypeKey(row.grass, row.loadType) === key,
   );
 }
 
-function hasDuplicateGrassUomRows(rows: GrassRow[]): boolean {
+function hasDuplicateGrassLoadTypeRows(rows: GrassRow[]): boolean {
   const seen = new Set<string>();
   for (const row of rows) {
-    const key = grassUomKey(row.grass, row.type);
+    const key = grassLoadTypeKey(row.grass, row.loadType);
     if (!key) continue;
     if (seen.has(key)) return true;
     seen.add(key);
@@ -317,7 +347,7 @@ export default function ProjectInputPage() {
       id: "1",
       grass: "",
       keyAreaIds: [],
-      type: "Kg",
+      loadType: "sprig",
       required: "",
       delivered: "",
       farmId: "",
@@ -704,7 +734,7 @@ export default function ProjectInputPage() {
         id: Date.now().toString(),
         grass: "",
         keyAreaIds: [],
-        type: "Kg",
+        loadType: "sprig",
         required: "",
         delivered: "",
         farmId: "",
@@ -760,25 +790,25 @@ export default function ProjectInputPage() {
   const isGrassItemComplete = (g: GrassRow) =>
     g.grass.trim().length > 0 &&
     g.required.trim().length > 0 &&
-    g.type.trim().length > 0;
+    g.loadType.trim().length > 0;
 
   const hasInvalidGrassItem = grassRows.some((g) => {
     const touched =
       g.grass.trim().length > 0 ||
-      g.type.trim().length > 0 ||
+      g.loadType.trim().length > 0 ||
       g.required.trim().length > 0;
     if (!touched) return false;
     const requiredQty = Number.parseFloat(g.required);
     return (
       !g.grass.trim() ||
-      !g.type.trim() ||
+      !g.loadType.trim() ||
       !g.required.trim() ||
       !Number.isFinite(requiredQty) ||
       requiredQty <= 0
     );
   });
 
-  const hasDuplicateGrassUom = hasDuplicateGrassUomRows(grassRows);
+  const hasDuplicateGrassLoadType = hasDuplicateGrassLoadTypeRows(grassRows);
 
   const getTopFieldErrors = (): TopFieldErrors => {
     const errors: TopFieldErrors = {};
@@ -963,14 +993,12 @@ export default function ProjectInputPage() {
       .filter((x) => x && typeof x === "object")
       .map((x) => x as Record<string, unknown>)
       .map((x) => {
-        const uomRaw = String(x.uom ?? "").trim().toLowerCase();
-        const typeNorm =
-          uomRaw === "m2" || uomRaw === "sqm" || uomRaw === "m²" ? "M2" : "Kg";
+        const loadType = resolveGrassLoadTypeFromApiRow(x);
         return {
           id: String(x.id ?? Date.now()),
           grass: String(x.product_id ?? "").trim(),
           keyAreaIds: parseKeyAreaIds(x.key_area_id),
-          type: uomRaw ? typeNorm : "Kg",
+          loadType,
           required: String(x.quantity ?? "").trim(),
           delivered: "",
           farmId: String(x.farm_id ?? "").trim(),
@@ -1015,10 +1043,10 @@ export default function ProjectInputPage() {
     const hasCompleteGrassItem = grassRows.some(isGrassItemComplete);
     const noCompleteGrassError = t("validationGrassAtLeastOneComplete");
     const invalidGrassError = t("validationGrassInvalidRows");
-    const duplicateGrassError = t("validationGrassDuplicateUom");
+    const duplicateGrassError = t("validationGrassDuplicateLoadType");
     if (!hasCompleteGrassItem) {
       setGrassValidationError(noCompleteGrassError);
-    } else if (hasDuplicateGrassUom) {
+    } else if (hasDuplicateGrassLoadType) {
       setGrassValidationError(duplicateGrassError);
     } else if (hasInvalidGrassItem) {
       setGrassValidationError(invalidGrassError);
@@ -1053,7 +1081,7 @@ export default function ProjectInputPage() {
       scrollToField("project-grass-info");
       return;
     }
-    if (hasDuplicateGrassUom) {
+    if (hasDuplicateGrassLoadType) {
       setError(duplicateGrassError);
       scrollToField("project-grass-info");
       return;
@@ -1112,7 +1140,8 @@ export default function ProjectInputPage() {
         .filter(isGrassItemComplete)
         .map((r) => ({
           productId: r.grass.trim(),
-          uom: r.type,
+          uom: uomForGrassLoadType(r.loadType),
+          loadType: r.loadType,
           amountRequired: Number.parseFloat(r.required) || 0,
           farmId: r.farmId.trim(),
         }));
@@ -1145,11 +1174,13 @@ export default function ProjectInputPage() {
           key_areas: deriveKeyAreasCsvFromGrassRows(grassRows, keyAreaTitleById),
           quantity_required_sprig_sod: grassRows.map((r) => {
             const keyAreaId = serializeKeyAreaIdForApi(r.keyAreaIds);
+            const uom = uomForGrassLoadType(r.loadType);
             return {
               id: r.id,
               product_id: r.grass,
               quantity: r.required,
-              uom: r.type,
+              uom,
+              load_type: r.loadType,
               ...(keyAreaId != null ? { key_area_id: keyAreaId } : {}),
               ...(r.farmId.trim() ? { farm_id: r.farmId.trim() } : {}),
             };
@@ -1680,21 +1711,6 @@ export default function ProjectInputPage() {
                                     months: opt.months,
                                   })}
                                 </span>
-                                {opt.totalBatches > 0 ? (
-                                  <span
-                                    className={`text-xs leading-tight ${formData.projectPace === opt.value
-                                        ? "text-primary/80"
-                                        : "text-muted-foreground"
-                                      }`}
-                                  >
-                                    {t("projectPacePlanLine", {
-                                      weeks: opt.weeks,
-                                      harvestBatches: opt.harvestBatches,
-                                      harvestEveryWeeks: opt.harvestEveryWeeks,
-                                      totalBatches: opt.totalBatches,
-                                    })}
-                                  </span>
-                                ) : null}
                               </>
                             ) : null}
                           </span>
@@ -1951,7 +1967,12 @@ export default function ProjectInputPage() {
                             const v = e.target.value;
                             if (
                               v.trim() &&
-                              isDuplicateGrassUom(grassRows, row.id, v, row.type)
+                              isDuplicateGrassLoadType(
+                                grassRows,
+                                row.id,
+                                v,
+                                row.loadType,
+                              )
                             ) {
                               return;
                             }
@@ -1971,11 +1992,11 @@ export default function ProjectInputPage() {
                         >
                           <option value="">{t("selectGrass")}</option>
                           {getGrassOptionsForRow(row).map((p) => {
-                            const optionDisabled = isDuplicateGrassUom(
+                            const optionDisabled = isDuplicateGrassLoadType(
                               grassRows,
                               row.id,
                               p.id,
-                              row.type,
+                              row.loadType,
                             );
                             return (
                               <option
@@ -1984,7 +2005,7 @@ export default function ProjectInputPage() {
                                 disabled={optionDisabled}
                               >
                                 {p.name}
-                                {optionDisabled ? ` (${t("grassUomTaken")})` : ""}
+                                {optionDisabled ? ` (${t("grassLoadTypeTaken")})` : ""}
                               </option>
                             );
                           })}
@@ -2022,37 +2043,51 @@ export default function ProjectInputPage() {
                         />
                       </div>
                       <div className="w-fit shrink-0 space-y-2">
-                        <span className="block text-sm font-medium text-foreground">
-                          {t("kgOrM2")}
-                        </span>
-                        <div className="inline-grid w-auto shrink-0 grid-cols-[auto_auto] gap-2 bg-surface-filter-filled ">
-                          {(["Kg", "M2"] as const).map((u) => {
-                            const uomDisabled =
+                        <div className="inline-grid w-auto shrink-0 grid-cols-[auto_auto_auto] gap-2 bg-surface-filter-filled">
+                          {GRASS_LOAD_TYPE_OPTIONS.map((opt) => {
+                            const loadTypeDisabled =
                               row.grass.trim().length > 0 &&
-                              isDuplicateGrassUom(grassRows, row.id, row.grass, u);
+                              isDuplicateGrassLoadType(
+                                grassRows,
+                                row.id,
+                                row.grass,
+                                opt.value,
+                              );
                             return (
                               <button
-                                key={`${row.id}-${u}`}
+                                key={`${row.id}-${opt.value}`}
                                 type="button"
-                                disabled={uomDisabled}
+                                disabled={loadTypeDisabled}
                                 onMouseDown={(e) => e.preventDefault()}
                                 onClick={() => {
-                                  if (row.type === u || uomDisabled) return;
-                                  updateGrassRow(row.id, "type", u);
+                                  if (row.loadType === opt.value || loadTypeDisabled) {
+                                    return;
+                                  }
+                                  updateGrassRow(row.id, "loadType", opt.value);
                                 }}
-                                className={`relative w-max text-left justify-self-start ${uomDisabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
+                                className={`relative w-max text-left justify-self-start ${loadTypeDisabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
                               >
+                                 <span>{t(opt.labelKey)}</span>
                                 <span
-                                  className={`flex min-h-10 min-w-10 items-center justify-center whitespace-nowrap rounded-md border px-3 text-sm transition-colors ${row.type === u
+                                  className={`relative flex min-h-10 flex-col items-center justify-center gap-0.5 whitespace-nowrap rounded-md border px-2.5 py-1.5 transition-colors ${opt.value === "sod_to_sprig" ? "min-w-[5.5rem]" : "min-w-[4.5rem]"} ${row.loadType === opt.value
                                       ? "border-primary bg-primary/5 text-primary"
                                       : "border-input bg-card text-foreground shadow-sm"
                                     }`}
                                 >
-                                  {u}
+                                 
+                                  <span
+                                    className={`text-sm font-semibold leading-tight ${row.loadType === opt.value
+                                        ? "text-primary"
+                                        : "text-foreground"
+                                      }`}
+                                  >
+                                    {opt.uomLabel}
+                                  </span>
+                                  {row.loadType === opt.value ? (
+                                    <CheckBadge className="left-1 top-1 h-3 w-3" />
+                                  ) : null}
                                 </span>
-                                {row.type === u ? (
-                                  <CheckBadge className="left-1 top-1 h-3 w-3" />
-                                ) : null}
+                                
                               </button>
                             );
                           })}

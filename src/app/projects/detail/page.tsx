@@ -284,6 +284,7 @@ type GrassRow = {
   name: string;
   /** Unit of measure; shown beside quantities, not in `name`. */
   uom: string;
+  loadType?: string;
   required: number;
   delivered: number;
   remaining: number;
@@ -1214,10 +1215,12 @@ export default function ProjectDetailPage() {
         t("unknownGrass");
       const keyAreaId = String(r.key_area_id ?? "").trim();
       const keyAreaName = keyAreaId ? keyAreaMap.get(keyAreaId) : undefined;
+      const loadType = String(r.load_type ?? "").trim() || undefined;
       return {
         id: `${productId || "item"}-${idx}`,
-        name: formatGrassRequirementDisplayName(productName, keyAreaName, uom),
+        name: formatGrassRequirementDisplayName(productName, keyAreaName, uom, loadType),
         uom,
+        loadType,
         required,
         delivered,
         remaining,
@@ -1554,9 +1557,9 @@ export default function ProjectDetailPage() {
                           <div className="mb-1 flex justify-between gap-2 text-sm">
                             <div className="min-w-0">
                               <span className="block font-medium text-foreground">{g.name}</span>
-                              <span className="block tabular-nums text-muted-foreground">
+                              {/* <span className="block tabular-nums text-muted-foreground">
                                 {formatGrassRequiredQuantityLabel(g.required, g.uom)}
-                              </span>
+                              </span> */}
                             </div>
                             <span className="shrink-0 text-right tabular-nums text-muted-foreground">
                               {formatGrassQuantityProgressLabel(

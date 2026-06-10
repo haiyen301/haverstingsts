@@ -8,6 +8,8 @@ export interface ProjectItem {
   name: string;
   /** Unit of measure (e.g. kg, m²); shown after quantities on the card. */
   uom?: string;
+  /** Sprig / sod / sod_to_sprig — shown in progress labels when set. */
+  load_type?: string;
   required: number;
   delivered: number;
   remaining: number;
@@ -45,6 +47,8 @@ export type QuantityRequiredProject = {
   /** Kg target when `uom` is kg. */
   quantity_kg?: string | number | null;
   uom?: string;
+  /** Sprig / sod / sod_to_sprig (parity with harvest `load_type`). */
+  load_type?: string;
   zone_id?: string;
   /** Key area catalog id (`key_areas` table). */
   key_area_id?: string | number;

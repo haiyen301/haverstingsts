@@ -1,10 +1,15 @@
 import { submitFlutterHarvest } from "@/features/harvesting/api/flutterHarvestSubmit";
 import type { ProjectPaceRow } from "@/features/admin/api/adminApi";
+import {
+  defaultHarvestTypeForUom,
+  normalizeHarvestTypeStorageKey,
+  type HarvestTypeStorageKey,
+} from "@/shared/lib/harvestType";
 
 /**
  * Planned harvest schedule when creating a project — pace config drives months,
  * harvest cadence (batches per week), and per-batch quantity (total ÷ batch count).
- * Harvest kind follows grass UoM: Kg → sprig, M² → sod.
+ * Harvest kind follows grass `load_type` when set; otherwise UoM (Kg → sprig, M² → sod).
  *
  * After actual harvest dates are saved on edit, quantities are rebalanced via
  * `recalculatePaceQuantitiesAfterActualHarvest.ts` — see `doc/project-page-and-harvest-update.md`.
@@ -26,13 +31,15 @@ export type GrassRequirementForHarvestPlan = {
   amountRequired: number;
   /** Optional farm from project grass requirements (`quantity_required_sprig_sod.farm_id`). */
   farmId?: string;
+  /** Sprig / sod / sod_to_sprig from grass requirements (`quantity_required_sprig_sod.load_type`). */
+  loadType?: HarvestTypeStorageKey | string;
 };
 
 export type PlannedHarvestSeed = {
   productId: string;
   quantity: string;
   uom: "Kg" | "M2";
-  harvestType: "sprig" | "sod";
+  harvestType: HarvestTypeStorageKey;
   estimatedHarvestDate: string;
   farmId?: string;
 };
@@ -79,14 +86,22 @@ function normUomKey(raw: string): string {
     .replace(/²/g, "2");
 }
 
-function harvestKindFromGrassUom(uom: string): HarvestKind {
-  const u = normUomKey(uom);
-  if (u === "m2" || u === "sqm") return "SOD";
+function resolveGrassLoadType(
+  req: GrassRequirementForHarvestPlan,
+): HarvestTypeStorageKey {
+  const fromField = normalizeHarvestTypeStorageKey(req.loadType);
+  if (fromField) return fromField;
+  return defaultHarvestTypeForUom(req.uom);
+}
+
+function harvestKindForRequirement(req: GrassRequirementForHarvestPlan): HarvestKind {
+  const loadType = resolveGrassLoadType(req);
+  if (loadType === "sod") return "SOD";
   return "SPRIG";
 }
 
-function displayUom(kind: HarvestKind): "Kg" | "M2" {
-  return kind === "SPRIG" ? "Kg" : "M2";
+function displayUomForLoadType(loadType: HarvestTypeStorageKey): "Kg" | "M2" {
+  return loadType === "sod" ? "M2" : "Kg";
 }
 
 function positiveInt(raw: unknown, fallback: number): number {
@@ -176,6 +191,7 @@ function buildBatchSlots(
 type NormalisedReq = {
   productId: string;
   kind: HarvestKind;
+  loadType: HarvestTypeStorageKey;
   totalKg: number;
   totalAreaM2: number;
   farmId: string;
@@ -187,7 +203,8 @@ function normaliseRequirements(
   return reqs
     .filter((r) => r.productId.trim() && r.amountRequired > 0)
     .map((r) => {
-      const kind = harvestKindFromGrassUom(r.uom);
+      const loadType = resolveGrassLoadType(r);
+      const kind = harvestKindForRequirement(r);
       const kgPerM2 = KG_PER_M2[kind];
       const u = normUomKey(r.uom);
       const isArea = u === "m2" || u === "sqm";
@@ -198,6 +215,7 @@ function normaliseRequirements(
       return {
         productId: r.productId.trim(),
         kind,
+        loadType,
         totalKg,
         totalAreaM2,
         farmId: String(r.farmId ?? "").trim(),
@@ -206,7 +224,7 @@ function normaliseRequirements(
 }
 
 function quantityPerBatch(req: NormalisedReq, totalBatches: number): number {
-  const uom = displayUom(req.kind);
+  const uom = displayUomForLoadType(req.loadType);
   const raw =
     uom === "Kg" ? req.totalKg / totalBatches : req.totalAreaM2 / totalBatches;
   return Math.round(raw * 10) / 10;
@@ -220,7 +238,7 @@ export function buildPaceGrassBatchQuantities(opts: {
   const totalBatches = estimateTotalHarvestBatches(opts.paceConfig);
   const reqs = normaliseRequirements(opts.grassRequirements);
   return reqs.map((req) => {
-    const uom = displayUom(req.kind);
+    const uom = displayUomForLoadType(req.loadType);
     const qty = quantityPerBatch(req, totalBatches);
     const row: PaceGrassBatchQuantity = {
       grass_id: req.productId,
@@ -261,7 +279,7 @@ export function generatePlannedHarvestsForNewProject(opts: {
   const harvests: PlannedHarvestSeed[] = [];
 
   for (const req of reqs) {
-    const uom = displayUom(req.kind);
+    const uom = displayUomForLoadType(req.loadType);
     const qty = quantityPerBatch(req, totalBatches);
     for (const slot of slots) {
       const date = addDays(start, slot.weekIndex * 7 + slot.dayOffset);
@@ -269,7 +287,7 @@ export function generatePlannedHarvestsForNewProject(opts: {
         productId: req.productId,
         quantity: String(qty),
         uom,
-        harvestType: req.kind === "SPRIG" ? "sprig" : "sod",
+        harvestType: req.loadType,
         estimatedHarvestDate: isoYmd(date),
         farmId: req.farmId || undefined,
       });
