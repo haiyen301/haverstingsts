@@ -2,11 +2,49 @@
  * Cùng quy tắc với `Project_harvesting_plan_model::get_details`:
  * ngày harvest hiệu lực = `actual_harvest_date` nếu có và hợp lệ, không thì `estimated_harvest_date`.
  */
+/** Aligns with PHP `_hasRealHarvestScheduleDate` + requires a parseable `Y-m-d` prefix. */
 export function isValidHarvestDateString(v: unknown): v is string {
   if (typeof v !== "string") return false;
   const s = v.trim();
-  if (!s || s === "0000-00-00") return false;
-  return true;
+  if (!s || /^null$/i.test(s)) return false;
+  if (/^0000-00-00/i.test(s)) return false;
+  const ymd = s.slice(0, 10);
+  const m = ymd.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return false;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return !Number.isNaN(d.getTime());
+}
+
+export function harvestDateStringToYmd(v: unknown): string | null {
+  if (!isValidHarvestDateString(v)) return null;
+  return String(v).trim().slice(0, 10);
+}
+
+/** Upcoming Harvests: exclude rows already harvested or delivered. */
+export function rowQualifiesAsUpcomingHarvest(row: {
+  actualHarvestDate?: string;
+  deliveryDate?: string;
+}): boolean {
+  return (
+    !isValidHarvestDateString(row.actualHarvestDate) &&
+    !isValidHarvestDateString(row.deliveryDate)
+  );
+}
+
+/**
+ * Date shown in Upcoming Harvests — always the scheduled estimate, never actual/delivery.
+ */
+export function upcomingHarvestDateYmdFromRow(row: {
+  actualHarvestDate?: string;
+  deliveryDate?: string;
+  estimatedHarvestDate?: string;
+  harvestDate?: string;
+}): string | null {
+  if (!rowQualifiesAsUpcomingHarvest(row)) return null;
+  return (
+    harvestDateStringToYmd(row.estimatedHarvestDate) ??
+    harvestDateStringToYmd(row.harvestDate)
+  );
 }
 
 /** Chuỗi `Y-m-d` cho lọc / hiển thị (ưu tiên actual). */

@@ -3,6 +3,7 @@ import { parseISO } from "date-fns";
 import { fetchMondayProjectRowsFromServer } from "@/entities/projects";
 import {
   effectiveHarvestDateYmd,
+  harvestDateStringToYmd,
   isValidHarvestDateString,
 } from "@/shared/lib/harvestPlanDates";
 import { stsProxyGetHarvestingIndex } from "@/shared/api/stsProxyClient";
@@ -90,8 +91,12 @@ export function harvestApiRowToForecastRow(
   const grassType = String(raw.grass_name ?? "");
   const productId = harvestPlanProductIdFromRaw(raw);
   const zone = String(raw.zone ?? "").trim();
-  const project = String(raw.project_name ?? raw.project ?? "").trim();
-  const customer = String(raw.customer_name ?? raw.customer ?? "").trim();
+  const project = String(
+    raw.project_name ?? raw.project ?? raw.alias_title ?? raw.title ?? "",
+  ).trim();
+  const customer = String(
+    raw.customer_name ?? raw.customer ?? raw.client_name ?? "",
+  ).trim();
   const harvestType = resolvePlanRowHarvestTypeForForecast(raw);
   const uom = resolvePlanRowUom(raw);
   const harvestedAreaM2 = harvestPlanHarvestedAreaFromRaw(raw);
@@ -128,12 +133,9 @@ export function harvestApiRowToForecastRow(
     customer,
     harvestType,
     harvestDate: harvestDateYmd,
-    actualHarvestDate: isValidHarvestDateString(raw.actual_harvest_date)
-      ? String(raw.actual_harvest_date).trim().slice(0, 10)
-      : undefined,
-    deliveryDate: isValidHarvestDateString(raw.delivery_harvest_date)
-      ? String(raw.delivery_harvest_date).trim().slice(0, 10)
-      : undefined,
+    estimatedHarvestDate: harvestDateStringToYmd(raw.estimated_harvest_date) ?? undefined,
+    actualHarvestDate: harvestDateStringToYmd(raw.actual_harvest_date) ?? undefined,
+    deliveryDate: harvestDateStringToYmd(raw.delivery_harvest_date) ?? undefined,
     readyDate: readyDateYmd,
     quantity,
     harvestedAreaM2,

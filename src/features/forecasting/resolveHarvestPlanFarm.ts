@@ -29,20 +29,6 @@ export function buildRequirementFarmByProjectProduct(
   return map;
 }
 
-/** Projects that already have at least one harvest plan row with `farm_id` set. */
-export function buildProjectsWithHarvestFarmSet(
-  harvestRows: Record<string, unknown>[],
-): Set<string> {
-  const out = new Set<string>();
-  for (const raw of harvestRows) {
-    const projectId = String(raw.project_id ?? "").trim();
-    if (!projectId) continue;
-    const farmId = harvestPlanScalarFromRaw(raw.farm_id);
-    if (farmId > 0) out.add(projectId);
-  }
-  return out;
-}
-
 function buildFarmNameByIdMap(farms: unknown[]): Map<string, string> {
   const map = new Map<string, string>();
   if (!Array.isArray(farms)) return map;
@@ -60,17 +46,14 @@ function buildFarmNameByIdMap(farms: unknown[]): Map<string, string> {
 /**
  * Resolve effective farm for a harvesting plan row:
  * - Row already has `farm_id` → keep it.
- * - Project has any harvest row with farm set → keep current (no grass-requirement fallback).
  * - Otherwise → use `quantity_required_sprig_sod.farm_id` for matching `product_id`.
  */
 export function resolveHarvestPlanFarm(params: {
   raw: Record<string, unknown>;
-  projectsWithHarvestFarm: Set<string>;
   requirementFarmByProjectProduct: Map<string, string>;
   farmNameById: Map<string, string>;
 }): ResolvedHarvestFarm {
-  const { raw, projectsWithHarvestFarm, requirementFarmByProjectProduct, farmNameById } =
-    params;
+  const { raw, requirementFarmByProjectProduct, farmNameById } = params;
 
   const existingFarmIdRaw = harvestPlanScalarFromRaw(raw.farm_id);
   const existingFarmName = String(raw.farm_name ?? "").trim();
@@ -85,10 +68,6 @@ export function resolveHarvestPlanFarm(params: {
   const projectId = String(raw.project_id ?? "").trim();
   const productId = harvestPlanProductIdFromRaw(raw);
   if (!projectId || productId <= 0) {
-    return { farmId: 0, farmName: existingFarmName };
-  }
-
-  if (projectsWithHarvestFarm.has(projectId)) {
     return { farmId: 0, farmName: existingFarmName };
   }
 
@@ -115,13 +94,11 @@ export function enrichHarvestRowsWithResolvedFarm(
     return harvestRows;
   }
 
-  const projectsWithHarvestFarm = buildProjectsWithHarvestFarmSet(harvestRows);
   const farmNameById = buildFarmNameByIdMap(farms);
 
   return harvestRows.map((raw) => {
     const resolved = resolveHarvestPlanFarm({
       raw,
-      projectsWithHarvestFarm,
       requirementFarmByProjectProduct,
       farmNameById,
     });

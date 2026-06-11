@@ -735,11 +735,27 @@ export function distributePlanRowToZoneFragments(params: {
       ];
     }
 
-    return [];
+    if (requestedKg <= 0) return [];
+    return [
+      {
+        zone: String(rawPlanRow.zone ?? "").trim(),
+        inventoryKg: requestedKg,
+        zoneMaxInventoryKg: 0,
+        inventoryIsCapped: false,
+      },
+    ];
   }
 
   if (buckets.size === 0) {
-    return [];
+    if (requestedKg <= 0) return [];
+    return [
+      {
+        zone: FORECAST_NOZONE_ZONE,
+        inventoryKg: requestedKg,
+        zoneMaxInventoryKg: 0,
+        inventoryIsCapped: false,
+      },
+    ];
   }
 
   const fillKeys = Array.from(buckets.keys())

@@ -149,7 +149,7 @@ export function ProjectListItem({
   const tableId = String(serverRow?.table_id ?? "").trim() || undefined;
 
   const cfg = STATUS_CONFIG[data.status];
-  /** From buildProjectData: average of per-line `min(1, delivered/required)`; delivered only with valid delivery date. */
+  /** From buildProjectData: total delivered ÷ total required × 100%; delivery date + Sod→Sprig rules. */
   const clampedProgress = Math.max(0, Math.min(100, data.progress));
   const typeTag = String(data.tags[0] ?? "").trim();
   const extraTags = data.tags.slice(1).filter(Boolean);

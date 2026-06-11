@@ -8,7 +8,10 @@ export type ForecastHarvestRow = {
   project?: string;
   customer?: string;
   harvestType: "sod" | "sprig" | "sod_for_sprig";
+  /** Effective harvest date (actual if set, else estimated) — dùng chart / trừ tồn. */
   harvestDate: string;
+  /** `estimated_harvest_date` từ plan — dùng Upcoming Harvests khi chưa có actual. */
+  estimatedHarvestDate?: string;
   /** Ngày gặt thực tế — có giá trị thì không hiện trong Upcoming Harvests. */
   actualHarvestDate?: string;
   /** Ngày giao — có giá trị thì không hiện trong Upcoming Harvests. */

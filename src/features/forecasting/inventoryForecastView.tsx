@@ -74,6 +74,13 @@ import {
   normalizeInventoryBalanceDateYmd,
   type InventoryAvailableOverrideEntry,
 } from "@/shared/store/inventoryAvailableOverrideStore";
+import {
+  ForecastEventBadge,
+  ForecastEventTile,
+  ForecastEventTitleRich,
+  forecastHarvestEventSubtitle,
+  forecastUpcomingGrassDetail,
+} from "@/features/forecasting/ForecastEventTile";
 import { RegrowthPlanDetailsTable } from "@/features/forecasting/RegrowthPlanDetailsTable";
 import {
   buildRegrowthPlanDetailRows,
@@ -81,6 +88,10 @@ import {
 } from "@/features/forecasting/regrowthEventPlanDetails";
 import { useForecastSnapshot } from "@/features/forecasting/useForecastSnapshot";
 import { getForecastToday } from "@/features/forecasting/forecastDateUtils";
+import {
+  rowQualifiesAsUpcomingHarvest,
+  upcomingHarvestDateYmdFromRow,
+} from "@/shared/lib/harvestPlanDates";
 import { useDebouncedValue } from "@/features/forecasting/useDebouncedValue";
 import { useForecastDailySeries } from "@/features/forecasting/useForecastCompute";
 import { MultiSelect } from "@/shared/ui/multi-select";
@@ -192,7 +203,9 @@ function buildSeriesColorMap(
 }
 
 function forecastRowRefYmd(row: ForecastHarvestRow): string {
-  return String(row.deliveryDate ?? row.harvestDate ?? "")
+  return String(
+    row.deliveryDate ?? row.estimatedHarvestDate ?? row.harvestDate ?? "",
+  )
     .trim()
     .slice(0, 10);
 }
@@ -1792,9 +1805,10 @@ export function InventoryForecast({
     const end = forecastHorizonEnd;
     const result = filteredRows
       .filter((h) => {
-        if (h.actualHarvestDate || h.deliveryDate) return false;
+        if (!rowQualifiesAsUpcomingHarvest(h)) return false;
 
-        const normalized = normalizeYmd(h.harvestDate);
+        const normalized = upcomingHarvestDateYmdFromRow(h);
+        if (!normalized) return false;
         const d = parseYmdLocal(normalized);
         if (!d) {
           // if (DEBUG_UPCOMING_FILTER) {
@@ -1836,10 +1850,11 @@ export function InventoryForecast({
           zoneLabel,
           t("events.noZoneName"),
         );
+        const upcomingDate = upcomingHarvestDateYmdFromRow(h) ?? normalizeYmd(h.harvestDate);
         return {
         planId: forecastLogicalPlanRowId(h.id),
         id: h.id,
-        date: normalizeYmd(h.harvestDate),
+        date: upcomingDate,
         farm: h.farm,
         grass: h.grassType,
         zone: String(h.zone ?? "").trim(),
@@ -2601,53 +2616,64 @@ export function InventoryForecast({
             {t("upcoming.empty")}
           </p>
         ) : (
-          <div className="max-h-[360px] space-y-1 overflow-y-auto pr-1">
-            {upcomingHarvests.map((h) => (
-              <div
-                key={h.id}
-                className="flex items-center gap-3 rounded-lg px-3 py-2 hover:bg-[hsl(var(--muted)/0.3)]"
-              >
-                <div className="h-2 w-2 shrink-0 rounded-full bg-accent" />
-                <div className="min-w-[90px] text-sm font-medium">{formatDayMonth(h.date)}</div>
-                <div className="min-w-0 flex-1 text-sm">
-                  <p className="truncate">
-                    <span className="font-medium">
-                      {forecastDisplayFarmName(h.farm, t("events.noFarmName"))}
-                    </span>
-                    <span className="text-muted-foreground"> . {h.grass} {zoneLabel(h.zone)}</span>
-                  </p>
-                  {(h.project || h.customer) && (
-                    <p className="text-[11px] text-muted-foreground truncate">
-                      {h.customer}{h.customer && h.project ? ' · ' : ''}{h.project}
-                    </p>
-                  )}
-                </div>
-                <span className="rounded-full bg-accent/10 px-2 py-0.5 text-[10px] font-medium text-accent">
-                  {t("upcoming.scheduled")}
-                </span>
-                <span
-                  className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${loadTypeBadgeMeta(h.harvestType, t).className}`}
-                >
-                  {loadTypeBadgeMeta(h.harvestType, t).label}
-                </span>
-                {h.inventoryIsCapped ? (
-                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
-                    {t("badges.max")}
-                  </span>
-                ) : null}
-                <span className="inline-flex shrink-0 items-center gap-1 text-right text-sm font-medium">
-                  {h.sourceM2 > 0 && h.m2ConversionLines.length > 0 ? (
-                    <ForecastM2ConversionHelp lines={h.m2ConversionLines} t={t} />
-                  ) : null}
-                  <ForecastKgQuantityLabel
-                    sign="-"
-                    kg={h.qty}
-                    sourceM2={h.sourceM2}
-                    className="text-destructive"
-                  />
-                </span>
-              </div>
-            ))}
+          <div className="max-h-[360px] space-y-2 overflow-y-auto pr-1">
+            {upcomingHarvests.map((h) => {
+              const farm = forecastDisplayFarmName(h.farm, t("events.noFarmName"));
+              const grassDetail = forecastUpcomingGrassDetail(h.grass, h.zone);
+              const subtitleText = forecastHarvestEventSubtitle(h.customer, h.project);
+              const typeBadge = loadTypeBadgeMeta(h.harvestType, t);
+              return (
+                <ForecastEventTile
+                  key={h.id}
+                  accentClassName="bg-accent"
+                  dateLabel={formatDayMonth(h.date)}
+                  title={
+                    <ForecastEventTitleRich farm={farm} detail={grassDetail} />
+                  }
+                  subtitle={
+                    subtitleText ? (
+                      <p className="line-clamp-2 text-[11px] leading-snug text-muted-foreground">
+                        {subtitleText}
+                      </p>
+                    ) : undefined
+                  }
+                  amount={
+                    <>
+                      {h.sourceM2 > 0 && h.m2ConversionLines.length > 0 ? (
+                        <ForecastM2ConversionHelp lines={h.m2ConversionLines} t={t} />
+                      ) : null}
+                      <ForecastKgQuantityLabel
+                        sign="-"
+                        kg={h.qty}
+                        sourceM2={h.sourceM2}
+                        className="text-destructive"
+                      />
+                    </>
+                  }
+                  badges={[
+                    <ForecastEventBadge
+                      key="scheduled"
+                      label={t("upcoming.scheduled")}
+                      className="bg-accent/10 text-accent"
+                    />,
+                    <ForecastEventBadge
+                      key="type"
+                      label={typeBadge.label}
+                      className={typeBadge.className}
+                    />,
+                    ...(h.inventoryIsCapped
+                      ? [
+                          <ForecastEventBadge
+                            key="max"
+                            label={t("badges.max")}
+                            className="bg-amber-100 text-amber-700"
+                          />,
+                        ]
+                      : []),
+                  ]}
+                />
+              );
+            })}
           </div>
         )}
       </div>
@@ -2674,85 +2700,90 @@ export function InventoryForecast({
                 setSelectedRegrowthKey((prev) => (prev === eventKey ? null : eventKey));
               };
               return (
-              <div
-                key={eventKey}
-                className="flex items-center gap-4 rounded-lg px-3 py-2.5 hover:bg-[hsl(var(--muted)/0.3)]"
-              >
-                <div className="h-2 w-2 shrink-0 rounded-full bg-primary" />
-                <div className="min-w-[90px] text-sm font-medium">{formatDayMonth(ev.date)}</div>
-                <div className="min-w-0 flex-1 text-sm">
-                  <p className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
-                    <span className="shrink-0 font-medium">
-                      {forecastDisplayFarmName(ev.farm, t("events.noFarmName"))}
-                    </span>
-                    <span className="shrink-0 text-muted-foreground">·</span>
-                    <span className="inline-flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5 text-muted-foreground">
-                      <span className="truncate">{ev.grass}</span>
-                      {noZoneInline ? (
-                        <>
-                          <span className="text-muted-foreground/80" aria-hidden>
-                            ·
-                          </span>
-                          <span className="whitespace-nowrap">{noZoneInline}</span>
-                        </>
+                <ForecastEventTile
+                  key={eventKey}
+                  accentClassName="bg-primary"
+                  dateLabel={formatDayMonth(ev.date)}
+                  onDateClick={canShowPlanDetails ? openPlanDetails : undefined}
+                  onAmountClick={canShowPlanDetails ? openPlanDetails : undefined}
+                  title={
+                    <ForecastEventTitleRich
+                      farm={forecastDisplayFarmName(ev.farm, t("events.noFarmName"))}
+                      detail={[ev.grass.trim(), noZoneInline].filter(Boolean).join(" · ")}
+                    />
+                  }
+                  subtitle={
+                    ev.planIds.length > 1 ? (
+                      <p className="text-[10px] text-muted-foreground">
+                        {t("events.mergedHarvestPlans", { count: ev.planIds.length })}
+                      </p>
+                    ) : undefined
+                  }
+                  amount={
+                    <>
+                      {ev.sourceM2 > 0 && ev.m2ConversionLines.length > 0 ? (
+                        <ForecastM2ConversionHelp lines={ev.m2ConversionLines} t={t} />
                       ) : null}
-                    </span>
-                  </p>
-                  {ev.planIds.length > 1 ? (
-                    <p className="mt-0.5 text-[10px] text-muted-foreground">
-                      {t("events.mergedHarvestPlans", { count: ev.planIds.length })}
-                    </p>
-                  ) : null}
-                </div>
-                <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-                  {ev.type}
-                </span>
-                {ev.maxOverlimitKg > 0 ? (
-                  <RegrowthMaxBadgeHelp
-                    ev={{
-                      regrowthDateYmd: ev.date,
-                      farmLabel: forecastDisplayFarmName(
-                        ev.farm,
-                        t("events.noFarmName"),
-                      ),
-                      grassLabel: ev.grass,
-                      availablePrevKg: ev.maxAvailablePrevKg,
-                      regrowthKg: ev.maxRegrowthDayKg,
-                      harvestKg: ev.maxHarvestDayKg,
-                      configuredCapSumKg: ev.configuredCapSumKg,
-                      overlimitKg: ev.maxOverlimitKg,
-                    }}
-                    t={t}
-                  />
-                ) : null}
-                {ev.nozoneRemainingKg > 0 ? (
-                  <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-medium text-orange-900">
-                    {t("events.nonzonPoolBadge", {
-                      noZone: t("events.noZoneName"),
-                      kg: ev.nozoneRemainingKg.toLocaleString(),
-                    })}
-                  </span>
-                ) : null}
-                {ev.overflowBeyondCapKg > 0 ? (
-                  <span className="inline-flex shrink-0 items-center gap-1">
-                    <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-medium text-red-700">
-                      +{ev.overflowBeyondCapKg.toLocaleString()} {t("events.overflow")}
-                    </span>
-                    <RegrowthOverflowHelp ev={ev} zoneLabelFn={zoneLabel} t={t} />
-                  </span>
-                ) : null}
-                <span className="inline-flex shrink-0 items-center gap-1 text-right text-sm font-medium">
-                  {ev.sourceM2 > 0 && ev.m2ConversionLines.length > 0 ? (
-                    <ForecastM2ConversionHelp lines={ev.m2ConversionLines} t={t} />
-                  ) : null}
-                  <ForecastKgQuantityLabel
-                    sign="+"
-                    kg={ev.primaryDisplayKg}
-                    sourceM2={ev.sourceM2}
-                    onClick={canShowPlanDetails ? openPlanDetails : undefined}
-                  />
-                </span>
-              </div>
+                      <ForecastKgQuantityLabel
+                        sign="+"
+                        kg={ev.primaryDisplayKg}
+                        sourceM2={ev.sourceM2}
+                        className="text-primary"
+                      />
+                    </>
+                  }
+                  badges={[
+                    <ForecastEventBadge
+                      key="type"
+                      label={ev.type}
+                      className="bg-primary/10 text-primary"
+                    />,
+                    ...(ev.maxOverlimitKg > 0
+                      ? [
+                          <RegrowthMaxBadgeHelp
+                            key="max"
+                            ev={{
+                              regrowthDateYmd: ev.date,
+                              farmLabel: forecastDisplayFarmName(
+                                ev.farm,
+                                t("events.noFarmName"),
+                              ),
+                              grassLabel: ev.grass,
+                              availablePrevKg: ev.maxAvailablePrevKg,
+                              regrowthKg: ev.maxRegrowthDayKg,
+                              harvestKg: ev.maxHarvestDayKg,
+                              configuredCapSumKg: ev.configuredCapSumKg,
+                              overlimitKg: ev.maxOverlimitKg,
+                            }}
+                            t={t}
+                          />,
+                        ]
+                      : []),
+                    ...(ev.nozoneRemainingKg > 0
+                      ? [
+                          <ForecastEventBadge
+                            key="nozone"
+                            label={t("events.nonzonPoolBadge", {
+                              noZone: t("events.noZoneName"),
+                              kg: ev.nozoneRemainingKg.toLocaleString(),
+                            })}
+                            className="bg-orange-100 text-orange-900"
+                          />,
+                        ]
+                      : []),
+                    ...(ev.overflowBeyondCapKg > 0
+                      ? [
+                          <span key="overflow" className="inline-flex items-center gap-1">
+                            <ForecastEventBadge
+                              label={`+${ev.overflowBeyondCapKg.toLocaleString()} ${t("events.overflow")}`}
+                              className="bg-red-100 text-red-700"
+                            />
+                            <RegrowthOverflowHelp ev={ev} zoneLabelFn={zoneLabel} t={t} />
+                          </span>,
+                        ]
+                      : []),
+                  ]}
+                />
               );
             })}
           </div>
