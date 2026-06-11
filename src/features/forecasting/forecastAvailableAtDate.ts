@@ -18,6 +18,7 @@ import type { InventoryAvailableOverrideEntry } from "@/shared/store/inventoryAv
 import {
   buildZoneConfigurationCapacityMapAtDate,
   farmProductHasMappedZoneConfigAtYmd,
+  forecastZoneKeysEqual,
   forecastZoneKeyFromRow,
   getRegrowthDateFromHarvest,
   mergeZoneCapacityMapsAtDate,
@@ -28,8 +29,11 @@ import { computeRegrowthAllocationForFarmProductDate } from "@/features/forecast
 
 const DAY_MS = 1000 * 60 * 60 * 24;
 
-function rowInventoryKg(row: ForecastHarvestRow): number {
-  return forecastHarvestRowInventoryKg(row);
+function rowInventoryKg(
+  row: ForecastHarvestRow,
+  zoneConfigs?: ZoneConfigurationRow[],
+): number {
+  return forecastHarvestRowInventoryKg(row, { zoneConfigs });
 }
 
 function normalizeLocalDayMs(date: Date): number {
@@ -126,17 +130,25 @@ function sumAvailableByZone(availableByZone: Map<string, number>): number {
   return Array.from(availableByZone.values()).reduce((sum, kg) => sum + kg, 0);
 }
 
-function harvestKgOnDate(rows: ForecastHarvestRow[], onDate: Date): number {
+function harvestKgOnDate(
+  rows: ForecastHarvestRow[],
+  onDate: Date,
+  zoneConfigs?: ZoneConfigurationRow[],
+): number {
   let sum = 0;
   for (const row of rows) {
     const harvestDate = parseHarvestDateFromRow(row);
     if (!harvestDate || !isSameLocalDay(harvestDate, onDate)) continue;
-    sum += Math.max(0, rowInventoryKg(row));
+    sum += Math.max(0, rowInventoryKg(row, zoneConfigs));
   }
   return sum;
 }
 
-function harvestKgByZoneOnDate(rows: ForecastHarvestRow[], onDate: Date): Map<string, number> {
+function harvestKgByZoneOnDate(
+  rows: ForecastHarvestRow[],
+  onDate: Date,
+  zoneConfigs?: ZoneConfigurationRow[],
+): Map<string, number> {
   const out = new Map<string, number>();
   for (const row of rows) {
     if (isForecastExcludedZone(row.zone)) continue;
@@ -144,7 +156,7 @@ function harvestKgByZoneOnDate(rows: ForecastHarvestRow[], onDate: Date): Map<st
     if (!harvestDate || !isSameLocalDay(harvestDate, onDate)) continue;
     const zoneKey = forecastZoneKeyFromRow(row);
     if (!isMappedForecastZoneKey(zoneKey)) continue;
-    out.set(zoneKey, (out.get(zoneKey) ?? 0) + Math.max(0, rowInventoryKg(row)));
+    out.set(zoneKey, (out.get(zoneKey) ?? 0) + Math.max(0, rowInventoryKg(row, zoneConfigs)));
   }
   return out;
 }
@@ -196,7 +208,7 @@ function manualOverrideForZoneOnExactDate(
 ): InventoryAvailableOverrideEntry | null {
   const asOfYmd = ymdFromDate(asOf);
   for (const entry of Object.values(overridesByZone)) {
-    if (entry.zoneKey !== zoneKey) continue;
+    if (!forecastZoneKeysEqual(entry.zoneKey, zoneKey)) continue;
     const d = String(entry.date ?? "").trim().slice(0, 10);
     if (d !== asOfYmd) continue;
     return entry;
@@ -284,7 +296,7 @@ function allocateRegrowthCreditsAtDate(
         .map((f) => ({
           zoneKey: forecastZoneKeyFromRow(f),
           zoneLabel: String(f.zone ?? "").trim(),
-          qty: rowInventoryKg(f),
+          qty: rowInventoryKg(f, zoneConfigs),
           inventoryKgFromNozoneSpread: f.inventoryKgFromNozoneSpread,
         })),
     });
@@ -601,7 +613,7 @@ export function computeRollingDailyAvailableSeries(
       zoneConfigs,
     );
     const regrowthKg = regrowth.creditedKg;
-    const harvestKg = harvestKgOnDate(rows, date);
+    const harvestKg = harvestKgOnDate(rows, date, zoneConfigs);
     const beforeHarvestKg = previousAvailableKg + regrowthKg;
     const availableKg = Math.max(0, beforeHarvestKg - harvestKg);
 
@@ -823,7 +835,7 @@ export function computeInventoryStyleAvailableByZoneAtDate(
   const harvestFor = (ymd: string, date: Date): Map<string, number> => {
     const cached = harvestByZoneCache.get(ymd);
     if (cached) return cached;
-    const next = harvestKgByZoneOnDate(rowsWithCapsFor(ymd, date), date);
+    const next = harvestKgByZoneOnDate(rowsWithCapsFor(ymd, date), date, zoneConfigs);
     harvestByZoneCache.set(ymd, next);
     return next;
   };
@@ -953,7 +965,7 @@ export function computeInventoryStyleZoneDailySnapshots(
   const harvestFor = (ymd: string, date: Date): Map<string, number> => {
     const cached = harvestByZoneCache.get(ymd);
     if (cached) return cached;
-    const next = harvestKgByZoneOnDate(rowsWithCapsFor(ymd, date), date);
+    const next = harvestKgByZoneOnDate(rowsWithCapsFor(ymd, date), date, zoneConfigs);
     harvestByZoneCache.set(ymd, next);
     return next;
   };
@@ -1100,7 +1112,7 @@ export function computeInventoryStyleFarmGrassDailySeriesWithBreakdown(
   const harvestFor = (ymd: string, date: Date): Map<string, number> => {
     const cached = harvestByZoneCache.get(ymd);
     if (cached) return cached;
-    const next = harvestKgByZoneOnDate(rowsWithCapsFor(ymd, date), date);
+    const next = harvestKgByZoneOnDate(rowsWithCapsFor(ymd, date), date, zoneConfigs);
     harvestByZoneCache.set(ymd, next);
     return next;
   };

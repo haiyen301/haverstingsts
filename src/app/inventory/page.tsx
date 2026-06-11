@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlignLeft, ArrowDown, ClipboardEdit, RotateCcw, X } from "lucide-react";
+import { AlignLeft, ArrowDown, ClipboardEdit, HelpCircle, RotateCcw, X } from "lucide-react";
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { toast } from "react-toastify";
 import { useTranslations } from "next-intl";
@@ -18,6 +18,8 @@ import {
   computeInventoryStyleZoneDailySnapshots,
   type ZoneInventoryDaySnapshot,
 } from "@/features/forecasting/forecastAvailableAtDate";
+import { InventoryOverlimitBreakdownPanel } from "@/features/forecasting/InventoryOverlimitBreakdownPanel";
+import { buildInventoryOverlimitBreakdown } from "@/features/forecasting/inventoryOverlimitBreakdown";
 import { InventoryZoneBalanceBreakdownPanel } from "@/features/forecasting/InventoryZoneBalanceBreakdownPanel";
 import type { EnrichedZoneBalanceTimelineEntry } from "@/features/forecasting/InventoryZoneBalanceBreakdownPanel";
 import { buildZoneBalanceTimelineForDisplay } from "@/features/forecasting/zoneBalanceBreakdown";
@@ -29,18 +31,26 @@ import type {
 import { getForecastToday } from "@/features/forecasting/forecastDateUtils";
 import { onForecastMutation } from "@/features/forecasting/forecastDataSync";
 import { useForecastSnapshot } from "@/features/forecasting/useForecastSnapshot";
+import { setForecastZoneCatalog } from "@/features/forecasting/zoneKeyNormalization";
 import type { ZoneConfigurationRow } from "@/features/admin/api/adminApi";
 import type { ForecastHarvestRow } from "@/features/forecasting/forecastingTypes";
 import type { RegrowthReferenceConfig } from "@/features/forecasting/forecastingRegrowth";
+import { DEFAULT_FALLBACK_INVENTORY_KG_PER_M2 } from "@/features/forecasting/forecastingInventoryConversion";
 import {
+  canonicalForecastZoneKey,
   computeZoneCapacityMap,
   findActiveZoneConfiguration,
   forecastZoneKeyFromParts,
   forecastZoneKeyFromRow,
+  forecastZoneKeysEqual,
   zoneConfigIsActiveAtYmd,
   zoneConfigurationMaxKg,
 } from "@/features/forecasting/inventoryRegrowthCalculator";
-import { zoneIdToLabelResolved } from "@/shared/lib/harvestReferenceData";
+import {
+  collectHiddenGrassIdsForCatalogOnDate,
+  filterActiveGrassRows,
+  zoneIdToLabelResolved,
+} from "@/shared/lib/harvestReferenceData";
 import { useGrassFilterByFarm } from "@/shared/hooks/useGrassFilterByFarm";
 import { DatePicker } from "@/shared/ui/date-picker";
 import type { InventoryAvailableOverrideEntry } from "@/shared/store/inventoryAvailableOverrideStore";
@@ -176,6 +186,12 @@ function parseBalanceInput(value: string | number | null | undefined): number {
   const digits = String(value ?? "").replace(/[^\d]/g, "");
   if (!digits) return Number.NaN;
   return Number(digits);
+}
+
+function inventoryBalanceKgToM2(kg: number, kgPerM2: number): number {
+  if (kg <= 0) return 0;
+  const rate = kgPerM2 > 0 ? kgPerM2 : DEFAULT_FALLBACK_INVENTORY_KG_PER_M2;
+  return Math.max(0, Math.round(kg / rate));
 }
 
 /** When zone configuration is empty, list one row per harvest-derived zone key (same basis as Inventory Forecast). */
@@ -424,7 +440,9 @@ export default function InventoryPage() {
     isRefreshing,
     hasSnapshot,
     error,
+    reloadFromCache,
   } = useForecastSnapshot();
+  const farmZonesLoadedRef = useRef(false);
   const [drillFarm, setDrillFarm] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [updateOpen, setUpdateOpen] = useState(false);
@@ -457,6 +475,24 @@ export default function InventoryPage() {
   );
   const setSelectedGrassIds = (ids: string[]) => setHarvestListGrassFilter(toCsvList(ids));
 
+  const inventoryTodayYmd = useMemo(() => ymdFromDate(getForecastToday()), []);
+
+  const activeGrasses = useMemo(() => filterActiveGrassRows(grasses), [grasses]);
+
+  const hiddenGrassIdSet = useMemo(
+    () => collectHiddenGrassIdsForCatalogOnDate(grasses as unknown[], inventoryTodayYmd),
+    [grasses, inventoryTodayYmd],
+  );
+
+  useEffect(() => {
+    if (hiddenGrassIdSet.size === 0) return;
+    const current = parseCsvList(harvestListGrassFilter);
+    const pruned = current.filter((id) => !hiddenGrassIdSet.has(id));
+    if (pruned.length !== current.length) {
+      setHarvestListGrassFilter(toCsvList(pruned));
+    }
+  }, [hiddenGrassIdSet, harvestListGrassFilter, setHarvestListGrassFilter]);
+
   const farmFilterOptions = useMemo(
     () => farmOptions.map((o) => ({ value: o.id, label: o.label })),
     [farmOptions],
@@ -473,6 +509,14 @@ export default function InventoryPage() {
 
   const zoneLabel = (zoneId: string) =>
     zoneIdToLabelResolved(zoneId, farmZones, tForecast("events.noZoneName"));
+
+  useEffect(() => {
+    setForecastZoneCatalog(farmZones);
+    if (farmZones.length > 0 && !farmZonesLoadedRef.current) {
+      farmZonesLoadedRef.current = true;
+      void reloadFromCache(new Set(["reference", "harvest"]));
+    }
+  }, [farmZones, reloadFromCache]);
 
   useEffect(() => {
     if (!error) return;
@@ -528,9 +572,14 @@ export default function InventoryPage() {
     [rows, farmNameById],
   );
 
+  const visibleRowsWithFarmLabels = useMemo(
+    () => rowsWithFarmLabels.filter((r) => !hiddenGrassIdSet.has(String(r.grassId))),
+    [rowsWithFarmLabels, hiddenGrassIdSet],
+  );
+
   const availableFarms = useMemo(() => {
     const byId = new Map<string, string>();
-    for (const row of rowsWithFarmLabels) {
+    for (const row of visibleRowsWithFarmLabels) {
       if (row.farmId <= 0) continue;
       const id = String(row.farmId);
       if (!byId.has(id)) {
@@ -543,7 +592,7 @@ export default function InventoryPage() {
     return Array.from(byId.entries())
       .map(([id, name]) => ({ id, name }))
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [rowsWithFarmLabels, farmOptions, farmNameById]);
+  }, [visibleRowsWithFarmLabels, farmOptions, farmNameById]);
 
   const farmColorByName = useMemo(() => {
     const names = Array.from(new Set(availableFarms.map((f) => f.name).filter(Boolean))).sort(
@@ -555,18 +604,24 @@ export default function InventoryPage() {
     });
     return map;
   }, [availableFarms]);
-  const { grassFilterOptions } = useGrassFilterByFarm({
-    grasses: grasses as unknown[],
+  const { grassFilterOptions: rawGrassFilterOptions } = useGrassFilterByFarm({
+    grasses: activeGrasses as unknown[],
     zoneConfigs: zoneConfigurations,
     selectedFarmIds,
     selectedGrassIds,
     onSelectedGrassIdsChange: setSelectedGrassIds,
-    catalogMode: "all",
+    catalogMode: "sales_window",
+    refYmds: [inventoryTodayYmd],
   });
+
+  const grassFilterOptions = useMemo(
+    () => rawGrassFilterOptions.filter((o) => !hiddenGrassIdSet.has(o.value)),
+    [rawGrassFilterOptions, hiddenGrassIdSet],
+  );
 
   const grassIdToTurfgrass = useMemo(() => {
     const map = new Map<string, string>();
-    for (const r of rowsWithFarmLabels) {
+    for (const r of visibleRowsWithFarmLabels) {
       const id = String(r.grassId ?? "").trim();
       const turf = String(r.turfgrass ?? "").trim();
       if (id && turf) map.set(id, turf);
@@ -580,7 +635,7 @@ export default function InventoryPage() {
       if (!map.has(opt.value)) map.set(opt.value, opt.label);
     }
     return map;
-  }, [rowsWithFarmLabels, zoneConfigurations, grassFilterOptions]);
+  }, [visibleRowsWithFarmLabels, zoneConfigurations, grassFilterOptions]);
 
   /** Farms included in grass-type charts (respects farm filter). */
   const chartFarms = useMemo(
@@ -593,15 +648,23 @@ export default function InventoryPage() {
 
   const inventory = useMemo(
     () =>
-      rowsWithFarmLabels.filter(
+      visibleRowsWithFarmLabels.filter(
         (r) =>
           (selectedFarmIds.length === 0 || selectedFarmIdSet.has(String(r.farmId))) &&
           (selectedGrassIds.length === 0 || selectedGrassIdSet.has(String(r.grassId))),
       ),
-    [rowsWithFarmLabels, selectedFarmIds, selectedFarmIdSet, selectedGrassIds, selectedGrassIdSet],
+    [
+      visibleRowsWithFarmLabels,
+      selectedFarmIds,
+      selectedFarmIdSet,
+      selectedGrassIds,
+      selectedGrassIdSet,
+    ],
   );
 
   const [balanceBreakdownZoneKey, setBalanceBreakdownZoneKey] = useState<string | null>(null);
+  const [balanceBreakdownUnit, setBalanceBreakdownUnit] = useState<"kg" | "m2">("kg");
+  const [overlimitBreakdownKey, setOverlimitBreakdownKey] = useState<string | null>(null);
   const [balanceBreakdownData, setBalanceBreakdownData] = useState<{
     row: InventoryRow;
     todaySnapshot: ZoneInventoryDaySnapshot | undefined;
@@ -609,7 +672,18 @@ export default function InventoryPage() {
   } | null>(null);
   const [breakdownLoading, setBreakdownLoading] = useState(false);
   const balanceBreakdownRef = useRef<HTMLDivElement | null>(null);
-  const inventoryTodayYmd = useMemo(() => ymdFromDate(getForecastToday()), []);
+  const overlimitBreakdownRef = useRef<HTMLDivElement | null>(null);
+
+  const scrollToBalanceBreakdown = () => {
+    window.setTimeout(() => {
+      balanceBreakdownRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 80);
+  };
+
+  const forecastRowsForBreakdown = useMemo(
+    () => applyLatestZoneMaxKgToForecastRows(forecastRows, zoneConfigurations, inventoryTodayYmd),
+    [forecastRows, zoneConfigurations, inventoryTodayYmd],
+  );
 
   const zoneSnapshotsToday = useMemo(() => {
     const today = getForecastToday();
@@ -740,24 +814,23 @@ export default function InventoryPage() {
   ]);
 
   useEffect(() => {
-    if (!balanceBreakdownZoneKey) return;
-    const timer = window.setTimeout(() => {
-      balanceBreakdownRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 50);
-    return () => window.clearTimeout(timer);
+    if (!balanceBreakdownZoneKey || !balanceBreakdownData) return;
+    scrollToBalanceBreakdown();
   }, [balanceBreakdownZoneKey, balanceBreakdownData]);
 
   const inventoryTableTotals = useMemo(() => {
     let sizeM2 = 0;
     let maxKg = 0;
     let balanceKg = 0;
+    let balanceM2 = 0;
     for (const row of inventory) {
       sizeM2 += row.sizeM2;
       maxKg += row.maxKg;
       balanceKg += row.currentKg;
+      balanceM2 += inventoryBalanceKgToM2(row.currentKg, row.inventoryKgPerM2);
     }
     const pct = maxKg > 0 ? Math.round((balanceKg / maxKg) * 100) : 0;
-    return { sizeM2, maxKg, balanceKg, pct };
+    return { sizeM2, maxKg, balanceKg, balanceM2, pct };
   }, [inventory]);
 
   const inventoryOverlimit = useMemo(() => {
@@ -769,17 +842,53 @@ export default function InventoryPage() {
     });
     return withFarmNames.filter(
       (r) =>
+        !hiddenGrassIdSet.has(String(r.grassId)) &&
         (selectedFarmIds.length === 0 || selectedFarmIdSet.has(String(r.farmId))) &&
         (selectedGrassIds.length === 0 || selectedGrassIdSet.has(String(r.grassId))),
     );
   }, [
     overlimitEntries,
+    hiddenGrassIdSet,
     selectedFarmIds,
     selectedFarmIdSet,
     selectedGrassIds,
     selectedGrassIdSet,
     farmNameById,
   ]);
+
+  const overlimitBreakdownData = useMemo(() => {
+    if (!overlimitBreakdownKey) return null;
+    const entry = inventoryOverlimit.find((o) => o.key === overlimitBreakdownKey);
+    if (!entry) return null;
+    const farmName =
+      String(entry.farmName ?? "").trim() ||
+      (entry.farmId > 0 ? farmNameById.get(String(entry.farmId)) ?? "" : "");
+    return buildInventoryOverlimitBreakdown({
+      farmId: entry.farmId,
+      grassId: entry.grassId,
+      farmName,
+      turfgrass: entry.turfgrass,
+      asOf: getForecastToday(),
+      forecastRows: forecastRowsForBreakdown,
+      zoneConfigurations,
+      regrowthConfig,
+    });
+  }, [
+    overlimitBreakdownKey,
+    inventoryOverlimit,
+    forecastRowsForBreakdown,
+    zoneConfigurations,
+    regrowthConfig,
+    farmNameById,
+  ]);
+
+  useEffect(() => {
+    if (!overlimitBreakdownKey) return;
+    const timer = window.setTimeout(() => {
+      overlimitBreakdownRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
+    return () => window.clearTimeout(timer);
+  }, [overlimitBreakdownKey, overlimitBreakdownData]);
 
   /** Grass ids shown in "Inventory by Grass Type" (farm → all zone grasses; else data + filter). */
   const chartGrassIds = useMemo(() => {
@@ -814,31 +923,36 @@ export default function InventoryPage() {
     () =>
       selectedFarm
         ? updateRows
-            .filter((r) => String(r.farmId) === selectedFarm)
+            .filter(
+              (r) =>
+                !hiddenGrassIdSet.has(String(r.grassId)) && String(r.farmId) === selectedFarm,
+            )
             .sort((a, b) =>
               a.turfgrass === b.turfgrass
                 ? zoneLabel(a.zone).localeCompare(zoneLabel(b.zone))
                 : a.turfgrass.localeCompare(b.turfgrass),
             )
         : [],
-    [updateRows, selectedFarm, farmZones],
+    [updateRows, selectedFarm, farmZones, hiddenGrassIdSet],
   );
 
   const farmZoneKeySet = useMemo(() => {
     if (!selectedFarm) return new Set<string>();
     return new Set(
-      rowsWithFarmLabels
+      visibleRowsWithFarmLabels
         .filter((r) => String(r.farmId) === selectedFarm)
         .map((r) => r.forecastZoneKey),
     );
-  }, [rowsWithFarmLabels, selectedFarm]);
+  }, [visibleRowsWithFarmLabels, selectedFarm]);
 
   /** Balance dates that have at least one saved row for the selected farm (for calendar markers). */
   const markedBalanceDatesYmd = useMemo(() => {
     if (!selectedFarm || farmZoneKeySet.size === 0) return [];
     const days = new Set<string>();
     for (const entry of Object.values(overridesByZone)) {
-      if (!entry.date || !farmZoneKeySet.has(entry.zoneKey)) continue;
+      if (!entry.date) continue;
+      const entryKey = canonicalForecastZoneKey(entry.zoneKey);
+      if (![...farmZoneKeySet].some((k) => forecastZoneKeysEqual(k, entryKey))) continue;
       const ymd = entry.date.trim().slice(0, 10);
       if (/^\d{4}-\d{2}-\d{2}$/.test(ymd)) days.add(ymd);
     }
@@ -851,28 +965,37 @@ export default function InventoryPage() {
   }, [updateDate]);
 
   const activeOverrideCount = useMemo(
-    () => rowsWithFarmLabels.filter((r) => r.isManualOverrideActive).length,
-    [rowsWithFarmLabels],
+    () => visibleRowsWithFarmLabels.filter((r) => r.isManualOverrideActive).length,
+    [visibleRowsWithFarmLabels],
   );
 
-  const renderBalanceButton = (row: InventoryRow) => {
-    const isActive = balanceBreakdownZoneKey === row.forecastZoneKey;
+  const toggleBalanceBreakdown = (zoneKey: string, unit: "kg" | "m2") => {
+    if (balanceBreakdownZoneKey === zoneKey) {
+      setBalanceBreakdownUnit(unit);
+      scrollToBalanceBreakdown();
+      return;
+    }
+    setOverlimitBreakdownKey(null);
+    setBalanceBreakdownUnit(unit);
+    setBalanceBreakdownZoneKey(zoneKey);
+    setBreakdownLoading(true);
+    setBalanceBreakdownData(null);
+    scrollToBalanceBreakdown();
+  };
+
+  const renderBalanceBreakdownButton = (
+    row: InventoryRow,
+    displayValue: number,
+    unit: "kg" | "m2",
+  ) => {
+    const isActive =
+      balanceBreakdownZoneKey === row.forecastZoneKey && balanceBreakdownUnit === unit;
     return (
       <button
         type="button"
         aria-label={t("balanceBreakdownAria")}
         aria-expanded={isActive}
-        onClick={() => {
-          if (balanceBreakdownZoneKey === row.forecastZoneKey) {
-            setBalanceBreakdownZoneKey(null);
-            setBreakdownLoading(false);
-            setBalanceBreakdownData(null);
-            return;
-          }
-          setBalanceBreakdownZoneKey(row.forecastZoneKey);
-          setBreakdownLoading(true);
-          setBalanceBreakdownData(null);
-        }}
+        onClick={() => toggleBalanceBreakdown(row.forecastZoneKey, unit)}
         className={cn(
           "font-medium tabular-nums underline decoration-dotted underline-offset-2 transition",
           isActive
@@ -880,7 +1003,36 @@ export default function InventoryPage() {
             : "text-foreground decoration-muted-foreground/70 hover:text-primary hover:decoration-primary",
         )}
       >
-        {row.currentKg.toLocaleString()}
+        {displayValue.toLocaleString()}
+      </button>
+    );
+  };
+
+  const renderOverlimitButton = (entry: OverlimitEntry) => {
+    const isActive = overlimitBreakdownKey === entry.key;
+    return (
+      <button
+        type="button"
+        aria-label={t("overlimitBreakdownAria")}
+        aria-expanded={isActive}
+        onClick={() => {
+          if (overlimitBreakdownKey === entry.key) {
+            setOverlimitBreakdownKey(null);
+            return;
+          }
+          setBalanceBreakdownZoneKey(null);
+          setBreakdownLoading(false);
+          setBalanceBreakdownData(null);
+          setOverlimitBreakdownKey(entry.key);
+        }}
+        className={cn(
+          "font-semibold tabular-nums underline decoration-dotted underline-offset-2 transition",
+          isActive
+            ? "text-red-800 decoration-red-800"
+            : "text-red-700 decoration-red-400/70 hover:text-red-800 hover:decoration-red-700",
+        )}
+      >
+        +{entry.overlimitKg.toLocaleString()} kg
       </button>
     );
   };
@@ -1569,10 +1721,20 @@ export default function InventoryPage() {
                       <p className="text-[11px] text-muted-foreground">{t("maxKg")}</p>
                       <p className="font-medium text-foreground">{z.maxKg.toLocaleString()}</p>
                     </div>
-                    <div className="col-span-2">
+                    <div>
+                      <p className="text-[11px] text-muted-foreground">{t("balanceM2")}</p>
+                      <div className="mt-0.5">
+                        {renderBalanceBreakdownButton(
+                          z,
+                          inventoryBalanceKgToM2(z.currentKg, z.inventoryKgPerM2),
+                          "m2",
+                        )}
+                      </div>
+                    </div>
+                    <div>
                       <p className="text-[11px] text-muted-foreground">{t("balanceKg")}</p>
                       <div className="mt-0.5 flex flex-wrap items-center gap-2">
-                        {renderBalanceButton(z)}
+                        {renderBalanceBreakdownButton(z, z.currentKg, "kg")}
                         {z.isManualOverrideActive ? (
                           <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
                             {t("manualBadge")}
@@ -1611,7 +1773,12 @@ export default function InventoryPage() {
               {inventoryOverlimit.map((o) => (
                 <div
                   key={o.key}
-                  className="rounded-lg border border-red-200 bg-red-50/60 p-3 shadow-sm"
+                  className={cn(
+                    "rounded-lg border p-3 shadow-sm",
+                    overlimitBreakdownKey === o.key
+                      ? "border-red-400 bg-red-50 ring-1 ring-red-200"
+                      : "border-red-200 bg-red-50/60",
+                  )}
                 >
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-foreground">
@@ -1623,7 +1790,7 @@ export default function InventoryPage() {
                   <div className="mt-3">
                     <p className="text-[11px] text-muted-foreground">{t("overlimitKg")}</p>
                     <p className="text-sm font-semibold text-red-700">
-                      +{o.overlimitKg.toLocaleString()} kg
+                      {renderOverlimitButton(o)}
                     </p>
                   </div>
                 </div>
@@ -1640,7 +1807,11 @@ export default function InventoryPage() {
                       <p className="text-[11px] text-muted-foreground">{t("maxKg")}</p>
                       <p className="font-semibold tabular-nums">{inventoryTableTotals.maxKg.toLocaleString()}</p>
                     </div>
-                    <div className="col-span-2">
+                    <div>
+                      <p className="text-[11px] text-muted-foreground">{t("balanceM2")}</p>
+                      <p className="font-semibold tabular-nums">{inventoryTableTotals.balanceM2.toLocaleString()}</p>
+                    </div>
+                    <div>
                       <p className="text-[11px] text-muted-foreground">{t("balanceKg")}</p>
                       <p className="font-semibold tabular-nums">{inventoryTableTotals.balanceKg.toLocaleString()}</p>
                     </div>
@@ -1680,7 +1851,24 @@ export default function InventoryPage() {
                     <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground">{t("thZone")}</th>
                     <th className="text-right py-3 px-4 text-xs font-medium text-muted-foreground">{t("thSizeM2Short")}</th>
                     <th className="text-right py-3 px-4 text-xs font-medium text-muted-foreground">{t("thMaxKg")}</th>
-                    <th className="text-right py-3 px-4 text-xs font-medium text-muted-foreground">{t("thBalanceKg")}</th>
+                    <th className="text-right py-3 px-4 text-xs font-medium text-muted-foreground">{t("thBalanceM2")}</th>
+                    <th className="text-right py-3 px-4 text-xs font-medium text-muted-foreground">
+                      <span className="inline-flex items-center justify-end gap-1">
+                        {t("thBalanceKg")}
+                        <span className="group relative inline-flex shrink-0">
+                          <HelpCircle
+                            className="h-3.5 w-3.5 text-muted-foreground/70"
+                            aria-label={t("thBalanceKgTooltipAria")}
+                          />
+                          <span
+                            role="tooltip"
+                            className="pointer-events-none absolute bottom-full right-0 z-20 mb-1.5 hidden w-max max-w-[14rem] rounded-md border border-border bg-popover px-2 py-1.5 text-[11px] font-normal normal-case leading-snug text-popover-foreground shadow-md group-hover:block"
+                          >
+                            {t("thBalanceKgTooltip")}
+                          </span>
+                        </span>
+                      </span>
+                    </th>
                     <th className="text-left py-3 px-4 text-xs font-medium text-muted-foreground w-32">{t("thLevel")}</th>
                   </tr>
                 </thead>
@@ -1693,8 +1881,15 @@ export default function InventoryPage() {
                       <td className="py-3 px-4 text-right">{z.sizeM2.toLocaleString()}</td>
                       <td className="py-3 px-4 text-right">{z.maxKg.toLocaleString()}</td>
                       <td className="py-3 px-4 text-right">
+                        {renderBalanceBreakdownButton(
+                          z,
+                          inventoryBalanceKgToM2(z.currentKg, z.inventoryKgPerM2),
+                          "m2",
+                        )}
+                      </td>
+                      <td className="py-3 px-4 text-right">
                         <div className="flex items-center justify-end gap-2">
-                          {renderBalanceButton(z)}
+                          {renderBalanceBreakdownButton(z, z.currentKg, "kg")}
                           {z.isManualOverrideActive ? (
                             <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
                               {t("manualBadge")}
@@ -1728,14 +1923,23 @@ export default function InventoryPage() {
                     </tr>
                   ))}
                   {inventoryOverlimit.map((o) => (
-                    <tr key={o.key} className="border-t border-red-100 bg-red-50/40 hover:bg-red-50/70">
+                    <tr
+                      key={o.key}
+                      className={cn(
+                        "border-t hover:bg-red-50/70",
+                        overlimitBreakdownKey === o.key
+                          ? "border-red-200 bg-red-50 ring-1 ring-inset ring-red-200"
+                          : "border-red-100 bg-red-50/40",
+                      )}
+                    >
                       <td className="py-3 px-4 font-medium">{resolveOverlimitFarmLabel(o)}</td>
                       <td className="py-3 px-4">{o.turfgrass}</td>
                       <td className="py-3 px-4 font-medium text-red-700">{t("overlimitZoneLabel")}</td>
                       <td className="py-3 px-4 text-right text-muted-foreground">—</td>
                       <td className="py-3 px-4 text-right text-muted-foreground">—</td>
+                      <td className="py-3 px-4 text-right text-muted-foreground">—</td>
                       <td className="py-3 px-4 text-right font-semibold text-red-700">
-                        +{o.overlimitKg.toLocaleString()}
+                        {renderOverlimitButton(o)}
                       </td>
                       <td className="py-3 px-4 text-muted-foreground">—</td>
                     </tr>
@@ -1752,6 +1956,9 @@ export default function InventoryPage() {
                       </td>
                       <td className="py-3 px-4 text-right text-sm font-semibold tabular-nums text-foreground">
                         {inventoryTableTotals.maxKg.toLocaleString()}
+                      </td>
+                      <td className="py-3 px-4 text-right text-sm font-semibold tabular-nums text-foreground">
+                        {inventoryTableTotals.balanceM2.toLocaleString()}
                       </td>
                       <td className="py-3 px-4 text-right text-sm font-semibold tabular-nums text-foreground">
                         {inventoryTableTotals.balanceKg.toLocaleString()}
@@ -1810,7 +2017,27 @@ export default function InventoryPage() {
                   todaySnapshot={balanceBreakdownData?.todaySnapshot}
                   timelineEntries={balanceBreakdownData?.timelineEntries ?? []}
                   loading={breakdownLoading}
-                  onClose={() => setBalanceBreakdownZoneKey(null)}
+                  displayUnit={balanceBreakdownUnit}
+                  inventoryKgPerM2={
+                    balanceBreakdownData?.row.inventoryKgPerM2 ??
+                    inventory.find((r) => r.forecastZoneKey === balanceBreakdownZoneKey)
+                      ?.inventoryKgPerM2 ??
+                    0
+                  }
+                  onClose={() => {
+                    setBalanceBreakdownZoneKey(null);
+                    setBalanceBreakdownUnit("kg");
+                  }}
+                />
+              </div>
+            ) : null}
+
+            {overlimitBreakdownKey && overlimitBreakdownData ? (
+              <div ref={overlimitBreakdownRef} className="pt-5">
+                <InventoryOverlimitBreakdownPanel
+                  breakdown={overlimitBreakdownData}
+                  zoneLabelFn={zoneLabel}
+                  onClose={() => setOverlimitBreakdownKey(null)}
                 />
               </div>
             ) : null}

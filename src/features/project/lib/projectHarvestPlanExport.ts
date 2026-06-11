@@ -529,6 +529,11 @@ export function resolveHarvestPlanExportCellValue(
   }
 }
 
+function cellToExportString(value: HarvestPlanExportCellValue): string {
+  if (value == null) return "";
+  return String(value);
+}
+
 export function exportHarvestPlanRowsToXlsx(opts: {
   rows: Array<Record<string, unknown>>;
   selectedColumns: string[];
@@ -560,9 +565,129 @@ export function exportHarvestPlanRowsToXlsx(opts: {
   XLSX.writeFile(wb, fileName);
 }
 
+export function exportHarvestPlanRowsToCsv(opts: {
+  rows: Array<Record<string, unknown>>;
+  selectedColumns: string[];
+  fileName: string;
+  columnLabel?: (key: string) => string;
+  resolveContext?: HarvestPlanExportResolveContext;
+}): void {
+  const { rows, selectedColumns, fileName, resolveContext } = opts;
+  if (rows.length === 0 || selectedColumns.length === 0) return;
+
+  const label = opts.columnLabel ?? humanizeHarvestPlanColumnKey;
+  const escapeCsv = (v: string) => {
+    if (/[",\n\r]/.test(v)) return `"${v.replace(/"/g, '""')}"`;
+    return v;
+  };
+
+  const header = selectedColumns.map((c) => escapeCsv(label(c))).join(",");
+  const lines = rows.map((row) =>
+    selectedColumns
+      .map((col) =>
+        escapeCsv(
+          cellToExportString(
+            resolveHarvestPlanExportCellValue(col, row, resolveContext),
+          ),
+        ),
+      )
+      .join(","),
+  );
+  const csv = `\uFEFF${header}\n${lines.join("\n")}`;
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fileName;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export type ProjectDetailHarvestGoogleSheetExportPayload = {
+  headers: string[];
+  rows: string[][];
+  sheetTabName?: string;
+};
+
+export function buildProjectHarvestGoogleSheetExportPayload(opts: {
+  rows: Array<Record<string, unknown>>;
+  selectedColumns: string[];
+  columnLabel?: (key: string) => string;
+  resolveContext?: HarvestPlanExportResolveContext;
+  sheetTabName?: string;
+}): ProjectDetailHarvestGoogleSheetExportPayload {
+  const { rows, selectedColumns, resolveContext } = opts;
+  const label = opts.columnLabel ?? humanizeHarvestPlanColumnKey;
+  return {
+    headers: selectedColumns.map(label),
+    rows: rows.map((row) =>
+      selectedColumns.map((col) =>
+        cellToExportString(
+          resolveHarvestPlanExportCellValue(col, row, resolveContext),
+        ),
+      ),
+    ),
+    sheetTabName: opts.sheetTabName ?? "harvests",
+  };
+}
+
+export async function exportHarvestPlanRowsToGoogleSheet(opts: {
+  rows: Array<Record<string, unknown>>;
+  selectedColumns: string[];
+  columnLabel?: (key: string) => string;
+  resolveContext?: HarvestPlanExportResolveContext;
+}): Promise<{
+  ok: boolean;
+  message?: string;
+  needsAuth?: boolean;
+  authorizePath?: string;
+  spreadsheetUrl?: string;
+}> {
+  const { rows, selectedColumns } = opts;
+  if (rows.length === 0 || selectedColumns.length === 0) {
+    return { ok: false, message: "No rows to export." };
+  }
+
+  const payload = buildProjectHarvestGoogleSheetExportPayload(opts);
+  const res = await fetch("/api/projects/export/google-sheet", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = (await res.json().catch(() => ({}))) as {
+    ok?: boolean;
+    message?: string;
+    needsAuth?: boolean;
+    authorizePath?: string;
+    spreadsheetUrl?: string;
+  };
+  if (data.needsAuth) {
+    return {
+      ok: false,
+      needsAuth: true,
+      authorizePath:
+        data.authorizePath ?? "/api/projects/export/google-sheet/oauth/authorize",
+      message: data.message,
+    };
+  }
+  if (!res.ok || !data.ok) {
+    return {
+      ok: false,
+      message:
+        data.message ??
+        `Google Sheet export failed (${res.status}). See projectListGoogleSheetConfig.ts.`,
+    };
+  }
+  return {
+    ok: true,
+    spreadsheetUrl: data.spreadsheetUrl,
+  };
+}
+
 export function buildProjectHarvestExportFileName(
   projectLabel: string,
   projectId: string,
+  format: "csv" | "xlsx" = "xlsx",
 ): string {
   const safe =
     projectLabel
@@ -572,5 +697,5 @@ export function buildProjectHarvestExportFileName(
       .slice(0, 60) || "project";
   const id = projectId.trim() || "unknown";
   const stamp = new Date().toISOString().slice(0, 10);
-  return `${safe}-harvests-${id}-${stamp}.xlsx`;
+  return `${safe}-harvests-${id}-${stamp}.${format}`;
 }

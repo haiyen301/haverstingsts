@@ -23,6 +23,10 @@ import { useTableColumnSort } from "@/shared/hooks/useTableColumnSort";
 import { compareNumbers, compareStrings } from "@/shared/lib/tableSort";
 import { cn } from "@/lib/utils";
 import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
+import {
+  harvestTypeDisplayLabel,
+  normalizeHarvestTypeStorageKey,
+} from "@/shared/lib/harvestType";
 
 type FieldKey =
   | "customerName"
@@ -68,7 +72,7 @@ type MappedRow = {
   zone: string;
   grass: string;
   turfType: string;
-  harvestType: string; // Sod | Sprig
+  harvestType: string; // sod | sprig | sod_to_sprig
   quantity: string;
   uom: "M2" | "Kg";
   refHrvQtySprig: string;
@@ -265,15 +269,19 @@ function logHarvestImportDates(
   console.log(`[HarvestImport:dates] ${label}`, payload);
 }
 
-function normalizeHarvestType(v: string): { harvestType: "Sod" | "Sprig" | ""; uom: "M2" | "Kg" } {
+function normalizeHarvestType(v: string): { harvestType: string; uom: "M2" | "Kg" } {
+  const key = normalizeHarvestTypeStorageKey(v);
+  if (key) {
+    return { harvestType: key, uom: key === "sod" ? "M2" : "Kg" };
+  }
   const s = normalizeLoose(v);
   if (!s) return { harvestType: "", uom: "M2" };
-  // Accept direct values and mixed strings (e.g. "Sprig / KG", "Sod - M2").
-  if (s === "sod" || s.includes("sod") || s === "m2" || s === "m²" || s.includes("m2") || s.includes("m²")) {
-    return { harvestType: "Sod", uom: "M2" };
+  // Accept mixed strings when harvest type column only has UOM hints (e.g. "Sprig / KG", "Sod - M2").
+  if (s === "m2" || s === "m²" || s.includes("m2") || s.includes("m²")) {
+    return { harvestType: "sod", uom: "M2" };
   }
-  if (s === "sprig" || s.includes("sprig") || s === "kg" || s.includes("kg")) {
-    return { harvestType: "Sprig", uom: "Kg" };
+  if (s === "kg" || s.includes("kg")) {
+    return { harvestType: "sprig", uom: "Kg" };
   }
   return { harvestType: "", uom: "M2" };
 }
@@ -307,7 +315,15 @@ function suggestMapping(headers: string[]): FieldMapping {
     zone: pick(["zone"]),
     grass: pick(["grass", "grass type", "product"]),
     turfType: pick(["turf type", "turf_type"]),
-    harvestType: pick(["harvest type", "load type", "sod/sprig", "sod sprig", "type"]),
+    harvestType: pick([
+      "harvest type",
+      "load type",
+      "sod/sprig",
+      "sod sprig",
+      "sod to sprig",
+      "sod for sprig",
+      "type",
+    ]),
     uom: pick(["uom", "unit"]),
     quantity: pick(["quantity", "qty"]),
     refHrvQtySprig: pick(["ref harvest qty sprig", "ref_hrv_qty_sprig", "reference harvest qty"]),
@@ -1257,7 +1273,9 @@ export default function HarvestImportPage() {
                         <td className="px-3 py-2">{r.farm}</td>
                         <td className="px-3 py-2">{r.zone}</td>
                         <td className="px-3 py-2">{r.grass}</td>
-                        <td className="px-3 py-2">{r.harvestType}</td>
+                        <td className="px-3 py-2">
+                          {harvestTypeDisplayLabel(r.harvestType) || "—"}
+                        </td>
                         <td className="px-3 py-2">{r.uom}</td>
                         <td className="px-3 py-2">{r.quantity}</td>
                         <td className="px-3 py-2">
@@ -1390,7 +1408,9 @@ export default function HarvestImportPage() {
                             <td className="px-3 py-2">{r.farm}</td>
                             <td className="px-3 py-2">{r.zone}</td>
                             <td className="px-3 py-2">{r.grass}</td>
-                            <td className="px-3 py-2">{r.harvestType}</td>
+                            <td className="px-3 py-2">
+                              {harvestTypeDisplayLabel(r.harvestType) || "—"}
+                            </td>
                             <td className="px-3 py-2">{r.quantity}</td>
                             <td className="px-3 py-2">
                               {r.estimatedDate || "—"} / {r.actualDate || "—"}

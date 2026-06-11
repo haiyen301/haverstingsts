@@ -35,7 +35,27 @@ type LoginResponse =
       message?: string;
       data: { token?: string; [k: string]: unknown };
     }
-  | { success: false; message?: string; [k: string]: unknown };
+  | { success: false; message?: string; reason?: number; [k: string]: unknown };
+
+/** Expected auth rejection (wrong password / unknown email) — not an infra bug. */
+function isLoginCredentialFailure(
+  status: number,
+  json: LoginResponse | null | undefined,
+): boolean {
+  if (!json || json.success === true) return false;
+  if (status === 503) return false;
+  return json.success === false;
+}
+
+function loginErrorMessage(
+  json: LoginResponse | null | undefined,
+  t: (key: string) => string,
+): string {
+  if (json?.success === false && json.reason === 2) {
+    return t("loginFailedWrongPassword");
+  }
+  return t("loginFailedCheckCredentials");
+}
 
 export default function LoginForm() {
   const tBase = useAppTranslations();
@@ -114,19 +134,22 @@ export default function LoginForm() {
       const json = parsed.data;
 
       if (!json || (json as { success?: boolean }).success !== true) {
-        const msg =
-          (json as { message?: string })?.message ??
-          t("loginFailedCheckCredentials");
+        if (parsed.status === 503) {
+          router.replace("/maintenance");
+          return;
+        }
+        if (isLoginCredentialFailure(parsed.status, json)) {
+          setError(loginErrorMessage(json, t));
+          return;
+        }
         setLoginDebug(parsed.debug);
         console.error("[login] API returned success=false", {
           debug: parsed.debug,
           json,
         });
-        if (parsed.status === 503) {
-          router.replace("/maintenance");
-          return;
-        }
-        setError(msg);
+        setError(
+          (json as { message?: string })?.message ?? t("loginFailedGeneric"),
+        );
         return;
       }
 
@@ -263,38 +286,27 @@ export default function LoginForm() {
           </div>
 
           {error && (
-            <div className="space-y-2">
-              <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-                {error}
-              </div>
-              {(loginDebug || sessionProbe) && (
-                <details className="rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2 text-left">
-                  <summary className="cursor-pointer text-xs font-medium text-amber-900">
-                    {t("loginDebugTitle")}
-                  </summary>
-                  <div className="mt-2 space-y-2 text-[11px] leading-snug text-amber-950">
-                    <p>{t("loginDebugHint")}</p>
-                    {sessionProbe ? (
-                      <div>
-                        <p className="font-medium">{t("loginDebugSessionProbe")}</p>
-                        <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded bg-white/70 p-2 font-mono text-[10px]">
-                          {JSON.stringify(sessionProbe, null, 2)}
-                        </pre>
-                      </div>
-                    ) : null}
-                    {loginDebug ? (
-                      <div>
-                        <p className="font-medium">{t("loginDebugLoginPost")}</p>
-                        <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-white/70 p-2 font-mono text-[10px]">
-                          {JSON.stringify(loginDebug, null, 2)}
-                        </pre>
-                      </div>
-                    ) : null}
-                  </div>
-                </details>
-              )}
+            <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+              {error}
             </div>
           )}
+
+          {loginDebug ? (
+            <details className="rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2 text-left">
+              <summary className="cursor-pointer text-xs font-medium text-amber-900">
+                {t("loginDebugTitle")}
+              </summary>
+              <div className="mt-2 space-y-2 text-[11px] leading-snug text-amber-950">
+                <p>{t("loginDebugHint")}</p>
+                <div>
+                  <p className="font-medium">{t("loginDebugLoginPost")}</p>
+                  <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-white/70 p-2 font-mono text-[10px]">
+                    {JSON.stringify(loginDebug, null, 2)}
+                  </pre>
+                </div>
+              </div>
+            </details>
+          ) : null}
 
           <button
             type="submit"

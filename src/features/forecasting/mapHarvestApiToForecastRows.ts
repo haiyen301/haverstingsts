@@ -7,6 +7,8 @@ import {
 } from "@/shared/lib/harvestPlanDates";
 import { stsProxyGetHarvestingIndex } from "@/shared/api/stsProxyClient";
 import { computeReadyDateYmdFromPlanRow } from "@/features/forecasting/computeReadyDateFromPlanRow";
+import { setForecastZoneCatalog } from "@/features/forecasting/zoneKeyNormalization";
+import type { FarmZoneReferenceRow } from "@/shared/lib/harvestReferenceData";
 import {
   convertPlanRowQuantityToKgFromZones,
   distributePlanRowToZoneFragments,
@@ -283,7 +285,11 @@ export function rowsToMockHarvestRows(
   rows: Record<string, unknown>[],
   today = new Date(),
   zoneConfigs?: ZoneConfigurationRow[],
+  farmZones?: FarmZoneReferenceRow[],
 ): ForecastHarvestRow[] {
+  if (farmZones?.length) {
+    setForecastZoneCatalog(farmZones);
+  }
   const list: ForecastHarvestRow[] = [];
   const usedByFarmProduct = new Map<string, Map<string, number>>();
   const orderedRows =
@@ -336,14 +342,15 @@ export function rowsToMockHarvestRows(
   return list;
 }
 
-/** Single entry to map API plans → forecast rows (m²→kg, zone 1 default, Sod quantity fallback). */
+/** Single entry to map API plans → forecast rows (m²→kg, zone id, Sod quantity fallback). */
 export function buildForecastRowsFromHarvestRaw(
   harvestRowsRaw: Record<string, unknown>[] | null | undefined,
   zoneConfigs: ZoneConfigurationRow[] | null | undefined,
   today = new Date(),
+  farmZones?: FarmZoneReferenceRow[],
 ): ForecastHarvestRow[] {
   if (!harvestRowsRaw?.length) return [];
   const activeHarvest = filterActiveHarvestPlanRows(harvestRowsRaw);
   const activeZones = filterActiveZoneConfigurations(zoneConfigs ?? []);
-  return rowsToMockHarvestRows(activeHarvest, today, activeZones);
+  return rowsToMockHarvestRows(activeHarvest, today, activeZones, farmZones);
 }

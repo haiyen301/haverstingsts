@@ -6,6 +6,7 @@
 
 import { STS_API_PATHS } from "@/shared/api/stsApiPaths";
 import { stsProxyPostFormDataEnvelope } from "@/shared/api/stsProxyClient";
+import { normalizeHarvestTypeStorageKey } from "@/shared/lib/harvestType";
 
 /** API base field names (match PHP `imageNamesNeedSaved` / Flutter keys). */
 export const HARVEST_DOC_PHOTO_FIELDS = [
@@ -90,11 +91,16 @@ function parsePositiveNumber(raw: string): number {
 export function resolveHarvestedAreaForSubmit(
   harvestedArea: string | undefined,
   quantity: string,
-  _harvestType?: string,
+  harvestType?: string,
 ): { harvestedArea: string | undefined; status?: string } {
   const existing = parsePositiveNumber(harvestedArea ?? "");
   if (existing > 0) {
     return { harvestedArea: stripCommas(harvestedArea ?? "") };
+  }
+  const loadType = normalizeHarvestTypeStorageKey(harvestType);
+  // Sprig / sod→sprig quantity is kg — do not copy into harvested_area (m²).
+  if (loadType === "sprig" || loadType === "sod_to_sprig") {
+    return { harvestedArea: undefined };
   }
   const qty = stripCommas(quantity);
   if (parsePositiveNumber(qty) <= 0) {

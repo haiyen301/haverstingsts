@@ -9,6 +9,7 @@ import {
   isForecastExcludedZone,
   isMappedForecastZoneKey,
 } from "@/features/forecasting/forecastingInventoryConversion";
+import { canonicalZoneBucketKey } from "@/features/forecasting/zoneKeyNormalization";
 
 function toNum(v: string | number | null | undefined): number {
   const n = Number(v ?? 0);
@@ -66,24 +67,11 @@ export function zoneConfigurationMaxKg(row: ZoneConfigurationRow): number {
 }
 
 function normalizeZoneForConfigMatch(zone: string): string {
-  return String(zone ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/_/g, "-")
-    .replace(/\s+/g, " ");
+  return canonicalZoneBucketKey(zone);
 }
 
 function zoneConfigBucketKey(zone: string): string {
-  const normalized = normalizeZoneForConfigMatch(zone);
-  if (
-    !normalized ||
-    normalized === "nozone" ||
-    normalized === "no-zone" ||
-    normalized === "no zone"
-  ) {
-    return "nozone";
-  }
-  return normalized;
+  return canonicalZoneBucketKey(zone);
 }
 
 function zoneConfigsMatchingIdentity(
@@ -152,7 +140,27 @@ export function forecastZoneKeyFromParts(
   zone: string | undefined,
   productId: number,
 ): string {
-  return `${farmId}|${String(zone ?? "").trim().toLowerCase()}|${productId}`;
+  return `${farmId}|${canonicalZoneBucketKey(String(zone ?? ""))}|${productId}`;
+}
+
+/** Normalize legacy keys (`1|1|5`) and canonical keys (`1|zid:1|5`) to one form. */
+export function canonicalForecastZoneKey(zoneKey: string): string {
+  const parts = String(zoneKey ?? "").split("|");
+  if (parts.length !== 3) return String(zoneKey ?? "");
+  const farmId = Number(parts[0]);
+  const productId = Number(parts[2]);
+  const zoneSeg = String(parts[1] ?? "").trim();
+  if (!Number.isFinite(farmId) || !Number.isFinite(productId)) {
+    return String(zoneKey ?? "");
+  }
+  if (zoneSeg.startsWith("zid:") || zoneSeg.startsWith("zlabel:")) {
+    return `${farmId}|${zoneSeg}|${productId}`;
+  }
+  return forecastZoneKeyFromParts(farmId, zoneSeg, productId);
+}
+
+export function forecastZoneKeysEqual(a: string, b: string): boolean {
+  return canonicalForecastZoneKey(a) === canonicalForecastZoneKey(b);
 }
 
 export function forecastZoneKeyFromRow(row: ForecastHarvestRow): string {

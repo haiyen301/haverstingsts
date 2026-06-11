@@ -16,6 +16,7 @@ import {
   rowDataAffectsHarvest,
 } from "@/features/forecasting/forecastDataSync";
 import { canAccessModule } from "@/shared/auth/permissions";
+import { userIdIsPrivilegedAdmin } from "@/shared/auth/privilegedAdminAccess";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { useAuthUserStore } from "@/shared/store/authUserStore";
 import {
@@ -41,6 +42,12 @@ import {
   PROJECT_TYPE_VALUES,
   projectTypeMessageKey,
 } from "@/features/project/lib/projectTypeDisplay";
+import {
+  buildPaceGrassBatchQuantitiesFromHarvestRecalc,
+  fetchAllHarvestPlanRowsForProject,
+  runPaceHarvestRecalcForProjectGrassLines,
+  type GrassRequirementForPaceRecalc,
+} from "@/features/project/lib/buildPaceGrassBatchQuantitiesFromHarvestRecalc";
 import {
   buildPaceGrassBatchQuantities,
   estimatePaceDurationWeeks,
@@ -270,6 +277,10 @@ export default function ProjectInputPage() {
   const canSeedPlannedHarvestsOnCreate =
     !isEdit && canAccessModule(user, "harvests", "create");
   const canDeleteProject = isEdit && canDeleteProjects;
+  const showPrivilegedPaceRecalcSetting = useMemo(
+    () => isEdit && userIdIsPrivilegedAdmin(user?.id),
+    [isEdit, user?.id],
+  );
   const returnTarget = useMemo(
     () =>
       resolveReturnToTarget(returnToParam, {
@@ -292,8 +303,10 @@ export default function ProjectInputPage() {
   }, [router, returnTarget, returnToParam]);
 
   const [loading, setLoading] = useState(isEdit);
-  type ProjectSavePhase = false | "project" | "planned_harvests";
+  type ProjectSavePhase = false | "project" | "planned_harvests" | "pace_recalc";
   const [savePhase, setSavePhase] = useState<ProjectSavePhase>(false);
+  const [applyPrivilegedPaceHarvestRecalc, setApplyPrivilegedPaceHarvestRecalc] =
+    useState(false);
   const saving = savePhase !== false;
   const formControlsDisabled = loading || saving || !canSubmitProject;
   const submitButtonLabel = useMemo(() => {
@@ -302,6 +315,9 @@ export default function ProjectInputPage() {
     }
     if (!isEdit && savePhase === "planned_harvests") {
       return t("creatingPlannedHarvests");
+    }
+    if (isEdit && savePhase === "pace_recalc") {
+      return t("recalculatingPaceHarvests");
     }
     return t("saving");
   }, [isEdit, savePhase, saving, t]);
@@ -418,11 +434,16 @@ export default function ProjectInputPage() {
     return values;
   }, [architectCatalogValues, formData.architect]);
 
+  const isProjectPaceUnset = (pace: string) => {
+    const trimmed = pace.trim();
+    return !trimmed || trimmed.toLowerCase() === "none";
+  };
+
   const projectPaceRadioOptions = useMemo(() => {
     const fromCatalog = projectPaceCatalogRows
       .map((row) => {
         const value = String(row.pace_key ?? "").trim();
-        if (!value) return null;
+        if (!value || value.toLowerCase() === "none") return null;
         const title = String(row.title ?? value).trim();
         const paceConfig = projectPaceConfigFromRow(row);
         const months = Math.max(0, paceConfig.durationMonths);
@@ -445,6 +466,7 @@ export default function ProjectInputPage() {
     const cur = formData.projectPace.trim();
     if (
       cur &&
+      !isProjectPaceUnset(cur) &&
       !fromCatalog.some((opt) => opt.value.toLowerCase() === cur.toLowerCase())
     ) {
       return [
@@ -1145,10 +1167,48 @@ export default function ProjectInputPage() {
           amountRequired: Number.parseFloat(r.required) || 0,
           farmId: r.farmId.trim(),
         }));
-      const paceGrassBatchQuantities =
-        isProjectPaceForHarvestPlan(paceKeyForSave, projectPaceCatalogRows) &&
-        selectedPaceForSave &&
-        grassReqsForPace.length > 0
+      const grassReqsForPrivilegedRecalc: GrassRequirementForPaceRecalc[] =
+        grassReqsForPace.map((r) => ({
+          productId: r.productId,
+          uom: r.uom,
+          loadType: r.loadType,
+          totalRequired: r.amountRequired,
+          farmId: r.farmId || undefined,
+        }));
+
+      let harvestPlanRowsForPrivilegedRecalc: Array<Record<string, unknown>> =
+        [];
+      const usePrivilegedPaceHarvestRecalc =
+        isEdit &&
+        applyPrivilegedPaceHarvestRecalc &&
+        showPrivilegedPaceRecalcSetting;
+
+      if (usePrivilegedPaceHarvestRecalc) {
+        const projectIdForRecalc = editProjectIdForLabel.trim();
+        if (!projectIdForRecalc) {
+          setError(t("privilegedPaceRecalcNoProjectId"));
+          return;
+        }
+        try {
+          harvestPlanRowsForPrivilegedRecalc =
+            await fetchAllHarvestPlanRowsForProject(
+              projectIdForRecalc,
+              user?.id != null ? Number(user.id) : undefined,
+            );
+        } catch {
+          setError(t("privilegedPaceRecalcFetchFailed"));
+          return;
+        }
+      }
+
+      const paceGrassBatchQuantities = usePrivilegedPaceHarvestRecalc
+        ? buildPaceGrassBatchQuantitiesFromHarvestRecalc({
+            grassRequirements: grassReqsForPrivilegedRecalc,
+            harvestPlanRows: harvestPlanRowsForPrivilegedRecalc,
+          })
+        : isProjectPaceForHarvestPlan(paceKeyForSave, projectPaceCatalogRows) &&
+            selectedPaceForSave &&
+            grassReqsForPace.length > 0
           ? buildPaceGrassBatchQuantities({
               paceConfig: projectPaceConfigFromRow(selectedPaceForSave),
               grassRequirements: grassReqsForPace,
@@ -1188,10 +1248,9 @@ export default function ProjectInputPage() {
           main_contact_name: formData.contactName.trim(),
           main_contact_email: formData.contactEmail.trim(),
           main_contact_phone: formData.contactPhone.trim(),
-          project_pace:
-            formData.projectPace === "none" || !formData.projectPace.trim()
-              ? ""
-              : formData.projectPace.trim().toLowerCase(),
+          project_pace: isProjectPaceUnset(formData.projectPace)
+            ? ""
+            : formData.projectPace.trim().toLowerCase(),
           pace_grass_batch_quantities: paceGrassBatchQuantities,
           actual_completion_date: formData.actualCompletionDate.trim(),
         },
@@ -1228,6 +1287,40 @@ export default function ProjectInputPage() {
         | "warning"
         | "critical"
         | undefined;
+
+      if (usePrivilegedPaceHarvestRecalc && projectIdStr) {
+        setSavePhase("pace_recalc");
+        let harvestPlanRowsForRecalcApi = harvestPlanRowsForPrivilegedRecalc;
+        try {
+          harvestPlanRowsForRecalcApi =
+            await fetchAllHarvestPlanRowsForProject(
+              projectIdStr,
+              user?.id != null ? Number(user.id) : undefined,
+            );
+        } catch {
+          setError(t("privilegedPaceRecalcFetchFailed"));
+          return;
+        }
+        const { ok, fail } = await runPaceHarvestRecalcForProjectGrassLines({
+          projectId: projectIdStr,
+          grassRequirements: grassReqsForPrivilegedRecalc,
+          harvestPlanRows: harvestPlanRowsForRecalcApi,
+          zoneConfigurations,
+        });
+        if (ok > 0) {
+          plannedHarvestAlertSuffix += t("alertPaceRecalcSuffix", { count: ok });
+        }
+        if (fail > 0) {
+          plannedHarvestAlertSuffix += t("alertPaceRecalcFailedSuffix", {
+            count: fail,
+          });
+          plannedHarvestAlertSeverity = "warning";
+        }
+        if (ok > 0 || fail > 0) {
+          onForecastMutations(["harvest", "project"]);
+        }
+      }
+
       if (!isEdit && canSeedPlannedHarvestsOnCreate && projectIdStr) {
         if (
           isProjectPaceForHarvestPlan(paceKeyForSave, projectPaceCatalogRows) &&
@@ -1241,6 +1334,7 @@ export default function ProjectInputPage() {
             paceConfig: projectPaceConfigFromRow(selectedPaceForSave),
             estimatedStartYmd: anchorYmd,
             grassRequirements: grassReqsForPace,
+            zoneConfigurations,
           });
           if (seeds.length > 0) {
             setSavePhase("planned_harvests");
@@ -1721,21 +1815,19 @@ export default function ProjectInputPage() {
                         key="none"
                         type="button"
                         onClick={() => {
-                          const nextPace =
-                            formData.projectPace === "none" ? "" : "none";
-                          setFormData({ ...formData, projectPace: nextPace });
+                          setFormData({ ...formData, projectPace: "" });
                         }}
                         className="relative block cursor-pointer text-left"
                       >
                         <span
-                          className={`flex min-h-11 items-center justify-center rounded-md border px-3 text-center text-sm transition-colors ${formData.projectPace === "none"
+                          className={`flex min-h-11 items-center justify-center rounded-md border px-3 text-center text-sm transition-colors ${isProjectPaceUnset(formData.projectPace)
                               ? "border-primary bg-primary/5 text-primary"
                               : "border-input bg-card text-foreground shadow-sm"
                             }`}
                         >
                           {t("paceNoneOption")}
                         </span>
-                        {formData.projectPace === "none" ? <CheckBadge /> : null}
+                        {isProjectPaceUnset(formData.projectPace) ? <CheckBadge /> : null}
                       </button>
                     </div>
                   </div>
@@ -1921,6 +2013,35 @@ export default function ProjectInputPage() {
               </section>
               ) : null}
 
+              {showPrivilegedPaceRecalcSetting ? (
+                <section className="overflow-hidden rounded-xl border border-border bg-card text-card-foreground shadow-sm">
+                  <div className="border-b border-border px-4 py-3 lg:px-5">
+                    <h2 className="text-base font-semibold">{t("settingsSectionTitle")}</h2>
+                  </div>
+                  <div className="p-4 lg:p-5">
+                    <label className="flex cursor-pointer items-start gap-3">
+                      <input
+                        type="checkbox"
+                        className="mt-1 h-4 w-4 shrink-0 rounded border-input text-primary focus-visible:ring-2 focus-visible:ring-ring"
+                        checked={applyPrivilegedPaceHarvestRecalc}
+                        disabled={formControlsDisabled}
+                        onChange={(e) =>
+                          setApplyPrivilegedPaceHarvestRecalc(e.target.checked)
+                        }
+                      />
+                      <span className="min-w-0 space-y-1">
+                        <span className="block text-sm font-medium text-foreground">
+                          {t("privilegedPaceRecalcLabel")}
+                        </span>
+                        <span className="block text-xs leading-relaxed text-muted-foreground">
+                          {t("privilegedPaceRecalcHint")}
+                        </span>
+                      </span>
+                    </label>
+                  </div>
+                </section>
+              ) : null}
+
               <section
                 id="project-grass-info"
                 className="overflow-hidden rounded-xl border border-border bg-card text-card-foreground shadow-sm"
@@ -2067,7 +2188,7 @@ export default function ProjectInputPage() {
                                 }}
                                 className={`relative w-max text-left justify-self-start ${loadTypeDisabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"}`}
                               >
-                                 <span>{t(opt.labelKey)}</span>
+                                  <label className="text-sm font-medium text-foreground">{t(opt.labelKey)}</label>
                                 <span
                                   className={`relative flex min-h-10 flex-col items-center justify-center gap-0.5 whitespace-nowrap rounded-md border px-2.5 py-1.5 transition-colors ${opt.value === "sod_to_sprig" ? "min-w-[5.5rem]" : "min-w-[4.5rem]"} ${row.loadType === opt.value
                                       ? "border-primary bg-primary/5 text-primary"

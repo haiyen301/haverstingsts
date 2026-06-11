@@ -1,5 +1,10 @@
 import type { ZoneConfigurationRow } from "@/features/admin/api/adminApi";
 import {
+  canonicalZoneBucketKey,
+  FORECAST_NOZONE_ZONE,
+  isForecastNoZoneBucketKey,
+} from "@/features/forecasting/zoneKeyNormalization";
+import {
   findActiveZoneConfiguration,
   ymdFromDateLocal,
 } from "@/features/forecasting/inventoryRegrowthCalculator";
@@ -262,6 +267,7 @@ export function resolveZone1InventoryKgPerM2(params: {
   };
 
   const direct =
+    bucketKg("zid:1") ??
     bucketKg("1") ??
     bucketKg("zone-1") ??
     bucketKg("zone 1");
@@ -435,12 +441,61 @@ export function forecastHarvestRowPlanQuantityKg(row: ForecastHarvestRow): numbe
 
 /**
  * Kg dùng trừ tồn / biểu đồ / daily calendar: ưu tiên `inventoryKg` đã convert.
- * Sprig fallback `quantity` (kg). Sod / Sod→Sprig không dùng `quantity` làm kg (đó là m²).
+ * Sod / Sod→Sprig / M²: fallback m² × Yield (kg/m²) khi `inventoryKg` chưa được gán.
+ * Sprig fallback `quantity` (kg).
  */
-export function forecastHarvestRowInventoryKg(row: ForecastHarvestRow): number {
+export function resolveForecastHarvestRowInventoryKgPerM2(
+  row: ForecastHarvestRow,
+  zoneConfigs?: ZoneConfigurationRow[],
+): number {
+  if (Number.isFinite(row.kgPerM2) && row.kgPerM2! > 0) return row.kgPerM2!;
+
+  if (zoneConfigs?.length && row.farmId > 0 && row.productId > 0) {
+    const buckets = aggregateBucketsForFarmGrass(zoneConfigs, row.farmId, row.productId);
+    const zoneNorm = normalizeZone(String(row.zone ?? ""));
+    const bucketKey = zoneNorm ? forecastZoneBucketKey(zoneNorm) : "";
+    if (bucketKey && buckets.has(bucketKey)) {
+      const k = buckets.get(bucketKey)!.kgPerM2;
+      if (k > 0) return k;
+    }
+    const match = findBestZoneConfigMatch({
+      zoneConfigs,
+      farmId: row.farmId,
+      zone: String(row.zone ?? ""),
+      productId: row.productId,
+    });
+    if (match) {
+      const k = toNumber(match.inventory_kg_per_m2);
+      if (k > 0) return k;
+    }
+    const farmGrass = resolveFarmGrassYieldKgPerM2FromZoneConfig(
+      zoneConfigs,
+      row.farmId,
+      row.productId,
+    );
+    if (farmGrass > 0) return farmGrass;
+  }
+
+  const m2 = forecastHarvestRowEffectiveM2(row);
+  const storedKg = Number.isFinite(row.inventoryKg) ? row.inventoryKg : 0;
+  if (m2 > 0 && storedKg > 0) return storedKg / m2;
+
+  return DEFAULT_FALLBACK_INVENTORY_KG_PER_M2;
+}
+
+export function forecastHarvestRowInventoryKg(
+  row: ForecastHarvestRow,
+  options?: { zoneConfigs?: ZoneConfigurationRow[] },
+): number {
   const stored = Number.isFinite(row.inventoryKg) ? row.inventoryKg : 0;
   if (stored > 0) return stored;
-  if (forecastHarvestRowUsesHarvestedAreaForMagnitude(row)) return 0;
+  if (forecastHarvestRowUsesHarvestedAreaForMagnitude(row)) {
+    const m2 = forecastHarvestRowEffectiveM2(row);
+    if (m2 <= 0) return 0;
+    const kgPerM2 = resolveForecastHarvestRowInventoryKgPerM2(row, options?.zoneConfigs);
+    if (kgPerM2 <= 0) return 0;
+    return Math.max(0, Math.round(m2 * kgPerM2));
+  }
   return forecastHarvestRowPlanQuantityKg(row);
 }
 
@@ -507,20 +562,11 @@ function isM2Uom(uomRaw: string): boolean {
 }
 
 function normalizeZone(v: string): string {
-  return String(v ?? "").trim().toLowerCase();
+  return canonicalZoneBucketKey(v);
 }
 
-/**
- * Zone trống / alias no-zone gom về bucket {@link FORECAST_NOZONE_ZONE} (có thể cấu hình trong zone-config).
- */
-export function isForecastNoZoneBucketKey(normalizedZone: string): boolean {
-  const s = String(normalizedZone ?? "")
-    .trim()
-    .toLowerCase()
-    .replace(/_/g, "-")
-    .replace(/\s+/g, " ");
-  return !s || s === FORECAST_NOZONE_ZONE || s === "no-zone" || s === "no zone";
-}
+/** Zone trống / alias no-zone gom về bucket {@link FORECAST_NOZONE_ZONE} (có thể cấu hình trong zone-config). */
+export { isForecastNoZoneBucketKey };
 
 /** Zone trống / no-zone / nozone — bỏ qua trong cap, chart, zone-config buckets. */
 export function isForecastExcludedZone(zone: string | undefined | null): boolean {
@@ -535,8 +581,11 @@ export function isMappedForecastZoneKey(zoneKey: string): boolean {
 }
 
 /** Chuẩn hóa key bucket dùng trong `aggregateBucketsForFarmGrass` / `distributePlanRowToZoneFragments`. */
-export function forecastZoneBucketKey(normalizedZone: string): string {
-  return isForecastNoZoneBucketKey(normalizedZone) ? FORECAST_NOZONE_ZONE : normalizedZone;
+export function forecastZoneBucketKey(zoneValue: string): string {
+  const z = String(zoneValue ?? "").trim();
+  if (!z || isForecastNoZoneBucketKey(z)) return FORECAST_NOZONE_ZONE;
+  if (z.startsWith("zid:") || z.startsWith("zlabel:")) return z;
+  return canonicalZoneBucketKey(z);
 }
 
 function findBestZoneConfigMatch(params: {
@@ -560,7 +609,7 @@ function findBestZoneConfigMatch(params: {
 }
 
 /** Synthetic zone for harvest rows without a usable zone or unallocated no-zone remainder. */
-export const FORECAST_NOZONE_ZONE = "nozone";
+export { FORECAST_NOZONE_ZONE };
 
 export type ZoneInventoryFragment = {
   zone: string;
@@ -609,9 +658,13 @@ function aggregateBucketsForFarmGrass(
   return buckets;
 }
 
-/** Thứ tự zone ổn định (ưu số) — khớp ý tưởng với phân bổ regrowth. */
+/** Thứ tự zone ổn định (ưu catalog id) — khớp ý tưởng với phân bổ regrowth. */
 function zoneKeySortRankForDistribute(zoneSeg: string): number {
   if (!zoneSeg) return 99999;
+  if (zoneSeg.startsWith("zid:")) {
+    const n = Number(zoneSeg.slice(4));
+    if (Number.isFinite(n)) return n;
+  }
   const n = Number(zoneSeg);
   if (Number.isFinite(n)) return n;
   const m = zoneSeg.match(/(\d+)/u);

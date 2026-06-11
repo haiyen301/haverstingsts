@@ -1,4 +1,12 @@
+import { DEFAULT_FALLBACK_INVENTORY_KG_PER_M2 } from "@/features/forecasting/forecastingInventoryConversion";
 import type { ZoneInventoryDaySnapshot } from "@/features/forecasting/forecastAvailableAtDate";
+
+export type BalanceBreakdownDisplayUnit = "kg" | "m2";
+
+export type BalanceBreakdownFormulaOptions = {
+  unit: BalanceBreakdownDisplayUnit;
+  kgPerM2: number;
+};
 
 export type ZoneBalanceTimelineEntry = {
   dateYmd: string;
@@ -134,7 +142,27 @@ export function formatShortDateYmd(ymd: string | null | undefined): string {
   return `${m[3]}/${m[2]}/${m[1]}`;
 }
 
+export function resolveBalanceKgPerM2(kgPerM2: number): number {
+  return kgPerM2 > 0 ? kgPerM2 : DEFAULT_FALLBACK_INVENTORY_KG_PER_M2;
+}
+
+export function balanceKgToM2(kg: number, kgPerM2: number): number {
+  if (kg <= 0) return 0;
+  return Math.max(0, Math.round(kg / resolveBalanceKgPerM2(kgPerM2)));
+}
+
+export function formatKgPerM2Rate(rate: number): string {
+  const resolved = resolveBalanceKgPerM2(rate);
+  const rounded = Math.round(resolved * 100) / 100;
+  return rounded.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
 export function formatKg(value: number): string {
+  const n = Math.round(Number.isFinite(value) ? value : 0);
+  return n.toLocaleString();
+}
+
+export function formatM2(value: number): string {
   const n = Math.round(Number.isFinite(value) ? value : 0);
   return n.toLocaleString();
 }
@@ -145,20 +173,44 @@ export function formatSignedKg(value: number, sign: "+" | "−"): string {
   return sign === "+" ? `+${n.toLocaleString()}` : `−${n.toLocaleString()}`;
 }
 
+export function formatSignedM2(value: number, sign: "+" | "−"): string {
+  const n = Math.round(Math.abs(Number.isFinite(value) ? value : 0));
+  if (n === 0) return "0";
+  return sign === "+" ? `+${n.toLocaleString()}` : `−${n.toLocaleString()}`;
+}
+
 export function formatTimelineEntryFormula(
   entry: ZoneBalanceTimelineEntry,
   maxKg: number,
   t: (key: string, values?: Record<string, string | number>) => string,
+  options?: BalanceBreakdownFormulaOptions,
 ): string {
+  const useM2 = options?.unit === "m2";
+  const rate = options ? resolveBalanceKgPerM2(options.kgPerM2) : 0;
+  const toDisplay = (kg: number) =>
+    useM2 ? formatM2(balanceKgToM2(kg, rate)) : formatKg(kg);
+
   if (entry.isOpeningDay) {
-    return t("breakdownOpeningLine", { kg: formatKg(entry.endKg || maxKg) });
+    const kg = entry.endKg || maxKg;
+    return useM2
+      ? t("breakdownOpeningLineM2", {
+          m2: toDisplay(kg),
+          kg: formatKg(kg),
+          rate: formatKgPerM2Rate(rate),
+        })
+      : t("breakdownOpeningLine", { kg: formatKg(kg) });
   }
 
   if (entry.isBridgeEntry) {
-    return t("breakdownBridgeLine", {
-      from: formatKg(entry.previousKg),
-      to: formatKg(entry.endKg),
-    });
+    return useM2
+      ? t("breakdownBridgeLineM2", {
+          from: toDisplay(entry.previousKg),
+          to: toDisplay(entry.endKg),
+        })
+      : t("breakdownBridgeLine", {
+          from: formatKg(entry.previousKg),
+          to: formatKg(entry.endKg),
+        });
   }
 
   const rolled =
@@ -166,19 +218,88 @@ export function formatTimelineEntryFormula(
       ? entry.rollingBeforeManualKg
       : Math.max(0, entry.previousKg + entry.regrowthKg - entry.harvestKg);
 
-  const formula = t("breakdownFormulaLine", {
-    prev: formatKg(entry.previousKg),
-    regrowth: entry.regrowthKg > 0 ? formatKg(entry.regrowthKg) : "0",
-    harvest: entry.harvestKg > 0 ? formatKg(entry.harvestKg) : "0",
-    result: formatKg(rolled),
-  });
+  const formula = useM2
+    ? t("breakdownFormulaLineM2", {
+        prev: toDisplay(entry.previousKg),
+        regrowth: entry.regrowthKg > 0 ? toDisplay(entry.regrowthKg) : "0",
+        harvest: entry.harvestKg > 0 ? toDisplay(entry.harvestKg) : "0",
+        result: toDisplay(rolled),
+      })
+    : t("breakdownFormulaLine", {
+        prev: formatKg(entry.previousKg),
+        regrowth: entry.regrowthKg > 0 ? formatKg(entry.regrowthKg) : "0",
+        harvest: entry.harvestKg > 0 ? formatKg(entry.harvestKg) : "0",
+        result: formatKg(rolled),
+      });
 
   if (entry.isManualSetToday && entry.manualKg != null) {
-    return `${formula} · ${t("breakdownManualReplaceLine", {
-      rolled: formatKg(rolled),
-      manual: formatKg(entry.manualKg),
-    })}`;
+    const manualPart = useM2
+      ? t("breakdownManualReplaceLineM2", {
+          rolled: toDisplay(rolled),
+          manual: toDisplay(entry.manualKg),
+        })
+      : t("breakdownManualReplaceLine", {
+          rolled: formatKg(rolled),
+          manual: formatKg(entry.manualKg),
+        });
+    return `${formula} · ${manualPart}`;
   }
 
   return formula;
+}
+
+export type ZoneBalanceChangeSummary = {
+  configMaxKg: number;
+  openingKg: number;
+  currentKg: number;
+  totalRegrowthKg: number;
+  totalHarvestKg: number;
+  manualAdjustmentKg: number;
+  netChangeKg: number;
+  regrowthEventCount: number;
+  harvestEventCount: number;
+  manualEventCount: number;
+};
+
+export function computeZoneBalanceChangeSummary(params: {
+  timelineEntries: ZoneBalanceTimelineEntry[];
+  maxKg: number;
+  currentKg: number;
+  harvestEventCount?: number;
+  regrowthEventCount?: number;
+}): ZoneBalanceChangeSummary {
+  const { timelineEntries, maxKg, currentKg } = params;
+  const openingEntry = timelineEntries.find((e) => e.isOpeningDay);
+  const openingKg = openingEntry?.endKg ?? (maxKg > 0 ? maxKg : currentKg);
+
+  let totalRegrowthKg = 0;
+  let totalHarvestKg = 0;
+  let manualAdjustmentKg = 0;
+  let manualEventCount = 0;
+
+  for (const entry of timelineEntries) {
+    if (entry.isOpeningDay || entry.isBridgeEntry) continue;
+    totalRegrowthKg += Math.max(0, entry.regrowthKg);
+    totalHarvestKg += Math.max(0, entry.harvestKg);
+    if (entry.isManualSetToday && entry.manualKg != null) {
+      const rolled =
+        entry.rollingBeforeManualKg ??
+        Math.max(0, entry.previousKg + entry.regrowthKg - entry.harvestKg);
+      manualAdjustmentKg += entry.manualKg - rolled;
+      manualEventCount += 1;
+    }
+  }
+
+  return {
+    configMaxKg: maxKg,
+    openingKg,
+    currentKg,
+    totalRegrowthKg,
+    totalHarvestKg,
+    manualAdjustmentKg,
+    netChangeKg: currentKg - openingKg,
+    regrowthEventCount: params.regrowthEventCount ?? 0,
+    harvestEventCount: params.harvestEventCount ?? 0,
+    manualEventCount,
+  };
 }

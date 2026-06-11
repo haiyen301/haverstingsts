@@ -378,6 +378,42 @@ function farmZoneRowMatchesStoredValue(
   );
 }
 
+/**
+ * Resolve a stored zone value (catalog id, zone_name, legacy label) to `sts_zones.id`.
+ * Harvest plans and zone-config rows both persist this id when saved from admin UI.
+ */
+export function resolveZoneCatalogId(
+  stored: string | null | undefined,
+  farmZones: FarmZoneReferenceRow[] = [],
+): string {
+  const key = String(stored ?? "").trim();
+  if (!key) return "";
+  if (farmZones.length > 0) {
+    const row = farmZones.find((r) => farmZoneRowMatchesStoredValue(r, key));
+    if (row?.id != null && String(row.id).trim() !== "") {
+      return String(row.id).trim();
+    }
+  }
+  return key;
+}
+
+/** Canonical bucket key for inventory / forecast zone matching (`zid:{sts_zones.id}`). */
+export function zoneCatalogBucketKey(
+  stored: string | null | undefined,
+  farmZones: FarmZoneReferenceRow[] = [],
+): string {
+  const key = String(stored ?? "").trim();
+  if (!key || isNoZoneSyntheticZoneId(key)) {
+    return "nozone";
+  }
+  const catalogId = resolveZoneCatalogId(key, farmZones);
+  if (/^\d+$/u.test(catalogId)) {
+    return `zid:${catalogId}`;
+  }
+  const s = catalogId.toLowerCase().replace(/_/g, "-").replace(/\s+/g, " ");
+  return `zlabel:${s}`;
+}
+
 /** Virtual no-zone bucket keys produced by forecasting allocation (not always in `/api/zones`). */
 export function isNoZoneSyntheticZoneId(zoneId: string | null | undefined): boolean {
   const s = String(zoneId ?? "").trim().toLowerCase();
@@ -457,10 +493,11 @@ export function filterGrassesBySalesWindow(grasses: unknown[], refYmd: string): 
 /**
  * `/admin/zone-configurations` grass dropdown (evaluated on `refYmd`, typically today):
  * - Both `sales_from` and `sales_to` empty → show (no sales window configured).
- * - Otherwise today must fall in range: if `sales_from` set then `refYmd >= sales_from`;
- *   if `sales_to` set then `refYmd <= sales_to` (hide when `refYmd > sales_to`).
+ * - Only `sales_from` → visible when `refYmd >= sales_from`.
+ * - Only `sales_to` → visible when `refYmd <= sales_to` (hidden when `refYmd > sales_to`).
+ * - Both set → inclusive `[sales_from, sales_to]`.
  */
-export function isGrassRowVisibleForZoneConfigOnDate(row: unknown, refYmd: string): boolean {
+export function isGrassSalesWindowActiveOnDate(row: unknown, refYmd: string): boolean {
   if (!row || typeof row !== "object") return false;
   const r = row as Record<string, unknown>;
   const from = parseGrassSalesYmd(r.sales_from);
@@ -471,8 +508,135 @@ export function isGrassRowVisibleForZoneConfigOnDate(row: unknown, refYmd: strin
   return true;
 }
 
+/** @deprecated Use {@link isGrassSalesWindowActiveOnDate}. */
+export function isGrassRowVisibleForZoneConfigOnDate(row: unknown, refYmd: string): boolean {
+  return isGrassSalesWindowActiveOnDate(row, refYmd);
+}
+
+const GRASS_SALES_OPEN_START = "0000-01-01";
+const GRASS_SALES_OPEN_END = "9999-12-31";
+
+/** Whether grass sales window overlaps an inclusive calendar range (status not checked). */
+export function isGrassSalesWindowOverlapsDateRange(
+  row: unknown,
+  rangeStart: string,
+  rangeEnd: string,
+): boolean {
+  if (!row || typeof row !== "object") return false;
+  const r = row as Record<string, unknown>;
+  const from = parseGrassSalesYmd(r.sales_from);
+  const to = parseGrassSalesYmd(r.sales_to);
+  if (!from && !to) return true;
+  const grassLo = from ?? GRASS_SALES_OPEN_START;
+  const grassHi = to ?? GRASS_SALES_OPEN_END;
+  const lo = rangeStart <= rangeEnd ? rangeStart : rangeEnd;
+  const hi = rangeStart <= rangeEnd ? rangeEnd : rangeStart;
+  return lo <= grassHi && grassLo <= hi;
+}
+
+/** Catalog list: check `status` first, then sales window on one date. */
+export function isGrassRowVisibleInCatalogOnDate(row: unknown, refYmd: string): boolean {
+  if (!isGrassRowActive(row)) return false;
+  return isGrassSalesWindowActiveOnDate(row, refYmd);
+}
+
+/** Catalog list: check `status` first, then sales window overlap with `[rangeStart, rangeEnd]`. */
+export function isGrassRowVisibleInCatalogOnDateRange(
+  row: unknown,
+  rangeStart: string,
+  rangeEnd: string,
+): boolean {
+  if (!isGrassRowActive(row)) return false;
+  return isGrassSalesWindowOverlapsDateRange(row, rangeStart, rangeEnd);
+}
+
+function normalizeGrassCatalogRefYmds(refYmds: string[]): string[] {
+  return refYmds
+    .map((s) => String(s ?? "").trim())
+    .filter((s) => /^\d{4}-\d{2}-\d{2}$/.test(s));
+}
+
+/** Catalog list: check `status` first, then sales window on any ref date (OR). */
+export function isGrassRowVisibleInCatalogOnAnyDate(row: unknown, refYmds: string[]): boolean {
+  if (!isGrassRowActive(row)) return false;
+  const dates = normalizeGrassCatalogRefYmds(refYmds);
+  if (dates.length === 0) {
+    return isGrassSalesWindowActiveOnDate(row, todayYmdLocal());
+  }
+  if (dates.length >= 2) {
+    const sorted = [...dates].sort();
+    return isGrassSalesWindowOverlapsDateRange(row, sorted[0]!, sorted[sorted.length - 1]!);
+  }
+  return isGrassSalesWindowActiveOnDate(row, dates[0]!);
+}
+
+export function buildGrassCatalogById(grasses: unknown[]): Map<string, unknown> {
+  const map = new Map<string, unknown>();
+  for (const g of grasses) {
+    if (!g || typeof g !== "object") continue;
+    const id = String((g as Record<string, unknown>).id ?? "").trim();
+    if (id) map.set(id, g);
+  }
+  return map;
+}
+
+/** Row-level check: active first, then sales window on the row reference date. */
+export function isGrassProductVisibleInCatalogOnDate(
+  productId: string | number | null | undefined,
+  grassesById: ReadonlyMap<string, unknown>,
+  refYmd: string,
+): boolean {
+  const id = String(productId ?? "").trim();
+  if (!id || !/^\d{4}-\d{2}-\d{2}$/.test(refYmd)) return true;
+  const row = grassesById.get(id);
+  if (!row) return true;
+  return isGrassRowVisibleInCatalogOnDate(row, refYmd);
+}
+
+export function collectHiddenGrassIdsForCatalogOnDate(
+  grasses: unknown[],
+  refYmd: string,
+): Set<string> {
+  const hidden = new Set<string>();
+  for (const g of grasses) {
+    if (!g || typeof g !== "object") continue;
+    const id = String((g as Record<string, unknown>).id ?? "").trim();
+    if (!id) continue;
+    if (!isGrassRowVisibleInCatalogOnDate(g, refYmd)) hidden.add(id);
+  }
+  return hidden;
+}
+
+export function collectHiddenGrassIdsForCatalogOnDateRange(
+  grasses: unknown[],
+  rangeStart: string,
+  rangeEnd: string,
+): Set<string> {
+  const hidden = new Set<string>();
+  for (const g of grasses) {
+    if (!g || typeof g !== "object") continue;
+    const id = String((g as Record<string, unknown>).id ?? "").trim();
+    if (!id) continue;
+    if (!isGrassRowVisibleInCatalogOnDateRange(g, rangeStart, rangeEnd)) hidden.add(id);
+  }
+  return hidden;
+}
+
+/** @deprecated Use {@link isGrassRowVisibleInCatalogOnDate}. */
+export function isGrassRowVisibleInInventoryCatalogOnDate(row: unknown, refYmd: string): boolean {
+  return isGrassRowVisibleInCatalogOnDate(row, refYmd);
+}
+
+/** @deprecated Use {@link collectHiddenGrassIdsForCatalogOnDate}. */
+export function collectHiddenGrassIdsForInventoryCatalog(
+  grasses: unknown[],
+  refYmd: string,
+): Set<string> {
+  return collectHiddenGrassIdsForCatalogOnDate(grasses, refYmd);
+}
+
 export function filterGrassesForZoneConfigSelect(grasses: unknown[], refYmd: string): unknown[] {
-  return grasses.filter((g) => isGrassRowVisibleForZoneConfigOnDate(g, refYmd));
+  return grasses.filter((g) => isGrassSalesWindowActiveOnDate(g, refYmd));
 }
 
 /** Like {@link grassSelectRowsWithPinnedIds} but uses {@link filterGrassesForZoneConfigSelect}. */
@@ -535,13 +699,7 @@ export function filterGrassesForSalesCatalogWindowsOr(
   grasses: unknown[],
   refYmds: string[],
 ): unknown[] {
-  const dates = refYmds
-    .map((s) => String(s ?? "").trim())
-    .filter((s) => /^\d{4}-\d{2}-\d{2}$/.test(s));
-  const effective = dates.length > 0 ? dates : [todayYmdLocal()];
-  return grasses.filter((g) =>
-    effective.some((ymd) => isGrassRowVisibleForZoneConfigOnDate(g, ymd)),
-  );
+  return grasses.filter((g) => isGrassRowVisibleInCatalogOnAnyDate(g, refYmds));
 }
 
 /**

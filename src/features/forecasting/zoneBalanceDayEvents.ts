@@ -4,9 +4,8 @@ import type { RegrowthReferenceConfig } from "@/features/forecasting/forecasting
 import {
   forecastHarvestRowEffectiveM2,
   forecastHarvestRowInventoryKg,
-  forecastZoneBucketKey,
   isForecastExcludedZone,
-  kgPerM2ByNormalizedZoneForFarmProduct,
+  resolveForecastHarvestRowInventoryKgPerM2,
 } from "@/features/forecasting/forecastingInventoryConversion";
 import {
   forecastZoneKeyFromRow,
@@ -72,30 +71,17 @@ function buildM2Hint(
   zoneConfigs: ZoneConfigurationRow[],
 ): ZoneBalanceM2Hint | null {
   const m2 = forecastHarvestRowEffectiveM2(row);
-  const kg = forecastHarvestRowInventoryKg(row);
+  const kg = Math.round(
+    Math.max(0, forecastHarvestRowInventoryKg(row, { zoneConfigs })),
+  );
   if (m2 <= 0 || kg <= 0) return null;
 
-  const kgPerM2Map = kgPerM2ByNormalizedZoneForFarmProduct(
-    zoneConfigs,
-    row.farmId,
-    row.productId,
-  );
-  const zoneBucketKey = forecastZoneBucketKey(
-    String(row.zone ?? "")
-      .trim()
-      .toLowerCase()
-      .replace(/_/g, "-")
-      .replace(/\s+/g, " "),
-  );
-  const kgPerM2 =
-    kgPerM2Map[zoneBucketKey] ??
-    (m2 > 0 && kg > 0 ? kg / m2 : 0);
-  if (kgPerM2 <= 0) return null;
+  const kgPerM2 = resolveForecastHarvestRowInventoryKgPerM2(row, zoneConfigs);
 
   return {
     m2,
     kgPerM2,
-    kg: Math.round(m2 * kgPerM2),
+    kg,
   };
 }
 
@@ -115,7 +101,9 @@ export function buildHarvestEventsForZoneOnDate(params: {
     const harvestDateYmd = String(row.harvestDate ?? "").trim().slice(0, 10);
     const harvestDate = parseYmdLocal(harvestDateYmd);
     if (!harvestDate || !isSameLocalDay(harvestDate, onDate)) continue;
-    const kg = Math.round(Math.max(0, forecastHarvestRowInventoryKg(row)));
+    const kg = Math.round(
+      Math.max(0, forecastHarvestRowInventoryKg(row, { zoneConfigs: params.zoneConfigs })),
+    );
     if (kg <= 0) continue;
     events.push({
       rowId: String(row.id),
@@ -178,14 +166,18 @@ export function buildRegrowthEventsForZoneOnDate(params: {
     if (zoneCredit <= 0) continue;
 
     const totalQty = frags.reduce(
-      (sum, f) => sum + Math.max(0, forecastHarvestRowInventoryKg(f)),
+      (sum, f) =>
+        sum + Math.max(0, forecastHarvestRowInventoryKg(f, { zoneConfigs: params.zoneConfigs })),
       0,
     );
     if (totalQty <= 0) continue;
 
     let allocated = 0;
     frags.forEach((row, index) => {
-      const qty = Math.max(0, forecastHarvestRowInventoryKg(row));
+      const qty = Math.max(
+        0,
+        forecastHarvestRowInventoryKg(row, { zoneConfigs: params.zoneConfigs }),
+      );
       const creditedKg =
         index === frags.length - 1
           ? Math.max(0, Math.round(zoneCredit - allocated))

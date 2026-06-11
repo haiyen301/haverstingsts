@@ -13,7 +13,9 @@ import {
   type ForecastCacheScope,
   useForecastDataStore,
 } from "@/shared/store/forecastDataStore";
+import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { useInventoryAvailableOverrideStore } from "@/shared/store/inventoryAvailableOverrideStore";
+import { setForecastZoneCatalog } from "@/features/forecasting/zoneKeyNormalization";
 
 const ALL_SCOPES = new Set<ForecastCacheScope>([
   "overrides",
@@ -38,6 +40,11 @@ export function useForecastSnapshot(options?: { enabled?: boolean }) {
   const error = useForecastDataStore((s) => s.error);
 
   const overridesByZone = useInventoryAvailableOverrideStore((s) => s.overridesByZone);
+  const farmZones = useHarvestingDataStore((s) => s.farmZones);
+
+  useEffect(() => {
+    setForecastZoneCatalog(farmZones);
+  }, [farmZones]);
 
   const reloadFromCache = useCallback(
     async (scopes: Set<ForecastCacheScope> = ALL_SCOPES) => {
@@ -74,10 +81,11 @@ export function useForecastSnapshot(options?: { enabled?: boolean }) {
         harvestRowsRaw,
         activeZoneConfigs,
         getForecastToday(),
+        farmZones,
       );
     }
     return forecastRowsCached ?? [];
-  }, [harvestRowsRaw, activeZoneConfigs, forecastRowsCached]);
+  }, [harvestRowsRaw, activeZoneConfigs, forecastRowsCached, farmZones]);
 
   return {
     forecastRows,

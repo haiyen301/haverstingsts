@@ -811,6 +811,9 @@ export default function ProjectDetailPage() {
     () => safeProjectsListHref(searchParams.get("returnTo")),
     [searchParams],
   );
+  const resumeGoogleSheetExport =
+    (searchParams.get("googleSheetExport") ?? "").trim() === "resume";
+  const googleSheetExportError = (searchParams.get("googleSheetError") ?? "").trim();
 
   const projectsRef = useHarvestingDataStore((s) => s.projects);
   const countriesRef = useHarvestingDataStore((s) => s.countries);
@@ -866,6 +869,20 @@ export default function ProjectDetailPage() {
   const [harvestPlanTotalRecords, setHarvestPlanTotalRecords] = useState<
     number | null
   >(null);
+  useEffect(() => {
+    if (resumeGoogleSheetExport) {
+      setHarvestExportOpen(true);
+    }
+  }, [resumeGoogleSheetExport]);
+
+  const clearGoogleSheetExportQuery = useCallback(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("googleSheetExport");
+    params.delete("googleSheetError");
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  }, [pathname, router, searchParams]);
+
   const harvestPlanPageRef = useRef(0);
   const harvestLoadMoreLockRef = useRef(false);
   const harvestLoadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
@@ -1710,10 +1727,10 @@ export default function ProjectDetailPage() {
                         onClick={() => setHarvestExportOpen(true)}
                         disabled={filteredHarvests.length === 0}
                         className="inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border border-border bg-background px-3 text-sm font-medium text-foreground ring-offset-background transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0"
-                        aria-label={t("exportExcel")}
+                        aria-label={t("exportData")}
                       >
                         <Download className="h-4 w-4" aria-hidden />
-                        {t("exportExcel")}
+                        {t("exportData")}
                       </button>
                     ) : null}
                     {canCreateHarvest ? (
@@ -1737,6 +1754,11 @@ export default function ProjectDetailPage() {
                   {harvestDeleteError ? (
                     <p className="mb-3 text-sm text-destructive" role="alert">
                       {harvestDeleteError}
+                    </p>
+                  ) : null}
+                  {googleSheetExportError ? (
+                    <p className="mb-3 text-sm text-destructive" role="alert">
+                      {googleSheetExportError}
                     </p>
                   ) : null}
                   {hasActiveHarvestFilters ? (
@@ -2145,6 +2167,8 @@ export default function ProjectDetailPage() {
           projectId={currentProjectId}
           projectLabel={basic?.projectName ?? ""}
           resolveContext={harvestExportResolveContext}
+          resumeGoogleSheetExport={resumeGoogleSheetExport}
+          onResumeHandled={clearGoogleSheetExportQuery}
         />
       ) : null}
 

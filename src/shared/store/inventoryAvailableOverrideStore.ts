@@ -6,6 +6,7 @@ import {
   saveInventoryBalance,
   type InventoryBalanceRow,
 } from "@/features/admin/api/adminApi";
+import { forecastZoneKeyFromParts } from "@/features/forecasting/inventoryRegrowthCalculator";
 
 /** Stable map key for one `sts_inventory_balance` row (zone + balance_date). */
 export function inventoryBalanceOverrideStorageKey(zoneKey: string, balanceDateYmd: string): string {
@@ -47,7 +48,7 @@ type InventoryAvailableOverrideState = {
 };
 
 function zoneKeyFromParts(farmId: number, zone: string, grassId: number): string {
-  return `${farmId}|${String(zone ?? "").trim().toLowerCase()}|${grassId}`;
+  return forecastZoneKeyFromParts(farmId, zone, grassId);
 }
 
 /** Normalize API `balance_date` (date, datetime, ISO) to `yyyy-mm-dd` for keys and UI. */

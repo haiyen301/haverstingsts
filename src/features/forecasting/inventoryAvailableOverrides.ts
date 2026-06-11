@@ -1,3 +1,4 @@
+import { forecastZoneKeysEqual } from "@/features/forecasting/inventoryRegrowthCalculator";
 import type { InventoryAvailableOverrideEntry } from "@/shared/store/inventoryAvailableOverrideStore";
 
 const DAY_MS = 1000 * 60 * 60 * 24;
@@ -37,7 +38,7 @@ export function pickInventoryOverrideForExactDate(
   const ymd = normalizeYmd(asOfYmd);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return null;
   for (const entry of Object.values(overridesByStorageKey)) {
-    if (entry.zoneKey !== zoneKey) continue;
+    if (!forecastZoneKeysEqual(entry.zoneKey, zoneKey)) continue;
     if (normalizeYmd(entry.date) !== ymd) continue;
     return entry;
   }
@@ -53,7 +54,7 @@ export function pickInventoryOverrideForAsOf(
   let best: InventoryAvailableOverrideEntry | null = null;
   let bestYmd = "";
   for (const entry of Object.values(overridesByStorageKey)) {
-    if (entry.zoneKey !== zoneKey) continue;
+    if (!forecastZoneKeysEqual(entry.zoneKey, zoneKey)) continue;
     const d = normalizeYmd(entry.date);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) continue;
     if (d > asOfYmd) continue;

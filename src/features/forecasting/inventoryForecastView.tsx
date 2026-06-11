@@ -61,7 +61,10 @@ import {
   type ZoneRegrowthBreakdown,
 } from "@/features/forecasting/regrowthAllocation";
 import {
+  buildGrassCatalogById,
+  collectHiddenGrassIdsForCatalogOnDateRange,
   filterActiveGrassRows,
+  isGrassProductVisibleInCatalogOnDate,
   isGrassRowActive,
   zoneIdToLabelResolved,
 } from "@/shared/lib/harvestReferenceData";
@@ -188,13 +191,19 @@ function buildSeriesColorMap(
   return map;
 }
 
+function forecastRowRefYmd(row: ForecastHarvestRow): string {
+  return String(row.deliveryDate ?? row.harvestDate ?? "")
+    .trim()
+    .slice(0, 10);
+}
+
 /** Same label sources as breakdown `seriesKeys`, from unfiltered data so hues stay stable. */
 function collectStableGrassSeriesLabels(
   rows: ForecastHarvestRow[],
   grasses: unknown[],
   zoneConfigs: ZoneConfigurationRow[],
   overridesByZone: Record<string, InventoryAvailableOverrideEntry>,
-  inactiveGrassIdSet: ReadonlySet<string>,
+  hiddenGrassIdSet: ReadonlySet<string>,
 ): Set<string> {
   const labels = new Set<string>();
   for (const g of grasses) {
@@ -205,16 +214,16 @@ function collectStableGrassSeriesLabels(
     if (label) labels.add(label);
   }
   for (const r of rows) {
-    if (inactiveGrassIdSet.has(String(r.productId))) continue;
+    if (hiddenGrassIdSet.has(String(r.productId))) continue;
     if (r.grassType) labels.add(r.grassType);
   }
   for (const row of zoneConfigs) {
-    if (inactiveGrassIdSet.has(String(row.grass_id))) continue;
+    if (hiddenGrassIdSet.has(String(row.grass_id))) continue;
     const turf = String(row.turfgrass ?? "").trim();
     if (turf) labels.add(turf);
   }
   for (const entry of Object.values(overridesByZone)) {
-    if (inactiveGrassIdSet.has(String(entry.grassId))) continue;
+    if (hiddenGrassIdSet.has(String(entry.grassId))) continue;
     const label = String(entry.turfgrass ?? "").trim();
     if (label) labels.add(label);
   }
@@ -1114,16 +1123,7 @@ export function InventoryForecast({
   const farmZones = useHarvestingDataStore((s) => s.farmZones);
   const grasses = useHarvestingDataStore((s) => s.grasses);
   const activeGrasses = useMemo(() => filterActiveGrassRows(grasses), [grasses]);
-  const inactiveGrassIdSet = useMemo(() => {
-    const set = new Set<string>();
-    for (const g of grasses) {
-      if (!g || typeof g !== "object") continue;
-      if (isGrassRowActive(g)) continue;
-      const id = String((g as Record<string, unknown>).id ?? "").trim();
-      if (id) set.add(id);
-    }
-    return set;
-  }, [grasses]);
+  const grassCatalogById = useMemo(() => buildGrassCatalogById(grasses), [grasses]);
   const harvestListGrassFilter = useHarvestingDataStore((s) => s.harvestListGrassFilter);
   const setHarvestListGrassFilter = useHarvestingDataStore((s) => s.setHarvestListGrassFilter);
   const {
@@ -1157,6 +1157,15 @@ export function InventoryForecast({
   const forecastSpanMonths = useMemo(
     () => forecastSpanMonthsFromFilter(forecastDateFilter),
     [forecastDateFilter],
+  );
+  const hiddenGrassIdSet = useMemo(
+    () =>
+      collectHiddenGrassIdsForCatalogOnDateRange(
+        grasses,
+        forecastDateRange.start,
+        forecastDateRange.end,
+      ),
+    [grasses, forecastDateRange.start, forecastDateRange.end],
   );
   const [showBreakdownChart, setShowBreakdownChart] = useState(false);
   const [chartUnitMode, setChartUnitMode] = useState<ChartUnitMode>("sprig");
@@ -1211,27 +1220,33 @@ export function InventoryForecast({
     setHarvestListGrassFilter(toCsvList(ids));
 
   useEffect(() => {
-    if (inactiveGrassIdSet.size === 0) return;
+    if (hiddenGrassIdSet.size === 0) return;
     const current = parseCsvList(harvestListGrassFilter);
-    const pruned = current.filter((id) => !inactiveGrassIdSet.has(id));
+    const pruned = current.filter((id) => !hiddenGrassIdSet.has(id));
     if (pruned.length !== current.length) {
       setHarvestListGrassFilter(toCsvList(pruned));
     }
-  }, [inactiveGrassIdSet, harvestListGrassFilter, setHarvestListGrassFilter]);
+  }, [hiddenGrassIdSet, harvestListGrassFilter, setHarvestListGrassFilter]);
 
   const farmFilterOptions = useMemo(
     () => farmOptions.map((o) => ({ value: o.id, label: o.label })),
     [farmOptions],
   );
 
-  const { grassFilterOptions } = useGrassFilterByFarm({
+  const { grassFilterOptions: rawGrassFilterOptions } = useGrassFilterByFarm({
     grasses: activeGrasses,
     zoneConfigs: zoneConfigSnapshot,
     selectedFarmIds,
     selectedGrassIds,
     onSelectedGrassIdsChange: setSelectedGrassIds,
-    catalogMode: "all",
+    catalogMode: "sales_window",
+    refYmds: [forecastDateRange.start, forecastDateRange.end],
   });
+
+  const grassFilterOptions = useMemo(
+    () => rawGrassFilterOptions.filter((o) => !hiddenGrassIdSet.has(o.value)),
+    [rawGrassFilterOptions, hiddenGrassIdSet],
+  );
 
   const rowsWithLiveZoneCaps = useMemo(
     () => applyLatestZoneMaxKgToForecastRows(rows, zoneConfigSnapshot),
@@ -1243,14 +1258,24 @@ export function InventoryForecast({
       rowsWithLiveZoneCaps.filter((r) => {
         const farmIdStr = String(r.farmId);
         const productIdStr = String(r.productId);
-        if (inactiveGrassIdSet.has(productIdStr)) return false;
+        if (hiddenGrassIdSet.has(productIdStr)) return false;
+        if (
+          !isGrassProductVisibleInCatalogOnDate(
+            r.productId,
+            grassCatalogById,
+            forecastRowRefYmd(r),
+          )
+        ) {
+          return false;
+        }
         if (debouncedFarmIds.length > 0 && !debouncedFarmIdSet.has(farmIdStr)) return false;
         if (debouncedGrassIds.length > 0 && !debouncedGrassIdSet.has(productIdStr)) return false;
         return true;
       }),
     [
       rowsWithLiveZoneCaps,
-      inactiveGrassIdSet,
+      hiddenGrassIdSet,
+      grassCatalogById,
       debouncedFarmIds,
       debouncedFarmIdSet,
       debouncedGrassIds,
@@ -1260,12 +1285,12 @@ export function InventoryForecast({
 
   const farmProductFilter = useCallback(
     (farmId: number, productId: number) => {
-      if (inactiveGrassIdSet.has(String(productId))) return false;
+      if (hiddenGrassIdSet.has(String(productId))) return false;
       if (debouncedFarmIds.length > 0 && !debouncedFarmIdSet.has(String(farmId))) return false;
       if (debouncedGrassIds.length > 0 && !debouncedGrassIdSet.has(String(productId))) return false;
       return true;
     },
-    [inactiveGrassIdSet, debouncedFarmIds, debouncedFarmIdSet, debouncedGrassIds, debouncedGrassIdSet],
+    [hiddenGrassIdSet, debouncedFarmIds, debouncedFarmIdSet, debouncedGrassIds, debouncedGrassIdSet],
   );
 
   const forecastHorizonEnd = useMemo(() => {
@@ -1369,14 +1394,14 @@ export function InventoryForecast({
       out.set(zoneKey, r.grassType);
     }
     for (const entry of Object.values(overridesByZone)) {
-      if (inactiveGrassIdSet.has(String(entry.grassId))) continue;
+      if (hiddenGrassIdSet.has(String(entry.grassId))) continue;
       if (selectedFarmIds.length > 0 && !selectedFarmIdSet.has(String(entry.farmId))) continue;
       if (selectedGrassIds.length > 0 && !selectedGrassIdSet.has(String(entry.grassId))) continue;
       if (!entry.zoneKey || !entry.turfgrass) continue;
       if (!out.has(entry.zoneKey)) out.set(entry.zoneKey, entry.turfgrass);
     }
     return out;
-  }, [filteredRows, overridesByZone, inactiveGrassIdSet, selectedFarmIds, selectedFarmIdSet, selectedGrassIds, selectedGrassIdSet]);
+  }, [filteredRows, overridesByZone, hiddenGrassIdSet, selectedFarmIds, selectedFarmIdSet, selectedGrassIds, selectedGrassIdSet]);
 
   const zoneFarmMeta = useMemo(() => {
     const out = new Map<string, string>();
@@ -1385,14 +1410,14 @@ export function InventoryForecast({
       if (!out.has(zoneKey)) out.set(zoneKey, r.farm);
     }
     for (const entry of Object.values(overridesByZone)) {
-      if (inactiveGrassIdSet.has(String(entry.grassId))) continue;
+      if (hiddenGrassIdSet.has(String(entry.grassId))) continue;
       if (selectedFarmIds.length > 0 && !selectedFarmIdSet.has(String(entry.farmId))) continue;
       if (selectedGrassIds.length > 0 && !selectedGrassIdSet.has(String(entry.grassId))) continue;
       if (!entry.zoneKey || !entry.farmName) continue;
       if (!out.has(entry.zoneKey)) out.set(entry.zoneKey, entry.farmName);
     }
     return out;
-  }, [filteredRows, overridesByZone, inactiveGrassIdSet, selectedFarmIds, selectedFarmIdSet, selectedGrassIds, selectedGrassIdSet]);
+  }, [filteredRows, overridesByZone, hiddenGrassIdSet, selectedFarmIds, selectedFarmIdSet, selectedGrassIds, selectedGrassIdSet]);
 
   const breakdownMode: "grass" | "farm" =
     selectedGrassIds.length > 0 ? "farm" : "grass";
@@ -1464,7 +1489,7 @@ export function InventoryForecast({
     for (const row of zoneConfigSnapshot) {
       if (!zoneConfigIsActiveAtYmd(row, todayYmd)) continue;
       if (isForecastExcludedZone(row.zone)) continue;
-      if (inactiveGrassIdSet.has(String(row.grass_id))) continue;
+      if (hiddenGrassIdSet.has(String(row.grass_id))) continue;
       const grassId = Number(row.grass_id);
       if (!Number.isFinite(grassId) || grassId <= 0 || out.has(grassId)) continue;
       const turf = String(row.turfgrass ?? "").trim();
@@ -1474,11 +1499,11 @@ export function InventoryForecast({
       if (r.productId > 0 && r.grassType) out.set(r.productId, r.grassType);
     }
     for (const entry of Object.values(overridesByZone)) {
-      if (inactiveGrassIdSet.has(String(entry.grassId))) continue;
+      if (hiddenGrassIdSet.has(String(entry.grassId))) continue;
       if (entry.grassId > 0 && entry.turfgrass) out.set(entry.grassId, entry.turfgrass.trim());
     }
     return out;
-  }, [grassFilterOptions, activeGrasses, inactiveGrassIdSet, zoneConfigSnapshot, filteredRows, overridesByZone]);
+  }, [grassFilterOptions, activeGrasses, hiddenGrassIdSet, zoneConfigSnapshot, filteredRows, overridesByZone]);
 
   /** Grass labels for breakdown chart — zone-config + catalog first (same as grass filter). */
   const productGrassMeta = useMemo(() => {
@@ -1615,7 +1640,7 @@ export function InventoryForecast({
         if (r.farm) set.add(r.farm);
       }
       for (const entry of Object.values(overridesByZone)) {
-        if (inactiveGrassIdSet.has(String(entry.grassId))) continue;
+        if (hiddenGrassIdSet.has(String(entry.grassId))) continue;
         if (selectedFarmIds.length > 0 && !selectedFarmIdSet.has(String(entry.farmId))) continue;
         if (selectedGrassIds.length > 0 && !selectedGrassIdSet.has(String(entry.grassId))) continue;
         const label =
@@ -1634,7 +1659,7 @@ export function InventoryForecast({
       if (r.grassType) set.add(r.grassType);
     }
     for (const entry of Object.values(overridesByZone)) {
-      if (inactiveGrassIdSet.has(String(entry.grassId))) continue;
+      if (hiddenGrassIdSet.has(String(entry.grassId))) continue;
       if (selectedFarmIds.length > 0 && !selectedFarmIdSet.has(String(entry.farmId))) continue;
       if (selectedGrassIds.length > 0 && !selectedGrassIdSet.has(String(entry.grassId))) continue;
       const label =
@@ -1653,7 +1678,7 @@ export function InventoryForecast({
     productGrassMeta,
     grassNameById,
     overridesByZone,
-    inactiveGrassIdSet,
+    hiddenGrassIdSet,
     selectedFarmIds,
     selectedFarmIdSet,
     selectedGrassIds,
@@ -1698,7 +1723,7 @@ export function InventoryForecast({
       }
 
       for (const entry of Object.values(overridesByZone)) {
-        if (inactiveGrassIdSet.has(String(entry.grassId))) continue;
+        if (hiddenGrassIdSet.has(String(entry.grassId))) continue;
         if (selectedFarmIds.length > 0 && !selectedFarmIdSet.has(String(entry.farmId))) continue;
         if (selectedGrassIds.length > 0 && !selectedGrassIdSet.has(String(entry.grassId))) continue;
         if (normalizeInventoryBalanceDateYmd(entry.date) !== overrideYmd) continue;
@@ -1747,7 +1772,7 @@ export function InventoryForecast({
     hintsByDate,
     grassNameById,
     farmNameById,
-    inactiveGrassIdSet,
+    hiddenGrassIdSet,
     selectedFarmIds,
     selectedFarmIdSet,
     selectedGrassIds,
@@ -2250,11 +2275,11 @@ export function InventoryForecast({
           activeGrasses,
           zoneConfigSnapshot,
           overridesByZone,
-          inactiveGrassIdSet,
+          hiddenGrassIdSet,
         ),
         GRASS_SERIES_PALETTE,
       ),
-    [rows, activeGrasses, zoneConfigSnapshot, overridesByZone, inactiveGrassIdSet],
+    [rows, activeGrasses, zoneConfigSnapshot, overridesByZone, hiddenGrassIdSet],
   );
 
   const farmColors = useMemo(

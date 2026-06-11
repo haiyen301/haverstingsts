@@ -10,6 +10,7 @@ import {
   buildForecastRowsFromHarvestRaw,
   fetchHarvestRowsForForecasting,
 } from "@/features/forecasting/mapHarvestApiToForecastRows";
+import { setForecastZoneCatalog } from "@/features/forecasting/zoneKeyNormalization";
 import {
   resolveRegrowthReferenceConfigFromRules,
 } from "@/features/forecasting/forecastingRegrowth";
@@ -36,6 +37,7 @@ export type EnsureLoadedOptions = {
 
 async function loadReference(force: boolean): Promise<void> {
   await useHarvestingDataStore.getState().fetchAllHarvestingReferenceData(force);
+  setForecastZoneCatalog(useHarvestingDataStore.getState().farmZones);
   useForecastDataStore.getState().markValid("reference");
 }
 
@@ -84,7 +86,13 @@ async function loadHarvest(token: number): Promise<void> {
   const store = useForecastDataStore.getState();
   const zoneConfigs = store.zoneConfigs ?? [];
   const today = getForecastToday();
-  const forecastRows = buildForecastRowsFromHarvestRaw(res.rows, zoneConfigs, today);
+  const farmZones = useHarvestingDataStore.getState().farmZones;
+  const forecastRows = buildForecastRowsFromHarvestRaw(
+    res.rows,
+    zoneConfigs,
+    today,
+    farmZones,
+  );
 
   store.setHarvestData({
     harvestRowsRaw: res.rows,
@@ -106,7 +114,13 @@ function remapForecastRowsIfNeeded(): void {
   const { harvestRowsRaw, zoneConfigs } = store;
   if (!harvestRowsRaw?.length || !zoneConfigs?.length) return;
   const today = getForecastToday();
-  const mapped = buildForecastRowsFromHarvestRaw(harvestRowsRaw, zoneConfigs, today);
+  const farmZones = useHarvestingDataStore.getState().farmZones;
+  const mapped = buildForecastRowsFromHarvestRaw(
+    harvestRowsRaw,
+    zoneConfigs,
+    today,
+    farmZones,
+  );
   store.setHarvestData({
     harvestRowsRaw,
     harvestError: store.harvestError,

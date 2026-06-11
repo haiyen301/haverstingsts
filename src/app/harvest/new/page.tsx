@@ -28,7 +28,7 @@ import {
   type ParsedHarvestDocSlot,
 } from "@/features/harvesting/lib/parseHarvestDocImages";
 import {
-  projectHasPaceGrassBatchQuantities,
+  paceRecalcNeedsHarvestedAreaSync,
   recalculatePaceQuantitiesAfterActualHarvest,
 } from "@/features/project/lib/recalculatePaceQuantitiesAfterActualHarvest";
 import {
@@ -1832,23 +1832,13 @@ function HarvestInputPageInner() {
       savedActualDatePre !== initialActualDateAtLoad.trim();
     const quantityChangedPre =
       savedQuantityPre !== initialQuantityAtLoad.trim();
-    const selectedProjectForPace = findProjectRowBySelectId(
-      allProjects,
-      formData.project.trim(),
-    );
-    const projectHasPaceGrass = projectHasPaceGrassBatchQuantities(
-      selectedProjectForPace,
-    );
     const shouldRecalcPaceAfterActual =
       Boolean(editId) &&
       Boolean(savedActualDatePre) &&
-      projectHasPaceGrass &&
       (actualDateChangedPre || quantityChangedPre);
 
     setPaceRecalcExpectedOnSubmit(
-      Boolean(editId) &&
-        Boolean(savedActualDatePre) &&
-        projectHasPaceGrass,
+      Boolean(editId) && Boolean(savedActualDatePre),
     );
     setSavePhase("saving");
     try {
@@ -1924,10 +1914,14 @@ function HarvestInputPageInner() {
       const savedHarvest = saveResult.harvest;
       updateHarvestLimitDescriptionsForSelection(formData.project);
       const paceRecalcFromSave = saveResult.paceRecalc;
-      if (
+      const shouldRunClientPaceRecalc =
         shouldRecalcPaceAfterActual &&
-        !paceRecalcRanOnServer(paceRecalcFromSave)
-      ) {
+        (!paceRecalcRanOnServer(paceRecalcFromSave) ||
+          paceRecalcNeedsHarvestedAreaSync(
+            paceRecalcFromSave,
+            formData.uom.trim(),
+          ));
+      if (shouldRunClientPaceRecalc) {
         const harvestIdForRecalc = String(savedHarvest?.id ?? editId ?? "").trim();
         if (harvestIdForRecalc && formData.project.trim() && formData.grass.trim()) {
           setSavePhase("recalculating");
@@ -1938,6 +1932,7 @@ function HarvestInputPageInner() {
               productId: formData.grass.trim(),
               uom: formData.uom.trim(),
               farmId: formData.farm.trim() || undefined,
+              zoneConfigurations: zoneConfigRows,
             });
           } catch {
             /* Server also runs recalc in flutter_add_new_sub_row when actual date is set. */

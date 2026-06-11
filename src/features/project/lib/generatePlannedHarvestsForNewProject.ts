@@ -1,5 +1,12 @@
+import type { ProjectPaceRow, ZoneConfigurationRow } from "@/features/admin/api/adminApi";
 import { submitFlutterHarvest } from "@/features/harvesting/api/flutterHarvestSubmit";
-import type { ProjectPaceRow } from "@/features/admin/api/adminApi";
+import { isForecastExcludedZone } from "@/features/forecasting/forecastingInventoryConversion";
+import {
+  zoneConfigCoversYmd,
+  zoneConfigHasPeriod,
+  zoneConfigIsActiveAtYmd,
+  zoneConfigYmdSlice,
+} from "@/features/forecasting/inventoryRegrowthCalculator";
 import {
   defaultHarvestTypeForUom,
   normalizeHarvestTypeStorageKey,
@@ -42,6 +49,8 @@ export type PlannedHarvestSeed = {
   harvestType: HarvestTypeStorageKey;
   estimatedHarvestDate: string;
   farmId?: string;
+  /** `harvested_area` (m²) — sprig / sod_to_sprig: kg ÷ zone config yield (kg/m²). */
+  harvestedArea?: string;
 };
 
 /** Stored on `sts_projects.pace_grass_batch_quantities` when project pace is set. */
@@ -230,6 +239,62 @@ function quantityPerBatch(req: NormalisedReq, totalBatches: number): number {
   return Math.round(raw * 10) / 10;
 }
 
+function parsePositiveNumber(raw: string | number | null | undefined): number {
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function isKgSprigLoadType(loadType: HarvestTypeStorageKey): boolean {
+  return loadType === "sprig" || loadType === "sod_to_sprig";
+}
+
+/**
+ * Active zone setup for farm + grass (any zone) on `ymd`.
+ * Period rows win over always-on; overlapping periods prefer latest `effective_from`.
+ */
+export function findZoneConfigForFarmGrass(
+  zoneConfigs: ZoneConfigurationRow[],
+  farmId: string,
+  productId: string,
+  ymd: string,
+): ZoneConfigurationRow | null {
+  const farm = Number.parseInt(String(farmId ?? "").trim(), 10);
+  const product = Number.parseInt(String(productId ?? "").trim(), 10);
+  if (!Number.isFinite(farm) || !Number.isFinite(product)) return null;
+
+  const activeRows = zoneConfigs.filter((row) => {
+    if (!zoneConfigIsActiveAtYmd(row, ymd)) return false;
+    if (Number(row.farm_id) !== farm) return false;
+    if (Number(row.grass_id) !== product) return false;
+    if (isForecastExcludedZone(row.zone)) return false;
+    return parsePositiveNumber(row.inventory_kg_per_m2) > 0;
+  });
+  if (activeRows.length === 0) return null;
+
+  const periodRows = activeRows
+    .filter((row) => zoneConfigHasPeriod(row) && zoneConfigCoversYmd(row, ymd))
+    .sort((a, b) =>
+      zoneConfigYmdSlice(b.effective_from).localeCompare(zoneConfigYmdSlice(a.effective_from)),
+    );
+  if (periodRows.length > 0) return periodRows[0] ?? null;
+
+  const defaultRows = activeRows.filter((row) => !zoneConfigHasPeriod(row));
+  if (defaultRows.length > 0) return defaultRows[0] ?? null;
+
+  return activeRows[0] ?? null;
+}
+
+export function harvestAreaM2FromKgAndZoneConfig(
+  qtyKg: number,
+  zoneConfig: ZoneConfigurationRow | null,
+): string | undefined {
+  if (qtyKg <= 0 || !zoneConfig) return undefined;
+  const yieldKgPerM2 = parsePositiveNumber(zoneConfig.inventory_kg_per_m2);
+  if (yieldKgPerM2 <= 0) return undefined;
+  const areaM2 = qtyKg / yieldKgPerM2;
+  return (Math.round(areaM2 * 100) / 100).toFixed(2);
+}
+
 /** Per-grass quantity for one harvest batch (total required ÷ pace total batches). */
 export function buildPaceGrassBatchQuantities(opts: {
   paceConfig: ProjectPaceConfig;
@@ -259,8 +324,9 @@ export function generatePlannedHarvestsForNewProject(opts: {
   paceConfig: ProjectPaceConfig;
   estimatedStartYmd: string;
   grassRequirements: GrassRequirementForHarvestPlan[];
+  zoneConfigurations?: ZoneConfigurationRow[];
 }): PlannedHarvestSeed[] {
-  const { paceConfig, estimatedStartYmd, grassRequirements } = opts;
+  const { paceConfig, estimatedStartYmd, grassRequirements, zoneConfigurations = [] } = opts;
   const startStr = String(estimatedStartYmd ?? "").trim();
   if (!startStr || !grassRequirements.length) return [];
 
@@ -281,15 +347,29 @@ export function generatePlannedHarvestsForNewProject(opts: {
   for (const req of reqs) {
     const uom = displayUomForLoadType(req.loadType);
     const qty = quantityPerBatch(req, totalBatches);
+    const needsHarvestAreaFromZone =
+      isKgSprigLoadType(req.loadType) && uom === "Kg" && Boolean(req.farmId);
     for (const slot of slots) {
       const date = addDays(start, slot.weekIndex * 7 + slot.dayOffset);
+      const estimatedHarvestDate = isoYmd(date);
+      let harvestedArea: string | undefined;
+      if (needsHarvestAreaFromZone && zoneConfigurations.length > 0) {
+        const zoneConfig = findZoneConfigForFarmGrass(
+          zoneConfigurations,
+          req.farmId,
+          req.productId,
+          estimatedHarvestDate,
+        );
+        harvestedArea = harvestAreaM2FromKgAndZoneConfig(qty, zoneConfig);
+      }
       harvests.push({
         productId: req.productId,
         quantity: String(qty),
         uom,
         harvestType: req.loadType,
-        estimatedHarvestDate: isoYmd(date),
+        estimatedHarvestDate,
         farmId: req.farmId || undefined,
+        ...(harvestedArea ? { harvestedArea } : {}),
       });
     }
   }
@@ -351,6 +431,7 @@ export async function persistPlannedHarvestSeedsForProject(params: {
           customerId,
           assignedTo,
           createdBy,
+          ...(row.harvestedArea ? { harvestedArea: row.harvestedArea } : {}),
         },
         {},
       );
