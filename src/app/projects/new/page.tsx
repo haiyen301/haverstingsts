@@ -1317,7 +1317,7 @@ export default function ProjectInputPage() {
           plannedHarvestAlertSeverity = "warning";
         }
         if (ok > 0 || fail > 0) {
-          onForecastMutations(["harvest", "project"]);
+          onForecastMutations(["harvest"]);
         }
       }
 
