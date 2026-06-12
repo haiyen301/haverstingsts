@@ -196,13 +196,23 @@ export async function GET(
     });
   }
 
-  const res = NextResponse.json(data, { status: upstreamRes.status });
+  // STSPortal often returns HTTP 404 with `{ success: true, data: [] }` for empty list pages
+  // (e.g. Harvesting::index page beyond last page). Normalize to 200 so clients/DevTools
+  // treat it as a successful empty result, not a failed request.
+  const upstreamStatus = upstreamRes.status;
+  const body = data as Record<string, unknown>;
+  const upstreamSucceeded =
+    body.success === true || body.success === 1 || body.success === "1";
+  const clientStatus =
+    upstreamStatus === 404 && upstreamSucceeded ? 200 : upstreamStatus;
+
+  const res = NextResponse.json(data, { status: clientStatus });
   if (process.env.NODE_ENV === "development") {
     const authEmail = extractEmailFromBearer(auth);
     if (authEmail) {
       res.headers.set("x-sts-auth-email", authEmail);
     }
-    res.headers.set("x-sts-upstream-status", String(upstreamRes.status));
+    res.headers.set("x-sts-upstream-status", String(upstreamStatus));
   }
   return res;
 }

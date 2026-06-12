@@ -69,6 +69,71 @@ type ForecastEventTileProps = {
   onAmountClick?: () => void;
 };
 
+export type ForecastRegrowthDayLine = {
+  id: string;
+  farm: string;
+  grassDetail: string;
+  amount: ReactNode;
+  badges: ReactNode[];
+  subtitle?: ReactNode;
+};
+
+/** One card per regrowth day — date once, multiple farm/grass lines inside. */
+export function ForecastRegrowthDayGroup({
+  accentClassName,
+  dateLabel,
+  lines,
+  onDateClick,
+}: {
+  accentClassName: string;
+  dateLabel: string;
+  lines: ForecastRegrowthDayLine[];
+  onDateClick?: () => void;
+}) {
+  const dateEl = onDateClick ? (
+    <button
+      type="button"
+      onClick={onDateClick}
+      className="text-left text-sm font-semibold tabular-nums text-primary underline decoration-primary/45"
+    >
+      {dateLabel}
+    </button>
+  ) : (
+    <span className="text-sm font-semibold tabular-nums">{dateLabel}</span>
+  );
+
+  return (
+    <div className="w-full rounded-[10px] border border-border/55 bg-muted/3 px-3 py-2.5 transition-colors hover:bg-muted/30">
+      <div className="flex items-start gap-2.5">
+        <div
+          className={cn("mt-[5px] h-2 w-2 shrink-0 rounded-full", accentClassName)}
+        />
+        <div className="min-w-0 flex-1">
+          <div>{dateEl}</div>
+          <div className="mt-2 space-y-2.5">
+            {lines.map((line) => (
+              <div key={line.id}>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <ForecastEventTitleRich farm={line.farm} detail={line.grassDetail} />
+                    {line.subtitle ? <div className="mt-0.5">{line.subtitle}</div> : null}
+                  </div>
+                  <div className="shrink-0 text-right text-sm font-semibold tabular-nums">
+                    {line.amount}
+                  </div>
+                </div>
+                {line.badges.length > 0 ? (
+                  <div className="mt-1.5 flex flex-wrap gap-1.5">{line.badges}</div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function ForecastEventTile({
   accentClassName,
   dateLabel,

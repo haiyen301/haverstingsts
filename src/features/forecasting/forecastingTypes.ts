@@ -19,6 +19,8 @@ export type ForecastHarvestRow = {
   readyDate: string;
   /** Magnitude đã chuẩn hoá: Sod/Sod→Sprig/M² → m² từ `harvested_area`; Sprig/Kg → kg từ `quantity`. */
   quantity: number;
+  /** Giá trị gốc cột `quantity` trên plan (kg cho Sod→Sprig/Sprig, m² cho Sod). */
+  planQuantityRaw: number;
   /** `harvested_area` từ plan (m²). Sprig: mẫu số kg/m²; Sod/M²: nguồn magnitude. */
   harvestedAreaM2: number;
   /** Sprig: kg/m² từ API hoặc `quantity`÷`harvestedAreaM2`. Sod/M²: thường 0. */

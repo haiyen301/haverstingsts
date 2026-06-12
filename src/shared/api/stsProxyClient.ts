@@ -220,6 +220,26 @@ export async function stsProxyGetHarvestingIndex(
   } catch {
     throw new Error("Invalid JSON response");
   }
+  const upstreamSucceeded = Boolean(
+    json?.success === true ||
+      String(json?.success ?? "").trim() === "1" ||
+      String(json?.success ?? "").toLowerCase() === "true",
+  );
+  // Fallback when proxy still forwards upstream 404 (e.g. older deploy).
+  if (res.status === 404 && upstreamSucceeded) {
+    const totalPages = Math.max(1, Number(json.total) || 1);
+    return {
+      rows: [],
+      totalPages,
+      totalM2: String(json.total_m2 ?? "0"),
+      totalKg: String(json.total_kg ?? "0"),
+      totalRecords:
+        json.total_records != null && Number.isFinite(Number(json.total_records))
+          ? Math.floor(Number(json.total_records))
+          : null,
+      message: json.message,
+    };
+  }
   await assertStsSuccessOrThrow(json, res);
   const rows = Array.isArray(json.data) ? json.data : [];
   const totalPages = Math.max(1, Number(json.total) || 1);

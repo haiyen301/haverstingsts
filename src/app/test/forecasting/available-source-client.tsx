@@ -1282,6 +1282,7 @@ export function DevForecastingAvailableSourceClient() {
   const fetchAllHarvestingReferenceData = useHarvestingDataStore(
     (s) => s.fetchAllHarvestingReferenceData,
   );
+  const referenceBootstrapDone = useHarvestingDataStore((s) => s.bootstrapDone);
   const harvestListGrassFilter = useHarvestingDataStore((s) => s.harvestListGrassFilter);
   const setHarvestListGrassFilter = useHarvestingDataStore((s) => s.setHarvestListGrassFilter);
   const overridesByZone = useInventoryAvailableOverrideStore((s) => s.overridesByZone);
@@ -1336,13 +1337,14 @@ export function DevForecastingAvailableSourceClient() {
       const today = startOfLocalDay(new Date());
       const from = ymdFromDate(addMonths(today, -24));
       const to = ymdFromDate(addMonths(today, 30));
+      const farms = useHarvestingDataStore.getState().farms;
       const [harvestRes, nextZoneConfigs, rules] = await Promise.all([
         fetchHarvestRowsForForecasting({
           actual_harvest_date_from: from,
           actual_harvest_date_to: to,
           perPage: 500,
           maxPages: 400,
-          farms: farmsRaw,
+          farms,
         }),
         fetchZoneConfigurations(),
         fetchRegrowthRules(),
@@ -1358,7 +1360,7 @@ export function DevForecastingAvailableSourceClient() {
     } finally {
       setLoading(false);
     }
-  }, [farmsRaw]);
+  }, []);
 
   useEffect(() => {
     void fetchAllHarvestingReferenceData();
@@ -1369,8 +1371,9 @@ export function DevForecastingAvailableSourceClient() {
   }, [fetchOverrides]);
 
   useEffect(() => {
+    if (!referenceBootstrapDone) return;
     void loadData();
-  }, [loadData]);
+  }, [loadData, referenceBootstrapDone]);
 
   const rawByPlanId = useMemo(() => {
     const out = new Map<string, Record<string, unknown>>();
@@ -1795,7 +1798,7 @@ export function DevForecastingAvailableSourceClient() {
           0,
           Math.round(rolling?.regrowthKg ?? regrowthTimeline?.creditedKg ?? 0),
         ),
-        harvestKg: Math.max(0, Math.round(harvest?.kg ?? rolling?.harvestKg ?? 0)),
+        harvestKg: Math.max(0, Math.round(rolling?.harvestKg ?? 0)),
         calculatedAvailable: Math.max(
           0,
           Math.round(rolling?.rawAvailableKg ?? rolling?.availableKg ?? 0),
@@ -1814,7 +1817,7 @@ export function DevForecastingAvailableSourceClient() {
         date: dateStr,
         isToday: dateStr === todayYmd,
         previousAvailable: Math.max(0, Math.round(rolling?.previousAvailableKg ?? 0)),
-        harvestKg: Math.max(0, Math.round(harvest?.kg ?? rolling?.harvestKg ?? 0)),
+        harvestKg: Math.max(0, Math.round(rolling?.harvestKg ?? 0)),
         harvestPlanCount: harvestPlans.length,
         harvestPlanIds: harvestPlans.map((plan) => plan.planId),
         harvestPlans,

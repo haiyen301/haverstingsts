@@ -45,6 +45,9 @@ function asArray(v: unknown): unknown[] {
   return [];
 }
 
+/** Shared in-flight bootstrap — concurrent callers await one request batch. */
+let referenceBootstrapPromise: Promise<void> | null = null;
+
 function upsertProjectInArray(prev: unknown[], project: unknown): unknown[] {
   const p = project as Record<string, unknown>;
   const id = String(p?.id ?? "").trim();
@@ -256,103 +259,123 @@ export const useHarvestingDataStore = create<HarvestingDataState>((set, get) => 
 
   fetchAllHarvestingReferenceData: async (force = false) => {
     if (!force && get().bootstrapDone) return;
-    set({ loading: true, error: null });
-    const refParams: Record<string, string | number | undefined> = {};
-    if (typeof window !== "undefined") {
-      const { getSessionUser } = await import("@/shared/store/authUserStore");
-      const uid = getSessionUser()?.id;
-      if (uid != null && Number.isFinite(Number(uid)) && Number(uid) > 0) {
-        refParams.react_client_user_id = Number(uid);
-      }
-    }
-    const entries = [
-      ["farmZones", STS_API_PATHS.farmZones, undefined],
-      ["zoneConfigurations", STS_API_PATHS.zoneConfigurations, undefined],
-      ["keyAreas", STS_API_PATHS.keyareas, undefined],
-      ["staffs", STS_API_PATHS.staffs, undefined],
-      ["farms", STS_API_PATHS.farms, undefined],
-      ["roleVisibleProjects", STS_API_PATHS.projects, undefined],
-      ["countries", STS_API_PATHS.countries, undefined],
-      ["activeCountries", STS_API_PATHS.countries, { active_only: 1 }],
-      ["grasses", STS_API_PATHS.grasses, undefined],
-      ["products", STS_API_PATHS.products, undefined],
-    ] as const;
-    const settled = await Promise.allSettled([
-      ...entries.map(([, path, extra]) =>
-        stsProxyGetWithParams(path, { ...refParams, ...extra }),
-      ),
-      stsProxyGetWithParamsOptional(STS_API_PATHS.projectsAll, refParams),
-    ]);
-    const byKey = new Map<string, unknown>();
-    const errors: string[] = [];
-    entries.forEach(([key], idx) => {
-      const rs = settled[idx];
-      if (rs.status === "fulfilled") {
-        byKey.set(key, rs.value);
-      } else {
-        const msg = rs.reason instanceof Error ? rs.reason.message : String(rs.reason);
-        errors.push(`${key}: ${msg}`);
-      }
-    });
-    const allProjectsRs = settled[entries.length];
-    if (allProjectsRs?.status === "fulfilled" && allProjectsRs.value != null) {
-      byKey.set("allProjects", allProjectsRs.value);
-    } else if (allProjectsRs?.status === "rejected") {
-      const msg =
-        allProjectsRs.reason instanceof Error
-          ? allProjectsRs.reason.message
-          : String(allProjectsRs.reason);
-      errors.push(`allProjects: ${msg}`);
+
+    if (referenceBootstrapPromise) {
+      await referenceBootstrapPromise;
+      if (!force && get().bootstrapDone) return;
+      if (!force) return;
     }
 
-    const farmZones = byKey.get("farmZones");
-    const zoneConfigurationsRaw = byKey.get("zoneConfigurations");
-    const keyAreasRaw = byKey.get("keyAreas");
-    const staffs = byKey.get("staffs");
-    const farms = byKey.get("farms");
-    const allProjects = byKey.get("allProjects");
-    const roleVisibleProjects = byKey.get("roleVisibleProjects");
-    const countries = byKey.get("countries");
-    const activeCountriesRaw = byKey.get("activeCountries");
-    const grassesRaw = byKey.get("grasses");
-    const products = byKey.get("products");
-    const grassesArr = grassesRaw !== undefined ? asArray(grassesRaw) : [];
-    const productsArr = asArray(products);
-    const countriesArr = asArray(countries);
-    const activeCountriesArr =
-      activeCountriesRaw !== undefined
-        ? asArray(activeCountriesRaw)
-        : filterActiveCountryRows(countriesArr);
-    const roleVisibleProjectsArr = asArray(roleVisibleProjects);
-    const allProjectsArr = asArray(allProjects);
-    const resolvedAllProjects =
-      allProjectsArr.length > 0 ? allProjectsArr : roleVisibleProjectsArr;
+    if (!force && get().bootstrapDone) return;
 
-    set({
-      farmZones: normalizeFarmZoneRows(farmZones),
-      zoneConfigurations: asArray(zoneConfigurationsRaw) as ZoneConfigurationRow[],
-      keyAreas: normalizeKeyAreaRows(keyAreasRaw),
-      staffs: asArray(staffs),
-      farms: asArray(farms),
-      allProjects: resolvedAllProjects,
-      roleVisibleProjects: roleVisibleProjectsArr,
-      projects: roleVisibleProjectsArr,
-      countries: countriesArr,
-      activeCountries: activeCountriesArr,
-      /** `sts_grasses` via `/api/grasses`; fall back to `/api/items` if grasses request failed or returned nothing. */
-      grasses: grassesArr.length > 0 ? grassesArr : productsArr,
-      products: productsArr,
-      loading: false,
-      error: errors.length ? `Reference partial load: ${errors.join(" | ")}` : null,
-      bootstrapDone: true,
-    });
+    const run = async () => {
+      set({ loading: true, error: null });
+      const refParams: Record<string, string | number | undefined> = {};
+      if (typeof window !== "undefined") {
+        const { getSessionUser } = await import("@/shared/store/authUserStore");
+        const uid = getSessionUser()?.id;
+        if (uid != null && Number.isFinite(Number(uid)) && Number(uid) > 0) {
+          refParams.react_client_user_id = Number(uid);
+        }
+      }
+      const entries = [
+        ["farmZones", STS_API_PATHS.farmZones, undefined],
+        ["zoneConfigurations", STS_API_PATHS.zoneConfigurations, undefined],
+        ["keyAreas", STS_API_PATHS.keyareas, undefined],
+        ["staffs", STS_API_PATHS.staffs, undefined],
+        ["farms", STS_API_PATHS.farms, undefined],
+        ["roleVisibleProjects", STS_API_PATHS.projects, undefined],
+        ["countries", STS_API_PATHS.countries, undefined],
+        ["activeCountries", STS_API_PATHS.countries, { active_only: 1 }],
+        ["grasses", STS_API_PATHS.grasses, undefined],
+        ["products", STS_API_PATHS.products, undefined],
+      ] as const;
+      const settled = await Promise.allSettled([
+        ...entries.map(([, path, extra]) =>
+          stsProxyGetWithParams(path, { ...refParams, ...extra }),
+        ),
+        stsProxyGetWithParamsOptional(STS_API_PATHS.projectsAll, refParams),
+      ]);
+      const byKey = new Map<string, unknown>();
+      const errors: string[] = [];
+      entries.forEach(([key], idx) => {
+        const rs = settled[idx];
+        if (rs.status === "fulfilled") {
+          byKey.set(key, rs.value);
+        } else {
+          const msg = rs.reason instanceof Error ? rs.reason.message : String(rs.reason);
+          errors.push(`${key}: ${msg}`);
+        }
+      });
+      const allProjectsRs = settled[entries.length];
+      if (allProjectsRs?.status === "fulfilled" && allProjectsRs.value != null) {
+        byKey.set("allProjects", allProjectsRs.value);
+      } else if (allProjectsRs?.status === "rejected") {
+        const msg =
+          allProjectsRs.reason instanceof Error
+            ? allProjectsRs.reason.message
+            : String(allProjectsRs.reason);
+        errors.push(`allProjects: ${msg}`);
+      }
+
+      const farmZones = byKey.get("farmZones");
+      const zoneConfigurationsRaw = byKey.get("zoneConfigurations");
+      const keyAreasRaw = byKey.get("keyAreas");
+      const staffs = byKey.get("staffs");
+      const farms = byKey.get("farms");
+      const allProjects = byKey.get("allProjects");
+      const roleVisibleProjects = byKey.get("roleVisibleProjects");
+      const countries = byKey.get("countries");
+      const activeCountriesRaw = byKey.get("activeCountries");
+      const grassesRaw = byKey.get("grasses");
+      const products = byKey.get("products");
+      const grassesArr = grassesRaw !== undefined ? asArray(grassesRaw) : [];
+      const productsArr = asArray(products);
+      const countriesArr = asArray(countries);
+      const activeCountriesArr =
+        activeCountriesRaw !== undefined
+          ? asArray(activeCountriesRaw)
+          : filterActiveCountryRows(countriesArr);
+      const roleVisibleProjectsArr = asArray(roleVisibleProjects);
+      const allProjectsArr = asArray(allProjects);
+      const resolvedAllProjects =
+        allProjectsArr.length > 0 ? allProjectsArr : roleVisibleProjectsArr;
+
+      set({
+        farmZones: normalizeFarmZoneRows(farmZones),
+        zoneConfigurations: asArray(zoneConfigurationsRaw) as ZoneConfigurationRow[],
+        keyAreas: normalizeKeyAreaRows(keyAreasRaw),
+        staffs: asArray(staffs),
+        farms: asArray(farms),
+        allProjects: resolvedAllProjects,
+        roleVisibleProjects: roleVisibleProjectsArr,
+        projects: roleVisibleProjectsArr,
+        countries: countriesArr,
+        activeCountries: activeCountriesArr,
+        /** `sts_grasses` via `/api/grasses`; fall back to `/api/items` if grasses request failed or returned nothing. */
+        grasses: grassesArr.length > 0 ? grassesArr : productsArr,
+        products: productsArr,
+        loading: false,
+        error: errors.length ? `Reference partial load: ${errors.join(" | ")}` : null,
+        bootstrapDone: true,
+      });
+    };
+
+    referenceBootstrapPromise = run();
+    try {
+      await referenceBootstrapPromise;
+    } finally {
+      referenceBootstrapPromise = null;
+    }
   },
 
-  reset: () =>
+  reset: () => {
+    referenceBootstrapPromise = null;
     set({
       ...empty,
       loading: false,
       error: null,
       bootstrapDone: false,
-    }),
+    });
+  },
 }));

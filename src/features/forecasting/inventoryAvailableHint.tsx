@@ -62,6 +62,21 @@ function rolledAvailableKg(model: InventoryAvailableHintModel): number {
   );
 }
 
+/**
+ * Swap each overridden zone's system kg for manual kg inside the rolled total.
+ * Call only with overrides saved on the same `dateYmd` (see collectBalanceOverridesForExactDate).
+ */
+export function applyBalanceReplacementsToRolledTotal(
+  rolledKg: number,
+  overrides: InventoryBalanceOverrideDisplay[],
+): number {
+  let total = rolledKg;
+  for (const row of overrides) {
+    total = total - row.calculatedKg + row.availableKg;
+  }
+  return Math.max(0, Math.round(total));
+}
+
 function mapOverrideEntryToDisplay(
   entry: InventoryAvailableOverrideEntry,
   zoneLabel: (zoneId: string) => string,
@@ -280,10 +295,11 @@ export function InventoryAvailableFormulaSummary({
   const prev = Math.round(model.previousAvailable);
   const regrowth = Math.round(model.regrowthKg);
   const harvest = Math.round(model.harvestKg);
-  const result = Math.round(model.available);
   const rolled = rolledAvailableKg(model);
   const hasOverride = model.balanceOverrides.length > 0;
-  const overrideDelta = result - rolled;
+  const displayResult = hasOverride
+    ? applyBalanceReplacementsToRolledTotal(rolled, model.balanceOverrides)
+    : rolled;
 
   const prevDateLabel = model.dateYmd
     ? formatDayMonth(ymdAddDays(model.dateYmd, -1))
@@ -319,22 +335,27 @@ export function InventoryAvailableFormulaSummary({
         {hasOverride ? (
           <>
             <p className="font-medium text-amber-900">
-              Manual balance on {dayLabel} replaces only the overridden zone(s); other zones in
-              the same farm + grass keep their rolled balance.
+              Manual balance saved on {dayLabel} only — swap system zone value in roll total;
+              other days roll normally.
             </p>
-            {overrideDelta !== 0 ? (
-              <p className="text-amber-800">
-                {formatNumber(rolled)} {overrideDelta >= 0 ? "+" : "−"}{" "}
-                {formatNumber(Math.abs(overrideDelta))} = {formatNumber(result)} kg
+            <div className="space-y-0.5 text-amber-800">
+              <p>
+                Roll total {formatNumber(rolled)} kg, then swap overridden zone(s):
               </p>
-            ) : null}
+              {model.balanceOverrides.map((row) => (
+                <p key={`${row.zoneKey}-${row.savedDate}`}>
+                  {row.farm} · {row.grass} · {row.zone}: {formatNumber(row.calculatedKg)} kg →{" "}
+                  {formatNumber(row.availableKg)} kg
+                </p>
+              ))}
+            </div>
             <p className="font-semibold text-emerald-800">
-              = Available (credited) {formatNumber(result)} kg
+              = Available (credited) {formatNumber(displayResult)} kg
             </p>
           </>
         ) : (
           <p className="font-semibold text-emerald-800">
-            = Available (credited) {formatNumber(result)} kg
+            = Available (credited) {formatNumber(displayResult)} kg
           </p>
         )}
       </div>

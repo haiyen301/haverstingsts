@@ -24,6 +24,7 @@ import {
   Clock,
   Pencil,
   Maximize2,
+  CheckSquare,
 } from "lucide-react";
 
 import RequireAuth from "@/features/auth/RequireAuth";
@@ -110,6 +111,7 @@ import {
   type HarvestPhaseFilter,
 } from "@/features/project/lib/projectHarvestPlanExport";
 import { ProjectDetailHarvestExportDialog } from "@/features/project/ui/ProjectDetailHarvestExportDialog";
+import { ConfirmDeleteDialog } from "@/shared/ui/ConfirmDeleteDialog";
 import { Swiper, SwiperSlide } from "swiper/react";
 import { FreeMode } from "swiper/modules";
 import { Fancybox } from "@fancyapps/ui";
@@ -320,9 +322,14 @@ const HARVEST_TABLE_CLASS =
 
 const HARVEST_TABLE_CELL_CLASS = "px-3 py-2.5";
 
-function HarvestHistoryTableColGroup() {
+function HarvestHistoryTableColGroup({
+  bulkSelectMode = false,
+}: {
+  bulkSelectMode?: boolean;
+}) {
   return (
     <colgroup>
+      {bulkSelectMode ? <col className="w-[3%]" /> : null}
       <col className="w-[10%]" />
       <col className="w-[14%]" />
       <col className="w-[11%]" />
@@ -852,6 +859,12 @@ export default function ProjectDetailPage() {
   );
   const [harvestDeleting, setHarvestDeleting] = useState(false);
   const [harvestDeleteError, setHarvestDeleteError] = useState<string | null>(null);
+  const [harvestBulkSelectMode, setHarvestBulkSelectMode] = useState(false);
+  const [harvestBulkSelectedIds, setHarvestBulkSelectedIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [harvestBulkDeleteConfirmOpen, setHarvestBulkDeleteConfirmOpen] =
+    useState(false);
   const [harvestExportOpen, setHarvestExportOpen] = useState(false);
   const [harvestGrassFilter, setHarvestGrassFilter] = useState("");
   const [harvestStatusFilter, setHarvestStatusFilter] = useState<"" | HarvestLineStatus>(
@@ -1421,6 +1434,102 @@ export default function ProjectDetailPage() {
     Boolean(String(h.id ?? "").trim()) &&
     Boolean(String(h.tableId ?? "").trim());
 
+  const deletableFilteredHarvests = useMemo(
+    () => filteredHarvests.filter((h) => canDeleteHarvestRow(h)),
+    [filteredHarvests, canDeleteHarvest],
+  );
+
+  const harvestBulkSelectedCount = harvestBulkSelectedIds.size;
+
+  const harvestBulkAllDeletableSelected =
+    deletableFilteredHarvests.length > 0 &&
+    deletableFilteredHarvests.every((h) => harvestBulkSelectedIds.has(h.id));
+
+  const harvestBulkSomeDeletableSelected =
+    deletableFilteredHarvests.some((h) => harvestBulkSelectedIds.has(h.id)) &&
+    !harvestBulkAllDeletableSelected;
+
+  useEffect(() => {
+    if (!harvestBulkSelectMode) return;
+    const visibleIds = new Set(filteredHarvests.map((h) => h.id));
+    setHarvestBulkSelectedIds((prev) => {
+      const next = new Set([...prev].filter((id) => visibleIds.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [filteredHarvests, harvestBulkSelectMode]);
+
+  const exitHarvestBulkSelectMode = useCallback(() => {
+    setHarvestBulkSelectMode(false);
+    setHarvestBulkSelectedIds(new Set());
+    setHarvestBulkDeleteConfirmOpen(false);
+  }, []);
+
+  const toggleHarvestBulkRow = useCallback((id: string, checked: boolean) => {
+    setHarvestBulkSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }, []);
+
+  const setAllDeletableHarvestRowsSelected = useCallback(
+    (checked: boolean) => {
+      if (!checked) {
+        setHarvestBulkSelectedIds(new Set());
+        return;
+      }
+      setHarvestBulkSelectedIds(
+        new Set(deletableFilteredHarvests.map((h) => h.id)),
+      );
+    },
+    [deletableFilteredHarvests],
+  );
+
+  const removeHarvestRowsFromSource = useCallback((removedIds: string[]) => {
+    if (removedIds.length === 0) return;
+    const removedIdSet = new Set(removedIds);
+    setHarvestSource((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        planRows: prev.planRows.filter(
+          (r) => !removedIdSet.has(String(r.id ?? "").trim()),
+        ),
+      };
+    });
+    setExpandedHarvestId((cur) =>
+      cur && removedIdSet.has(cur) ? null : cur,
+    );
+    setHarvestBulkSelectedIds((prev) => {
+      const next = new Set([...prev].filter((id) => !removedIdSet.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, []);
+
+  const deleteHarvestRowsFromDetail = async (
+    targets: HarvestRow[],
+  ): Promise<string[]> => {
+    const removedIds: string[] = [];
+    for (const target of targets) {
+      if (
+        !target?.id?.trim() ||
+        !target.tableId?.trim() ||
+        !target.canManageHarvest
+      ) {
+        continue;
+      }
+      await deleteMondayParentOrSubItem({
+        tableId: target.tableId,
+        tableName: target.tableName.trim() || "Harvesting",
+        rowId: target.id,
+        type: "sub",
+      });
+      removedIds.push(target.id);
+    }
+    return removedIds;
+  };
+
   const onConfirmDeleteHarvestFromDetail = async () => {
     if (!canDeleteHarvest) {
       setHarvestDeleteError(t("deleteHarvestFailed"));
@@ -1436,24 +1545,48 @@ export default function ProjectDetailPage() {
     try {
       setHarvestDeleting(true);
       setHarvestDeleteError(null);
-      await deleteMondayParentOrSubItem({
-        tableId: target.tableId,
-        tableName: target.tableName.trim() || "Harvesting",
-        rowId: target.id,
-        type: "sub",
-      });
-      const removedId = target.id;
+      const removedIds = await deleteHarvestRowsFromDetail([target]);
+      if (removedIds.length === 0) {
+        setHarvestDeleteError(t("deleteHarvestMissingIds"));
+        return;
+      }
       setHarvestDeleteTarget(null);
-      setHarvestSource((prev) => {
-        if (!prev) return prev;
-        return {
-          ...prev,
-          planRows: prev.planRows.filter(
-            (r) => String(r.id ?? "").trim() !== removedId,
-          ),
-        };
-      });
-      setExpandedHarvestId((cur) => (cur === removedId ? null : cur));
+      removeHarvestRowsFromSource(removedIds);
+    } catch (e) {
+      setHarvestDeleteError(
+        e instanceof Error ? e.message : t("deleteHarvestFailed"),
+      );
+    } finally {
+      setHarvestDeleting(false);
+    }
+  };
+
+  const onConfirmBulkDeleteHarvestFromDetail = async () => {
+    if (!canDeleteHarvest) {
+      setHarvestDeleteError(t("deleteHarvestFailed"));
+      setHarvestBulkDeleteConfirmOpen(false);
+      return;
+    }
+    const targets = deletableFilteredHarvests.filter((h) =>
+      harvestBulkSelectedIds.has(h.id),
+    );
+    if (targets.length === 0) {
+      setHarvestBulkDeleteConfirmOpen(false);
+      return;
+    }
+    try {
+      setHarvestDeleting(true);
+      setHarvestDeleteError(null);
+      const removedIds = await deleteHarvestRowsFromDetail(targets);
+      if (removedIds.length === 0) {
+        setHarvestDeleteError(t("deleteHarvestMissingIds"));
+        return;
+      }
+      removeHarvestRowsFromSource(removedIds);
+      if (removedIds.length === targets.length) {
+        exitHarvestBulkSelectMode();
+      }
+      setHarvestBulkDeleteConfirmOpen(false);
     } catch (e) {
       setHarvestDeleteError(
         e instanceof Error ? e.message : t("deleteHarvestFailed"),
@@ -1721,6 +1854,36 @@ export default function ProjectDetailPage() {
                     </p>
                   </div>
                   <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                    {canDeleteHarvest && deletableFilteredHarvests.length > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (harvestBulkSelectMode) {
+                            exitHarvestBulkSelectMode();
+                            return;
+                          }
+                          setHarvestDeleteError(null);
+                          setHarvestBulkSelectMode(true);
+                        }}
+                        className={cn(
+                          "inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border px-3 text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
+                          harvestBulkSelectMode
+                            ? "border-primary bg-primary/10 text-primary hover:bg-primary/15"
+                            : "border-border bg-background text-foreground hover:bg-muted",
+                        )}
+                        aria-pressed={harvestBulkSelectMode}
+                        aria-label={
+                          harvestBulkSelectMode
+                            ? t("harvestBulkSelectCancel")
+                            : t("harvestBulkSelect")
+                        }
+                      >
+                        <CheckSquare className="h-4 w-4" aria-hidden />
+                        {harvestBulkSelectMode
+                          ? t("harvestBulkSelectCancel")
+                          : t("harvestBulkSelect")}
+                      </button>
+                    ) : null}
                     {canExportHarvest ? (
                       <button
                         type="button"
@@ -1852,6 +2015,44 @@ export default function ProjectDetailPage() {
                     </p>
                   ) : (
                     <>
+                      {harvestBulkSelectMode ? (
+                        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2">
+                          <button
+                            type="button"
+                            onClick={() => setAllDeletableHarvestRowsSelected(true)}
+                            disabled={deletableFilteredHarvests.length === 0}
+                            className="inline-flex items-center rounded-md border border-border bg-background px-3 py-1.5 text-sm hover:bg-muted disabled:opacity-50"
+                          >
+                            {t("harvestBulkSelectAll")}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setAllDeletableHarvestRowsSelected(false)}
+                            disabled={harvestBulkSelectedCount === 0}
+                            className="inline-flex items-center rounded-md border border-border bg-background px-3 py-1.5 text-sm hover:bg-muted disabled:opacity-50"
+                          >
+                            {t("harvestBulkDeselectAll")}
+                          </button>
+                          <span className="text-sm text-muted-foreground">
+                            {t("harvestBulkSelectedCount", {
+                              count: harvestBulkSelectedCount,
+                            })}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setHarvestDeleteError(null);
+                              setHarvestBulkDeleteConfirmOpen(true);
+                            }}
+                            disabled={harvestBulkSelectedCount === 0 || harvestDeleting}
+                            className="ml-auto inline-flex h-8 items-center justify-center gap-1.5 rounded-md bg-destructive px-3 text-sm font-medium text-destructive-foreground transition-colors hover:bg-destructive/90 disabled:opacity-50"
+                            aria-label={tCommon("delete")}
+                          >
+                            <Trash2 className="h-4 w-4" aria-hidden />
+                            {tCommon("delete")}
+                          </button>
+                        </div>
+                      ) : null}
                       <div className={HARVEST_TABLE_STICKY_CHROME_CLASS}>
                         <div
                           className="flex justify-start px-6 py-2"
@@ -1892,9 +2093,38 @@ export default function ProjectDetailPage() {
                           }
                         >
                           <table className={HARVEST_TABLE_CLASS}>
-                            <HarvestHistoryTableColGroup />
+                            <HarvestHistoryTableColGroup
+                              bulkSelectMode={harvestBulkSelectMode}
+                            />
                             <thead>
                               <tr className="text-left shadow-[0_1px_0_0_hsl(var(--border))]">
+                                {harvestBulkSelectMode ? (
+                                  <th
+                                    className={cn(
+                                      HARVEST_TABLE_COLUMN_HEAD_CLASS,
+                                      HARVEST_TABLE_CELL_CLASS,
+                                    )}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={harvestBulkAllDeletableSelected}
+                                      ref={(el) => {
+                                        if (!el) return;
+                                        el.indeterminate =
+                                          harvestBulkSomeDeletableSelected;
+                                      }}
+                                      onChange={(e) =>
+                                        setAllDeletableHarvestRowsSelected(
+                                          e.target.checked,
+                                        )
+                                      }
+                                      disabled={
+                                        deletableFilteredHarvests.length === 0
+                                      }
+                                      aria-label={t("harvestBulkSelectAll")}
+                                    />
+                                  </th>
+                                ) : null}
                                 <th
                                   className={cn(
                                     HARVEST_TABLE_COLUMN_HEAD_CLASS,
@@ -1986,18 +2216,59 @@ export default function ProjectDetailPage() {
                         }
                       >
                         <table className={HARVEST_TABLE_CLASS}>
-                          <HarvestHistoryTableColGroup />
+                          <HarvestHistoryTableColGroup
+                            bulkSelectMode={harvestBulkSelectMode}
+                          />
                           <tbody>
                           {filteredHarvests.map((h) => {
                             const areaDisplay = harvestHistoryTableAreaDisplay(h);
                             const StatusIcon =
                               h.status === "delivered" ? CheckCircle2 : Clock;
+                            const rowDeletable = canDeleteHarvestRow(h);
+                            const rowSelected = harvestBulkSelectedIds.has(h.id);
                             return (
                               <tr
                                 key={h.id}
-                                className="cursor-pointer border-b border-border/50 last:border-0 hover:bg-muted/50"
-                                onClick={() => setExpandedHarvestId(h.id)}
+                                className={cn(
+                                  "border-b border-border/50 last:border-0 hover:bg-muted/50",
+                                  harvestBulkSelectMode
+                                    ? rowSelected
+                                      ? "bg-primary/5"
+                                      : undefined
+                                    : "cursor-pointer",
+                                )}
+                                onClick={() => {
+                                  if (harvestBulkSelectMode) {
+                                    if (!rowDeletable) return;
+                                    toggleHarvestBulkRow(h.id, !rowSelected);
+                                    return;
+                                  }
+                                  setExpandedHarvestId(h.id);
+                                }}
                               >
+                                {harvestBulkSelectMode ? (
+                                  <td
+                                    className={HARVEST_TABLE_CELL_CLASS}
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    {rowDeletable ? (
+                                      <input
+                                        type="checkbox"
+                                        checked={rowSelected}
+                                        onChange={(e) =>
+                                          toggleHarvestBulkRow(
+                                            h.id,
+                                            e.target.checked,
+                                          )
+                                        }
+                                        aria-label={t("harvestBulkSelectRow", {
+                                          grass: h.grass,
+                                          date: h.date,
+                                        })}
+                                      />
+                                    ) : null}
+                                  </td>
+                                ) : null}
                                 <td className={cn(HARVEST_TABLE_CELL_CLASS, "text-foreground")}>
                                   {h.date}
                                 </td>
@@ -2088,7 +2359,7 @@ export default function ProjectDetailPage() {
                             <tfoot>
                               <tr className="border-t-2 border-border bg-muted/40 font-semibold text-foreground">
                                 <td
-                                  colSpan={4}
+                                  colSpan={harvestBulkSelectMode ? 5 : 4}
                                   className={cn(
                                     HARVEST_TABLE_CELL_CLASS,
                                     "text-sm text-foreground",
@@ -2172,51 +2443,35 @@ export default function ProjectDetailPage() {
         />
       ) : null}
 
-      {harvestDeleteTarget ? (
-        <div
-          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4"
-          role="presentation"
-          onClick={() => {
-            if (!harvestDeleting) setHarvestDeleteTarget(null);
-          }}
-        >
-          <div
-            className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl"
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="delete-harvest-detail-title"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2
-              id="delete-harvest-detail-title"
-              className="text-lg font-semibold text-gray-900"
-            >
-              {t("confirmDeleteHarvestTitle")}
-            </h2>
-            <p className="mt-2 text-sm text-gray-600">
-              {t("confirmDeleteHarvestMessage")}
-            </p>
-            <div className="mt-6 flex justify-end gap-2">
-              <button
-                type="button"
-                className="rounded-lg px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
-                onClick={() => setHarvestDeleteTarget(null)}
-                disabled={harvestDeleting}
-              >
-                {tCommon("cancel")}
-              </button>
-              <button
-                type="button"
-                className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-60"
-                onClick={() => void onConfirmDeleteHarvestFromDetail()}
-                disabled={harvestDeleting}
-              >
-                {harvestDeleting ? t("deletingHarvest") : tCommon("delete")}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      <ConfirmDeleteDialog
+        open={harvestDeleteTarget != null}
+        title={t("confirmDeleteHarvestTitle")}
+        message={t("confirmDeleteHarvestMessage")}
+        cancelLabel={tCommon("cancel")}
+        confirmLabel={tCommon("delete")}
+        deleting={harvestDeleting}
+        deletingLabel={t("deletingHarvest")}
+        onCancel={() => setHarvestDeleteTarget(null)}
+        onConfirm={() => void onConfirmDeleteHarvestFromDetail()}
+        titleId="delete-harvest-detail-title"
+      />
+
+      <ConfirmDeleteDialog
+        open={harvestBulkDeleteConfirmOpen}
+        title={t("confirmDeleteHarvestBulkTitle")}
+        message={t("confirmDeleteHarvestBulkMessage", {
+          count: harvestBulkSelectedCount,
+        })}
+        cancelLabel={tCommon("cancel")}
+        confirmLabel={tCommon("delete")}
+        deleting={harvestDeleting}
+        deletingLabel={t("deletingHarvest")}
+        onCancel={() => {
+          if (!harvestDeleting) setHarvestBulkDeleteConfirmOpen(false);
+        }}
+        onConfirm={() => void onConfirmBulkDeleteHarvestFromDetail()}
+        titleId="delete-harvest-bulk-detail-title"
+      />
 
       {expandedHarvestId ? (
         <div

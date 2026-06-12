@@ -28,6 +28,9 @@ import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { useInventoryAvailableOverrideStore } from "@/shared/store/inventoryAvailableOverrideStore";
 
 let loadToken = 0;
+let harvestFetchPromise: Promise<{ rows: Record<string, unknown>[]; error?: string }> | null =
+  null;
+let harvestFetchKey = "";
 
 export type EnsureLoadedOptions = {
   scopes?: Set<ForecastCacheScope>;
@@ -71,16 +74,35 @@ async function loadOverrides(token: number): Promise<void> {
   useForecastDataStore.getState().markValid("overrides");
 }
 
-async function loadHarvest(token: number): Promise<void> {
-  const { from, to } = forecastHarvestDateRange();
-  const farms = useHarvestingDataStore.getState().farms;
-  const res = await fetchHarvestRowsForForecasting({
+async function fetchHarvestRowsDeduped(
+  from: string,
+  to: string,
+  farms: unknown[],
+): Promise<{ rows: Record<string, unknown>[]; error?: string }> {
+  const key = `${from}|${to}`;
+  if (harvestFetchPromise && harvestFetchKey === key) {
+    return harvestFetchPromise;
+  }
+  harvestFetchKey = key;
+  harvestFetchPromise = fetchHarvestRowsForForecasting({
     actual_harvest_date_from: from,
     actual_harvest_date_to: to,
     perPage: 500,
     maxPages: 400,
     farms,
+  }).finally(() => {
+    if (harvestFetchPromise) {
+      harvestFetchPromise = null;
+      harvestFetchKey = "";
+    }
   });
+  return harvestFetchPromise;
+}
+
+async function loadHarvest(token: number): Promise<void> {
+  const { from, to } = forecastHarvestDateRange();
+  const farms = useHarvestingDataStore.getState().farms;
+  const res = await fetchHarvestRowsDeduped(from, to, farms);
   if (token !== loadToken) return;
 
   const store = useForecastDataStore.getState();
@@ -155,7 +177,7 @@ export async function ensureForecastDataLoaded(
   const futures: Promise<void>[] = [];
 
   if (needed.has("reference")) {
-    futures.push(loadReference(true));
+    futures.push(loadReference(force));
   }
   if (needed.has("zones")) {
     futures.push(loadZones(token));

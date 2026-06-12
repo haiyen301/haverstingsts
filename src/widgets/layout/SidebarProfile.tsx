@@ -91,9 +91,6 @@ export function SidebarProfile({ onNavigate, compact = false }: SidebarProfilePr
   const user = useAuthUserStore((s) => s.user);
   const farms = useHarvestingDataStore((s) => s.farms);
   const countries = useHarvestingDataStore((s) => s.activeCountries);
-  const fetchAllHarvestingReferenceData = useHarvestingDataStore(
-    (s) => s.fetchAllHarvestingReferenceData,
-  );
   const locale = useLocale() as AppLocale;
   const t = useTranslations("SidebarProfile");
   const [weatherData, setWeatherData] = useState<SidebarWeatherPayload | null>(null);
@@ -105,11 +102,6 @@ export function SidebarProfile({ onNavigate, compact = false }: SidebarProfilePr
   const email = user?.email?.trim() ?? "";
   const avatarSrc = resolveAvatarUrl(getUserAvatarPath(user));
 
-
-  // console.log("user", user);
-  useEffect(() => {
-    void fetchAllHarvestingReferenceData();
-  }, [fetchAllHarvestingReferenceData]);
 
   useEffect(() => {
     const id = window.setInterval(() => setNowMs(Date.now()), 60_000);

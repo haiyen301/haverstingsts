@@ -32,13 +32,16 @@ type UseForecastDailySeriesArgs = {
   forecastHorizonEnd: Date;
   debouncedFarmIds: string[];
   debouncedGrassIds: string[];
+  hiddenGrassIds: string[];
   enabled?: boolean;
 };
 
 function computeSync(args: UseForecastDailySeriesArgs): DailySeriesResult {
   const farmIdSet = new Set(args.debouncedFarmIds);
   const grassIdSet = new Set(args.debouncedGrassIds);
+  const hiddenGrassIdSet = new Set(args.hiddenGrassIds);
   const farmProductFilter = (farmId: number, productId: number) => {
+    if (hiddenGrassIdSet.has(String(productId))) return false;
     if (farmIdSet.size > 0 && !farmIdSet.has(String(farmId))) return false;
     if (grassIdSet.size > 0 && !grassIdSet.has(String(productId))) return false;
     return true;
@@ -69,6 +72,7 @@ export function useForecastDailySeries(args: UseForecastDailySeriesArgs): DailyS
         horizon: args.forecastHorizonEnd.getTime(),
         farms: args.debouncedFarmIds,
         grasses: args.debouncedGrassIds,
+        hiddenGrasses: args.hiddenGrassIds,
         overridesLen: Object.keys(args.overridesByZone).length,
       }),
     [
@@ -77,6 +81,7 @@ export function useForecastDailySeries(args: UseForecastDailySeriesArgs): DailyS
       args.forecastHorizonEnd,
       args.debouncedFarmIds,
       args.debouncedGrassIds,
+      args.hiddenGrassIds,
       args.overridesByZone,
     ],
   );
@@ -138,6 +143,7 @@ export function useForecastDailySeries(args: UseForecastDailySeriesArgs): DailyS
         endDateMs: args.forecastHorizonEnd.getTime(),
         debouncedFarmIds: args.debouncedFarmIds,
         debouncedGrassIds: args.debouncedGrassIds,
+        hiddenGrassIds: args.hiddenGrassIds,
       };
       worker.postMessage(payload);
 
@@ -162,6 +168,7 @@ export function useForecastDailySeries(args: UseForecastDailySeriesArgs): DailyS
     args.forecastHorizonEnd,
     args.debouncedFarmIds,
     args.debouncedGrassIds,
+    args.hiddenGrassIds,
   ]);
 
   return result;

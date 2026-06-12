@@ -1,5 +1,8 @@
 import { isValidHarvestDateString } from "@/shared/lib/harvestPlanDates";
-import { harvestTypeDisplayLabel } from "@/shared/lib/harvestType";
+import {
+  harvestTypeDisplayLabel,
+  normalizeHarvestTypeStorageKey,
+} from "@/shared/lib/harvestType";
 import {
   harvestPlanHarvestedAreaFromRaw,
   harvestPlanQuantityFromRaw,
@@ -48,7 +51,11 @@ export function harvestPlanDetailFromRaw(
   const zoneRaw = String(raw.zone ?? "").trim();
   const zone = zoneRaw ? zoneLabelFn(zoneRaw) || zoneRaw : "";
   const qty = harvestPlanQuantityFromRaw(raw);
-  const uom = resolvePlanRowUomFromRaw(raw);
+  const harvestTypeKey = normalizeHarvestTypeStorageKey(
+    raw.harvest_type ?? raw.load_type ?? "",
+  );
+  const uom =
+    harvestTypeKey === "sod_to_sprig" ? "kg" : resolvePlanRowUomFromRaw(raw);
   const qtyLabel = uom ? `${qty.toLocaleString()} ${uom}` : qty.toLocaleString();
 
   return {

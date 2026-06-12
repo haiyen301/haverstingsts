@@ -78,6 +78,7 @@ import {
   ForecastEventBadge,
   ForecastEventTile,
   ForecastEventTitleRich,
+  ForecastRegrowthDayGroup,
   forecastHarvestEventSubtitle,
   forecastUpcomingGrassDetail,
 } from "@/features/forecasting/ForecastEventTile";
@@ -129,6 +130,107 @@ type SeriesPoint = {
 
 function seriesOverrideCountKey(key: string): string {
   return `__override_count__${key}`;
+}
+
+function resolveGrassSeriesLabel(
+  productId: number,
+  productGrassMeta: ReadonlyMap<number, string>,
+  grassNameById: ReadonlyMap<number, string>,
+): string {
+  const label =
+    productGrassMeta.get(productId) ??
+    grassNameById.get(productId) ??
+    "";
+  const trimmed = label.trim();
+  return trimmed || `Grass ${productId}`;
+}
+
+function collectBreakdownGrassProductIds(args: {
+  rollingDailyByFarmProduct: Map<string, Map<string, RollingDailyAvailableDay>>;
+  zoneConfigs: ZoneConfigurationRow[];
+  activeGrasses: unknown[];
+  farmProductFilter: (farmId: number, productId: number) => boolean;
+  hiddenGrassIdSet: ReadonlySet<string>;
+}): Set<number> {
+  const productIds = new Set<number>();
+  const todayYmd = ymdFromDate(getForecastToday());
+
+  const tryAdd = (farmId: number, productId: number) => {
+    if (farmId <= 0 || productId <= 0) return;
+    if (args.hiddenGrassIdSet.has(String(productId))) return;
+    if (!args.farmProductFilter(farmId, productId)) return;
+    if (!farmProductHasMappedZoneConfigAtYmd(args.zoneConfigs, farmId, productId, todayYmd)) {
+      return;
+    }
+    productIds.add(productId);
+  };
+
+  for (const fpKey of args.rollingDailyByFarmProduct.keys()) {
+    const [farmIdStr, productIdStr] = fpKey.split("|");
+    tryAdd(Number(farmIdStr), Number(productIdStr));
+  }
+
+  for (const row of args.zoneConfigs) {
+    if (!zoneConfigIsActiveAtYmd(row, todayYmd)) continue;
+    if (isForecastExcludedZone(row.zone)) continue;
+    tryAdd(Number(row.farm_id), Number(row.grass_id));
+  }
+
+  for (const g of args.activeGrasses) {
+    if (!g || typeof g !== "object") continue;
+    const rec = g as Record<string, unknown>;
+    const productId = Number(rec.id);
+    if (!Number.isFinite(productId) || productId <= 0) continue;
+    if (args.hiddenGrassIdSet.has(String(productId))) continue;
+    for (const row of args.zoneConfigs) {
+      if (!zoneConfigIsActiveAtYmd(row, todayYmd)) continue;
+      if (isForecastExcludedZone(row.zone)) continue;
+      if (Number(row.grass_id) !== productId) continue;
+      tryAdd(Number(row.farm_id), productId);
+    }
+  }
+
+  return productIds;
+}
+
+/** Keep stacked grass-type totals aligned with the main available chart after rounding. */
+function reconcileStackedSeriesTotals(
+  row: SeriesPoint,
+  seriesKeys: string[],
+  targetTotal: number,
+): void {
+  if (seriesKeys.length <= 1) return;
+
+  const roundedTarget = Math.max(0, Math.round(targetTotal));
+  let sum = 0;
+  for (const key of seriesKeys) {
+    sum += Number(row[key] ?? 0);
+  }
+  const delta = roundedTarget - sum;
+  if (delta === 0) return;
+
+  if (sum <= 0) {
+    if (seriesKeys[0]) row[seriesKeys[0]] = roundedTarget;
+    return;
+  }
+
+  let newSum = 0;
+  let largestKey = seriesKeys[0]!;
+  let largestVal = -1;
+  for (const key of seriesKeys) {
+    const scaled = Math.max(0, Math.round((Number(row[key] ?? 0) * roundedTarget) / sum));
+    row[key] = scaled;
+    newSum += scaled;
+    if (scaled > largestVal) {
+      largestVal = scaled;
+      largestKey = key;
+    }
+  }
+
+  const drift = roundedTarget - newSum;
+  if (drift !== 0) {
+    row[largestKey] = Math.max(0, Number(row[largestKey] ?? 0) + drift);
+  }
 }
 
 const DEBUG_UPCOMING_FILTER = false;
@@ -303,6 +405,50 @@ function formatForecastQty(qty: number, uomRaw: string | undefined): string {
   return suffix ? `${n} ${suffix}` : n;
 }
 
+function formatForecastNativeQty(qty: number, uomRaw: string): string {
+  const { suffix, kind } = forecastQtyUnit(uomRaw);
+  const unit = suffix || uomRaw;
+  if (kind === "m2") {
+    return `${qty.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${unit}`;
+  }
+  return `${Math.round(qty).toLocaleString()} ${unit}`;
+}
+
+function shouldShowForecastM2ConversionHelp(
+  harvestType: ForecastHarvestRow["harvestType"] | undefined,
+  sourceM2: number,
+  lines: ForecastM2ConversionLine[],
+): boolean {
+  if (lines.length === 0 || sourceM2 <= 0) return false;
+  if (harvestType === "sod_for_sprig") return false;
+  return true;
+}
+
+/** Upcoming harvests: show plan magnitude (m² or kg), not converted inventory kg. */
+function forecastUpcomingNativeDisplay(
+  harvestType: ForecastHarvestRow["harvestType"],
+  inventoryKg: number,
+  sourceM2: number,
+  planQuantityRaw: number,
+  uomRaw?: string,
+): { qty: number; uom: string } | null {
+  const uomSuffix = forecastQtyUnit(uomRaw).suffix || "kg";
+  if (harvestType === "sprig") {
+    if (sourceM2 > 0) return { qty: sourceM2, uom: "m²" };
+    const qty = planQuantityRaw > 0 ? planQuantityRaw : inventoryKg;
+    return { qty, uom: uomSuffix };
+  }
+  if (harvestType === "sod_for_sprig") {
+    const qty = planQuantityRaw > 0 ? planQuantityRaw : inventoryKg;
+    return { qty, uom: "kg" };
+  }
+  if (harvestType === "sod") {
+    if (sourceM2 > 0) return { qty: sourceM2, uom: "m²" };
+    return { qty: inventoryKg, uom: "kg" };
+  }
+  return null;
+}
+
 function forecastSourceM2FromRow(row: ForecastHarvestRow): number {
   return forecastHarvestRowEffectiveM2(row);
 }
@@ -315,17 +461,25 @@ function ForecastKgQuantityLabel({
   sign,
   kg,
   sourceM2,
+  nativeDisplay,
   className,
   onClick,
 }: {
   sign: "+" | "-";
   kg: number;
   sourceM2?: number;
+  /** When set, show only the plan magnitude (e.g. m² for Sod) — conversion stays in the ? tooltip. */
+  nativeDisplay?: { qty: number; uom: string } | null;
   className?: string;
   onClick?: () => void;
 }) {
   const m2 = sourceM2 ?? 0;
-  const content = (
+  const content = nativeDisplay ? (
+    <>
+      {sign}
+      {formatForecastNativeQty(nativeDisplay.qty, nativeDisplay.uom)}
+    </>
+  ) : (
     <>
       {sign}
       {Math.round(kg).toLocaleString()} kg
@@ -406,6 +560,46 @@ function forecastHarvestRowM2ConversionLine(
 
   const zoneLabel =
     zoneKey === FORECAST_NOZONE_ZONE || !zoneRaw ? noZoneLabel : zoneLabelFn(zoneRaw);
+
+  return { zoneKey, zoneLabel, m2, kgPerM2 };
+}
+
+function regrowthFragmentM2ConversionLine(
+  frag: {
+    zoneKey: string;
+    zoneLabel: string;
+    qty: number;
+    sourceM2: number;
+    inventoryKgFromNozoneSpread: number;
+  },
+  kgPerM2ByZone: Record<string, number>,
+  noZoneLabel: string,
+): ForecastM2ConversionLine | null {
+  const m2Raw = frag.sourceM2;
+  if (m2Raw <= 0) return null;
+  const kg = frag.qty;
+  if (kg <= 0) return null;
+
+  const zoneKey = zoneNormKeyForHarvestZoneTooltip(frag.zoneKey);
+  let kgPerM2 = kgPerM2ByZone[zoneKey] ?? 0;
+  if (kgPerM2 <= 0 && zoneKey === FORECAST_NOZONE_ZONE) {
+    kgPerM2 =
+      kgPerM2ByZone["1"] ??
+      kgPerM2ByZone["zone-1"] ??
+      kgPerM2ByZone["zone 1"] ??
+      0;
+  }
+  if (kgPerM2 <= 0 && m2Raw > 0 && kg > 0) {
+    kgPerM2 = kg / m2Raw;
+  }
+  if (kgPerM2 <= 0) return null;
+
+  const m2 =
+    frag.inventoryKgFromNozoneSpread > 0 ? kg / kgPerM2 : m2Raw;
+  const zoneLabel =
+    zoneKey === FORECAST_NOZONE_ZONE || !String(frag.zoneLabel ?? "").trim()
+      ? noZoneLabel
+      : frag.zoneLabel;
 
   return { zoneKey, zoneLabel, m2, kgPerM2 };
 }
@@ -1320,6 +1514,7 @@ export function InventoryForecast({
     forecastHorizonEnd,
     debouncedFarmIds,
     debouncedGrassIds,
+    hiddenGrassIds: useMemo(() => Array.from(hiddenGrassIdSet), [hiddenGrassIdSet]),
     enabled: hasSnapshot,
   });
 
@@ -1335,34 +1530,61 @@ export function InventoryForecast({
 
   const rollingDailyByFarmProduct = dailySeriesResult.byFarmProduct;
 
+  const collectFarmProductGroupKeys = useCallback(
+    (
+      rollingByFarmProduct: Map<string, Map<string, RollingDailyAvailableDay>>,
+      productFilter: (farmId: number, productId: number) => boolean,
+    ) => {
+      const todayYmd = ymdFromDate(getForecastToday());
+      const keys = new Set<string>();
+
+      const tryAdd = (farmId: number, productId: number) => {
+        if (farmId <= 0 || productId <= 0) return;
+        if (!productFilter(farmId, productId)) return;
+        if (!farmProductHasMappedZoneConfigAtYmd(zoneConfigSnapshot, farmId, productId, todayYmd)) {
+          return;
+        }
+        keys.add(`${farmId}|${productId}`);
+      };
+
+      for (const fpKey of rollingByFarmProduct.keys()) {
+        const [farmIdStr, productIdStr] = fpKey.split("|");
+        tryAdd(Number(farmIdStr), Number(productIdStr));
+      }
+      for (const row of zoneConfigSnapshot) {
+        if (!zoneConfigIsActiveAtYmd(row, todayYmd)) continue;
+        if (isForecastExcludedZone(row.zone)) continue;
+        tryAdd(Number(row.farm_id), Number(row.grass_id));
+      }
+      return Array.from(keys).sort((a, b) => a.localeCompare(b));
+    },
+    [zoneConfigSnapshot],
+  );
+
+  const breakdownMode: "grass" | "farm" =
+    selectedGrassIds.length > 0 ? "farm" : "grass";
+
   const farmProductGroupKeys = useMemo(() => {
     const todayYmd = ymdFromDate(getForecastToday());
-    const keys = new Set<string>();
-
-    const tryAdd = (farmId: number, productId: number) => {
-      if (farmId <= 0 || productId <= 0) return;
-      if (!farmProductFilter(farmId, productId)) return;
-      if (!farmProductHasMappedZoneConfigAtYmd(zoneConfigSnapshot, farmId, productId, todayYmd)) {
-        return;
-      }
-      keys.add(`${farmId}|${productId}`);
-    };
-
-    for (const fpKey of rollingDailyByFarmProduct.keys()) {
-      const [farmIdStr, productIdStr] = fpKey.split("|");
-      tryAdd(Number(farmIdStr), Number(productIdStr));
-    }
+    const keys = new Set(
+      collectFarmProductGroupKeys(rollingDailyByFarmProduct, farmProductFilter),
+    );
     for (const row of filteredRows) {
       if (isForecastExcludedZone(row.zone)) continue;
-      tryAdd(row.farmId, row.productId);
-    }
-    for (const row of zoneConfigSnapshot) {
-      if (!zoneConfigIsActiveAtYmd(row, todayYmd)) continue;
-      if (isForecastExcludedZone(row.zone)) continue;
-      tryAdd(Number(row.farm_id), Number(row.grass_id));
+      if (!farmProductFilter(row.farmId, row.productId)) continue;
+      if (!farmProductHasMappedZoneConfigAtYmd(zoneConfigSnapshot, row.farmId, row.productId, todayYmd)) {
+        continue;
+      }
+      keys.add(`${row.farmId}|${row.productId}`);
     }
     return Array.from(keys).sort((a, b) => a.localeCompare(b));
-  }, [rollingDailyByFarmProduct, filteredRows, zoneConfigSnapshot, farmProductFilter]);
+  }, [
+    collectFarmProductGroupKeys,
+    rollingDailyByFarmProduct,
+    filteredRows,
+    zoneConfigSnapshot,
+    farmProductFilter,
+  ]);
 
   const farmProductKgPerM2 = useMemo(() => {
     const out = new Map<string, number>();
@@ -1431,9 +1653,6 @@ export function InventoryForecast({
     }
     return out;
   }, [filteredRows, overridesByZone, hiddenGrassIdSet, selectedFarmIds, selectedFarmIdSet, selectedGrassIds, selectedGrassIdSet]);
-
-  const breakdownMode: "grass" | "farm" =
-    selectedGrassIds.length > 0 ? "farm" : "grass";
 
   const selectedGrassSummary = useMemo(() => {
     if (selectedGrassIds.length === 0) return "";
@@ -1620,6 +1839,12 @@ export function InventoryForecast({
     [forecastData],
   );
 
+  /** When breakdown collapses to one series, mirror the main chart (aggregate rolling basis). */
+  const mainAvailableByDate = useMemo(
+    () => new Map(forecastData.map((point) => [point.date, point.available] as const)),
+    [forecastData],
+  );
+
   const maxAvailableForChart = useMemo(
     () => forecastData.reduce((m, p) => Math.max(m, p.available), 0),
     [forecastData],
@@ -1639,6 +1864,24 @@ export function InventoryForecast({
   const hasManualOverridesInForecast = useMemo(
     () => forecastData.some((point) => point.overrideCount > 0),
     [forecastData],
+  );
+
+  const breakdownGrassProductIds = useMemo(
+    () =>
+      collectBreakdownGrassProductIds({
+        rollingDailyByFarmProduct,
+        zoneConfigs: zoneConfigSnapshot,
+        activeGrasses,
+        farmProductFilter,
+        hiddenGrassIdSet,
+      }),
+    [
+      rollingDailyByFarmProduct,
+      zoneConfigSnapshot,
+      activeGrasses,
+      farmProductFilter,
+      hiddenGrassIdSet,
+    ],
   );
 
   const seriesKeys = useMemo(() => {
@@ -1663,23 +1906,14 @@ export function InventoryForecast({
       return Array.from(set).sort((a, b) => a.localeCompare(b));
     }
     const set = new Set<string>();
-    for (const fpKey of farmProductGroupKeys) {
-      const productId = Number(fpKey.split("|")[1] ?? 0);
-      const label = productGrassMeta.get(productId) ?? grassNameById.get(productId);
-      if (label) set.add(label);
-    }
-    for (const r of filteredRows) {
-      if (r.grassType) set.add(r.grassType);
+    for (const productId of breakdownGrassProductIds) {
+      set.add(resolveGrassSeriesLabel(productId, productGrassMeta, grassNameById));
     }
     for (const entry of Object.values(overridesByZone)) {
       if (hiddenGrassIdSet.has(String(entry.grassId))) continue;
       if (selectedFarmIds.length > 0 && !selectedFarmIdSet.has(String(entry.farmId))) continue;
       if (selectedGrassIds.length > 0 && !selectedGrassIdSet.has(String(entry.grassId))) continue;
-      const label =
-        String(entry.turfgrass ?? "").trim() ||
-        grassNameById.get(entry.grassId) ||
-        "";
-      if (label) set.add(label);
+      set.add(resolveGrassSeriesLabel(entry.grassId, productGrassMeta, grassNameById));
     }
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [
@@ -1688,6 +1922,7 @@ export function InventoryForecast({
     farmProductGroupKeys,
     farmProductFarmMeta,
     farmNameById,
+    breakdownGrassProductIds,
     productGrassMeta,
     grassNameById,
     overridesByZone,
@@ -1715,24 +1950,37 @@ export function InventoryForecast({
       };
       const overrideYmd = dateStr;
 
-      for (const fpKey of farmProductGroupKeys) {
-        const day = rollingDailyByFarmProduct.get(fpKey)?.get(dateStr);
-        if (!day) continue;
-        const productId = Number(fpKey.split("|")[1] ?? 0);
-        const seriesKey =
-          breakdownMode === "farm"
-            ? farmProductFarmMeta.get(fpKey) ?? farmNameById.get(Number(fpKey.split("|")[0] ?? 0))
-            : productGrassMeta.get(productId) ?? grassNameById.get(productId);
-        if (!seriesKey) continue;
-        const qtyKg = day.availableKg;
-        const qty =
-          chartUnitMode === "sod"
-            ? kgToChartM2(
-                qtyKg,
-                farmProductKgPerM2.get(fpKey) ?? DEFAULT_FALLBACK_INVENTORY_KG_PER_M2,
-              )
-            : qtyKg;
-        row[seriesKey] = Number(row[seriesKey] ?? 0) + qty;
+      if (seriesKeys.length === 1) {
+        row[seriesKeys[0]!] = Math.max(
+          0,
+          Math.round(mainAvailableByDate.get(dateStr) ?? 0),
+        );
+      } else {
+        for (const fpKey of rollingDailyByFarmProduct.keys()) {
+          const [farmIdStr, productIdStr] = fpKey.split("|");
+          const farmId = Number(farmIdStr);
+          const productId = Number(productIdStr);
+          if (!Number.isFinite(farmId) || !Number.isFinite(productId)) continue;
+          if (!farmProductFilter(farmId, productId)) continue;
+
+          const day = rollingDailyByFarmProduct.get(fpKey)?.get(dateStr);
+          if (!day) continue;
+          const seriesKey =
+            breakdownMode === "farm"
+              ? farmProductFarmMeta.get(fpKey) ??
+                farmNameById.get(farmId) ??
+                String(farmId)
+              : resolveGrassSeriesLabel(productId, productGrassMeta, grassNameById);
+          const qtyKg = day.availableKg;
+          const qty =
+            chartUnitMode === "sod"
+              ? kgToChartM2(
+                  qtyKg,
+                  farmProductKgPerM2.get(fpKey) ?? DEFAULT_FALLBACK_INVENTORY_KG_PER_M2,
+                )
+              : qtyKg;
+          row[seriesKey] = Number(row[seriesKey] ?? 0) + qty;
+        }
       }
 
       for (const entry of Object.values(overridesByZone)) {
@@ -1748,10 +1996,7 @@ export function InventoryForecast({
             String(entry.farmName ?? "").trim() ||
             farmNameById.get(entry.farmId);
         } else {
-          seriesKey =
-            String(entry.turfgrass ?? "").trim() ||
-            productGrassMeta.get(entry.grassId) ||
-            grassNameById.get(entry.grassId);
+          seriesKey = resolveGrassSeriesLabel(entry.grassId, productGrassMeta, grassNameById);
         }
         if (!seriesKey) continue;
         row[seriesOverrideCountKey(seriesKey)] =
@@ -1766,13 +2011,20 @@ export function InventoryForecast({
         );
       }
 
+      if (seriesKeys.length > 1) {
+        reconcileStackedSeriesTotals(
+          row,
+          seriesKeys,
+          mainAvailableByDate.get(dateStr) ?? 0,
+        );
+      }
+
       points.push(row);
     }
 
     return points;
   }, [
     forecastHorizonEnd,
-    farmProductGroupKeys,
     rollingDailyByFarmProduct,
     farmProductKgPerM2,
     chartUnitMode,
@@ -1783,6 +2035,7 @@ export function InventoryForecast({
     overridesByZone,
     farmProductFilter,
     hintsByDate,
+    mainAvailableByDate,
     grassNameById,
     farmNameById,
     hiddenGrassIdSet,
@@ -1862,8 +2115,9 @@ export function InventoryForecast({
         customer: h.customer ?? "",
         qty: forecastDisplayKgFromRow(h),
         sourceM2: forecastSourceM2FromRow(h),
+        planQuantityRaw: h.planQuantityRaw,
         m2ConversionLine,
-        uom: "kg",
+        uom: h.uom ?? "kg",
         inventoryIsCapped: h.inventoryIsCapped,
         harvestType: h.harvestType,
         type: harvestTypeLabel(h.harvestType, t),
@@ -1885,6 +2139,7 @@ export function InventoryForecast({
         customer: string;
         qty: number;
         sourceM2: number;
+        planQuantityRaw: number;
         m2ConversionLines: ForecastM2ConversionLine[];
         uom: string;
         inventoryIsCapped: boolean;
@@ -1915,6 +2170,7 @@ export function InventoryForecast({
           customer: row.customer,
           qty: row.qty,
           sourceM2: row.sourceM2,
+          planQuantityRaw: row.planQuantityRaw,
           m2ConversionLines: row.m2ConversionLine ? [row.m2ConversionLine] : [],
           uom: row.uom,
           inventoryIsCapped: row.inventoryIsCapped,
@@ -1955,6 +2211,7 @@ export function InventoryForecast({
           customer: agg.customer,
           qty: agg.qty,
           sourceM2: agg.sourceM2,
+          planQuantityRaw: agg.planQuantityRaw,
           m2ConversionLines: mergeM2ConversionLines(agg.m2ConversionLines),
           uom: agg.uom,
           inventoryIsCapped: agg.inventoryIsCapped,
@@ -2017,7 +2274,10 @@ export function InventoryForecast({
           farm: h.farm,
           grass: h.grassType,
           qty: forecastDisplayKgFromRow(h),
-          uom: "kg",
+          planQuantityRaw: h.planQuantityRaw,
+          sourceM2: forecastSourceM2FromRow(h),
+          uom: h.uom ?? "kg",
+          harvestType: h.harvestType,
           type: harvestTypeLabel(h.harvestType, t),
           zoneKey: forecastZoneKeyFromRow(h),
           zoneLabel: zoneLabel(String(h.zone ?? "").trim()),
@@ -2049,7 +2309,10 @@ export function InventoryForecast({
       farm: string;
       grass: string;
       qty: number;
+      planQuantityRaw: number;
+      sourceM2: number;
       uom: string;
+      harvestType: ForecastHarvestRow["harvestType"];
       type: string;
       inventoryIsCapped: boolean;
       zoneLabel: string;
@@ -2073,7 +2336,10 @@ export function InventoryForecast({
         farm: ev.farm,
         grass: ev.grass,
         qty: ev.qty,
+        planQuantityRaw: ev.planQuantityRaw,
+        sourceM2: ev.sourceM2,
         uom: ev.uom,
+        harvestType: ev.harvestType,
         type: ev.type,
         inventoryIsCapped: ev.sourceWasCapped,
         zoneLabel: ev.zoneLabel,
@@ -2114,10 +2380,12 @@ export function InventoryForecast({
         const planIds: string[] = [];
         const sourceForecastRowIds = frags.map((f) => f.forecastRowId);
         let mergedType = first.type;
+        let planQuantityRaw = 0;
         for (const f of frags) {
           if (f.harvestDate && harvestDate && f.harvestDate < harvestDate) harvestDate = f.harvestDate;
           if (!planIds.includes(f.planId)) planIds.push(f.planId);
           mergedType = mergeHarvestTypeLabels(mergedType, f.type);
+          planQuantityRaw += f.planQuantityRaw;
         }
 
         const zoneSlotLabels: string[] = [];
@@ -2182,6 +2450,8 @@ export function InventoryForecast({
           farm: first.farm,
           grass: first.grass,
           uom: first.uom,
+          harvestType: first.harvestType,
+          planQuantityRaw,
           type: mergedType,
           inventoryIsCapped,
           configuredCapSumKg: capSum,
@@ -2197,6 +2467,7 @@ export function InventoryForecast({
           maxRegrowthDayKg: rollingRegrowthKg,
           maxHarvestDayKg: rollingHarvestKg,
           zoneSlotLabels,
+          fragments: frags,
           regrowthTooltipZoneSource,
           sourceM2: sumRegrowthTooltipSourceM2(regrowthTooltipZoneSource),
           regrowthTooltipKgPerM2ByZone,
@@ -2259,6 +2530,57 @@ export function InventoryForecast({
       ) ?? null
     );
   }, [regrowthEvents, selectedRegrowthKey]);
+
+  const regrowthByDate = useMemo(() => {
+    type RegrowthDayFragment = {
+      lineId: string;
+      eventKey: string;
+      ev: (typeof regrowthEvents)[number];
+      frag: (typeof regrowthEvents)[number]["fragments"][number];
+      isLastFragmentInEvent: boolean;
+    };
+    const byDate = new Map<string, RegrowthDayFragment[]>();
+    for (const ev of regrowthEvents) {
+      const eventKey = regrowthEventKey(ev.farmId, ev.productId, ev.date);
+      const fragments =
+        ev.fragments.length > 0
+          ? ev.fragments
+          : [
+              {
+                forecastRowId: eventKey,
+                farm: ev.farm,
+                grass: ev.grass,
+                qty: ev.primaryDisplayKg,
+                planQuantityRaw: ev.planQuantityRaw,
+                sourceM2: ev.sourceM2,
+                uom: ev.uom,
+                harvestType: ev.harvestType,
+                type: ev.type,
+                zoneLabel: "",
+                planId: "",
+                farmId: ev.farmId,
+                productId: ev.productId,
+                harvestDate: ev.harvestDate,
+                date: ev.date,
+                inventoryIsCapped: ev.inventoryIsCapped,
+                zoneKey: "",
+                inventoryKgFromNozoneSpread: 0,
+              },
+            ];
+      fragments.forEach((frag, fragIdx) => {
+        const arr = byDate.get(ev.date) ?? [];
+        arr.push({
+          lineId: `${eventKey}|${frag.forecastRowId ?? fragIdx}`,
+          eventKey,
+          ev,
+          frag,
+          isLastFragmentInEvent: fragIdx === fragments.length - 1,
+        });
+        byDate.set(ev.date, arr);
+      });
+    }
+    return [...byDate.entries()].sort(([a], [b]) => a.localeCompare(b));
+  }, [regrowthEvents]);
 
   const regrowthPlanDetailRows = useMemo(() => {
     if (!selectedRegrowthEvent) return [];
@@ -2622,6 +2944,13 @@ export function InventoryForecast({
               const grassDetail = forecastUpcomingGrassDetail(h.grass, h.zone);
               const subtitleText = forecastHarvestEventSubtitle(h.customer, h.project);
               const typeBadge = loadTypeBadgeMeta(h.harvestType, t);
+              const nativeDisplay = forecastUpcomingNativeDisplay(
+                h.harvestType,
+                h.qty,
+                h.sourceM2,
+                h.planQuantityRaw,
+                h.uom,
+              );
               return (
                 <ForecastEventTile
                   key={h.id}
@@ -2639,13 +2968,18 @@ export function InventoryForecast({
                   }
                   amount={
                     <>
-                      {h.sourceM2 > 0 && h.m2ConversionLines.length > 0 ? (
+                      {shouldShowForecastM2ConversionHelp(
+                        h.harvestType,
+                        h.sourceM2,
+                        h.m2ConversionLines,
+                      ) ? (
                         <ForecastM2ConversionHelp lines={h.m2ConversionLines} t={t} />
                       ) : null}
                       <ForecastKgQuantityLabel
                         sign="-"
                         kg={h.qty}
                         sourceM2={h.sourceM2}
+                        nativeDisplay={nativeDisplay}
                         className="text-destructive"
                       />
                     </>
@@ -2687,102 +3021,159 @@ export function InventoryForecast({
           <p className="py-6 text-center text-sm text-muted-foreground">{t("events.empty")}</p>
         ) : (
           <div className="max-h-[360px] space-y-2 overflow-y-auto pr-1">
-            {regrowthEvents.map((ev) => {
-              const noZoneInline = regrowthNoZoneInlineText(
-                ev.regrowthTooltipZoneSource,
-                ev.nozoneInputKg,
-                t,
-              );
-              const eventKey = regrowthEventKey(ev.farmId, ev.productId, ev.date);
-              const canShowPlanDetails = ev.planIds.length > 0;
-              const openPlanDetails = () => {
-                if (!canShowPlanDetails) return;
+            {regrowthByDate.map(([date, dayFragments]) => {
+              const singleEvent =
+                dayFragments.length > 0 &&
+                dayFragments.every((f) => f.eventKey === dayFragments[0]!.eventKey)
+                  ? dayFragments[0]!.ev
+                  : null;
+              const canOpenFromDate =
+                singleEvent != null && singleEvent.planIds.length > 0;
+              const openPlanDetails = (eventKey: string, canShow: boolean) => {
+                if (!canShow) return;
                 setSelectedRegrowthKey((prev) => (prev === eventKey ? null : eventKey));
               };
+
+              const dayLines = dayFragments.map(
+                ({ lineId, eventKey, ev, frag, isLastFragmentInEvent }) => {
+                  const canShowPlanDetails = ev.planIds.length > 0;
+                  const nativeDisplay = forecastUpcomingNativeDisplay(
+                    frag.harvestType,
+                    frag.qty,
+                    frag.sourceM2,
+                    frag.planQuantityRaw,
+                    frag.uom,
+                  );
+                  const typeBadge = loadTypeBadgeMeta(frag.harvestType, t);
+                  const grassDetail = forecastUpcomingGrassDetail(
+                    frag.grass,
+                    frag.zoneLabel,
+                  );
+                  const sodM2ConversionLine =
+                    frag.harvestType === "sod"
+                      ? regrowthFragmentM2ConversionLine(
+                          frag,
+                          ev.regrowthTooltipKgPerM2ByZone,
+                          t("events.noZoneName"),
+                        )
+                      : null;
+                  const sodM2ConversionLines = sodM2ConversionLine
+                    ? [sodM2ConversionLine]
+                    : [];
+                  const groupBadges = isLastFragmentInEvent
+                    ? [
+                        ...(ev.maxOverlimitKg > 0
+                          ? [
+                              <RegrowthMaxBadgeHelp
+                                key="max"
+                                ev={{
+                                  regrowthDateYmd: ev.date,
+                                  farmLabel: forecastDisplayFarmName(
+                                    ev.farm,
+                                    t("events.noFarmName"),
+                                  ),
+                                  grassLabel: ev.grass,
+                                  availablePrevKg: ev.maxAvailablePrevKg,
+                                  regrowthKg: ev.maxRegrowthDayKg,
+                                  harvestKg: ev.maxHarvestDayKg,
+                                  configuredCapSumKg: ev.configuredCapSumKg,
+                                  overlimitKg: ev.maxOverlimitKg,
+                                }}
+                                t={t}
+                              />,
+                            ]
+                          : []),
+                        ...(ev.nozoneRemainingKg > 0
+                          ? [
+                              <ForecastEventBadge
+                                key="nozone"
+                                label={t("events.nonzonPoolBadge", {
+                                  noZone: t("events.noZoneName"),
+                                  kg: ev.nozoneRemainingKg.toLocaleString(),
+                                })}
+                                className="bg-orange-100 text-orange-900"
+                              />,
+                            ]
+                          : []),
+                        ...(ev.overflowBeyondCapKg > 0
+                          ? [
+                              <span key="overflow" className="inline-flex items-center gap-1">
+                                <ForecastEventBadge
+                                  label={`+${ev.overflowBeyondCapKg.toLocaleString()} ${t("events.overflow")}`}
+                                  className="bg-red-100 text-red-700"
+                                />
+                                <RegrowthOverflowHelp ev={ev} zoneLabelFn={zoneLabel} t={t} />
+                              </span>,
+                            ]
+                          : []),
+                      ]
+                    : [];
+
+                  return {
+                    id: lineId,
+                    farm: forecastDisplayFarmName(ev.farm, t("events.noFarmName")),
+                    grassDetail,
+                    subtitle:
+                      isLastFragmentInEvent && ev.planIds.length > 1 ? (
+                        <p className="text-[10px] text-muted-foreground">
+                          {t("events.mergedHarvestPlans", { count: ev.planIds.length })}
+                        </p>
+                      ) : undefined,
+                    amount: (
+                      <span className="inline-flex items-center justify-end gap-1">
+                        {frag.harvestType === "sod" &&
+                        shouldShowForecastM2ConversionHelp(
+                          frag.harvestType,
+                          frag.sourceM2,
+                          sodM2ConversionLines,
+                        ) ? (
+                          <ForecastM2ConversionHelp lines={sodM2ConversionLines} t={t} />
+                        ) : null}
+                        <ForecastKgQuantityLabel
+                          sign="+"
+                          kg={frag.qty}
+                          sourceM2={frag.sourceM2}
+                          nativeDisplay={nativeDisplay}
+                          className="text-primary"
+                          onClick={
+                            canShowPlanDetails
+                              ? () => openPlanDetails(eventKey, true)
+                              : undefined
+                          }
+                        />
+                      </span>
+                    ),
+                    badges: [
+                      <ForecastEventBadge
+                        key="type"
+                        label={typeBadge.label}
+                        className={typeBadge.className}
+                      />,
+                      ...groupBadges,
+                    ],
+                  };
+                },
+              );
+
               return (
-                <ForecastEventTile
-                  key={eventKey}
+                <ForecastRegrowthDayGroup
+                  key={date}
                   accentClassName="bg-primary"
-                  dateLabel={formatDayMonth(ev.date)}
-                  onDateClick={canShowPlanDetails ? openPlanDetails : undefined}
-                  onAmountClick={canShowPlanDetails ? openPlanDetails : undefined}
-                  title={
-                    <ForecastEventTitleRich
-                      farm={forecastDisplayFarmName(ev.farm, t("events.noFarmName"))}
-                      detail={[ev.grass.trim(), noZoneInline].filter(Boolean).join(" · ")}
-                    />
+                  dateLabel={formatDayMonth(date)}
+                  lines={dayLines}
+                  onDateClick={
+                    canOpenFromDate
+                      ? () =>
+                          openPlanDetails(
+                            regrowthEventKey(
+                              singleEvent!.farmId,
+                              singleEvent!.productId,
+                              singleEvent!.date,
+                            ),
+                            true,
+                          )
+                      : undefined
                   }
-                  subtitle={
-                    ev.planIds.length > 1 ? (
-                      <p className="text-[10px] text-muted-foreground">
-                        {t("events.mergedHarvestPlans", { count: ev.planIds.length })}
-                      </p>
-                    ) : undefined
-                  }
-                  amount={
-                    <>
-                      {ev.sourceM2 > 0 && ev.m2ConversionLines.length > 0 ? (
-                        <ForecastM2ConversionHelp lines={ev.m2ConversionLines} t={t} />
-                      ) : null}
-                      <ForecastKgQuantityLabel
-                        sign="+"
-                        kg={ev.primaryDisplayKg}
-                        sourceM2={ev.sourceM2}
-                        className="text-primary"
-                      />
-                    </>
-                  }
-                  badges={[
-                    <ForecastEventBadge
-                      key="type"
-                      label={ev.type}
-                      className="bg-primary/10 text-primary"
-                    />,
-                    ...(ev.maxOverlimitKg > 0
-                      ? [
-                          <RegrowthMaxBadgeHelp
-                            key="max"
-                            ev={{
-                              regrowthDateYmd: ev.date,
-                              farmLabel: forecastDisplayFarmName(
-                                ev.farm,
-                                t("events.noFarmName"),
-                              ),
-                              grassLabel: ev.grass,
-                              availablePrevKg: ev.maxAvailablePrevKg,
-                              regrowthKg: ev.maxRegrowthDayKg,
-                              harvestKg: ev.maxHarvestDayKg,
-                              configuredCapSumKg: ev.configuredCapSumKg,
-                              overlimitKg: ev.maxOverlimitKg,
-                            }}
-                            t={t}
-                          />,
-                        ]
-                      : []),
-                    ...(ev.nozoneRemainingKg > 0
-                      ? [
-                          <ForecastEventBadge
-                            key="nozone"
-                            label={t("events.nonzonPoolBadge", {
-                              noZone: t("events.noZoneName"),
-                              kg: ev.nozoneRemainingKg.toLocaleString(),
-                            })}
-                            className="bg-orange-100 text-orange-900"
-                          />,
-                        ]
-                      : []),
-                    ...(ev.overflowBeyondCapKg > 0
-                      ? [
-                          <span key="overflow" className="inline-flex items-center gap-1">
-                            <ForecastEventBadge
-                              label={`+${ev.overflowBeyondCapKg.toLocaleString()} ${t("events.overflow")}`}
-                              className="bg-red-100 text-red-700"
-                            />
-                            <RegrowthOverflowHelp ev={ev} zoneLabelFn={zoneLabel} t={t} />
-                          </span>,
-                        ]
-                      : []),
-                  ]}
                 />
               );
             })}

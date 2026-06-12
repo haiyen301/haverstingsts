@@ -16,6 +16,7 @@ import {
   forecastZoneBucketKey,
   harvestPlanEffectiveMagnitudeFromRaw,
   harvestPlanHarvestedAreaFromRaw,
+  harvestPlanQuantityFromRaw,
   harvestPlanProductIdFromRaw,
   harvestPlanInventoryKgFromRaw,
   harvestPlanScalarFromRaw,
@@ -138,6 +139,7 @@ export function harvestApiRowToForecastRow(
     deliveryDate: harvestDateStringToYmd(raw.delivery_harvest_date) ?? undefined,
     readyDate: readyDateYmd,
     quantity,
+    planQuantityRaw: harvestPlanQuantityFromRaw(raw),
     harvestedAreaM2,
     kgPerM2,
     isReady,
@@ -167,7 +169,11 @@ async function fetchHarvestPage(
     actual_harvest_date_to: string;
     country_id?: string;
   },
-): Promise<{ rows: Record<string, unknown>[]; isLast: boolean }> {
+): Promise<{
+  rows: Record<string, unknown>[];
+  isLast: boolean;
+  totalPages: number;
+}> {
   const q: Record<string, string | number | undefined> = {
     page,
     per_page: params.perPage,
@@ -183,7 +189,9 @@ async function fetchHarvestPage(
     (x): x is Record<string, unknown> =>
       !!x && typeof x === "object" && !Array.isArray(x),
   );
-  return { rows: batch, isLast: batch.length < params.perPage };
+  const totalPages = Math.max(1, res.totalPages);
+  const isLast = page >= totalPages || batch.length < params.perPage;
+  return { rows: batch, isLast, totalPages };
 }
 
 async function fetchHarvestPagesParallel(
@@ -232,8 +240,9 @@ export async function fetchHarvestRowsForForecasting(params: {
       country_id: params.country_id,
     });
     const out = [...first.rows];
-    if (!first.isLast && maxPages > 1) {
-      const rest = await fetchHarvestPagesParallel(2, maxPages, {
+    const lastPageToFetch = Math.min(first.totalPages, maxPages);
+    if (lastPageToFetch > 1) {
+      const rest = await fetchHarvestPagesParallel(2, lastPageToFetch, {
         perPage,
         actual_harvest_date_from: params.actual_harvest_date_from,
         actual_harvest_date_to: params.actual_harvest_date_to,

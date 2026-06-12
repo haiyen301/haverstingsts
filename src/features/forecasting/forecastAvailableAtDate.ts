@@ -135,8 +135,19 @@ function harvestKgOnDate(
   onDate: Date,
   zoneConfigs?: ZoneConfigurationRow[],
 ): number {
+  return harvestKgForFilteredRowsOnDate(rows, onDate, zoneConfigs);
+}
+
+/** Σ harvest kg on `onDate` for rows matching optional farm+grass filter. */
+function harvestKgForFilteredRowsOnDate(
+  rows: ForecastHarvestRow[],
+  onDate: Date,
+  zoneConfigs?: ZoneConfigurationRow[],
+  farmProductFilter?: (farmId: number, productId: number) => boolean,
+): number {
   let sum = 0;
   for (const row of rows) {
+    if (farmProductFilter && !farmProductFilter(row.farmId, row.productId)) continue;
     const harvestDate = parseHarvestDateFromRow(row);
     if (!harvestDate || !isSameLocalDay(harvestDate, onDate)) continue;
     sum += Math.max(0, rowInventoryKg(row, zoneConfigs));
@@ -198,6 +209,32 @@ function collectActiveZoneKeysForDay(
     if (entry.zoneKey && isMappedForecastZoneKey(entry.zoneKey)) keys.add(entry.zoneKey);
   }
   return Array.from(keys);
+}
+
+/**
+ * On the manual balance date only: swap each overridden zone's saved system kg for
+ * manual kg inside today's rolled aggregate. Other days use normal roll — no swap.
+ */
+function applyExactDateManualReplacementsToRolledTotal(
+  rolledKg: number,
+  overridesByZone: Record<string, InventoryAvailableOverrideEntry>,
+  dateYmd: string,
+  systemKgByZoneKey: Map<string, number>,
+  farmProductFilter?: (farmId: number, productId: number) => boolean,
+): number {
+  let total = rolledKg;
+  for (const entry of Object.values(overridesByZone)) {
+    if (farmProductFilter && !farmProductFilter(entry.farmId, entry.grassId)) continue;
+    const entryYmd = String(entry.date ?? "").trim().slice(0, 10);
+    if (entryYmd !== dateYmd) continue;
+
+    const manualKg = Math.max(0, Number(entry.availableKg) || 0);
+    const savedSystemKg = Math.max(0, Number(entry.calculatedKg) || 0);
+    const systemKg =
+      savedSystemKg > 0 ? savedSystemKg : Math.max(0, systemKgByZoneKey.get(entry.zoneKey) ?? 0);
+    total = total - systemKg + manualKg;
+  }
+  return Math.max(0, total);
 }
 
 /** Manual balance for one zone saved exactly on `asOf` (not before/after). */
@@ -1132,6 +1169,7 @@ export function computeInventoryStyleFarmGrassDailySeriesWithBreakdown(
     let harvestKg = 0;
     let hasExactOverrideToday = false;
     const fpHasExactOverride = new Set<string>();
+    const zoneSystemRollingKg = new Map<string, number>();
 
     const fpRawRollingKg = new Map<string, number>();
     const fpCapCounted = new Set<string>();
@@ -1149,6 +1187,7 @@ export function computeInventoryStyleFarmGrassDailySeriesWithBreakdown(
       harvestKg += dayHarvest;
 
       let rolling = Math.max(0, prev + dayRegrowth - dayHarvest);
+      zoneSystemRollingKg.set(zoneKey, rolling);
 
       const exactOverride = manualOverrideForZoneOnExactDate(overridesByZone, zoneKey, date);
       if (exactOverride) {
@@ -1269,9 +1308,25 @@ export function computeInventoryStyleFarmGrassDailySeriesWithBreakdown(
           ? reportedCapacityCapKg
           : capacityCapKg;
 
+    const totalHarvestKg = harvestKgForFilteredRowsOnDate(
+      rowsWithCapsFor(dateStr, date),
+      date,
+      zoneConfigs,
+      farmProductFilter,
+    );
+
+    const rolledAvailableKg = Math.max(0, aggregateBaseKg + regrowthKg - totalHarvestKg);
+    // Swap system→manual in roll total only when a balance was saved on this exact date.
+    // All other days: plain rolledAvailableKg (prev + regrowth − harvest).
     const displayAvailableKg = hasExactOverrideToday
-      ? availableKg
-      : Math.max(0, aggregateBaseKg + regrowthKg - harvestKg);
+      ? applyExactDateManualReplacementsToRolledTotal(
+          rolledAvailableKg,
+          overridesByZone,
+          dateStr,
+          zoneSystemRollingKg,
+          farmProductFilter,
+        )
+      : rolledAvailableKg;
 
     if (date.getTime() < start.getTime()) {
       lastAvailableKg = displayAvailableKg;
@@ -1284,7 +1339,7 @@ export function computeInventoryStyleFarmGrassDailySeriesWithBreakdown(
       date: dateStr,
       previousAvailableKg: aggregateBaseKg,
       regrowthKg,
-      harvestKg,
+      harvestKg: totalHarvestKg,
       beforeHarvestKg,
       rawAvailableKg,
       capacityCapKg: reportedCapacityCapKg,

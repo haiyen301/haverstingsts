@@ -18,6 +18,8 @@ export type ForecastComputeWorkerRequest = {
   endDateMs: number;
   debouncedFarmIds: string[];
   debouncedGrassIds: string[];
+  /** Grass ids hidden by catalog/sales-window rules — must match inventory forecast filters. */
+  hiddenGrassIds: string[];
 };
 
 export type ForecastComputeWorkerResponse = {
@@ -55,7 +57,9 @@ export function runForecastDailySeriesCompute(
 ): Omit<ForecastComputeWorkerResponse, "id"> {
   const farmIdSet = new Set(input.debouncedFarmIds);
   const grassIdSet = new Set(input.debouncedGrassIds);
+  const hiddenGrassIdSet = new Set(input.hiddenGrassIds);
   const farmProductFilter = (farmId: number, productId: number) => {
+    if (hiddenGrassIdSet.has(String(productId))) return false;
     if (farmIdSet.size > 0 && !farmIdSet.has(String(farmId))) return false;
     if (grassIdSet.size > 0 && !grassIdSet.has(String(productId))) return false;
     return true;
