@@ -52,6 +52,17 @@ export default function InventoryImportPage() {
   const [fileCountry, setFileCountry] = useState<InventoryImportFileCountry | "">("");
   const [country, setCountry] = useState("");
   const [error, setError] = useState("");
+  const [fileInputKey, setFileInputKey] = useState(0);
+
+  const resetForm = useCallback(() => {
+    setRawFileName("");
+    setRawBuffer(null);
+    setRows([]);
+    setFileCountry("");
+    setCountry("");
+    setError("");
+    setFileInputKey((key) => key + 1);
+  }, []);
 
   const rowCount = rows.length;
   const normalizedCountry = useMemo(() => toNumberString(country), [country]);
@@ -136,7 +147,7 @@ export default function InventoryImportPage() {
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "ImportInventory");
     XLSX.writeFile(workbook, "import-inventory-from-raw.xlsx");
-    setError("");
+    resetForm();
   };
 
   return (
@@ -188,6 +199,7 @@ export default function InventoryImportPage() {
               <Upload className="h-4 w-4" />
               {t("uploadRaw")}
               <input
+                key={fileInputKey}
                 type="file"
                 accept=".xlsx,.xls"
                 className="hidden"

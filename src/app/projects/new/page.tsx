@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useState,
   type FormEvent,
@@ -15,7 +16,7 @@ import {
   onForecastMutations,
   rowDataAffectsHarvest,
 } from "@/features/forecasting/forecastDataSync";
-import { canAccessModule } from "@/shared/auth/permissions";
+import { canAccessModule, isSuperAdmin } from "@/shared/auth/permissions";
 import { userIdIsPrivilegedAdmin } from "@/shared/auth/privilegedAdminAccess";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { useAuthUserStore } from "@/shared/store/authUserStore";
@@ -27,6 +28,15 @@ import {
 } from "@/entities/projects";
 import { DatePicker } from "@/shared/ui/date-picker";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
+
+const TURF_FARM_MANAGER_ROLE = "Turf Farm Manager";
+
+function toProjectDateInput(v: unknown): string {
+  if (typeof v !== "string" || !v.trim()) return "";
+  const s = v.trim();
+  if (s.startsWith("0000")) return "";
+  return s.length >= 10 ? s.slice(0, 10) : s;
+}
 import {
   fetchKeyAreas,
   sortKeyAreaRows,
@@ -51,6 +61,7 @@ import {
 import {
   buildPaceGrassBatchQuantities,
   estimatePaceDurationWeeks,
+  estimatePaceHarvestDateSpan,
   estimateTotalHarvestBatches,
   generatePlannedHarvestsForNewProject,
   isProjectPaceForHarvestPlan,
@@ -281,10 +292,16 @@ export default function ProjectInputPage() {
     () => isEdit && userIdIsPrivilegedAdmin(user?.id),
     [isEdit, user?.id],
   );
+  const showProjectLogisticsTimelineDates = useMemo(
+    () =>
+      isSuperAdmin(user) ||
+      user?.role_title?.trim() === TURF_FARM_MANAGER_ROLE,
+    [user],
+  );
   const returnTarget = useMemo(
     () =>
       resolveReturnToTarget(returnToParam, {
-        allowedPrefixes: ["/projects"],
+        allowedPrefixes: ["/projects", "/harvest"],
         fallback: "/projects",
       }),
     [returnToParam],
@@ -330,6 +347,7 @@ export default function ProjectInputPage() {
   const [fieldErrors, setFieldErrors] = useState<TopFieldErrors>({});
   const [startDateTouched, setStartDateTouched] = useState(false);
   const [grassValidationError, setGrassValidationError] = useState<string | null>(null);
+  const [projectPaceError, setProjectPaceError] = useState<string | null>(null);
   /** From loaded row / API (`react_get_harvesting_table`); fallback `Harvesting` for delete. */
   const [editTableName, setEditTableName] = useState("");
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
@@ -350,6 +368,8 @@ export default function ProjectInputPage() {
     actualStartDate: "",
     endDate: "",
     actualCompletionDate: "",
+    inTransitDate: "",
+    pickUpDate: "",
     projectType: "",
     holes: "",
     contactName: "",
@@ -413,7 +433,7 @@ export default function ProjectInputPage() {
   );
 
   /** Include legacy / unknown stored values so edit mode can show the current selection. */
-  const projectTypeRadioValues = useMemo(() => {
+  const projectTypeSelectOptions = useMemo(() => {
     const cur = formData.projectType.trim();
     const sourceValues = projectTypeCatalogValues.length
       ? projectTypeCatalogValues
@@ -439,12 +459,13 @@ export default function ProjectInputPage() {
     return !trimmed || trimmed.toLowerCase() === "none";
   };
 
-  const projectPaceRadioOptions = useMemo(() => {
+  const projectPaceSelectOptions = useMemo(() => {
     const fromCatalog = projectPaceCatalogRows
       .map((row) => {
-        const value = String(row.pace_key ?? "").trim();
-        if (!value || value.toLowerCase() === "none") return null;
-        const title = String(row.title ?? value).trim();
+        const rawValue = String(row.pace_key ?? "").trim();
+        if (!rawValue || rawValue.toLowerCase() === "none") return null;
+        const value = rawValue.toLowerCase();
+        const title = String(row.title ?? rawValue).trim();
         const paceConfig = projectPaceConfigFromRow(row);
         const months = Math.max(0, paceConfig.durationMonths);
         const weeks = estimatePaceDurationWeeks(paceConfig);
@@ -463,11 +484,11 @@ export default function ProjectInputPage() {
       })
       .filter((opt): opt is NonNullable<typeof opt> => opt != null);
 
-    const cur = formData.projectPace.trim();
+    const cur = formData.projectPace.trim().toLowerCase();
     if (
       cur &&
       !isProjectPaceUnset(cur) &&
-      !fromCatalog.some((opt) => opt.value.toLowerCase() === cur.toLowerCase())
+      !fromCatalog.some((opt) => opt.value === cur)
     ) {
       return [
         {
@@ -493,6 +514,20 @@ export default function ProjectInputPage() {
     if (low === "renovation" || low === "renovation_project") return t("typeRenovation");
     return type;
   };
+
+  const labelForProjectPaceOption = (opt: {
+    title: string;
+    months: number;
+  }) => {
+    if (opt.months > 0) {
+      return `${opt.title} — ${t("projectPaceDurationLine", { months: opt.months })}`;
+    }
+    return opt.title;
+  };
+
+  const selectedProjectPaceValue = isProjectPaceUnset(formData.projectPace)
+    ? ""
+    : formData.projectPace.trim().toLowerCase();
 
   const requiresHoles = GOLF_COURSE_TYPES_REQUIRING_HOLES_NORMALIZED.has(
     formData.projectType.trim().toLowerCase(),
@@ -889,23 +924,89 @@ export default function ProjectInputPage() {
     return null;
   };
 
-  const scrollToField = useCallback((elementId: string) => {
-    if (typeof window === "undefined") return;
-    const element = document.getElementById(elementId);
-    if (!element) return;
-    element.scrollIntoView({ behavior: "smooth", block: "center" });
-    const focusTarget =
-      element instanceof HTMLInputElement ||
-        element instanceof HTMLSelectElement ||
-        element instanceof HTMLTextAreaElement
-        ? element
-        : (element.querySelector(
-          "input, select, textarea, button, [tabindex]",
-        ) as HTMLElement | null);
-    if (focusTarget && "focus" in focusTarget) {
-      focusTarget.focus();
+  const getProjectPaceTimelineError = useCallback((): string | null => {
+    if (isProjectPaceUnset(formData.projectPace)) return null;
+
+    const paceKey = formData.projectPace.trim().toLowerCase();
+    if (!isProjectPaceForHarvestPlan(paceKey, projectPaceCatalogRows)) return null;
+
+    const selectedPace = projectPaceCatalogRows.find(
+      (row) => String(row.pace_key ?? "").trim().toLowerCase() === paceKey,
+    );
+    if (!selectedPace) return null;
+
+    const timelineStartYmd =
+      formData.estimateStartDate.trim() || formData.actualStartDate.trim();
+    const endYmd = formData.endDate.trim();
+    if (!timelineStartYmd || !endYmd) return null;
+
+    const span = estimatePaceHarvestDateSpan({
+      paceConfig: projectPaceConfigFromRow(selectedPace),
+      estimatedStartYmd: timelineStartYmd,
+    });
+    if (!span) return null;
+
+    if (span.lastYmd > endYmd) {
+      return t("validationProjectPaceExceedsEndDate", {
+        lastHarvestDate: span.lastYmd,
+      });
     }
-  }, []);
+    return null;
+  }, [
+    formData.actualStartDate,
+    formData.endDate,
+    formData.estimateStartDate,
+    formData.projectPace,
+    projectPaceCatalogRows,
+    t,
+  ]);
+
+  const scrollToField = useCallback(
+    (elementId: string, behavior: ScrollBehavior = "smooth") => {
+      if (typeof window === "undefined") return false;
+      const element = document.getElementById(elementId);
+      if (!element) return false;
+      element.scrollIntoView({ behavior, block: "start" });
+      const focusTarget =
+        element instanceof HTMLInputElement ||
+          element instanceof HTMLSelectElement ||
+          element instanceof HTMLTextAreaElement
+          ? element
+          : (element.querySelector(
+            "input, select, textarea, button, [tabindex]",
+          ) as HTMLElement | null);
+      if (focusTarget && "focus" in focusTarget) {
+        focusTarget.focus({ preventScroll: true });
+      }
+      return true;
+    },
+    [],
+  );
+
+  /** Deep-link from harvest form — scroll ASAP (do not wait for project row API). */
+  useLayoutEffect(() => {
+    if (accessDenied) return;
+    if (typeof window === "undefined") return;
+    const hash = window.location.hash.replace(/^#/, "").trim();
+    if (hash !== "project-grass-info") return;
+
+    let cancelled = false;
+    let attempts = 0;
+
+    const tryScroll = () => {
+      if (cancelled) return;
+      if (scrollToField("project-grass-info", "auto")) return;
+      attempts += 1;
+      if (attempts < 60) {
+        requestAnimationFrame(tryScroll);
+      }
+    };
+
+    tryScroll();
+    return () => {
+      cancelled = true;
+    };
+  }, [accessDenied, scrollToField]);
 
   const orderedTopFieldKeys: (keyof TopFieldErrors)[] = [
     "projectName",
@@ -921,7 +1022,13 @@ export default function ProjectInputPage() {
 
   const activeIssueCount = useMemo(() => {
     const topCount = orderedTopFieldKeys.filter((k) => Boolean(fieldErrors[k])).length;
-    const others = [projectTypeError, holesError, startDateError, grassValidationError]
+    const others = [
+      projectTypeError,
+      holesError,
+      startDateError,
+      projectPaceError,
+      grassValidationError,
+    ]
       .filter(Boolean).length;
     return topCount + others;
   }, [
@@ -929,6 +1036,7 @@ export default function ProjectInputPage() {
     grassValidationError,
     holesError,
     orderedTopFieldKeys,
+    projectPaceError,
     projectTypeError,
     startDateError,
   ]);
@@ -950,6 +1058,10 @@ export default function ProjectInputPage() {
       scrollToField(topFieldScrollMap[firstTop]);
       return;
     }
+    if (projectPaceError) {
+      scrollToField("project-pace");
+      return;
+    }
     if (holesError) {
       scrollToField("project-holes");
       return;
@@ -957,7 +1069,14 @@ export default function ProjectInputPage() {
     if (grassValidationError) {
       scrollToField("project-grass-info");
     }
-  }, [fieldErrors, grassValidationError, holesError, orderedTopFieldKeys, scrollToField]);
+  }, [
+    fieldErrors,
+    grassValidationError,
+    holesError,
+    orderedTopFieldKeys,
+    projectPaceError,
+    scrollToField,
+  ]);
 
   useEffect(() => {
     if (!startDateTouched) return;
@@ -972,6 +1091,10 @@ export default function ProjectInputPage() {
       actualStartDate: pairError ?? undefined,
     }));
   }, [formData.actualStartDate, formData.estimateStartDate, startDateTouched]);
+
+  useEffect(() => {
+    setProjectPaceError(getProjectPaceTimelineError());
+  }, [getProjectPaceTimelineError]);
 
   const applyEditRow = (row: MondayProjectServerRow) => {
     const projectId = String(row.project_id ?? "").trim();
@@ -997,6 +1120,8 @@ export default function ProjectInputPage() {
       actualStartDate: String(rec.start_date ?? "").trim(),
       endDate: String(row.deadline ?? "").trim(),
       actualCompletionDate: String(rec.actual_completion_date ?? "").trim(),
+      inTransitDate: toProjectDateInput(rec.in_transit_date),
+      pickUpDate: toProjectDateInput(rec.pick_up_date),
       projectType: String(row.project_type ?? "").trim(),
       holes: normalizeHoleValue(row.no_of_holes),
       contactName: String(rec.main_contact_name ?? "").trim(),
@@ -1044,6 +1169,7 @@ export default function ProjectInputPage() {
     setStartDateError(null);
     setFieldErrors({});
     setGrassValidationError(null);
+    setProjectPaceError(null);
     setStartDateTouched(true);
 
     const topFieldErrors = getTopFieldErrors();
@@ -1076,7 +1202,11 @@ export default function ProjectInputPage() {
       setGrassValidationError(null);
     }
 
-    const firstError = textFieldError ?? nextStartDateError ?? nextHolesError;
+    const nextProjectPaceError = getProjectPaceTimelineError();
+    setProjectPaceError(nextProjectPaceError);
+
+    const firstError =
+      textFieldError ?? nextStartDateError ?? nextProjectPaceError ?? nextHolesError;
     if (firstError) {
       setError(firstError);
       const topFieldScrollMap: Record<keyof TopFieldErrors, string> = {
@@ -1092,6 +1222,8 @@ export default function ProjectInputPage() {
       };
       if (firstTopFieldErrorKey) {
         scrollToField(topFieldScrollMap[firstTopFieldErrorKey]);
+      } else if (nextProjectPaceError) {
+        scrollToField("project-pace");
       } else if (nextHolesError) {
         scrollToField("project-holes");
       }
@@ -1253,6 +1385,12 @@ export default function ProjectInputPage() {
             : formData.projectPace.trim().toLowerCase(),
           pace_grass_batch_quantities: paceGrassBatchQuantities,
           actual_completion_date: formData.actualCompletionDate.trim(),
+          ...(showProjectLogisticsTimelineDates
+            ? {
+                in_transit_date: formData.inTransitDate.trim(),
+                pick_up_date: formData.pickUpDate.trim(),
+              }
+            : {}),
         },
       };
       if (!isEdit) {
@@ -1715,120 +1853,80 @@ export default function ProjectInputPage() {
                         <p className="text-xs text-destructive">{fieldErrors.country}</p>
                       ) : null}
                     </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-foreground">{t("projectType")}</label>
-                    <div
-                      className="grid grid-cols-1 gap-2 rounded-lg border border-border bg-surface-filter-filled p-3 sm:grid-cols-2 lg:grid-cols-3"
-                      style={
-                        projectTypeError ? { borderColor: "hsl(var(--destructive))" } : undefined
-                      }
-                    >
-                      {projectTypeRadioValues.map((type) => (
-                        <button
-                          key={type}
-                          type="button"
-                          onClick={() => {
-                            const nextType = formData.projectType === type ? "" : type;
-                            const nextIsGolfCourse =
-                              GOLF_COURSE_TYPES_REQUIRING_HOLES_NORMALIZED.has(
-                                nextType.trim().toLowerCase(),
-                              );
-                            setFormData({
-                              ...formData,
-                              projectType: nextType,
-                              holes: nextIsGolfCourse ? formData.holes : "",
-                            });
-                            setProjectTypeError(null);
-                            setHolesError(null);
-                          }}
-                          className="relative block cursor-pointer text-left"
-                        >
-                          <span
-                            className={`flex min-h-11 items-center justify-center rounded-md border px-3 text-sm transition-colors ${formData.projectType === type
-                                ? "border-primary bg-primary/5 text-primary"
-                                : "border-input bg-card text-foreground shadow-sm"
-                              }`}
-                          >
+                    <div className="space-y-1.5">
+                      <label
+                        className="text-sm font-medium text-foreground"
+                        htmlFor="project-type"
+                      >
+                        {t("projectType")}
+                      </label>
+                      <select
+                        id="project-type"
+                        value={formData.projectType}
+                        onChange={(e) => {
+                          const nextType = e.target.value;
+                          const nextIsGolfCourse =
+                            GOLF_COURSE_TYPES_REQUIRING_HOLES_NORMALIZED.has(
+                              nextType.trim().toLowerCase(),
+                            );
+                          setFormData({
+                            ...formData,
+                            projectType: nextType,
+                            holes: nextIsGolfCourse ? formData.holes : "",
+                          });
+                          setProjectTypeError(null);
+                          setHolesError(null);
+                        }}
+                        className={`w-full rounded-md border bg-card px-3 text-sm text-foreground shadow-sm ${projectTypeError ? "border-destructive" : "border-input"
+                          }`}
+                      >
+                        <option value="">{t("selectProjectType")}</option>
+                        {projectTypeSelectOptions.map((type) => (
+                          <option key={type} value={type}>
                             {labelForProjectTypeOption(type)}
-                          </span>
-                          {formData.projectType === type ? <CheckBadge /> : null}
-                        </button>
-                      ))}
+                          </option>
+                        ))}
+                      </select>
+                      {projectTypeError ? (
+                        <p className="text-xs text-destructive">{projectTypeError}</p>
+                      ) : null}
                     </div>
-                    {projectTypeError ? (
-                      <p className="text-xs text-destructive">{projectTypeError}</p>
-                    ) : null}
-                  </div>
-
-                  <div className="space-y-2 sm:col-span-2">
-                    <label className="text-sm font-medium text-foreground">
-                      {t("projectPaceLabel")}{" "}
-                      <span className="text-xs font-normal text-muted-foreground">
-                        {t("projectPaceHint")}
-                      </span>
-                    </label>
-                    <div className="grid grid-cols-1 gap-2 rounded-lg border border-border bg-surface-filter-filled p-3 sm:grid-cols-2 lg:grid-cols-3">
-                      {projectPaceRadioOptions.length === 0 ? (
-                        <p className="col-span-full text-sm text-muted-foreground">
+                    <div id="project-pace" className="space-y-1.5">
+                      <label
+                        className="text-sm font-medium text-foreground"
+                        htmlFor="project-pace-select"
+                      >
+                        {t("projectPaceLabel")}{" "}
+                        <span className="text-xs font-normal text-muted-foreground">
+                          {t("projectPaceHint")}
+                        </span>
+                      </label>
+                      <select
+                        id="project-pace-select"
+                        value={selectedProjectPaceValue}
+                        onChange={(e) => {
+                          setFormData({ ...formData, projectPace: e.target.value });
+                          setProjectPaceError(null);
+                        }}
+                        disabled={projectPaceSelectOptions.length === 0}
+                        className={`w-full rounded-md border bg-card px-3 text-sm text-foreground shadow-sm ${projectPaceError ? "border-destructive" : "border-input"
+                          } disabled:cursor-not-allowed disabled:opacity-60`}
+                      >
+                        <option value="">{t("paceNoneOption")}</option>
+                        {projectPaceSelectOptions.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {labelForProjectPaceOption(opt)}
+                          </option>
+                        ))}
+                      </select>
+                      {projectPaceSelectOptions.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">
                           {t("projectPaceEmptyCatalog")}
                         </p>
                       ) : null}
-                      {projectPaceRadioOptions.map((opt) => (
-                        <button
-                          key={opt.value}
-                          type="button"
-                          onClick={() => {
-                            const nextPace =
-                              formData.projectPace === opt.value ? "" : opt.value;
-                            setFormData({ ...formData, projectPace: nextPace });
-                          }}
-                          className="relative block cursor-pointer text-left"
-                        >
-                          <span
-                            className={`flex min-h-11 flex-col items-center justify-center gap-0.5 rounded-md border px-3 py-2 text-center text-sm transition-colors ${formData.projectPace === opt.value
-                                ? "border-primary bg-primary/5 text-primary"
-                                : "border-input bg-card text-foreground shadow-sm"
-                              }`}
-                          >
-                            <span className="font-medium leading-tight">{opt.title}</span>
-                            {opt.months > 0 ? (
-                              <>
-                                <span
-                                  className={`text-xs leading-tight ${formData.projectPace === opt.value
-                                      ? "text-primary/80"
-                                      : "text-muted-foreground"
-                                    }`}
-                                >
-                                  {t("projectPaceDurationLine", {
-                                    months: opt.months,
-                                  })}
-                                </span>
-                              </>
-                            ) : null}
-                          </span>
-                          {formData.projectPace === opt.value ? <CheckBadge /> : null}
-                        </button>
-                      ))}
-                      <button
-                        key="none"
-                        type="button"
-                        onClick={() => {
-                          setFormData({ ...formData, projectPace: "" });
-                        }}
-                        className="relative block cursor-pointer text-left"
-                      >
-                        <span
-                          className={`flex min-h-11 items-center justify-center rounded-md border px-3 text-center text-sm transition-colors ${isProjectPaceUnset(formData.projectPace)
-                              ? "border-primary bg-primary/5 text-primary"
-                              : "border-input bg-card text-foreground shadow-sm"
-                            }`}
-                        >
-                          {t("paceNoneOption")}
-                        </span>
-                        {isProjectPaceUnset(formData.projectPace) ? <CheckBadge /> : null}
-                      </button>
+                      {projectPaceError ? (
+                        <p className="text-xs text-destructive">{projectPaceError}</p>
+                      ) : null}
                     </div>
                   </div>
                 </div>
@@ -1949,10 +2047,12 @@ export default function ProjectInputPage() {
                         setFormData({ ...formData, endDate: value });
                         setFieldErrors((prev) => ({ ...prev, endDate: undefined }));
                       }}
-                      hasError={Boolean(fieldErrors.endDate)}
+                      hasError={Boolean(fieldErrors.endDate || projectPaceError)}
                     />
                     {fieldErrors.endDate ? (
                       <p className="text-xs text-destructive">{fieldErrors.endDate}</p>
+                    ) : projectPaceError ? (
+                      <p className="text-xs text-destructive">{projectPaceError}</p>
                     ) : null}
                   </div>
 
@@ -1967,6 +2067,36 @@ export default function ProjectInputPage() {
                       }
                     />
                   </div>
+
+                  {showProjectLogisticsTimelineDates ? (
+                    <>
+                      <div id="project-in-transit-date" className="space-y-1.5">
+                        <label className="text-sm font-medium text-foreground">
+                          {t("inTransitDay")}
+                        </label>
+                        <DatePicker
+                          value={formData.inTransitDate}
+                          onChange={(value) =>
+                            setFormData({ ...formData, inTransitDate: value })
+                          }
+                          disabled={formControlsDisabled}
+                        />
+                      </div>
+
+                      <div id="project-pick-up-date" className="space-y-1.5">
+                        <label className="text-sm font-medium text-foreground">
+                          {t("pickUpDay")}
+                        </label>
+                        <DatePicker
+                          value={formData.pickUpDate}
+                          onChange={(value) =>
+                            setFormData({ ...formData, pickUpDate: value })
+                          }
+                          disabled={formControlsDisabled}
+                        />
+                      </div>
+                    </>
+                  ) : null}
                 </div>
               </section>
 
@@ -2044,7 +2174,7 @@ export default function ProjectInputPage() {
 
               <section
                 id="project-grass-info"
-                className="overflow-hidden rounded-xl border border-border bg-card text-card-foreground shadow-sm"
+                className="scroll-mt-20 overflow-hidden rounded-xl border border-border bg-card text-card-foreground shadow-sm"
               >
                 <div className="flex items-center justify-between border-b border-border px-4 py-3 lg:px-5">
                   <h2 className="text-base font-semibold">{t("grassRequirements")}</h2>

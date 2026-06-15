@@ -19,6 +19,7 @@ import {
   PROJECT_LIST_EXPORT_IMAGE_COLUMN_KEYS,
   type ProjectListExportImageCellRef,
 } from "@/features/project/lib/projectListExportImages";
+import { mergeProjectSubitemsWithHarvestPlan } from "@/features/project/lib/mergeProjectSubitemsWithHarvestPlan";
 import { getAttachmentUrls } from "@/shared/lib/harvestAttachmentImages";
 import { formatDateDisplayDmy } from "@/shared/lib/format/date";
 import { parseJsonMaybe, parseQuantityRequiredRows } from "@/shared/lib/parseJsonMaybe";
@@ -455,6 +456,26 @@ async function fetchAllMondayProjectRowsForExport(
   }
 
   return allRows;
+}
+
+/** Exact project card count for list header (server + client filters, parity with Projects page). */
+export async function countFilteredMondayProjectRows(
+  filter: ProjectListExportFilter,
+  options?: {
+    projectsCatalog?: unknown[];
+    harvestPlanRows?: Array<Record<string, unknown>>;
+  },
+): Promise<number> {
+  const mondayRows = await fetchAllMondayProjectRowsForExport(filter);
+  const rowsForFilter =
+    options?.harvestPlanRows && options.harvestPlanRows.length > 0
+      ? (mergeProjectSubitemsWithHarvestPlan(
+          mondayRows as unknown as Array<Record<string, unknown>>,
+          options.harvestPlanRows,
+        ) as MondayProjectServerRow[])
+      : mondayRows;
+  const projectCountryById = buildProjectCountryById(options?.projectsCatalog);
+  return filterMondayRowsForExport(rowsForFilter, filter, projectCountryById).length;
 }
 
 function harvestRowMatchesLineFilters(

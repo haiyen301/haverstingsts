@@ -7,10 +7,8 @@ import { Eye, EyeOff, Lock, Mail } from "lucide-react";
 
 import { INTERNAL_API } from "@/shared/api/stsLogin";
 import {
-  probeApiRoute,
   readFetchJson,
   resolveSameOriginApiUrl,
-  type FetchJsonDebug,
 } from "@/shared/lib/fetchJsonResponse";
 import { Checkbox } from "@/shared/ui/checkbox";
 import {
@@ -67,8 +65,6 @@ export default function LoginForm() {
   const [remember, setRemember] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [loginDebug, setLoginDebug] = useState<FetchJsonDebug | null>(null);
-  const [sessionProbe, setSessionProbe] = useState<FetchJsonDebug | null>(null);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -84,28 +80,9 @@ export default function LoginForm() {
     }
   }, [mounted]);
 
-  useEffect(() => {
-    if (!mounted) return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const debug = await probeApiRoute(INTERNAL_API.authentication.session);
-        if (!cancelled) setSessionProbe(debug);
-      } catch (err) {
-        if (!cancelled) {
-          console.error("[login] session probe failed", err);
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [mounted]);
-
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
-    setLoginDebug(null);
     if (!email.trim() || !password) {
       setError(t("loginValidationEmailPassword"));
       return;
@@ -126,8 +103,6 @@ export default function LoginForm() {
 
       const parsed = await readFetchJson<LoginResponse>(res, loginUrl);
       if (!parsed.ok) {
-        setLoginDebug(parsed.debug);
-        console.error("[login] non-json or failed response", parsed.debug);
         setError(parsed.error);
         return;
       }
@@ -142,11 +117,6 @@ export default function LoginForm() {
           setError(loginErrorMessage(json, t));
           return;
         }
-        setLoginDebug(parsed.debug);
-        console.error("[login] API returned success=false", {
-          debug: parsed.debug,
-          json,
-        });
         setError(
           (json as { message?: string })?.message ?? t("loginFailedGeneric"),
         );
@@ -189,10 +159,6 @@ export default function LoginForm() {
 
   if (!mounted) return null;
 
-  const sessionRouteBroken =
-    sessionProbe != null &&
-    (sessionProbe.status === 404 || sessionProbe.looksLikeHtml);
-
   return (
     <div
       className="min-h-screen flex items-center justify-center bg-gray-50 p-4"
@@ -207,23 +173,6 @@ export default function LoginForm() {
         </div>
 
         <form onSubmit={onSubmit} className="space-y-4">
-          {sessionRouteBroken ? (
-            <details
-              open
-              className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-left"
-            >
-              <summary className="cursor-pointer text-xs font-medium text-amber-900">
-                {t("loginDebugApiMissing")}
-              </summary>
-              <div className="mt-2 space-y-1 text-[11px] leading-snug text-amber-950">
-                <p>{t("loginDebugHint")}</p>
-                <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-all rounded bg-white/70 p-2 font-mono text-[10px]">
-                  {JSON.stringify(sessionProbe, null, 2)}
-                </pre>
-              </div>
-            </details>
-          ) : null}
-
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               {t("email")}
@@ -290,23 +239,6 @@ export default function LoginForm() {
               {error}
             </div>
           )}
-
-          {loginDebug ? (
-            <details className="rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2 text-left">
-              <summary className="cursor-pointer text-xs font-medium text-amber-900">
-                {t("loginDebugTitle")}
-              </summary>
-              <div className="mt-2 space-y-2 text-[11px] leading-snug text-amber-950">
-                <p>{t("loginDebugHint")}</p>
-                <div>
-                  <p className="font-medium">{t("loginDebugLoginPost")}</p>
-                  <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-all rounded bg-white/70 p-2 font-mono text-[10px]">
-                    {JSON.stringify(loginDebug, null, 2)}
-                  </pre>
-                </div>
-              </div>
-            </details>
-          ) : null}
 
           <button
             type="submit"

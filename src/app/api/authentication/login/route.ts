@@ -11,7 +11,6 @@ import {
   parsePrivilegedAdminUserId,
   userIdIsPrivilegedAdmin,
 } from "@/shared/auth/privilegedAdminAccess";
-import { buildAclSnapshotFromProfile } from "@/shared/auth/permissions";
 import { fetchMaintenanceStatusFromUpstream } from "@/shared/server/maintenanceUpstream";
 import {
   fetchJsonWithBaseUrlFallback,
@@ -145,8 +144,8 @@ export async function POST(req: Request) {
       status: upstreamRes.status,
     });
     res.cookies.set(AUTH_COOKIE_NAME, token, AUTH_COOKIE_OPTIONS);
-    const acl = buildAclSnapshotFromProfile(profile);
-    res.cookies.set(AUTH_ACL_COOKIE_NAME, JSON.stringify(acl), AUTH_COOKIE_OPTIONS);
+    // ACL is not stored in cookies (avoids nginx header limits). Server guards use fetchTrustedAclByToken().
+    res.cookies.delete(AUTH_ACL_COOKIE_NAME);
     if (userId != null) {
       res.cookies.set(AUTH_USER_ID_COOKIE_NAME, String(userId), AUTH_COOKIE_OPTIONS);
     }

@@ -15,7 +15,8 @@ import {
 
 /**
  * Planned harvest schedule when creating a project — pace config drives months,
- * harvest cadence (batches per week), and per-batch quantity (total ÷ batch count).
+ * harvest cadence (batches per week), and per-batch quantity (total ÷ batch count,
+ * floor to 3 dp; remainder on the last batch so the sum never exceeds total required).
  * Harvest kind follows grass `load_type` when set; otherwise UoM (Kg → sprig, M² → sod).
  *
  * After actual harvest dates are saved on edit, quantities are rebalanced via
@@ -130,6 +131,46 @@ export function projectPaceConfigFromRow(row: ProjectPaceRow): ProjectPaceConfig
   };
 }
 
+export type PaceHarvestDateSpan = {
+  firstYmd: string;
+  lastYmd: string;
+};
+
+/**
+ * First / last planned harvest dates for a pace anchored at `estimatedStartYmd`
+ * (same slot rules as `generatePlannedHarvestsForNewProject`).
+ */
+export function estimatePaceHarvestDateSpan(opts: {
+  paceConfig: ProjectPaceConfig;
+  estimatedStartYmd: string;
+}): PaceHarvestDateSpan | null {
+  const startStr = String(opts.estimatedStartYmd ?? "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startStr)) return null;
+
+  const start = new Date(startStr);
+  if (Number.isNaN(start.getTime())) return null;
+
+  const totalWeeks = estimatePaceDurationWeeks(opts.paceConfig);
+  if (totalWeeks <= 0) return null;
+
+  const totalBatches = estimateTotalHarvestBatches(opts.paceConfig);
+  const slots = buildBatchSlots(opts.paceConfig, totalWeeks, totalBatches);
+  if (slots.length === 0) return null;
+
+  let firstOffset = Number.POSITIVE_INFINITY;
+  let lastOffset = Number.NEGATIVE_INFINITY;
+  for (const slot of slots) {
+    const offset = slot.weekIndex * 7 + slot.dayOffset;
+    firstOffset = Math.min(firstOffset, offset);
+    lastOffset = Math.max(lastOffset, offset);
+  }
+
+  return {
+    firstYmd: isoYmd(addDays(start, firstOffset)),
+    lastYmd: isoYmd(addDays(start, lastOffset)),
+  };
+}
+
 /** Weeks spanned by a pace duration — same rule as planned-harvest generation. */
 export function estimatePaceDurationWeeks(config: ProjectPaceConfig): number {
   const months = Math.max(1, config.durationMonths);
@@ -232,11 +273,42 @@ function normaliseRequirements(
     });
 }
 
-function quantityPerBatch(req: NormalisedReq, totalBatches: number): number {
+function totalQuantityForReq(req: NormalisedReq): number {
   const uom = displayUomForLoadType(req.loadType);
-  const raw =
-    uom === "Kg" ? req.totalKg / totalBatches : req.totalAreaM2 / totalBatches;
-  return Math.round(raw * 10) / 10;
+  return uom === "Kg" ? req.totalKg : req.totalAreaM2;
+}
+
+function formatBatchQuantity(qty: number): string {
+  if (!Number.isFinite(qty) || qty < 0) return "0";
+  const fixed = qty.toFixed(3);
+  const trimmed = fixed.replace(/\.?0+$/, "");
+  return trimmed || "0";
+}
+
+/**
+ * Base batch size (B) = floor(total ÷ N, 3 dp). Used for `pace_grass_batch_quantities`.
+ * Planned rows use {@link distributeBatchQuantities} so the last row absorbs the remainder.
+ */
+function baseBatchQuantity(totalQuantity: number, totalBatches: number): number {
+  const n = Math.max(0, Math.floor(totalBatches));
+  if (n <= 0) return 0;
+  const totalMilli = Math.round(Math.max(0, totalQuantity) * 1000);
+  return Math.floor(totalMilli / n) / 1000;
+}
+
+/** Per-batch quantities; length = N, sum = total (3 dp). Last batch gets the remainder. */
+function distributeBatchQuantities(
+  totalQuantity: number,
+  totalBatches: number,
+): number[] {
+  const n = Math.max(0, Math.floor(totalBatches));
+  if (n <= 0) return [];
+  const totalMilli = Math.round(Math.max(0, totalQuantity) * 1000);
+  const baseMilli = Math.floor(totalMilli / n);
+  const lastMilli = totalMilli - baseMilli * (n - 1);
+  const out = Array.from({ length: n - 1 }, () => baseMilli / 1000);
+  out.push(lastMilli / 1000);
+  return out;
 }
 
 function parsePositiveNumber(raw: string | number | null | undefined): number {
@@ -304,10 +376,10 @@ export function buildPaceGrassBatchQuantities(opts: {
   const reqs = normaliseRequirements(opts.grassRequirements);
   return reqs.map((req) => {
     const uom = displayUomForLoadType(req.loadType);
-    const qty = quantityPerBatch(req, totalBatches);
+    const qty = baseBatchQuantity(totalQuantityForReq(req), totalBatches);
     const row: PaceGrassBatchQuantity = {
       grass_id: req.productId,
-      quantity: String(qty),
+      quantity: formatBatchQuantity(qty),
       uom,
     };
     if (req.farmId) {
@@ -346,10 +418,15 @@ export function generatePlannedHarvestsForNewProject(opts: {
 
   for (const req of reqs) {
     const uom = displayUomForLoadType(req.loadType);
-    const qty = quantityPerBatch(req, totalBatches);
+    const batchQuantities = distributeBatchQuantities(
+      totalQuantityForReq(req),
+      totalBatches,
+    );
     const needsHarvestAreaFromZone =
       isKgSprigLoadType(req.loadType) && uom === "Kg" && Boolean(req.farmId);
-    for (const slot of slots) {
+    for (let i = 0; i < slots.length; i++) {
+      const slot = slots[i]!;
+      const qty = batchQuantities[i] ?? batchQuantities[batchQuantities.length - 1] ?? 0;
       const date = addDays(start, slot.weekIndex * 7 + slot.dayOffset);
       const estimatedHarvestDate = isoYmd(date);
       let harvestedArea: string | undefined;
@@ -364,7 +441,7 @@ export function generatePlannedHarvestsForNewProject(opts: {
       }
       harvests.push({
         productId: req.productId,
-        quantity: String(qty),
+        quantity: formatBatchQuantity(qty),
         uom,
         harvestType: req.loadType,
         estimatedHarvestDate,

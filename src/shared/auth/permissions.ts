@@ -146,13 +146,15 @@ export function buildAclSnapshotFromProfile(profile: unknown): PermissionAclSnap
   for (const moduleName of APP_PERMISSION_MODULES) {
     for (const action of APP_PERMISSION_ACTIONS) {
       const key = buildPermissionKey(moduleName, action);
-      if (permissions[key] !== undefined) {
-        compactPermissions[key] = permissions[key];
+      const value = permissions[key];
+      if (value !== undefined && toTruthyPermission(value)) {
+        compactPermissions[key] = "1";
       }
     }
     // Keep compatibility with legacy `<module>: all` values.
-    if (permissions[moduleName] !== undefined) {
-      compactPermissions[moduleName] = permissions[moduleName];
+    const legacyValue = permissions[moduleName];
+    if (legacyValue !== undefined && toTruthyPermission(legacyValue)) {
+      compactPermissions[moduleName] = legacyValue;
     }
   }
   return {

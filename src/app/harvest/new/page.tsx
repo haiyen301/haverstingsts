@@ -10,6 +10,7 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AlertCircle, ArrowLeft, Camera, Trash2 } from "lucide-react";
 
@@ -29,6 +30,8 @@ import {
 } from "@/features/harvesting/lib/parseHarvestDocImages";
 import {
   paceRecalcNeedsHarvestedAreaSync,
+  paceRecalcNeedsSoftDeleteSync,
+  projectGrassHasPaceBatchQuantities,
   recalculatePaceQuantitiesAfterActualHarvest,
 } from "@/features/project/lib/recalculatePaceQuantitiesAfterActualHarvest";
 import {
@@ -80,6 +83,7 @@ import {
   getShippingDispatchDetailsFromRow,
   getTruckNoteFromRow,
 } from "@/shared/lib/harvestPlanExtendedFields";
+import { isValidHarvestDateString } from "@/shared/lib/harvestPlanDates";
 
 type HarvestSavePhase = false | "saving" | "recalculating";
 
@@ -125,6 +129,15 @@ function parseProjectDetailQueryParam(
   }
 }
 
+function resolveMondayEditIdsFromRef(
+  ref: Record<string, unknown> | undefined,
+): { rowId: string; tableId: string } {
+  if (!ref) return { rowId: "", tableId: "" };
+  const rowId = String(ref.id_row ?? ref.row_id ?? ref.id ?? "").trim();
+  const tableId = String(ref.table_id ?? "").trim();
+  return { rowId, tableId };
+}
+
 function findProjectReferenceRow(
   projectId: string,
   projects: unknown[],
@@ -133,26 +146,25 @@ function findProjectReferenceRow(
   const normalized = projectId.trim();
   if (!normalized) return undefined;
 
+  for (const dyn of dynamicProjectRows) {
+    if (!dyn || typeof dyn !== "object") continue;
+    const row = dyn as Record<string, unknown>;
+    const mondayRowId = String(row.id_row ?? row.row_id ?? "").trim();
+    if (!mondayRowId) continue;
+    return {
+      project_id: normalized,
+      row_id: mondayRowId,
+      id_row: mondayRowId,
+      table_id: String(row.table_id ?? "").trim(),
+    };
+  }
+
   for (const item of projects) {
     if (!item || typeof item !== "object") continue;
     const row = item as Record<string, unknown>;
     const rowProjectId = String(row.project_id ?? "").trim();
     const rowInternalId = String(row.id ?? "").trim();
     if (rowProjectId === normalized || rowInternalId === normalized) return row;
-  }
-
-  for (const dyn of dynamicProjectRows) {
-    if (!dyn || typeof dyn !== "object") continue;
-    const row = dyn as Record<string, unknown>;
-    const mondayRowId = String(row.id_row ?? row.row_id ?? "").trim();
-    const tableId = String(row.table_id ?? "").trim();
-    if (mondayRowId || tableId) {
-      return {
-        project_id: normalized,
-        row_id: mondayRowId,
-        table_id: tableId,
-      };
-    }
   }
 
   return undefined;
@@ -179,8 +191,8 @@ function buildProjectDetailHrefForProjectId(
     String(ref?.project_id ?? normalizedProjectId).trim(),
   );
 
-  const mondayRowId = String(ref?.row_id ?? "").trim();
-  const tableIdVal = String(ref?.table_id ?? "").trim();
+  const { rowId: mondayRowId, tableId: tableIdVal } =
+    resolveMondayEditIdsFromRef(ref);
   if (mondayRowId) params.set("rowId", mondayRowId);
   if (tableIdVal) params.set("tableId", tableIdVal);
 
@@ -193,6 +205,39 @@ function buildProjectDetailHrefForProjectId(
   }
 
   return `/projects/detail?${params.toString()}`;
+}
+
+/** Project edit form — grass requirements section (`#project-grass-info`). */
+function buildProjectGrassRequirementsEditHref(
+  projectId: string,
+  projects: unknown[],
+  dynamicProjectRows: DynamicProjectRow[],
+  returnTo?: string,
+): string | null {
+  const ref = findProjectReferenceRow(projectId, projects, dynamicProjectRows);
+  const { rowId, tableId } = resolveMondayEditIdsFromRef(ref);
+  if (!rowId) return null;
+
+  const params = new URLSearchParams();
+  params.set("rowId", rowId);
+  if (tableId) params.set("tableId", tableId);
+  const safeReturnTo = returnTo?.trim();
+  if (
+    safeReturnTo &&
+    (safeReturnTo.startsWith("/harvest") || safeReturnTo.startsWith("/projects"))
+  ) {
+    params.set("returnTo", safeReturnTo);
+  }
+  return `/projects/new?${params.toString()}#project-grass-info`;
+}
+
+function formatHarvestQuantityDisplay(value: number): string {
+  if (Number.isInteger(value) || Math.abs(value - Math.round(value)) < 1e-9) {
+    return new Intl.NumberFormat().format(Math.round(value));
+  }
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 3 }).format(
+    value,
+  );
 }
 
 const emptyForm = {
@@ -463,6 +508,7 @@ type HarvestDeliveredRow = {
   uom: string;
   loadType: string;
   quantity: number;
+  hasActualDate: boolean;
 };
 
 type DynamicProjectRow = {
@@ -625,7 +671,56 @@ function parseHarvestDeliveredRow(raw: unknown): HarvestDeliveredRow | null {
   const loadType = String(row.load_type ?? row.harvest_type ?? "").trim();
   const quantity = parseNum(row.quantity);
   if (!projectId || !productId || quantity <= 0) return null;
-  return { id, projectId, productId, uom, loadType, quantity };
+  return {
+    id,
+    projectId,
+    productId,
+    uom,
+    loadType,
+    quantity,
+    hasActualDate: isValidHarvestDateString(row.actual_harvest_date),
+  };
+}
+
+function sumDeliveredQuantityForSelection(
+  rows: HarvestDeliveredRow[],
+  requirement: QuantityRequirement,
+  formUomKey: string,
+  formHarvestType: HarvestTypeStorageKey | "",
+  excludeEditId: string | null,
+  onlyWithActualDate: boolean,
+): number {
+  return rows.reduce((sum, row) => {
+    if (onlyWithActualDate && !row.hasActualDate) return sum;
+    if (row.productId !== requirement.productId) return sum;
+    if (!deliveredRowMatchesSelection(row, formUomKey, formHarvestType)) {
+      return sum;
+    }
+    if (excludeEditId && row.id === excludeEditId) return sum;
+    return sum + row.quantity;
+  }, 0);
+}
+
+function formHasGrassQuantityLimitSchedule(formData: HarvestFormState): boolean {
+  return (
+    Boolean(formData.actualDate.trim()) || Boolean(formData.estimatedDate.trim())
+  );
+}
+
+function grassQuantityLimitMessageKey(formData: HarvestFormState): string {
+  return formData.actualDate.trim()
+    ? "validationQuantityExceedsRequirementActual"
+    : "validationQuantityExceedsRequirementEstimate";
+}
+
+function quantityExceedsGrassRequirement(
+  formData: HarvestFormState,
+  maxAllowed: number | null,
+): boolean {
+  if (!formHasGrassQuantityLimitSchedule(formData)) return false;
+  if (maxAllowed === null) return false;
+  const entered = parseNum(formData.quantity);
+  return entered > 0 && entered > maxAllowed + 1e-9;
 }
 
 type HarvestFieldErrors = Partial<
@@ -683,11 +778,15 @@ type HarvestValidationMessages = {
   selectFarm: string;
   datePairRequired: string;
   actualRequiredWhenDownstreamDates: string;
+  paceActualDateRequired: string;
 };
 
 function getHarvestFieldErrors(
   formData: HarvestFormState,
   messages: HarvestValidationMessages,
+  options?: {
+    paceRequiresActualDate?: boolean;
+  },
 ): HarvestFieldErrors {
   const errors: HarvestFieldErrors = {};
   if (!formData.project.trim()) errors.project = messages.selectProject;
@@ -722,6 +821,10 @@ function getHarvestFieldErrors(
   );
   if (downstreamDateErr) {
     errors.actualDate = downstreamDateErr;
+  } else if (options?.paceRequiresActualDate) {
+    if (!formData.actualDate.trim()) {
+      errors.actualDate = messages.paceActualDateRequired;
+    }
   } else {
     const dateErr = getHarvestDatePairError(
       formData.estimatedDate,
@@ -1185,6 +1288,7 @@ function HarvestInputPageInner() {
     selectFarm: t("validationSelectFarm"),
     datePairRequired: t("datePairRequiredError"),
     actualRequiredWhenDownstreamDates: t("actualRequiredWhenDownstreamDates"),
+    paceActualDateRequired: t("paceProjectActualDateRequired"),
   };
   const getPhotoSlotLabel = (field: HarvestDocPhotoField): string => {
     const keyMap: Record<HarvestDocPhotoField, string> = {
@@ -1420,6 +1524,11 @@ function HarvestInputPageInner() {
     };
   }, [accessDenied, formData.project]);
 
+  const selectedProjectRow = useMemo(
+    () => findProjectRowBySelectId(allProjects, formData.project.trim()),
+    [allProjects, formData.project],
+  );
+
   const selectedProjectRequirements = useMemo(() => {
     // Prefer server dynamic-table lookup by project_id, fallback to store project payload.
     const dynamicRow = dynamicProjectRows.find((r) =>
@@ -1433,6 +1542,27 @@ function HarvestInputPageInner() {
     if (!selected) return [] as QuantityRequirement[];
     return parseRequirements(selected.quantity_required_sprig_sod, productNameById);
   }, [dynamicProjectRows, formData.project, productNameById, allProjects]);
+
+  /** Project pace is set for the selected grass (+ uom when chosen). */
+  const paceProjectGrass = useMemo(() => {
+    const grassId = formData.grass.trim();
+    if (!grassId) return false;
+    return projectGrassHasPaceBatchQuantities(
+      selectedProjectRow,
+      grassId,
+      formData.uom.trim() || undefined,
+    );
+  }, [formData.grass, formData.uom, selectedProjectRow]);
+
+  /** New harvest: hide estimate inputs. Edit: estimate dates read-only. */
+  const paceBlocksEstimateHarvest = paceProjectGrass;
+
+  /** New harvest on pace project must have actual date before save. */
+  const paceRequiresActualDate = paceProjectGrass && !editId;
+
+  /** Pace-managed rows: quantity (and harvested area) editable only with actual date. */
+  const paceLocksQuantityWithoutActual =
+    paceProjectGrass && !formData.actualDate.trim();
 
   const grassRowsForSelectByProject = useMemo(
     () =>
@@ -1630,21 +1760,43 @@ function HarvestInputPageInner() {
     }));
   }, [editId, formData.grass, grassHasQuantityRequirements]);
 
+  useEffect(() => {
+    if (!paceRequiresActualDate) return;
+    setUseEstimatedDateRange(false);
+    setFormData((prev) => {
+      if (!prev.estimatedDate.trim() && !prev.estimatedDateEnd.trim()) return prev;
+      return { ...prev, estimatedDate: "", estimatedDateEnd: "" };
+    });
+    setFieldErrors((prev) => ({
+      ...prev,
+      estimatedDate: undefined,
+    }));
+  }, [paceRequiresActualDate]);
+
+  useEffect(() => {
+    if (!paceLocksQuantityWithoutActual || !editId) return;
+    setFormData((prev) => {
+      if (prev.quantity === initialQuantityAtLoad) return prev;
+      return { ...prev, quantity: initialQuantityAtLoad };
+    });
+    setFieldErrors((prev) => ({ ...prev, quantity: undefined }));
+  }, [editId, initialQuantityAtLoad, paceLocksQuantityWithoutActual]);
+
   const deliveredQuantityForSelection = useMemo(() => {
     if (!requirementForGrass) return 0;
     const formUomKey = normUomKey(formData.uom);
-    return projectHarvestRows.reduce((sum, row) => {
-      if (row.productId !== requirementForGrass.productId) return sum;
-      if (
-        !deliveredRowMatchesSelection(row, formUomKey, selectedHarvestTypeKey)
-      ) {
-        return sum;
-      }
-      if (editId && row.id === editId) return sum;
-      return sum + row.quantity;
-    }, 0);
+    const onlyWithActualDate = Boolean(formData.actualDate.trim());
+    return sumDeliveredQuantityForSelection(
+      projectHarvestRows,
+      requirementForGrass,
+      formUomKey,
+      selectedHarvestTypeKey,
+      editId,
+      onlyWithActualDate,
+    );
   }, [
     editId,
+    formData.actualDate,
     formData.uom,
     projectHarvestRows,
     requirementForGrass,
@@ -1656,6 +1808,71 @@ function HarvestInputPageInner() {
     const required = getRequiredQtyForUom(requirementForGrass, formData.uom);
     return Math.max(0, required - deliveredQuantityForSelection);
   }, [deliveredQuantityForSelection, formData.uom, requirementForGrass]);
+
+  const currentHarvestFormReturnTo = useMemo(() => {
+    const params = new URLSearchParams();
+    if (editId) params.set("id", editId);
+    const projectId = formData.project.trim() || initialProjectId;
+    if (projectId) params.set("projectId", projectId);
+    if (returnToParam) params.set("returnTo", returnToParam);
+    const qs = params.toString();
+    return qs ? `/harvest/new?${qs}` : "/harvest/new";
+  }, [editId, formData.project, initialProjectId, returnToParam]);
+
+  const grassRequirementsEditHref = useMemo(() => {
+    const projectId = formData.project.trim();
+    if (!projectId) return null;
+
+    const fromRef = buildProjectGrassRequirementsEditHref(
+      projectId,
+      allProjects,
+      dynamicProjectRows,
+      currentHarvestFormReturnTo,
+    );
+    if (fromRef) return fromRef;
+
+    const selected = findProjectRowBySelectId(allProjects, projectId);
+    const { rowId, tableId } = resolveMondayEditIdsFromRef(selected);
+    if (!rowId) return null;
+
+    const params = new URLSearchParams();
+    params.set("rowId", rowId);
+    if (tableId) params.set("tableId", tableId);
+    params.set("returnTo", currentHarvestFormReturnTo);
+    return `/projects/new?${params.toString()}#project-grass-info`;
+  }, [
+    allProjects,
+    currentHarvestFormReturnTo,
+    dynamicProjectRows,
+    formData.project,
+  ]);
+
+  /** Unit label under Quantity — same source as Flutter `remainingInfo['unit']`, else current UoM. */
+  const remainingDisplayUnit = useMemo(() => {
+    const u = formData.uom.trim();
+    if (u.toLowerCase() === "kg") return "kg";
+    if (u.toLowerCase() === "m2") return "m²";
+    return u || "M2";
+  }, [formData.uom]);
+
+  const quantityLimitExceeded = useMemo(
+    () => quantityExceedsGrassRequirement(formData, maxAllowedQuantity),
+    [formData, maxAllowedQuantity],
+  );
+
+  const quantityLimitError = useMemo(() => {
+    if (!quantityLimitExceeded || maxAllowedQuantity === null) return null;
+    return t(grassQuantityLimitMessageKey(formData), {
+      max: formatHarvestQuantityDisplay(maxAllowedQuantity),
+      unit: remainingDisplayUnit,
+    });
+  }, [
+    formData,
+    maxAllowedQuantity,
+    quantityLimitExceeded,
+    remainingDisplayUnit,
+    t,
+  ]);
 
   const updateHarvestLimitDescriptionsForSelection = useCallback(
     (projectId: string) => {
@@ -1687,14 +1904,6 @@ function HarvestInputPageInner() {
     return Math.max(0, maxAllowedQuantity - entered);
   }, [formData.quantity, maxAllowedQuantity, requirementForGrass]);
 
-  /** Unit label under Quantity — same source as Flutter `remainingInfo['unit']`, else current UoM. */
-  const remainingDisplayUnit = useMemo(() => {
-    const u = formData.uom.trim();
-    if (u.toLowerCase() === "kg") return "kg";
-    if (u.toLowerCase() === "m2") return "m²";
-    return u || "M2";
-  }, [formData.uom]);
-
   useEffect(() => {
     const downstreamDateErr = getActualDateRequiredWhenDownstreamDatesError(
       formData,
@@ -1702,15 +1911,21 @@ function HarvestInputPageInner() {
     );
     const pairError =
       !downstreamDateErr && harvestDateTouched
-        ? getHarvestDatePairError(
-            formData.estimatedDate,
-            formData.actualDate,
-            validationMessages.datePairRequired,
-          )
+        ? paceRequiresActualDate
+          ? !formData.actualDate.trim()
+            ? validationMessages.paceActualDateRequired
+            : null
+          : getHarvestDatePairError(
+              formData.estimatedDate,
+              formData.actualDate,
+              validationMessages.datePairRequired,
+            )
         : null;
     setFieldErrors((prev) => ({
       ...prev,
-      estimatedDate: downstreamDateErr ? undefined : (pairError ?? undefined),
+      estimatedDate: downstreamDateErr || paceRequiresActualDate
+        ? undefined
+        : (pairError ?? undefined),
       actualDate: downstreamDateErr ?? pairError ?? undefined,
     }));
   }, [
@@ -1720,8 +1935,10 @@ function HarvestInputPageInner() {
     formData.portArrivalDate,
     formData.deliveryDate,
     harvestDateTouched,
+    paceRequiresActualDate,
     validationMessages.actualRequiredWhenDownstreamDates,
     validationMessages.datePairRequired,
+    validationMessages.paceActualDateRequired,
   ]);
 
   useEffect(() => {
@@ -1817,7 +2034,18 @@ function HarvestInputPageInner() {
       harvestedArea: harvestedAreaResolved.harvestedArea ?? "",
     };
     setFormData(submitFormData);
-    const errors = getHarvestFieldErrors(submitFormData, validationMessages);
+    const errors = getHarvestFieldErrors(submitFormData, validationMessages, {
+      paceRequiresActualDate,
+    });
+    if (
+      quantityExceedsGrassRequirement(submitFormData, maxAllowedQuantity) &&
+      maxAllowedQuantity !== null
+    ) {
+      errors.quantity = t(grassQuantityLimitMessageKey(submitFormData), {
+        max: formatHarvestQuantityDisplay(maxAllowedQuantity),
+        unit: remainingDisplayUnit,
+      });
+    }
     setFieldErrors(errors);
     const firstErrKey = firstHarvestFieldErrorKey(errors);
     const firstErr = firstHarvestFieldError(errors);
@@ -1833,13 +2061,10 @@ function HarvestInputPageInner() {
     const quantityChangedPre =
       savedQuantityPre !== initialQuantityAtLoad.trim();
     const shouldRecalcPaceAfterActual =
-      Boolean(editId) &&
       Boolean(savedActualDatePre) &&
-      (actualDateChangedPre || quantityChangedPre);
+      (!editId || actualDateChangedPre || quantityChangedPre);
 
-    setPaceRecalcExpectedOnSubmit(
-      Boolean(editId) && Boolean(savedActualDatePre),
-    );
+    setPaceRecalcExpectedOnSubmit(Boolean(savedActualDatePre));
     setSavePhase("saving");
     try {
       const imagesRemoved: Partial<
@@ -1864,7 +2089,10 @@ function HarvestInputPageInner() {
       const harvestTypeSubmit =
         normalizeHarvestTypeStorageKey(submitFormData.harvestType) ||
         defaultHarvestTypeForUom(submitFormData.uom);
-      const quantitySubmit = submitFormData.quantity;
+      const quantitySubmit =
+        paceLocksQuantityWithoutActual && editId
+          ? initialQuantityAtLoad
+          : submitFormData.quantity;
       const harvestedAreaPayload = harvestedAreaResolved.harvestedArea;
       const statusSubmit =
         harvestedAreaResolved.status ??
@@ -1888,10 +2116,13 @@ function HarvestInputPageInner() {
           quantity: quantitySubmit,
           uom: formData.uom,
           harvestType: harvestTypeSubmit,
-          estimatedHarvestDate: formData.estimatedDate,
-          estimatedHarvestEndDate: useEstimatedDateRange
-            ? formData.estimatedDateEnd
-            : undefined,
+          estimatedHarvestDate: paceRequiresActualDate
+            ? ""
+            : formData.estimatedDate,
+          estimatedHarvestEndDate:
+            paceRequiresActualDate || !useEstimatedDateRange
+              ? undefined
+              : formData.estimatedDateEnd,
           actualHarvestDate: formData.actualDate,
           actualHarvestEndDate: formData.actualHarvestEndDate.trim() || undefined,
           deliveryHarvestDate: formData.deliveryDate,
@@ -1920,7 +2151,8 @@ function HarvestInputPageInner() {
           paceRecalcNeedsHarvestedAreaSync(
             paceRecalcFromSave,
             formData.uom.trim(),
-          ));
+          ) ||
+          paceRecalcNeedsSoftDeleteSync(paceRecalcFromSave));
       if (shouldRunClientPaceRecalc) {
         const harvestIdForRecalc = String(savedHarvest?.id ?? editId ?? "").trim();
         if (harvestIdForRecalc && formData.project.trim() && formData.grass.trim()) {
@@ -2628,10 +2860,15 @@ function HarvestInputPageInner() {
                           setFormData((prev) => ({ ...prev, quantity: nextValue }));
                           setFieldErrors((prev) => ({ ...prev, quantity: undefined }));
                         }}
-                        className={`${harvestFieldClass} ${fieldErrors.quantity ? "ring-2 ring-destructive" : ""}`}
+                        className={`${harvestFieldClass} ${fieldErrors.quantity || quantityLimitError ? "ring-2 ring-destructive" : ""}`}
                         placeholder={t("quantityPlaceholder")}
-                        disabled={formDisabled}
+                        disabled={formDisabled || paceLocksQuantityWithoutActual}
                       />
+                      {paceLocksQuantityWithoutActual ? (
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {t("paceQuantityRequiresActualHint")}
+                        </p>
+                      ) : null}
                       {requirementForGrass && remainingAfterEntered !== null ? (
                         <p className="mt-1 text-xs text-muted-foreground">
                           {t("remainingQuantityFmt", {
@@ -2643,10 +2880,20 @@ function HarvestInputPageInner() {
                           })}
                         </p>
                       ) : null}
-                      {fieldErrors.quantity ? (
-                        <p className="mt-1.5 text-xs leading-snug text-destructive">
-                          {fieldErrors.quantity}
-                        </p>
+                      {fieldErrors.quantity || quantityLimitError ? (
+                        <div className="mt-1.5 space-y-1.5">
+                          <p className="text-xs leading-snug text-destructive">
+                            {fieldErrors.quantity ?? quantityLimitError}
+                          </p>
+                          {quantityLimitExceeded && grassRequirementsEditHref ? (
+                            <Link
+                              href={grassRequirementsEditHref}
+                              className="inline-flex items-center gap-1 text-xs font-semibold text-primary underline underline-offset-2 hover:text-primary/80"
+                            >
+                              {t("adjustGrassRequirementLink")}
+                            </Link>
+                          ) : null}
+                        </div>
                       ) : null}
                     </div>
 
@@ -2682,7 +2929,7 @@ function HarvestInputPageInner() {
                               fieldErrors.harvestedArea ? "ring-2 ring-destructive" : ""
                             }`}
                             placeholder={t("harvestedArea")}
-                            disabled={formDisabled}
+                            disabled={formDisabled || paceLocksQuantityWithoutActual}
                           />
                           {fieldErrors.harvestedArea ? (
                             <p className="mt-1.5 text-xs leading-snug text-destructive">
@@ -2712,7 +2959,7 @@ function HarvestInputPageInner() {
                             }}
                             className={`${harvestFieldClass} ${fieldErrors.harvestedArea ? "ring-2 ring-destructive" : ""}`}
                             placeholder={t("harvestedAreaPlaceholderKg")}
-                            disabled={formDisabled}
+                            disabled={formDisabled || paceLocksQuantityWithoutActual}
                           />
                           <p className="mt-1 text-xs text-muted-foreground">
                             {autoHarvestAreaInfo && !harvestedAreaManual
@@ -2736,13 +2983,30 @@ function HarvestInputPageInner() {
 
                   <HarvestFormSection
                     title={t("sectionTimelineTitle")}
-                    hint={t("sectionTimelineHint")}
+                    hint={
+                      paceBlocksEstimateHarvest
+                        ? editId
+                          ? t("paceProjectEditTimelineHint")
+                          : t("paceProjectActualOnlyHint")
+                        : t("sectionTimelineHint")
+                    }
                   >
                   <div className="flex flex-col gap-6">
                     <div
                       id="harvest-estimated-date"
                       className="rounded-lg border border-border/60 bg-muted/30 p-4"
                     >
+                      {paceBlocksEstimateHarvest && !editId ? (
+                        <p className="text-xs leading-relaxed text-muted-foreground">
+                          {t("paceProjectActualOnlyHint")}
+                        </p>
+                      ) : (
+                        <>
+                      {paceBlocksEstimateHarvest && editId ? (
+                        <p className="mb-2 text-xs leading-relaxed text-muted-foreground">
+                          {t("paceProjectEstimateReadOnlyHint")}
+                        </p>
+                      ) : null}
                       <div className="mb-2 flex flex-wrap items-center gap-3">
                         <span className="text-xs font-medium text-muted-foreground">
                           {t("estimatedDate")}
@@ -2756,7 +3020,7 @@ function HarvestInputPageInner() {
                                 setFormData((prev) => ({ ...prev, estimatedDateEnd: "" }));
                               }
                             }}
-                            disabled={formDisabled}
+                            disabled={formDisabled || paceBlocksEstimateHarvest}
                           />
                           {t("useDateRange")}
                         </label>
@@ -2776,7 +3040,7 @@ function HarvestInputPageInner() {
                               }));
                             }}
                             onBlur={() => setHarvestDateTouched(true)}
-                            disabled={formDisabled}
+                            disabled={formDisabled || paceBlocksEstimateHarvest}
                             hasError={Boolean(
                               fieldErrors.estimatedDate || harvestDatePairError,
                             )}
@@ -2799,7 +3063,7 @@ function HarvestInputPageInner() {
                               onChange={(value) =>
                                 setFormData({ ...formData, estimatedDateEnd: value })
                               }
-                              disabled={formDisabled}
+                              disabled={formDisabled || paceBlocksEstimateHarvest}
                             />
                             <p className="mt-1 text-xs text-muted-foreground">
                               {t("estimatedRangeEndHint")}
@@ -2807,6 +3071,8 @@ function HarvestInputPageInner() {
                           </div>
                         ) : null}
                       </div>
+                        </>
+                      )}
                     </div>
 
                     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -2830,6 +3096,10 @@ function HarvestInputPageInner() {
                         {harvestDatePairError ? (
                           <p className="mt-1.5 text-xs leading-snug text-destructive">
                             {harvestDatePairError}
+                          </p>
+                        ) : paceRequiresActualDate ? (
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {t("paceProjectActualDateRequired")}
                           </p>
                         ) : (
                           <p className="mt-1 text-xs text-muted-foreground">

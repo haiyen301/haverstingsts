@@ -3,7 +3,6 @@ import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 
-import { buildAclSnapshotFromProfile } from "@/shared/auth/permissions";
 import { parsePrivilegedAdminUserId } from "@/shared/auth/privilegedAdminAccess";
 import {
   AUTH_ACL_COOKIE_NAME,
@@ -32,8 +31,6 @@ export async function GET() {
 
   const userId = parsePrivilegedAdminUserId(acl.userId) ?? null;
 
-  const aclSnapshot = buildAclSnapshotFromProfile(profile);
-
   const profilePermissions =
     profile &&
     typeof profile === "object" &&
@@ -55,7 +52,8 @@ export async function GET() {
       is_admin: acl.is_admin,
     },
   });
-  res.cookies.set(AUTH_ACL_COOKIE_NAME, JSON.stringify(aclSnapshot), AUTH_COOKIE_OPTIONS);
+  // ACL stays on STSPortal; session JSON carries permissions for the client store only.
+  res.cookies.delete(AUTH_ACL_COOKIE_NAME);
   if (userId != null) {
     res.cookies.set(AUTH_USER_ID_COOKIE_NAME, String(userId), AUTH_COOKIE_OPTIONS);
   }

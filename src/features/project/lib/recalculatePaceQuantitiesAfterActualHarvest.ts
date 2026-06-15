@@ -64,6 +64,31 @@ export function projectHasPaceGrassBatchQuantities(
   });
 }
 
+/**
+ * True when `pace_grass_batch_quantities` has an entry for `grassId`.
+ * When `uom` is set, the entry must match that UOM as well.
+ */
+export function projectGrassHasPaceBatchQuantities(
+  projectRow: Record<string, unknown> | undefined,
+  grassId: string,
+  uom?: string,
+): boolean {
+  const normalizedGrass = grassId.trim();
+  if (!projectRow || !normalizedGrass) return false;
+  const list = parsePaceGrassBatchQuantitiesList(
+    projectRow.pace_grass_batch_quantities,
+  );
+  const normalizedUom = uom ? normUomForPaceMatch(uom) : "";
+  return list.some((item) => {
+    if (!item || typeof item !== "object") return false;
+    const row = item as Record<string, unknown>;
+    if (String(row.grass_id ?? "").trim() !== normalizedGrass) return false;
+    if (!normalizedUom) return true;
+    const itemUom = normUomForPaceMatch(row.uom);
+    return !itemUom || itemUom === normalizedUom;
+  });
+}
+
 /** True when a plan row has a real schedule date (not empty / `0000-00-00`). */
 export function hasRealHarvestScheduleDate(raw: unknown): boolean {
   const t = String(raw ?? "").trim();
@@ -235,6 +260,22 @@ export function paceRecalcNeedsHarvestedAreaSync(
       : 0);
   if (updatedCount <= 0) return false;
   return (row.harvested_areas_updated ?? 0) < updatedCount;
+}
+
+/** Requirement met (A ≤ 0) but estimate-only rows were not soft-deleted yet. */
+export function paceRecalcNeedsSoftDeleteSync(paceRecalc: unknown): boolean {
+  if (!paceRecalc || typeof paceRecalc !== "object") return false;
+  const row = paceRecalc as {
+    skipped?: boolean;
+    remaining_quantity?: number;
+    remaining_estimate_count?: number;
+    soft_deleted_harvest_ids?: number[];
+  };
+  if (row.skipped === true) return false;
+  if (typeof row.remaining_quantity !== "number") return false;
+  const estimateCount = row.remaining_estimate_count ?? 0;
+  const softDeleted = row.soft_deleted_harvest_ids?.length ?? 0;
+  return row.remaining_quantity <= 0 && estimateCount > 0 && softDeleted <= 0;
 }
 
 export type RecalculatePaceAfterActualResult = {

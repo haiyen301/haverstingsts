@@ -32,7 +32,10 @@ import { useGrassFilterByFarm } from "@/shared/hooks/useGrassFilterByFarm";
 import { mapRowsToSelectOptions } from "@/shared/lib/harvestReferenceData";
 import { fetchKeyAreas, type KeyAreaRow } from "@/features/admin/api/adminApi";
 import { ProjectListExportDialog } from "@/features/project/ui/ProjectListExportDialog";
-import type { ProjectListExportFilter } from "@/features/project/lib/projectListExport";
+import {
+  countFilteredMondayProjectRows,
+  type ProjectListExportFilter,
+} from "@/features/project/lib/projectListExport";
 
 function parseCsvParam(v: string | null): string[] {
   return String(v ?? "")
@@ -374,6 +377,7 @@ export default function ProjectListPage() {
   const [manualReloadSeq, setManualReloadSeq] = useState(() => (refreshParam ? 1 : 0));
   const [keyAreaCatalogRows, setKeyAreaCatalogRows] = useState<KeyAreaRow[]>([]);
   const [exportOpen, setExportOpen] = useState(false);
+  const [asyncFilteredCount, setAsyncFilteredCount] = useState<number | null>(null);
   const resumeGoogleSheetExport =
     (searchParams.get("googleSheetExport") ?? "").trim() === "resume";
   const googleSheetExportError = (searchParams.get("googleSheetError") ?? "").trim();
@@ -850,19 +854,6 @@ export default function ProjectListPage() {
     return list;
   }, [farmsRef]);
 
-  /** Total from `sts_projects` via `/api/projects` (catalog), not Monday list rows / load-more. */
-  const catalogProjectTotal = useMemo(() => {
-    return toRecArray(projectsRef).filter((r) => String(r.id ?? "").trim() !== "")
-      .length;
-  }, [projectsRef]);
-
-  const projectCountLabel = useMemo(() => {
-    return t("projectsFound", { count: catalogProjectTotal });
-  }, [catalogProjectTotal, t]);
-
-  const countHeaderLoading =
-    (!referenceBootstrapDone && referenceLoading) || loading;
-
   const exportFilter = useMemo<ProjectListExportFilter>(
     () => ({
       search: debouncedSearch,
@@ -881,6 +872,72 @@ export default function ProjectListPage() {
       statusFilterValues,
     ],
   );
+
+  const hasClientSideFilters =
+    farmFilterIds.length > 0 ||
+    grassFilterIds.length > 0 ||
+    projectFilterIds.length > 0;
+
+  useEffect(() => {
+    if (!hasMore || (!hasClientSideFilters && totalRecords != null)) {
+      setAsyncFilteredCount(null);
+      return;
+    }
+    let cancelled = false;
+    setAsyncFilteredCount(null);
+    void countFilteredMondayProjectRows(exportFilter, {
+      projectsCatalog: projectsRef,
+      harvestPlanRows,
+    })
+      .then((count) => {
+        if (!cancelled) setAsyncFilteredCount(count);
+      })
+      .catch(() => {
+        if (!cancelled) setAsyncFilteredCount(projects.length);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    exportFilter,
+    farmFilterIds,
+    grassFilterIds,
+    hasClientSideFilters,
+    hasMore,
+    harvestPlanRows,
+    manualReloadSeq,
+    projectFilterIds,
+    projects.length,
+    projectsRef,
+    totalRecords,
+  ]);
+
+  const filteredProjectCount = useMemo(() => {
+    if (!hasMore) return projects.length;
+    if (!hasClientSideFilters && totalRecords != null) return totalRecords;
+    return asyncFilteredCount ?? projects.length;
+  }, [
+    asyncFilteredCount,
+    hasClientSideFilters,
+    hasMore,
+    projects.length,
+    totalRecords,
+  ]);
+
+  const projectCountLabel = useMemo(() => {
+    return t("projectsFound", { count: filteredProjectCount });
+  }, [filteredProjectCount, t]);
+
+  const countingExactTotal =
+    !loading &&
+    hasMore &&
+    (hasClientSideFilters || totalRecords == null) &&
+    asyncFilteredCount === null;
+
+  const countHeaderLoading =
+    (!referenceBootstrapDone && referenceLoading) ||
+    loading ||
+    countingExactTotal;
 
   const exportResolveContext = useMemo(
     () => ({

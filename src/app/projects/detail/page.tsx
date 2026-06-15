@@ -24,7 +24,6 @@ import {
   Clock,
   Pencil,
   Maximize2,
-  CheckSquare,
 } from "lucide-react";
 
 import RequireAuth from "@/features/auth/RequireAuth";
@@ -97,6 +96,7 @@ import {
 import { cn } from "@/lib/utils";
 import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
 import { normalizeAppNavigationHref } from "@/shared/lib/appNavigationHref";
+import { Checkbox } from "@/shared/ui/checkbox";
 import { DatePicker } from "@/shared/ui/date-picker";
 import { MultiSelect } from "@/shared/ui/multi-select";
 import {
@@ -181,7 +181,7 @@ async function fetchAllHarvestPlanPagesForProjectDetailHistory(
   let totalRecords: number | null = null;
   const maxPages = 50;
 
-  for (;;) {
+  for (; ;) {
     const h = await stsProxyGetHarvestingIndex(
       buildProjectDetailHarvestHistoryApiParams(projectId, page, scope),
     );
@@ -233,10 +233,10 @@ function mergeProjectDetailFromServer(
       "Harvesting",
     title: String(
       catalogRow?.title ??
-        catalogRow?.name ??
-        dynamicRow?.title ??
-        dynamicRow?.name ??
-        "",
+      catalogRow?.name ??
+      dynamicRow?.title ??
+      dynamicRow?.name ??
+      "",
     ).trim() || undefined,
     quantity_required_sprig_sod:
       dynamicRow?.quantity_required_sprig_sod ??
@@ -323,13 +323,13 @@ const HARVEST_TABLE_CLASS =
 const HARVEST_TABLE_CELL_CLASS = "px-3 py-2.5";
 
 function HarvestHistoryTableColGroup({
-  bulkSelectMode = false,
+  showCheckboxes = false,
 }: {
-  bulkSelectMode?: boolean;
+  showCheckboxes?: boolean;
 }) {
   return (
     <colgroup>
-      {bulkSelectMode ? <col className="w-[3%]" /> : null}
+      {showCheckboxes ? <col className="w-[3%]" /> : null}
       <col className="w-[10%]" />
       <col className="w-[14%]" />
       <col className="w-[11%]" />
@@ -859,7 +859,6 @@ export default function ProjectDetailPage() {
   );
   const [harvestDeleting, setHarvestDeleting] = useState(false);
   const [harvestDeleteError, setHarvestDeleteError] = useState<string | null>(null);
-  const [harvestBulkSelectMode, setHarvestBulkSelectMode] = useState(false);
   const [harvestBulkSelectedIds, setHarvestBulkSelectedIds] = useState<Set<string>>(
     () => new Set(),
   );
@@ -1439,6 +1438,9 @@ export default function ProjectDetailPage() {
     [filteredHarvests, canDeleteHarvest],
   );
 
+  const showHarvestBulkCheckboxes =
+    canDeleteHarvest && deletableFilteredHarvests.length > 0;
+
   const harvestBulkSelectedCount = harvestBulkSelectedIds.size;
 
   const harvestBulkAllDeletableSelected =
@@ -1450,16 +1452,15 @@ export default function ProjectDetailPage() {
     !harvestBulkAllDeletableSelected;
 
   useEffect(() => {
-    if (!harvestBulkSelectMode) return;
+    if (!showHarvestBulkCheckboxes) return;
     const visibleIds = new Set(filteredHarvests.map((h) => h.id));
     setHarvestBulkSelectedIds((prev) => {
       const next = new Set([...prev].filter((id) => visibleIds.has(id)));
       return next.size === prev.size ? prev : next;
     });
-  }, [filteredHarvests, harvestBulkSelectMode]);
+  }, [filteredHarvests, showHarvestBulkCheckboxes]);
 
-  const exitHarvestBulkSelectMode = useCallback(() => {
-    setHarvestBulkSelectMode(false);
+  const clearHarvestBulkSelection = useCallback(() => {
     setHarvestBulkSelectedIds(new Set());
     setHarvestBulkDeleteConfirmOpen(false);
   }, []);
@@ -1584,7 +1585,7 @@ export default function ProjectDetailPage() {
       }
       removeHarvestRowsFromSource(removedIds);
       if (removedIds.length === targets.length) {
-        exitHarvestBulkSelectMode();
+        clearHarvestBulkSelection();
       }
       setHarvestBulkDeleteConfirmOpen(false);
     } catch (e) {
@@ -1769,8 +1770,8 @@ export default function ProjectDetailPage() {
 
               {/* Golf details (includes architect) */}
               {basic.holes !== "-" ||
-              basic.keyAreas.length > 0 ||
-              (basic.architect && basic.architect !== "-") ? (
+                basic.keyAreas.length > 0 ||
+                (basic.architect && basic.architect !== "-") ? (
                 <div className="rounded-lg border border-border bg-card text-card-foreground shadow-sm">
                   <div className="space-y-1.5 p-6 pb-3">
                     <h2 className="text-base font-semibold leading-none tracking-tight">
@@ -1854,36 +1855,6 @@ export default function ProjectDetailPage() {
                     </p>
                   </div>
                   <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                    {canDeleteHarvest && deletableFilteredHarvests.length > 0 ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (harvestBulkSelectMode) {
-                            exitHarvestBulkSelectMode();
-                            return;
-                          }
-                          setHarvestDeleteError(null);
-                          setHarvestBulkSelectMode(true);
-                        }}
-                        className={cn(
-                          "inline-flex h-9 items-center justify-center gap-1.5 whitespace-nowrap rounded-md border px-3 text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
-                          harvestBulkSelectMode
-                            ? "border-primary bg-primary/10 text-primary hover:bg-primary/15"
-                            : "border-border bg-background text-foreground hover:bg-muted",
-                        )}
-                        aria-pressed={harvestBulkSelectMode}
-                        aria-label={
-                          harvestBulkSelectMode
-                            ? t("harvestBulkSelectCancel")
-                            : t("harvestBulkSelect")
-                        }
-                      >
-                        <CheckSquare className="h-4 w-4" aria-hidden />
-                        {harvestBulkSelectMode
-                          ? t("harvestBulkSelectCancel")
-                          : t("harvestBulkSelect")}
-                      </button>
-                    ) : null}
                     {canExportHarvest ? (
                       <button
                         type="button"
@@ -1946,64 +1917,64 @@ export default function ProjectDetailPage() {
                     </div>
                   ) : null}
                   <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-                      <select
-                        value={harvestGrassFilter}
-                        onChange={(e) => setHarvestGrassFilter(e.target.value)}
-                        className={cn(
-                          "w-full rounded-md border border-input px-3 py-2 text-sm",
-                          bgSurfaceFilter(!!harvestGrassFilter.trim()),
-                        )}
-                        aria-label={t("grass")}
-                      >
-                        <option value="">{t("allGrassTypes")}</option>
-                        {harvestGrassOptions.map((g) => (
-                          <option key={g} value={g}>
-                            {g}
-                          </option>
-                        ))}
-                      </select>
-                      <select
-                        value={harvestStatusFilter}
-                        onChange={(e) =>
-                          setHarvestStatusFilter(e.target.value as "" | HarvestLineStatus)
-                        }
-                        className={cn(
-                          "w-full rounded-md border border-input px-3 py-2 text-sm",
-                          bgSurfaceFilter(Boolean(harvestStatusFilter)),
-                        )}
-                        aria-label={t("filterHarvestStatus")}
-                      >
-                        <option value="">{t("allStatuses")}</option>
-                        <option value="scheduled">{t("harvestStatus_scheduled")}</option>
-                        <option value="harvested">{t("harvestStatus_harvested")}</option>
-                        <option value="delivered">{t("harvestStatus_delivered")}</option>
-                      </select>
-                      <MultiSelect
-                        options={harvestLoadTypeOptions}
-                        values={harvestLoadTypeFilter}
-                        onChange={(next) =>
-                          setHarvestLoadTypeFilter(next as HarvestTypeStorageKey[])
-                        }
-                        placeholder={t("allLoadTypes")}
-                        showAllOption
-                        selectionSummary="compact"
-                        className={cn(
-                          "h-[42px] w-full rounded-md border border-input text-sm",
-                          bgSurfaceFilter(harvestLoadTypeFilter.length > 0),
-                        )}
-                      />
-                      <DatePicker
-                        value={normalizeProjectDetailHarvestDateFilter(harvestDateFrom)}
-                        onChange={setHarvestDateFrom}
-                        placeholder={t("fromDate")}
-                        className="h-[42px]"
-                      />
-                      <DatePicker
-                        value={normalizeProjectDetailHarvestDateFilter(harvestDateTo)}
-                        onChange={setHarvestDateTo}
-                        placeholder={t("toDate")}
-                        className="h-[42px]"
-                      />
+                    <select
+                      value={harvestGrassFilter}
+                      onChange={(e) => setHarvestGrassFilter(e.target.value)}
+                      className={cn(
+                        "w-full rounded-md border border-input px-3 py-2 text-sm",
+                        bgSurfaceFilter(!!harvestGrassFilter.trim()),
+                      )}
+                      aria-label={t("grass")}
+                    >
+                      <option value="">{t("allGrassTypes")}</option>
+                      {harvestGrassOptions.map((g) => (
+                        <option key={g} value={g}>
+                          {g}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={harvestStatusFilter}
+                      onChange={(e) =>
+                        setHarvestStatusFilter(e.target.value as "" | HarvestLineStatus)
+                      }
+                      className={cn(
+                        "w-full rounded-md border border-input px-3 py-2 text-sm",
+                        bgSurfaceFilter(Boolean(harvestStatusFilter)),
+                      )}
+                      aria-label={t("filterHarvestStatus")}
+                    >
+                      <option value="">{t("allStatuses")}</option>
+                      <option value="scheduled">{t("harvestStatus_scheduled")}</option>
+                      <option value="harvested">{t("harvestStatus_harvested")}</option>
+                      <option value="delivered">{t("harvestStatus_delivered")}</option>
+                    </select>
+                    <MultiSelect
+                      options={harvestLoadTypeOptions}
+                      values={harvestLoadTypeFilter}
+                      onChange={(next) =>
+                        setHarvestLoadTypeFilter(next as HarvestTypeStorageKey[])
+                      }
+                      placeholder={t("allLoadTypes")}
+                      showAllOption
+                      selectionSummary="compact"
+                      className={cn(
+                        "h-[42px] w-full rounded-md border border-input text-sm",
+                        bgSurfaceFilter(harvestLoadTypeFilter.length > 0),
+                      )}
+                    />
+                    <DatePicker
+                      value={normalizeProjectDetailHarvestDateFilter(harvestDateFrom)}
+                      onChange={setHarvestDateFrom}
+                      placeholder={t("fromDate")}
+                      className="h-[42px]"
+                    />
+                    <DatePicker
+                      value={normalizeProjectDetailHarvestDateFilter(harvestDateTo)}
+                      onChange={setHarvestDateTo}
+                      placeholder={t("toDate")}
+                      className="h-[42px]"
+                    />
                   </div>
                   {harvests.length === 0 ? (
                     <p className="py-6 text-center text-sm text-muted-foreground">
@@ -2015,44 +1986,6 @@ export default function ProjectDetailPage() {
                     </p>
                   ) : (
                     <>
-                      {harvestBulkSelectMode ? (
-                        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2">
-                          <button
-                            type="button"
-                            onClick={() => setAllDeletableHarvestRowsSelected(true)}
-                            disabled={deletableFilteredHarvests.length === 0}
-                            className="inline-flex items-center rounded-md border border-border bg-background px-3 py-1.5 text-sm hover:bg-muted disabled:opacity-50"
-                          >
-                            {t("harvestBulkSelectAll")}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setAllDeletableHarvestRowsSelected(false)}
-                            disabled={harvestBulkSelectedCount === 0}
-                            className="inline-flex items-center rounded-md border border-border bg-background px-3 py-1.5 text-sm hover:bg-muted disabled:opacity-50"
-                          >
-                            {t("harvestBulkDeselectAll")}
-                          </button>
-                          <span className="text-sm text-muted-foreground">
-                            {t("harvestBulkSelectedCount", {
-                              count: harvestBulkSelectedCount,
-                            })}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setHarvestDeleteError(null);
-                              setHarvestBulkDeleteConfirmOpen(true);
-                            }}
-                            disabled={harvestBulkSelectedCount === 0 || harvestDeleting}
-                            className="ml-auto inline-flex h-8 items-center justify-center gap-1.5 rounded-md bg-destructive px-3 text-sm font-medium text-destructive-foreground transition-colors hover:bg-destructive/90 disabled:opacity-50"
-                            aria-label={tCommon("delete")}
-                          >
-                            <Trash2 className="h-4 w-4" aria-hidden />
-                            {tCommon("delete")}
-                          </button>
-                        </div>
-                      ) : null}
                       <div className={HARVEST_TABLE_STICKY_CHROME_CLASS}>
                         <div
                           className="flex justify-start px-6 py-2"
@@ -2082,6 +2015,30 @@ export default function ProjectDetailPage() {
                             })}
                           </div>
                         </div>
+                        {showHarvestBulkCheckboxes && harvestBulkSelectedCount > 0 ? (
+                          <div className="px-6 py-2">
+                            <div className="mb-3 px-4 flex flex-wrap items-center gap-2 rounded-md border border-border bg-muted/30 py-2">
+                              <span className="text-sm text-muted-foreground">
+                                {t("harvestBulkSelectedCount", {
+                                  count: harvestBulkSelectedCount,
+                                })}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setHarvestDeleteError(null);
+                                  setHarvestBulkDeleteConfirmOpen(true);
+                                }}
+                                disabled={harvestBulkSelectedCount === 0 || harvestDeleting}
+                                className="ml-auto inline-flex h-8 items-center justify-center gap-1.5 rounded-md bg-destructive px-3 text-sm font-medium text-destructive-foreground transition-colors hover:bg-destructive/90 disabled:opacity-50"
+                                aria-label={tCommon("delete")}
+                              >
+                                <Trash2 className="h-4 w-4" aria-hidden />
+                                {tCommon("delete")}
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
                         <div
                           ref={harvestHeadScrollRef}
                           className={HARVEST_TABLE_HORIZONTAL_SCROLL_CLASS}
@@ -2094,25 +2051,22 @@ export default function ProjectDetailPage() {
                         >
                           <table className={HARVEST_TABLE_CLASS}>
                             <HarvestHistoryTableColGroup
-                              bulkSelectMode={harvestBulkSelectMode}
+                              showCheckboxes={showHarvestBulkCheckboxes}
                             />
                             <thead>
                               <tr className="text-left shadow-[0_1px_0_0_hsl(var(--border))]">
-                                {harvestBulkSelectMode ? (
+                                {showHarvestBulkCheckboxes ? (
                                   <th
                                     className={cn(
                                       HARVEST_TABLE_COLUMN_HEAD_CLASS,
                                       HARVEST_TABLE_CELL_CLASS,
                                     )}
                                   >
-                                    <input
-                                      type="checkbox"
+                                    <Checkbox
                                       checked={harvestBulkAllDeletableSelected}
-                                      ref={(el) => {
-                                        if (!el) return;
-                                        el.indeterminate =
-                                          harvestBulkSomeDeletableSelected;
-                                      }}
+                                      indeterminate={
+                                        harvestBulkSomeDeletableSelected
+                                      }
                                       onChange={(e) =>
                                         setAllDeletableHarvestRowsSelected(
                                           e.target.checked,
@@ -2205,6 +2159,7 @@ export default function ProjectDetailPage() {
                           </table>
                         </div>
                       </div>
+
                       <div
                         ref={harvestBodyScrollRef}
                         className={cn("-mx-6", HARVEST_TABLE_HORIZONTAL_SCROLL_CLASS)}
@@ -2217,149 +2172,139 @@ export default function ProjectDetailPage() {
                       >
                         <table className={HARVEST_TABLE_CLASS}>
                           <HarvestHistoryTableColGroup
-                            bulkSelectMode={harvestBulkSelectMode}
+                            showCheckboxes={showHarvestBulkCheckboxes}
                           />
                           <tbody>
-                          {filteredHarvests.map((h) => {
-                            const areaDisplay = harvestHistoryTableAreaDisplay(h);
-                            const StatusIcon =
-                              h.status === "delivered" ? CheckCircle2 : Clock;
-                            const rowDeletable = canDeleteHarvestRow(h);
-                            const rowSelected = harvestBulkSelectedIds.has(h.id);
-                            return (
-                              <tr
-                                key={h.id}
-                                className={cn(
-                                  "border-b border-border/50 last:border-0 hover:bg-muted/50",
-                                  harvestBulkSelectMode
-                                    ? rowSelected
-                                      ? "bg-primary/5"
-                                      : undefined
-                                    : "cursor-pointer",
-                                )}
-                                onClick={() => {
-                                  if (harvestBulkSelectMode) {
-                                    if (!rowDeletable) return;
-                                    toggleHarvestBulkRow(h.id, !rowSelected);
-                                    return;
-                                  }
-                                  setExpandedHarvestId(h.id);
-                                }}
-                              >
-                                {harvestBulkSelectMode ? (
-                                  <td
-                                    className={HARVEST_TABLE_CELL_CLASS}
-                                    onClick={(e) => e.stopPropagation()}
-                                  >
-                                    {rowDeletable ? (
-                                      <input
-                                        type="checkbox"
-                                        checked={rowSelected}
-                                        onChange={(e) =>
-                                          toggleHarvestBulkRow(
-                                            h.id,
-                                            e.target.checked,
-                                          )
-                                        }
-                                        aria-label={t("harvestBulkSelectRow", {
-                                          grass: h.grass,
-                                          date: h.date,
-                                        })}
-                                      />
-                                    ) : null}
+                            {filteredHarvests.map((h) => {
+                              const areaDisplay = harvestHistoryTableAreaDisplay(h);
+                              const StatusIcon =
+                                h.status === "delivered" ? CheckCircle2 : Clock;
+                              const rowDeletable = canDeleteHarvestRow(h);
+                              const rowSelected = harvestBulkSelectedIds.has(h.id);
+                              return (
+                                <tr
+                                  key={h.id}
+                                  className={cn(
+                                    "cursor-pointer border-b border-border/50 last:border-0 hover:bg-muted/50",
+                                    showHarvestBulkCheckboxes &&
+                                    rowSelected &&
+                                    "bg-primary/5",
+                                  )}
+                                  onClick={() => setExpandedHarvestId(h.id)}
+                                >
+                                  {showHarvestBulkCheckboxes ? (
+                                    <td
+                                      className={HARVEST_TABLE_CELL_CLASS}
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      {rowDeletable ? (
+                                        <Checkbox
+                                          checked={rowSelected}
+                                          onChange={(e) =>
+                                            toggleHarvestBulkRow(
+                                              h.id,
+                                              e.target.checked,
+                                            )
+                                          }
+                                          aria-label={t("harvestBulkSelectRow", {
+                                            grass: h.grass,
+                                            date: h.date,
+                                          })}
+                                        />
+                                      ) : null}
+                                    </td>
+                                  ) : null}
+                                  <td className={cn(HARVEST_TABLE_CELL_CLASS, "text-foreground")}>
+                                    {h.date}
                                   </td>
-                                ) : null}
-                                <td className={cn(HARVEST_TABLE_CELL_CLASS, "text-foreground")}>
-                                  {h.date}
-                                </td>
-                                <td
-                                  className={cn(
-                                    HARVEST_TABLE_CELL_CLASS,
-                                    "font-medium text-foreground",
-                                  )}
-                                >
-                                  <span className="inline-flex items-center gap-1">
-                                    <span>{h.grass}</span>
-                                    <HarvestLimitQuestionMark status={h.limitStatus} />
-                                  </span>
-                                </td>
-                                <td className={cn(HARVEST_TABLE_CELL_CLASS, "text-muted-foreground")}>
-                                  {h.farm && h.farm !== "-" ? h.farm : "—"}
-                                </td>
-                                <td className={cn(HARVEST_TABLE_CELL_CLASS, "text-muted-foreground")}>
-                                  {h.zone}
-                                </td>
-                                <td
-                                  className={cn(
-                                    HARVEST_TABLE_CELL_CLASS,
-                                    "text-right text-foreground",
-                                  )}
-                                >
-                                  {h.quantity}
-                                </td>
-                                <td
-                                  className={cn(
-                                    HARVEST_TABLE_CELL_CLASS,
-                                    "text-right text-foreground",
-                                  )}
-                                >
-                                  {areaDisplay}
-                                </td>
-                                <td className={HARVEST_TABLE_CELL_CLASS}>
-                                  <span
-                                    className={`inline-flex items-center gap-1 text-xs font-medium ${HARVEST_STATUS_ROW_CLASSES[h.status] ?? "text-muted-foreground"}`}
+                                  <td
+                                    className={cn(
+                                      HARVEST_TABLE_CELL_CLASS,
+                                      "font-medium text-foreground",
+                                    )}
                                   >
-                                    <StatusIcon className="h-3.5 w-3.5" />
-                                    {projectHarvestLineStatusLabel(t, h.status)}
-                                  </span>
-                                </td>
-                                <td className={HARVEST_TABLE_CELL_CLASS}>
-                                  <HarvestHistoryLoadTypeBadge
-                                    label={h.harvestTypeLabel}
-                                    storageKey={h.harvestTypeKey}
-                                  />
-                                </td>
-                                <td className={cn(HARVEST_TABLE_CELL_CLASS, "text-right")}>
-                                  <div className="flex items-center justify-end gap-1">
-                                    {canEditHarvestRow(h) ? (
+                                    <span className="inline-flex items-center gap-1">
+                                      <span>{h.grass}</span>
+                                      <HarvestLimitQuestionMark status={h.limitStatus} />
+                                    </span>
+                                  </td>
+                                  <td className={cn(HARVEST_TABLE_CELL_CLASS, "text-muted-foreground")}>
+                                    {h.farm && h.farm !== "-" ? h.farm : "—"}
+                                  </td>
+                                  <td className={cn(HARVEST_TABLE_CELL_CLASS, "text-muted-foreground")}>
+                                    {h.zone}
+                                  </td>
+                                  <td
+                                    className={cn(
+                                      HARVEST_TABLE_CELL_CLASS,
+                                      "text-right text-foreground",
+                                    )}
+                                  >
+                                    {h.quantity}
+                                  </td>
+                                  <td
+                                    className={cn(
+                                      HARVEST_TABLE_CELL_CLASS,
+                                      "text-right text-foreground",
+                                    )}
+                                  >
+                                    {areaDisplay}
+                                  </td>
+                                  <td className={HARVEST_TABLE_CELL_CLASS}>
+                                    <span
+                                      className={`inline-flex items-center gap-1 text-xs font-medium ${HARVEST_STATUS_ROW_CLASSES[h.status] ?? "text-muted-foreground"}`}
+                                    >
+                                      <StatusIcon className="h-3.5 w-3.5" />
+                                      {projectHarvestLineStatusLabel(t, h.status)}
+                                    </span>
+                                  </td>
+                                  <td className={HARVEST_TABLE_CELL_CLASS}>
+                                    <HarvestHistoryLoadTypeBadge
+                                      label={h.harvestTypeLabel}
+                                      storageKey={h.harvestTypeKey}
+                                    />
+                                  </td>
+                                  <td className={cn(HARVEST_TABLE_CELL_CLASS, "text-right")}>
+                                    <div className="flex items-center justify-end gap-1">
+                                      {canEditHarvestRow(h) ? (
+                                        <button
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            router.push(
+                                              `/harvest/new?id=${encodeURIComponent(h.id)}&returnTo=${encodeURIComponent(returnTo)}`,
+                                            );
+                                          }}
+                                          className="rounded-md p-2 text-primary hover:bg-muted"
+                                          aria-label={tCommon("edit")}
+                                          title={tCommon("edit")}
+                                        >
+                                          <Pencil className="h-4 w-4" />
+                                        </button>
+                                      ) : null}
                                       <button
                                         type="button"
                                         onClick={(e) => {
                                           e.stopPropagation();
-                                          router.push(
-                                            `/harvest/new?id=${encodeURIComponent(h.id)}&returnTo=${encodeURIComponent(returnTo)}`,
-                                          );
+                                          setExpandedHarvestId(h.id);
                                         }}
                                         className="rounded-md p-2 text-primary hover:bg-muted"
-                                        aria-label={tCommon("edit")}
-                                        title={tCommon("edit")}
+                                        aria-label={t("expandHarvestRow")}
+                                        title={t("expandHarvestRow")}
                                       >
-                                        <Pencil className="h-4 w-4" />
+                                        <Maximize2 className="h-4 w-4" />
                                       </button>
-                                    ) : null}
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setExpandedHarvestId(h.id);
-                                      }}
-                                      className="rounded-md p-2 text-primary hover:bg-muted"
-                                      aria-label={t("expandHarvestRow")}
-                                      title={t("expandHarvestRow")}
-                                    >
-                                      <Maximize2 className="h-4 w-4" />
-                                    </button>
-                                  </div>
-                                </td>
-                              </tr>
-                            );
-                          })}
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
                           </tbody>
                           {filteredHarvests.length > 0 ? (
                             <tfoot>
                               <tr className="border-t-2 border-border bg-muted/40 font-semibold text-foreground">
                                 <td
-                                  colSpan={harvestBulkSelectMode ? 5 : 4}
+                                  colSpan={showHarvestBulkCheckboxes ? 5 : 4}
                                   className={cn(
                                     HARVEST_TABLE_CELL_CLASS,
                                     "text-sm text-foreground",
@@ -2387,7 +2332,7 @@ export default function ProjectDetailPage() {
                                       </span>
                                     ) : null}
                                     {harvestHistoryTableTotals.totalQuantityKg <= 0 &&
-                                    harvestHistoryTableTotals.totalQuantityM2 <= 0
+                                      harvestHistoryTableTotals.totalQuantityM2 <= 0
                                       ? "—"
                                       : null}
                                   </span>
@@ -2569,7 +2514,7 @@ export default function ProjectDetailPage() {
                         label={`${t("zone")}:`}
                         value={harvestDetailDisplayText(h.zone)}
                       />
-                   
+
                       <div className="sm:col-span-2">
                         <HarvestHistoryDetailField
                           label={`${t("quantity")}:`}

@@ -123,6 +123,9 @@ export interface MondayProjectServerRow {
     farm_id?: string;
   }>;
   actual_completion_date?: string;
+  /** Turf Farm Manager timeline fields (dynamic table). */
+  in_transit_date?: string;
+  pick_up_date?: string;
 }
 
 export type MondayDynamicTableResponse = {
