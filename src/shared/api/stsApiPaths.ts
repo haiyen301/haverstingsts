@@ -64,6 +64,8 @@ export const STS_API_PATHS = {
   inventoryReport: "/api/harvesting/react_get_inventory_report",
   /** GET Flutter Monday list source (`DynamicTableDataRepo.dynamicTableDataUrl`). */
   mondayDynamicTableData: "/api/harvesting/react_get_harvesting_table",
+  /** GET filtered Monday project row count only (no row payload). */
+  mondayDynamicTableTotal: "/api/harvesting/react_get_harvesting_table_total",
   /** POST Flutter Monday update repo endpoint. */
   mondayUpdateParentItem: "/api/harvesting/react_update_parent_item",
   /** POST find dynamic rows by (field_name, field_value). */

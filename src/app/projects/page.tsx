@@ -24,7 +24,6 @@ import {
   mergeMondayDisplayData,
   mergeProjectSubitemsWithHarvestPlan,
 } from "@/features/project";
-import { parseJsonMaybe, parseQuantityRequiredRows } from "@/shared/lib/parseJsonMaybe";
 import { resolveStaffAvatarImageUrl } from "@/features/project/lib/staffAvatarUrl";
 import { cn } from "@/lib/utils";
 import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
@@ -32,10 +31,7 @@ import { useGrassFilterByFarm } from "@/shared/hooks/useGrassFilterByFarm";
 import { mapRowsToSelectOptions } from "@/shared/lib/harvestReferenceData";
 import { fetchKeyAreas, type KeyAreaRow } from "@/features/admin/api/adminApi";
 import { ProjectListExportDialog } from "@/features/project/ui/ProjectListExportDialog";
-import {
-  countFilteredMondayProjectRows,
-  type ProjectListExportFilter,
-} from "@/features/project/lib/projectListExport";
+import { type ProjectListExportFilter } from "@/features/project/lib/projectListExport";
 
 function parseCsvParam(v: string | null): string[] {
   return String(v ?? "")
@@ -86,129 +82,6 @@ function toRecArray(rows: unknown[]): Record<string, unknown>[] {
   return rows.filter((x): x is Record<string, unknown> => !!x && typeof x === "object");
 }
 
-function rowHasGrassProduct(row: MondayProjectServerRow, productId: string): boolean {
-  const pid = String(productId ?? "").trim();
-  if (!pid) return false;
-  const raw = (row as Record<string, unknown>).quantity_required_sprig_sod;
-  const parsed = parseJsonMaybe(raw);
-  if (!Array.isArray(parsed)) return false;
-  return parsed.some((item) => {
-    if (!item || typeof item !== "object") return false;
-    const rec = item as Record<string, unknown>;
-    return String(rec.product_id ?? "").trim() === pid;
-  });
-}
-
-function farmIdInQuantityRequiredRaw(raw: unknown, farmId: string): boolean {
-  const fid = String(farmId ?? "").trim();
-  if (!fid) return false;
-  return parseQuantityRequiredRows(raw).some(
-    (line) => String(line.farm_id ?? "").trim() === fid,
-  );
-}
-
-function quantityRequiredRawFromDynamicGroup(
-  grouped: Record<string, unknown>[],
-): unknown {
-  for (const rec of grouped) {
-    const fieldName = normalizeDynamicFieldName(rec.name);
-    if (fieldName === "quantity_required_sprig_sod") {
-      return rec.value ?? rec.quantity_required_sprig_sod;
-    }
-  }
-  for (const rec of grouped) {
-    if (rec.quantity_required_sprig_sod != null) {
-      return rec.quantity_required_sprig_sod;
-    }
-  }
-  return undefined;
-}
-
-function projectIdFromDynamicGroup(grouped: Record<string, unknown>[]): string {
-  for (const rec of grouped) {
-    const fieldName = normalizeDynamicFieldName(rec.name);
-    if (fieldName === "project_id") {
-      return normalizeDynamicFieldValue(rec.value ?? rec.project_id);
-    }
-  }
-  for (const rec of grouped) {
-    const pid = String(rec.project_id ?? "").trim();
-    if (pid) return pid;
-  }
-  return "";
-}
-
-/** project_id → `quantity_required_sprig_sod` value rows from sts_dynamic_table_data (id_row groups). */
-function buildQuantityRequiredByProjectId(
-  allRows: Record<string, unknown>[],
-): Map<string, unknown[]> {
-  const byRowTable = new Map<string, Record<string, unknown>[]>();
-  for (const row of allRows) {
-    const key = makeRowTableKey(row);
-    if (!key || key === "__") continue;
-    const list = byRowTable.get(key) ?? [];
-    list.push(row);
-    byRowTable.set(key, list);
-  }
-
-  const map = new Map<string, unknown[]>();
-  for (const grouped of byRowTable.values()) {
-    const projectId = projectIdFromDynamicGroup(grouped);
-    if (!projectId) continue;
-    const raw = quantityRequiredRawFromDynamicGroup(grouped);
-    if (raw == null) continue;
-    const list = map.get(projectId) ?? [];
-    list.push(raw);
-    map.set(projectId, list);
-  }
-  return map;
-}
-
-function rowHasFarmInSubitems(row: MondayProjectServerRow, farmId: string): boolean {
-  const fid = String(farmId ?? "").trim();
-  if (!fid) return false;
-  const raw = (row as Record<string, unknown>).subitems;
-  const parsed = parseJsonMaybe(raw);
-  if (!Array.isArray(parsed)) return false;
-  return parsed.some((item) => {
-    if (!item || typeof item !== "object") return false;
-    const rec = item as Record<string, unknown>;
-    return String(rec.farm_id ?? "").trim() === fid;
-  });
-}
-
-/**
- * Farm filter: quantity_required_sprig_sod (direct + dynamic table by project_id/id_row) first,
- * then subitems farm_id fallback.
- */
-function rowMatchesFarmFilter(
-  row: MondayProjectServerRow,
-  farmId: string,
-  qtyRequiredByProjectId: Map<string, unknown[]>,
-): boolean {
-  const fid = String(farmId ?? "").trim();
-  if (!fid) return false;
-
-  if (
-    farmIdInQuantityRequiredRaw(
-      (row as Record<string, unknown>).quantity_required_sprig_sod,
-      fid,
-    )
-  ) {
-    return true;
-  }
-
-  const projectId = String((row as Record<string, unknown>).project_id ?? "").trim();
-  if (projectId) {
-    const raws = qtyRequiredByProjectId.get(projectId);
-    if (raws?.some((raw) => farmIdInQuantityRequiredRaw(raw, fid))) {
-      return true;
-    }
-  }
-
-  return rowHasFarmInSubitems(row, fid);
-}
-
 function normalizeProjectStatusLabel(v: unknown): string {
   const s = String(v ?? "").toLowerCase().trim();
   if (!s) return "";
@@ -233,7 +106,7 @@ function makeRowTableKey(row: Record<string, unknown>): string {
   return `${rowId}__${tableId}`;
 }
 
-const PROJECT_LIST_PAGE_SIZE = 40;
+const PROJECT_LIST_PAGE_SIZE = 20;
 
 const PROJECT_CARD_STATUS_FILTERS = [
   "Ongoing",
@@ -377,7 +250,6 @@ export default function ProjectListPage() {
   const [manualReloadSeq, setManualReloadSeq] = useState(() => (refreshParam ? 1 : 0));
   const [keyAreaCatalogRows, setKeyAreaCatalogRows] = useState<KeyAreaRow[]>([]);
   const [exportOpen, setExportOpen] = useState(false);
-  const [asyncFilteredCount, setAsyncFilteredCount] = useState<number | null>(null);
   const resumeGoogleSheetExport =
     (searchParams.get("googleSheetExport") ?? "").trim() === "resume";
   const googleSheetExportError = (searchParams.get("googleSheetError") ?? "").trim();
@@ -478,6 +350,37 @@ export default function ProjectListPage() {
     return countryFilterIds.join(",");
   }, [countryFilterIds]);
 
+  const buildIdListQuery = useCallback((ids: string[]) => {
+    if (ids.length === 0) return undefined;
+    return ids.join(",");
+  }, []);
+
+  const buildProjectListFetchParams = useCallback(
+    (page: number) => ({
+      module: "project" as const,
+      search: debouncedSearch || undefined,
+      page,
+      perPage: PROJECT_LIST_PAGE_SIZE,
+      status: buildStatusQuery() || undefined,
+      countryId: buildCountryQuery(),
+      farmId: buildIdListQuery(farmFilterIds),
+      grassId: buildIdListQuery(grassFilterIds),
+      projectId: buildIdListQuery(projectFilterIds),
+      sortBy: "project_id" as const,
+      sortDir: "desc" as const,
+      listPaged: true,
+    }),
+    [
+      buildCountryQuery,
+      buildIdListQuery,
+      buildStatusQuery,
+      debouncedSearch,
+      farmFilterIds,
+      grassFilterIds,
+      projectFilterIds,
+    ],
+  );
+
   useEffect(() => {
     let cancelled = false;
     pageLoadedRef.current = 0;
@@ -489,19 +392,7 @@ export default function ProjectListPage() {
         setRows([]);
         setTotalRecords(null);
         setHasMore(true);
-        const statusQuery = buildStatusQuery();
-        const countryQuery = buildCountryQuery();
-        const res = await fetchMondayProjectRowsFromServer({
-          module: "project",
-          search: debouncedSearch || undefined,
-          page: 1,
-          perPage: PROJECT_LIST_PAGE_SIZE,
-          status: statusQuery || undefined,
-          countryId: countryQuery,
-          sortBy: "project_id",
-          sortDir: "desc",
-          listPaged: true,
-        });
+        const res = await fetchMondayProjectRowsFromServer(buildProjectListFetchParams(1));
         if (cancelled) return;
         const list = res.rows as MondayProjectServerRow[];
         const total = res.totalRecords;
@@ -525,7 +416,7 @@ export default function ProjectListPage() {
     return () => {
       cancelled = true;
     };
-  }, [debouncedSearch, statusFilterValues, countryFilterIds, buildStatusQuery, buildCountryQuery, manualReloadSeq]);
+  }, [buildProjectListFetchParams, manualReloadSeq]);
 
   useEffect(() => {
     let cancelled = false;
@@ -560,19 +451,7 @@ export default function ProjectListPage() {
         loadMoreLockRef.current = true;
         setLoadingMore(true);
         const nextPage = pageLoadedRef.current + 1;
-        const statusQuery = buildStatusQuery();
-        const countryQuery = buildCountryQuery();
-        void fetchMondayProjectRowsFromServer({
-          module: "project",
-          search: debouncedSearch || undefined,
-          page: nextPage,
-          perPage: PROJECT_LIST_PAGE_SIZE,
-          status: statusQuery || undefined,
-          countryId: countryQuery,
-          sortBy: "project_id",
-          sortDir: "desc",
-          listPaged: true,
-        })
+        void fetchMondayProjectRowsFromServer(buildProjectListFetchParams(nextPage))
           .then((res) => {
             const list = res.rows as MondayProjectServerRow[];
             if (list.length === 0) {
@@ -607,7 +486,7 @@ export default function ProjectListPage() {
     obs.observe(el);
     return () => obs.disconnect();
     // Re-bind after each append so a still-visible sentinel triggers the next page.
-  }, [loading, hasMore, debouncedSearch, countryFilterIds, buildStatusQuery, buildCountryQuery, rows.length]);
+  }, [loading, hasMore, buildProjectListFetchParams, rows.length]);
 
   const projectCountryById = useMemo(() => {
     const map = new Map<string, string>();
@@ -627,12 +506,6 @@ export default function ProjectListPage() {
    */
   const projects = useMemo(() => {
     const allowedProjectIdsByCountry = new Set<string>();
-    const qtyRequiredByProjectId =
-      farmFilterIds.length > 0
-        ? buildQuantityRequiredByProjectId(
-            rowsWithHarvestPlan as unknown as Record<string, unknown>[],
-          )
-        : new Map<string, unknown[]>();
     if (countryFilterIds.length > 0) {
       // Fallback resolver for dynamic-table style rows:
       // 1) find records where name=country_id and value in selected filters
@@ -709,20 +582,9 @@ export default function ProjectListPage() {
         countryFilterIds.length === 0 ||
         countryFilterIds.includes(rowCountryId) ||
         (recProjectId ? allowedProjectIdsByCountry.has(recProjectId) : false);
-      const farmOk =
-        farmFilterIds.length === 0 ||
-        farmFilterIds.some((id) =>
-          rowMatchesFarmFilter(data as MondayProjectServerRow, id, qtyRequiredByProjectId),
-        );
-      const grassOk =
-        grassFilterIds.length === 0 ||
-        grassFilterIds.some((id) => rowHasGrassProduct(data as MondayProjectServerRow, id));
-      const projectOk =
-        projectFilterIds.length === 0 ||
-        projectFilterIds.includes(String(rec.project_id ?? "").trim());
-      return visibleByServerRow && countryOk && farmOk && grassOk && projectOk;
+      return visibleByServerRow && countryOk;
     });
-  }, [rowsWithHarvestPlan, countryFilterIds, farmFilterIds, grassFilterIds, projectFilterIds, projectCountryById, rows]);
+  }, [rowsWithHarvestPlan, countryFilterIds, projectCountryById, rows]);
 
   const projectTitleMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -873,71 +735,17 @@ export default function ProjectListPage() {
     ],
   );
 
-  const hasClientSideFilters =
-    farmFilterIds.length > 0 ||
-    grassFilterIds.length > 0 ||
-    projectFilterIds.length > 0;
-
-  useEffect(() => {
-    if (!hasMore || (!hasClientSideFilters && totalRecords != null)) {
-      setAsyncFilteredCount(null);
-      return;
-    }
-    let cancelled = false;
-    setAsyncFilteredCount(null);
-    void countFilteredMondayProjectRows(exportFilter, {
-      projectsCatalog: projectsRef,
-      harvestPlanRows,
-    })
-      .then((count) => {
-        if (!cancelled) setAsyncFilteredCount(count);
-      })
-      .catch(() => {
-        if (!cancelled) setAsyncFilteredCount(projects.length);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    exportFilter,
-    farmFilterIds,
-    grassFilterIds,
-    hasClientSideFilters,
-    hasMore,
-    harvestPlanRows,
-    manualReloadSeq,
-    projectFilterIds,
-    projects.length,
-    projectsRef,
-    totalRecords,
-  ]);
-
   const filteredProjectCount = useMemo(() => {
-    if (!hasMore) return projects.length;
-    if (!hasClientSideFilters && totalRecords != null) return totalRecords;
-    return asyncFilteredCount ?? projects.length;
-  }, [
-    asyncFilteredCount,
-    hasClientSideFilters,
-    hasMore,
-    projects.length,
-    totalRecords,
-  ]);
+    if (totalRecords != null) return totalRecords;
+    return projects.length;
+  }, [projects.length, totalRecords]);
 
   const projectCountLabel = useMemo(() => {
     return t("projectsFound", { count: filteredProjectCount });
   }, [filteredProjectCount, t]);
 
-  const countingExactTotal =
-    !loading &&
-    hasMore &&
-    (hasClientSideFilters || totalRecords == null) &&
-    asyncFilteredCount === null;
-
   const countHeaderLoading =
-    (!referenceBootstrapDone && referenceLoading) ||
-    loading ||
-    countingExactTotal;
+    (!referenceBootstrapDone && referenceLoading) || loading;
 
   const exportResolveContext = useMemo(
     () => ({

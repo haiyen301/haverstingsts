@@ -1,5 +1,12 @@
 import type { QuantityRequiredProject, SubItem } from "@/entities/projects";
-import { normalizeHarvestTypeStorageKey } from "@/shared/lib/harvestType";
+import {
+  harvestLimitLoadTypeFromRequirement,
+  planRowMatchesRequirementForHarvestLimit,
+} from "@/features/project/lib/harvestLimitGrouping";
+import {
+  normalizeHarvestTypeStorageKey,
+  type HarvestTypeStorageKey,
+} from "@/shared/lib/harvestType";
 import { effectiveRequiredQuantity } from "./effectiveRequirementQuantity";
 
 function parseNumber(v: unknown): number {
@@ -194,6 +201,7 @@ export function calculateDeliveredQuantityDeliveryOnly(
   productId?: string,
   uom?: string,
   harvestProjectId?: string,
+  requiredLoadType?: HarvestTypeStorageKey | "",
 ): number {
   if (!productId) return 0;
   const uomNorm = normalizeRequirementUomForProgress(uom);
@@ -208,7 +216,18 @@ export function calculateDeliveredQuantityDeliveryOnly(
   for (const item of subitems) {
     const s = item as Record<string, unknown>;
     if (!subitemBelongsToHarvestProject(s, harvestProjectId)) continue;
-    if (
+    if (requiredLoadType) {
+      if (
+        !planRowMatchesRequirementForHarvestLimit(
+          s,
+          productId,
+          uomNorm,
+          requiredLoadType,
+        )
+      ) {
+        continue;
+      }
+    } else if (
       !subitemMatchesRequirementForDelivery(
         s,
         productId,
@@ -221,6 +240,25 @@ export function calculateDeliveredQuantityDeliveryOnly(
     total += subitemQtyIfDeliveredOnly(s, uomNorm);
   }
   return total;
+}
+
+/** Delivered qty for one `quantity_required_sprig_sod` line (respects load_type when set). */
+export function calculateDeliveredQuantityForRequirementLine(
+  subitems: ReadonlyArray<SubitemLike>,
+  req: Record<string, unknown>,
+  harvestProjectId?: string,
+): number {
+  const productId = String(req.product_id ?? "").trim();
+  if (!productId) return 0;
+  const loadType = harvestLimitLoadTypeFromRequirement(req);
+  const uomRaw = String(req.uom ?? "").trim();
+  return calculateDeliveredQuantityDeliveryOnly(
+    subitems,
+    productId,
+    uomRaw,
+    harvestProjectId,
+    loadType || undefined,
+  );
 }
 
 function subitemMatchesRequirementHarvestLine(

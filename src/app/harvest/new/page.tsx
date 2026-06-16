@@ -32,8 +32,10 @@ import {
   paceRecalcNeedsHarvestedAreaSync,
   paceRecalcNeedsSoftDeleteSync,
   projectGrassHasPaceBatchQuantities,
+  projectRowHasActivePace,
   recalculatePaceQuantitiesAfterActualHarvest,
 } from "@/features/project/lib/recalculatePaceQuantitiesAfterActualHarvest";
+import { planRowMatchesRequirementForHarvestLimit } from "@/features/project/lib/harvestLimitGrouping";
 import {
   getInternalStsProxyUrl,
   stsProxyGetHarvestingIndex,
@@ -340,16 +342,25 @@ function deliveredRowMatchesSelection(
   formHarvestType: HarvestTypeStorageKey | "",
 ): boolean {
   if (!formUomKey) return false;
+  if (formHarvestType) {
+    return planRowMatchesRequirementForHarvestLimit(
+      {
+        product_id: row.productId,
+        uom: row.uom,
+        load_type: row.loadType,
+      },
+      row.productId,
+      formUomKey,
+      formHarvestType,
+    );
+  }
   const rowType = normalizeHarvestTypeStorageKey(row.loadType);
   const rowUom = normUomKey(row.uom);
-  if (formHarvestType === "sod_to_sprig") {
-    return formUomKey === "kg" && rowType === "sod_to_sprig";
+  if (formUomKey === "kg" && rowType === "sod_to_sprig") {
+    return false;
   }
-  if (formHarvestType === "sprig") {
-    return formUomKey === "kg" && rowType !== "sod_to_sprig" && rowUom === "kg";
-  }
-  if (formHarvestType === "sod") {
-    return formUomKey === "m2" && rowType !== "sod_to_sprig" && rowUom === "m2";
+  if (formUomKey === "m2" && rowType === "sod_to_sprig") {
+    return false;
   }
   return rowUom === formUomKey;
 }
@@ -1546,7 +1557,7 @@ function HarvestInputPageInner() {
   /** Project pace is set for the selected grass (+ uom when chosen). */
   const paceProjectGrass = useMemo(() => {
     const grassId = formData.grass.trim();
-    if (!grassId) return false;
+    if (!grassId || !projectRowHasActivePace(selectedProjectRow)) return false;
     return projectGrassHasPaceBatchQuantities(
       selectedProjectRow,
       grassId,
@@ -2143,7 +2154,6 @@ function HarvestInputPageInner() {
         removedPayload,
       );
       const savedHarvest = saveResult.harvest;
-      updateHarvestLimitDescriptionsForSelection(formData.project);
       const paceRecalcFromSave = saveResult.paceRecalc;
       const shouldRunClientPaceRecalc =
         shouldRecalcPaceAfterActual &&
@@ -2171,6 +2181,7 @@ function HarvestInputPageInner() {
           }
         }
       }
+      updateHarvestLimitDescriptionsForSelection(formData.project);
       {
         const harvestIdForAlert = String(savedHarvest?.id ?? editId ?? "").trim();
         const projectLabel =

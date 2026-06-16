@@ -11,7 +11,7 @@ import type {
 } from "@/entities/projects";
 import { parseJsonMaybe } from "./parseJson";
 import {
-  calculateDeliveredQuantityDeliveryOnly,
+  calculateDeliveredQuantityForRequirementLine,
   hasAnyDeliveryHarvestMatchingRequirementLines,
   hasAnyActualHarvestMatchingRequirementLines,
 } from "./subitemDeliveredQuantity";
@@ -279,10 +279,9 @@ function computeMondayStatus(
     const requiredQty = effectiveRequiredQuantity(r);
     if (!pid || requiredQty <= 0) continue;
     anyEvaluated = true;
-    const delivered = calculateDeliveredQuantityDeliveryOnly(
+    const delivered = calculateDeliveredQuantityForRequirementLine(
       subitems,
-      r.product_id,
-      inferRequirementUom(r) || String(r.uom ?? "").trim(),
+      r as Record<string, unknown>,
       harvestProjectId,
     );
     if (delivered < requiredQty) {
@@ -307,7 +306,7 @@ function computeMondayStatus(
 
 /**
  * Overall progress: total delivered ÷ total required quantity × 100%.
- * Each line uses `calculateDeliveredQuantityDeliveryOnly` (valid `delivery_harvest_date` + UOM + project scope).
+ * Each line uses `calculateDeliveredQuantityForRequirementLine` (delivery date + product + UOM + load_type when set).
  */
 export function calculateOverallProjectProgress(
   subitems: SubItem[],
@@ -321,10 +320,9 @@ export function calculateOverallProjectProgress(
     const required = effectiveRequiredQuantity(r);
     if (!pid || required <= 0) continue;
     totalRequired += required;
-    const delivered = calculateDeliveredQuantityDeliveryOnly(
+    const delivered = calculateDeliveredQuantityForRequirementLine(
       subitems,
-      r.product_id,
-      inferRequirementUom(r) || String(r.uom ?? "").trim(),
+      r as Record<string, unknown>,
       harvestProjectId,
     );
     totalDelivered += delivered;
@@ -434,10 +432,9 @@ export function buildProjectDataFromServerRow(
 
   const items: ProjectItem[] = requirements.map((r) => {
     const requiredQty = effectiveRequiredQuantity(r);
-    const deliveredQty = calculateDeliveredQuantityDeliveryOnly(
+    const deliveredQty = calculateDeliveredQuantityForRequirementLine(
       subitems,
-      r.product_id,
-      inferRequirementUom(r) || String(r.uom ?? "").trim(),
+      r as Record<string, unknown>,
       projectId,
     );
     const remaining = Math.max(0, requiredQty - deliveredQty);

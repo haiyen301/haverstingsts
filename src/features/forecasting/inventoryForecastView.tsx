@@ -1751,6 +1751,8 @@ export function InventoryForecast({
     return out;
   }, [grassNameById, farmProductGroupKeys]);
 
+
+
   const forecastData = useMemo<ForecastPoint[]>(() => {
     const today = getForecastToday();
     const chartDates = collectForecastChartDateYmds(

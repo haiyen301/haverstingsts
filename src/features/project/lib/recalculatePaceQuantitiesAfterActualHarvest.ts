@@ -50,6 +50,15 @@ function parsePaceGrassBatchQuantitiesList(raw: unknown): unknown[] {
   return Array.isArray(raw) ? raw : [];
 }
 
+/** True when `sts_projects.project_pace` is a real pace (not empty / "none"). */
+export function projectRowHasActivePace(
+  projectRow: Record<string, unknown> | undefined,
+): boolean {
+  if (!projectRow) return false;
+  const pace = String(projectRow.project_pace ?? "").trim().toLowerCase();
+  return pace !== "" && pace !== "none";
+}
+
 /** True when the project row has at least one grass entry in `pace_grass_batch_quantities`. */
 export function projectHasPaceGrassBatchQuantities(
   projectRow: Record<string, unknown> | undefined,

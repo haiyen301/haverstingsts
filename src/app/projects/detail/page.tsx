@@ -56,9 +56,13 @@ import {
 } from "@/shared/lib/harvestReferenceData";
 import { parseJsonMaybe } from "@/shared/lib/parseJsonMaybe";
 import {
-  calculateDeliveredQuantityDeliveryOnly,
+  calculateDeliveredQuantityForRequirementLine,
   isSodToSprigHarvestLine,
 } from "@/features/project/lib/subitemDeliveredQuantity";
+import {
+  harvestLimitRemainingMapKeyForPlanRow,
+  harvestLimitRemainingMapKeyForRequirement,
+} from "@/features/project/lib/harvestLimitGrouping";
 import {
   buildHarvestPlanVisibilityCtx,
   canUserManageHarvestPlanRecord,
@@ -555,8 +559,9 @@ function mapHarvestRecordToHarvestRow(
     : formatRequirementUomDisplay(uomRaw) || uomRaw;
   const productId = String(r.product_id ?? "").trim();
   const uomKey = isSodToSprig ? "kg" : normalizeUomKey(uomRaw);
-  const remainingMapKey = `${productId}::${uomKey}`;
-  const remainingQty = ctx.remainingByProductUom.get(remainingMapKey);
+  const remainingMapKey = harvestLimitRemainingMapKeyForPlanRow(r, productId);
+  const remainingQty = ctx.remainingByProductUom.get(remainingMapKey)
+    ?? ctx.remainingByProductUom.get(`${productId}::${uomKey}`);
   const remainingUnit =
     ctx.unitByProductUom.get(remainingMapKey) ??
     (isSodToSprig ? "Kg" : uomRaw);
@@ -1150,16 +1155,17 @@ export default function ProjectDetailPage() {
           const productId = String(req.product_id ?? "").trim();
           if (!productId) continue;
           const reqUomRaw = String(req.uom ?? "").trim();
-          const reqUomKey = normalizeUomKey(reqUomRaw);
           const required = effectiveRequiredQuantityFromRecord(req as Record<string, unknown>);
-          const delivered = calculateDeliveredQuantityDeliveryOnly(
+          const delivered = calculateDeliveredQuantityForRequirementLine(
             allPlanRows,
-            productId,
-            reqUomRaw,
+            req as Record<string, unknown>,
             normalizedProjectId,
           );
           const remaining = Math.max(0, required - delivered);
-          const mapKey = `${productId}::${reqUomKey}`;
+          const mapKey = harvestLimitRemainingMapKeyForRequirement(
+            productId,
+            req as Record<string, unknown>,
+          );
           remainingByProductUom.set(mapKey, remaining);
           unitByProductUom.set(mapKey, reqUomRaw || "-");
         }
@@ -1266,10 +1272,9 @@ export default function ProjectDetailPage() {
           quantity_kg: r.quantity_kg as string | number | null | undefined,
         }) || String(r.uom ?? "").trim();
       const required = effectiveRequiredQuantityFromRecord(r as Record<string, unknown>);
-      const delivered = calculateDeliveredQuantityDeliveryOnly(
+      const delivered = calculateDeliveredQuantityForRequirementLine(
         sourceRows,
-        productId,
-        uom,
+        r as Record<string, unknown>,
         harvestProjectId || undefined,
       );
       const remaining = Math.max(0, required - delivered);

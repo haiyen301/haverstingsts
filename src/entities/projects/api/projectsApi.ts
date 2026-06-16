@@ -122,19 +122,21 @@ export async function getAllDynamicTableDataFromServer(
   return { rows, raw: data, totalRecords };
 }
 
-/**
- * Backward-compatible wrapper (existing call-sites).
- */
-export async function fetchMondayProjectRowsFromServer(params?: {
+export type MondayProjectListQuery = {
   search?: string;
   page?: number;
   perPage?: number;
   module?: string;
-  /** Filter by normalized card status (Ongoing|Future|Done|Warning). */
+  /** Filter by normalized card status (Ongoing|Future|Done|Warning). Comma-separated. */
   status?: string;
-  /** Filter by `country_id` (same as ProjectListItem country pill / Zustand countries). Comma-separated for multiple. */
+  /** Comma-separated `country_id` values. */
   countryId?: string;
-  /** Server sort: country_id, status bucket, first grass product_id, or numeric project_id. */
+  /** Comma-separated farm ids (`quantity_required_sprig_sod` / subitems). */
+  farmId?: string;
+  /** Comma-separated grass / product ids. */
+  grassId?: string;
+  /** Comma-separated project ids. */
+  projectId?: string;
   sortBy?: "country" | "status" | "grass" | "project_id";
   sortDir?: "asc" | "desc";
   /**
@@ -142,20 +144,67 @@ export async function fetchMondayProjectRowsFromServer(params?: {
    * (`Harvesting::_applyMondayHarvestingTableQuery`). Omit on screens that need the full list.
    */
   listPaged?: boolean;
-}): Promise<MondayDynamicTableResponse> {
+};
+
+function buildMondayProjectListFilter(
+  params?: MondayProjectListQuery,
+): Record<string, string | number | boolean | null | undefined> {
+  return {
+    module: params?.module,
+    search: params?.search,
+    status: params?.status,
+    country_id: params?.countryId,
+    farm_id: params?.farmId,
+    grass_id: params?.grassId,
+    project_id: params?.projectId,
+    sort_by: params?.sortBy,
+    sort_dir: params?.sortDir,
+    ...(params?.listPaged ? { monday_slice: 1 } : {}),
+  };
+}
+
+/**
+ * Backward-compatible wrapper (existing call-sites).
+ */
+export async function fetchMondayProjectRowsFromServer(
+  params?: MondayProjectListQuery,
+): Promise<MondayDynamicTableResponse> {
   return getAllDynamicTableDataFromServer({
     page: params?.page,
     perPage: params?.perPage,
-    filter: {
-      module: params?.module,
-      search: params?.search,
-      status: params?.status,
-      country_id: params?.countryId,
-      sort_by: params?.sortBy,
-      sort_dir: params?.sortDir,
-      ...(params?.listPaged ? { monday_slice: 1 } : {}),
-    },
+    filter: buildMondayProjectListFilter(params),
   });
+}
+
+/** Filtered project card count only — one HTTP call, no row payload. */
+export async function fetchMondayProjectTotalFromServer(
+  params?: Omit<MondayProjectListQuery, "page" | "perPage" | "listPaged">,
+): Promise<number> {
+  const sp = new URLSearchParams();
+  for (const [key, value] of Object.entries(buildMondayProjectListFilter(params))) {
+    if (value != null && String(value).trim() !== "") {
+      sp.set(key, String(value));
+    }
+  }
+
+  if (typeof window !== "undefined") {
+    const { getSessionUser } = await import("@/shared/store/authUserStore");
+    const uid = getSessionUser()?.id;
+    if (uid != null && Number.isFinite(Number(uid)) && Number(uid) > 0) {
+      sp.set("user_current_login", String(Number(uid)));
+    }
+  }
+
+  const upstreamPath = sp.toString()
+    ? `${STS_API_PATHS.mondayDynamicTableTotal}?${sp.toString()}`
+    : STS_API_PATHS.mondayDynamicTableTotal;
+
+  const json = await stsProxyGetFullJson(upstreamPath);
+  const tr = Number(json.total_records);
+  if (Number.isFinite(tr) && tr >= 0) {
+    return Math.floor(tr);
+  }
+  return 0;
 }
 
 /**

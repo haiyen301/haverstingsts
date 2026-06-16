@@ -289,8 +289,10 @@ export default function ProjectInputPage() {
     !isEdit && canAccessModule(user, "harvests", "create");
   const canDeleteProject = isEdit && canDeleteProjects;
   const showPrivilegedPaceRecalcSetting = useMemo(
-    () => isEdit && userIdIsPrivilegedAdmin(user?.id),
-    [isEdit, user?.id],
+    () =>
+      isEdit &&
+      (isSuperAdmin(user) || userIdIsPrivilegedAdmin(user?.id)),
+    [isEdit, user],
   );
   const showProjectLogisticsTimelineDates = useMemo(
     () =>

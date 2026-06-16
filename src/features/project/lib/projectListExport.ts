@@ -3,6 +3,8 @@ import * as XLSX from "xlsx";
 
 import {
   fetchMondayProjectRowsFromServer,
+  fetchMondayProjectTotalFromServer,
+  type MondayProjectListQuery,
   type MondayProjectServerRow,
 } from "@/entities/projects";
 import { resolveMondayCardStatusForListFilter } from "@/features/project/lib/buildProjectCardData";
@@ -417,11 +419,27 @@ function filterMondayRowsForExport(
   });
 }
 
+function buildMondayListQueryFromExportFilter(
+  filter: ProjectListExportFilter,
+): Omit<MondayProjectListQuery, "page" | "perPage" | "listPaged"> {
+  const statusQuery = buildStatusQuery(filter.statusValues);
+  return {
+    module: "project",
+    search: filter.search.trim() || undefined,
+    status: statusQuery || undefined,
+    countryId: filter.countryIds.length ? filter.countryIds.join(",") : undefined,
+    farmId: filter.farmIds.length ? filter.farmIds.join(",") : undefined,
+    grassId: filter.grassIds.length ? filter.grassIds.join(",") : undefined,
+    projectId: filter.projectIds.length ? filter.projectIds.join(",") : undefined,
+    sortBy: "project_id",
+    sortDir: "desc",
+  };
+}
+
 async function fetchAllMondayProjectRowsForExport(
   filter: ProjectListExportFilter,
 ): Promise<MondayProjectServerRow[]> {
-  const statusQuery = buildStatusQuery(filter.statusValues);
-  const search = filter.search.trim() || undefined;
+  const listQuery = buildMondayListQueryFromExportFilter(filter);
   const perPage = 200;
   const maxPages = 50;
   let page = 1;
@@ -430,14 +448,9 @@ async function fetchAllMondayProjectRowsForExport(
 
   for (;;) {
     const res = await fetchMondayProjectRowsFromServer({
-      module: "project",
-      search,
+      ...listQuery,
       page,
       perPage,
-      status: statusQuery || undefined,
-      countryId: filter.countryIds.length ? filter.countryIds.join(",") : undefined,
-      sortBy: "project_id",
-      sortDir: "desc",
       listPaged: true,
     });
     const list = res.rows as MondayProjectServerRow[];
@@ -458,7 +471,7 @@ async function fetchAllMondayProjectRowsForExport(
   return allRows;
 }
 
-/** Exact project card count for list header (server + client filters, parity with Projects page). */
+/** Exact project card count for list header (server filters; one count request). */
 export async function countFilteredMondayProjectRows(
   filter: ProjectListExportFilter,
   options?: {
@@ -466,16 +479,8 @@ export async function countFilteredMondayProjectRows(
     harvestPlanRows?: Array<Record<string, unknown>>;
   },
 ): Promise<number> {
-  const mondayRows = await fetchAllMondayProjectRowsForExport(filter);
-  const rowsForFilter =
-    options?.harvestPlanRows && options.harvestPlanRows.length > 0
-      ? (mergeProjectSubitemsWithHarvestPlan(
-          mondayRows as unknown as Array<Record<string, unknown>>,
-          options.harvestPlanRows,
-        ) as MondayProjectServerRow[])
-      : mondayRows;
-  const projectCountryById = buildProjectCountryById(options?.projectsCatalog);
-  return filterMondayRowsForExport(rowsForFilter, filter, projectCountryById).length;
+  void options;
+  return fetchMondayProjectTotalFromServer(buildMondayListQueryFromExportFilter(filter));
 }
 
 function harvestRowMatchesLineFilters(
