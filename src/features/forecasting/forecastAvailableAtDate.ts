@@ -1317,7 +1317,6 @@ export function computeInventoryStyleFarmGrassDailySeriesWithBreakdown(
 
     const rolledAvailableKg = Math.max(0, aggregateBaseKg + regrowthKg - totalHarvestKg);
     // Swap system→manual in roll total only when a balance was saved on this exact date.
-    // All other days: plain rolledAvailableKg (prev + regrowth − harvest).
     const displayAvailableKg = hasExactOverrideToday
       ? applyExactDateManualReplacementsToRolledTotal(
           rolledAvailableKg,

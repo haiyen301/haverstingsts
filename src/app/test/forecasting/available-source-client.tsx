@@ -72,7 +72,11 @@ import {
   fetchZoneConfigurations,
   type ZoneConfigurationRow,
 } from "@/features/admin/api/adminApi";
-import { pickGrassCatalogRows, zoneIdToLabelResolved } from "@/shared/lib/harvestReferenceData";
+import {
+  collectHiddenGrassIdsForCatalogOnDateRange,
+  pickGrassCatalogRows,
+  zoneIdToLabelResolved,
+} from "@/shared/lib/harvestReferenceData";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { useInventoryAvailableOverrideStore } from "@/shared/store/inventoryAvailableOverrideStore";
 import { MultiSelect } from "@/shared/ui/multi-select";
@@ -1330,6 +1334,25 @@ export function DevForecastingAvailableSourceClient() {
   const horizonEndYmd = useMemo(() => ymdFromDate(horizonEndDateObj), [horizonEndDateObj]);
   const forecastStartYmd = useMemo(() => ymdFromDate(forecastDateObj), [forecastDateObj]);
 
+  const hiddenGrassIdSet = useMemo(
+    () =>
+      collectHiddenGrassIdsForCatalogOnDateRange(
+        grasses as unknown[],
+        forecastStartYmd,
+        horizonEndYmd,
+      ),
+    [grasses, forecastStartYmd, horizonEndYmd],
+  );
+
+  useEffect(() => {
+    if (hiddenGrassIdSet.size === 0) return;
+    const current = parseCsvList(harvestListGrassFilter);
+    const pruned = current.filter((id) => !hiddenGrassIdSet.has(id));
+    if (pruned.length !== current.length) {
+      setHarvestListGrassFilter(toCsvList(pruned));
+    }
+  }, [hiddenGrassIdSet, harvestListGrassFilter, setHarvestListGrassFilter]);
+
   const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -1495,11 +1518,18 @@ export function DevForecastingAvailableSourceClient() {
 
   const farmProductFilter = useCallback(
     (farmId: number, productId: number) => {
+      if (hiddenGrassIdSet.has(String(productId))) return false;
       if (selectedFarmIds.length > 0 && !selectedFarmIdSet.has(String(farmId))) return false;
       if (selectedGrassIds.length > 0 && !selectedGrassIdSet.has(String(productId))) return false;
       return true;
     },
-    [selectedFarmIds, selectedFarmIdSet, selectedGrassIds, selectedGrassIdSet],
+    [
+      hiddenGrassIdSet,
+      selectedFarmIds,
+      selectedFarmIdSet,
+      selectedGrassIds,
+      selectedGrassIdSet,
+    ],
   );
 
   /** Daily available: same basis as /inventory, summed by farm + grass. */
@@ -1618,6 +1648,7 @@ export function DevForecastingAvailableSourceClient() {
       if (isForecastExcludedZone(config.zone)) continue;
       const farmId = Number(config.farm_id) || 0;
       const grassId = Number(config.grass_id) || 0;
+      if (hiddenGrassIdSet.has(String(grassId))) continue;
       if (!farmProductFilter(farmId, grassId)) continue;
       const zoneKey = forecastZoneKeyFromParts(
         config.farm_id,
@@ -1649,7 +1680,7 @@ export function DevForecastingAvailableSourceClient() {
       if (grass !== 0) return grass;
       return a.zone.localeCompare(b.zone);
     });
-  }, [zoneConfigs, horizonEndYmd, farmProductFilter]);
+  }, [zoneConfigs, horizonEndYmd, hiddenGrassIdSet, farmProductFilter]);
 
   const zoneDailySnapshots = useMemo(
     () =>
@@ -2022,7 +2053,7 @@ export function DevForecastingAvailableSourceClient() {
               <SummaryTile
                 label="Configured capacity"
                 value={formatKg(capacityTotal)}
-                sub="Σ zone max per farm+grass (excl. nozone)"
+                sub="Σ zone max per farm+grass (excl. nozone, inactive grass)"
                 tone="amber"
               />
             </section>
