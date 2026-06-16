@@ -146,7 +146,7 @@ export default function AdminGrassesPage() {
       });
       setOpen(false);
       setForm(emptyForm());
-      void fetchAllHarvestingReferenceData();
+      void fetchAllHarvestingReferenceData(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : t("errors.save"));
     } finally {
@@ -174,7 +174,7 @@ export default function AdminGrassesPage() {
         const next = prev.map((r) => (Number(r.id) === id ? saved : r));
         return next.sort((a, b) => String(a.title).localeCompare(String(b.title)));
       });
-      void fetchAllHarvestingReferenceData();
+      void fetchAllHarvestingReferenceData(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : t("errors.statusToggle"));
     } finally {
@@ -191,7 +191,7 @@ export default function AdminGrassesPage() {
       setError(null);
       await removeGrassType(id);
       setRows((prev) => prev.filter((r) => Number(r.id) !== id));
-      void fetchAllHarvestingReferenceData();
+      void fetchAllHarvestingReferenceData(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : t("errors.delete"));
     } finally {

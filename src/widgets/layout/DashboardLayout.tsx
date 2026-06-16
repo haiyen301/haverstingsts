@@ -50,7 +50,10 @@ import {
   canAccessModule,
 } from "@/shared/auth/permissions";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
-import { prefetchForecastDataIfIdle } from "@/features/forecasting/forecastDataLoader";
+import {
+  isForecastHarvestPrefetchPath,
+  prefetchForecastDataIfIdle,
+} from "@/features/forecasting/forecastDataLoader";
 import { useAuthUserStore } from "@/shared/store/authUserStore";
 import { MobileBottomNav, type MobileMoreNavSection } from "@/widgets/layout/MobileBottomNav";
 import { SidebarProfile } from "@/widgets/layout/SidebarProfile";
@@ -158,12 +161,12 @@ export function DashboardLayout({
   }, []);
 
   useEffect(() => {
-    if (!mounted || !user) return;
+    if (!mounted || !user || !isForecastHarvestPrefetchPath(pathname)) return;
     const timer = window.setTimeout(() => {
       void prefetchForecastDataIfIdle();
     }, 2000);
     return () => window.clearTimeout(timer);
-  }, [mounted, user]);
+  }, [mounted, user, pathname]);
 
   const refreshAlertUnreadBadge = useCallback(async () => {
     if (!user || !canAccessModule(user, "my_alerts", "show")) {
@@ -200,7 +203,10 @@ export function DashboardLayout({
 
   useEffect(() => {
     if (!mounted) return;
-    void useHarvestingDataStore.getState().fetchAllHarvestingReferenceData();
+    const { bootstrapDone, fetchAllHarvestingReferenceData } =
+      useHarvestingDataStore.getState();
+    if (bootstrapDone) return;
+    void fetchAllHarvestingReferenceData();
   }, [mounted]);
 
   if (!mounted) return null;

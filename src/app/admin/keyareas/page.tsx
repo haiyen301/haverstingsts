@@ -22,6 +22,7 @@ import {
   type KeyAreaRow,
 } from "@/features/admin/api/adminApi";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
+import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
@@ -79,6 +80,12 @@ function DropInsertionLine({ colSpan }: { colSpan: number }) {
 
 export default function AdminKeyAreasPage() {
   const t = useTranslations("AdminKeyAreas");
+  const fetchAllHarvestingReferenceData = useHarvestingDataStore(
+    (s) => s.fetchAllHarvestingReferenceData,
+  );
+  const refreshReferenceCatalog = useCallback(() => {
+    void fetchAllHarvestingReferenceData(true);
+  }, [fetchAllHarvestingReferenceData]);
   const [rows, setRows] = useState<KeyAreaRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -139,6 +146,7 @@ export default function AdminKeyAreasPage() {
           ),
         );
         setRows(withOrder);
+        refreshReferenceCatalog();
       } catch (e) {
         setError(e instanceof Error ? e.message : t("errors.reorder"));
         await loadRows();
@@ -146,7 +154,7 @@ export default function AdminKeyAreasPage() {
         setReordering(false);
       }
     },
-    [loadRows, t],
+    [loadRows, refreshReferenceCatalog, t],
   );
 
   const openCreate = () => {
@@ -205,6 +213,7 @@ export default function AdminKeyAreasPage() {
 
       setOpen(false);
       setForm(emptyForm());
+      refreshReferenceCatalog();
     } catch (e) {
       setError(e instanceof Error ? e.message : t("errors.save"));
     } finally {
@@ -222,6 +231,7 @@ export default function AdminKeyAreasPage() {
       await removeKeyArea(id);
       const remaining = rows.filter((r) => Number(r.id) !== id);
       await persistSortOrder(remaining, rows);
+      refreshReferenceCatalog();
     } catch (e) {
       setError(e instanceof Error ? e.message : t("errors.delete"));
     } finally {

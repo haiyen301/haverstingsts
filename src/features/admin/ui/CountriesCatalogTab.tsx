@@ -132,7 +132,7 @@ export function CountriesCatalogTab() {
       await saveAdminCountry({ id, name });
       cancelEditName();
       await load();
-      void fetchAllHarvestingReferenceData();
+      void fetchAllHarvestingReferenceData(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : t("errors.save"));
     } finally {
@@ -148,7 +148,7 @@ export function CountriesCatalogTab() {
       setError(null);
       await saveAdminCountry({ id, active: nextActive });
       await load();
-      void fetchAllHarvestingReferenceData();
+      void fetchAllHarvestingReferenceData(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : t("errors.save"));
     } finally {

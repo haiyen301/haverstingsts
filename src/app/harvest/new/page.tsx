@@ -2219,7 +2219,17 @@ function HarvestInputPageInner() {
         });
       }
       onForecastMutation("harvest");
-      router.push(returnTarget);
+      try {
+        await fetchAllHarvestingReferenceData(true);
+      } catch {
+        /* Navigation may still carry ?refresh= for project list reload. */
+      }
+      const nextReturnTarget =
+        editId &&
+        (returnTarget.startsWith("/projects") || returnTarget.startsWith("/harvest"))
+          ? withRefreshQueryParam(returnTarget)
+          : returnTarget;
+      router.push(nextReturnTarget);
     } catch (err) {
       const msg =
         err instanceof Error ? err.message : t("saveFailed");

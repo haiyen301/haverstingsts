@@ -150,7 +150,7 @@ export default function AdminFarmsPage() {
       });
       setOpen(false);
       setForm(emptyForm());
-      void fetchAllHarvestingReferenceData();
+      void fetchAllHarvestingReferenceData(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : t("errors.save"));
     } finally {
@@ -167,7 +167,7 @@ export default function AdminFarmsPage() {
       setError(null);
       await removeFarm(id);
       setRows((prev) => prev.filter((r) => Number(r.id) !== id));
-      void fetchAllHarvestingReferenceData();
+      void fetchAllHarvestingReferenceData(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : t("errors.delete"));
     } finally {

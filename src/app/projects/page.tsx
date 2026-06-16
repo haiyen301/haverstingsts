@@ -15,12 +15,14 @@ import { MultiSelect } from "@/shared/ui/multi-select";
 import {
   fetchMondayProjectRowsFromServer,
   type MondayDynamicRowLike,
+  type MondayProjectListQuery,
   type MondayProjectServerRow,
 } from "@/entities/projects";
 import {
   ProjectListItem,
   buildMondayEditArgs,
-  fetchAllHarvestPlanIndexRows,
+  fetchHarvestPlanIndexRowsForProjects,
+  mergeHarvestPlanRows,
   mergeMondayDisplayData,
   mergeProjectSubitemsWithHarvestPlan,
 } from "@/features/project";
@@ -29,7 +31,6 @@ import { cn } from "@/lib/utils";
 import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
 import { useGrassFilterByFarm } from "@/shared/hooks/useGrassFilterByFarm";
 import { mapRowsToSelectOptions } from "@/shared/lib/harvestReferenceData";
-import { fetchKeyAreas, type KeyAreaRow } from "@/features/admin/api/adminApi";
 import { ProjectListExportDialog } from "@/features/project/ui/ProjectListExportDialog";
 import { type ProjectListExportFilter } from "@/features/project/lib/projectListExport";
 
@@ -179,6 +180,8 @@ export default function ProjectListPage() {
   const harvestListFarmFilter = useHarvestingDataStore((s) => s.harvestListFarmFilter);
   const { selectedFarmIds: farmFilterIds, setSelectedFarmIds } = useSyncedFarmMultiSelect();
   const projectsRef = useHarvestingDataStore((s) => s.projects);
+  const allProjectsRef = useHarvestingDataStore((s) => s.allProjects);
+  const keyAreasRef = useHarvestingDataStore((s) => s.keyAreas);
   const countriesRef = useHarvestingDataStore((s) => s.countries);
   const activeCountriesRef = useHarvestingDataStore((s) => s.activeCountries);
   const farmsRef = useHarvestingDataStore((s) => s.farms);
@@ -248,7 +251,6 @@ export default function ProjectListPage() {
     [],
   );
   const [manualReloadSeq, setManualReloadSeq] = useState(() => (refreshParam ? 1 : 0));
-  const [keyAreaCatalogRows, setKeyAreaCatalogRows] = useState<KeyAreaRow[]>([]);
   const [exportOpen, setExportOpen] = useState(false);
   const resumeGoogleSheetExport =
     (searchParams.get("googleSheetExport") ?? "").trim() === "resume";
@@ -256,32 +258,11 @@ export default function ProjectListPage() {
   const pageLoadedRef = useRef(0);
   const loadMoreLockRef = useRef(false);
   const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
-  const refsBootstrappedRef = useRef(false);
   const handledRefreshParamRef = useRef(refreshParam);
-  const requestedProjectTitleRefreshIdsRef = useRef<Set<string>>(new Set());
+  const fetchedPlanProjectIdsRef = useRef<Set<string>>(new Set());
 
+  /** Reference catalog (zones, farms, countries, …) lives in Zustand — bootstrapped once in DashboardLayout. */
   useEffect(() => {
-    let mounted = true;
-    void (async () => {
-      try {
-        const rows = await fetchKeyAreas();
-        if (mounted) setKeyAreaCatalogRows(rows);
-      } catch {
-        if (mounted) setKeyAreaCatalogRows([]);
-      }
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!refsBootstrappedRef.current) {
-      refsBootstrappedRef.current = true;
-      handledRefreshParamRef.current = refreshParam;
-      void fetchAllHarvestingReferenceData(refreshParam !== "");
-      return;
-    }
     if (!refreshParam || handledRefreshParamRef.current === refreshParam) return;
     handledRefreshParamRef.current = refreshParam;
     setManualReloadSeq((prev) => prev + 1);
@@ -355,33 +336,60 @@ export default function ProjectListPage() {
     return ids.join(",");
   }, []);
 
+  const buildProjectListFilterParams = useCallback((): Omit<
+    MondayProjectListQuery,
+    "page" | "perPage" | "listPaged"
+  > => ({
+    module: "project",
+    search: debouncedSearch || undefined,
+    status: buildStatusQuery() || undefined,
+    countryId: buildCountryQuery(),
+    farmId: buildIdListQuery(farmFilterIds),
+    grassId: buildIdListQuery(grassFilterIds),
+    projectId: buildIdListQuery(projectFilterIds),
+    sortBy: "project_id",
+    sortDir: "desc",
+  }), [
+    buildCountryQuery,
+    buildIdListQuery,
+    buildStatusQuery,
+    debouncedSearch,
+    farmFilterIds,
+    grassFilterIds,
+    projectFilterIds,
+  ]);
+
   const buildProjectListFetchParams = useCallback(
-    (page: number) => ({
-      module: "project" as const,
-      search: debouncedSearch || undefined,
+    (page: number): MondayProjectListQuery => ({
+      ...buildProjectListFilterParams(),
       page,
       perPage: PROJECT_LIST_PAGE_SIZE,
-      status: buildStatusQuery() || undefined,
-      countryId: buildCountryQuery(),
-      farmId: buildIdListQuery(farmFilterIds),
-      grassId: buildIdListQuery(grassFilterIds),
-      projectId: buildIdListQuery(projectFilterIds),
-      sortBy: "project_id" as const,
-      sortDir: "desc" as const,
       listPaged: true,
     }),
-    [
-      buildCountryQuery,
-      buildIdListQuery,
-      buildStatusQuery,
-      debouncedSearch,
-      farmFilterIds,
-      grassFilterIds,
-      projectFilterIds,
-    ],
+    [buildProjectListFilterParams],
   );
 
+  /** Stable key so URL-sync state churn does not re-fetch with identical query params. */
+  const projectListPageOneFetchKey = useMemo(() => {
+    const p = buildProjectListFetchParams(1);
+    return JSON.stringify({
+      module: p.module ?? "",
+      search: p.search ?? "",
+      status: p.status ?? "",
+      countryId: p.countryId ?? "",
+      farmId: p.farmId ?? "",
+      grassId: p.grassId ?? "",
+      projectId: p.projectId ?? "",
+      sortBy: p.sortBy ?? "",
+      sortDir: p.sortDir ?? "",
+      page: 1,
+      perPage: PROJECT_LIST_PAGE_SIZE,
+    });
+  }, [buildProjectListFetchParams]);
+
   useEffect(() => {
+    if (!urlReady) return;
+
     let cancelled = false;
     pageLoadedRef.current = 0;
     loadMoreLockRef.current = false;
@@ -392,6 +400,8 @@ export default function ProjectListPage() {
         setRows([]);
         setTotalRecords(null);
         setHasMore(true);
+        fetchedPlanProjectIdsRef.current = new Set();
+        setHarvestPlanRows([]);
         const res = await fetchMondayProjectRowsFromServer(buildProjectListFetchParams(1));
         if (cancelled) return;
         const list = res.rows as MondayProjectServerRow[];
@@ -416,21 +426,36 @@ export default function ProjectListPage() {
     return () => {
       cancelled = true;
     };
-  }, [buildProjectListFetchParams, manualReloadSeq]);
+  }, [urlReady, projectListPageOneFetchKey, manualReloadSeq, buildProjectListFetchParams, t]);
 
   useEffect(() => {
+    const projectIds = [
+      ...new Set(
+        rows
+          .map((row) => String(row.project_id ?? "").trim())
+          .filter(Boolean),
+      ),
+    ];
+    const missing = projectIds.filter((id) => !fetchedPlanProjectIdsRef.current.has(id));
+    if (missing.length === 0) return;
+
     let cancelled = false;
-    void fetchAllHarvestPlanIndexRows({ userId: user?.id })
+    void fetchHarvestPlanIndexRowsForProjects(missing, { userId: user?.id })
       .then((planRows) => {
-        if (!cancelled) setHarvestPlanRows(planRows);
+        if (cancelled) return;
+        for (const id of missing) {
+          fetchedPlanProjectIdsRef.current.add(id);
+        }
+        if (planRows.length === 0) return;
+        setHarvestPlanRows((prev) => mergeHarvestPlanRows(prev, planRows));
       })
       .catch(() => {
-        if (!cancelled) setHarvestPlanRows([]);
+        /* cards keep Monday subitems; progress may update on next scroll */
       });
     return () => {
       cancelled = true;
     };
-  }, [manualReloadSeq, user?.id]);
+  }, [rows, user?.id]);
 
   const rowsWithHarvestPlan = useMemo(() => {
     if (harvestPlanRows.length === 0) return rows;
@@ -458,15 +483,11 @@ export default function ProjectListPage() {
               setHasMore(false);
               return;
             }
-            const total = res.totalRecords;
-            if (total != null) {
-              setTotalRecords(total);
-            }
             setRows((prev) => {
               const merged = mergeMondayRowsUnique(prev, list);
               setHasMore(
-                total != null
-                  ? merged.length < total
+                totalRecords != null
+                  ? merged.length < totalRecords
                   : list.length >= PROJECT_LIST_PAGE_SIZE,
               );
               return merged;
@@ -486,7 +507,7 @@ export default function ProjectListPage() {
     obs.observe(el);
     return () => obs.disconnect();
     // Re-bind after each append so a still-visible sentinel triggers the next page.
-  }, [loading, hasMore, buildProjectListFetchParams, rows.length]);
+  }, [loading, hasMore, buildProjectListFetchParams, rows.length, totalRecords]);
 
   const projectCountryById = useMemo(() => {
     const map = new Map<string, string>();
@@ -588,33 +609,18 @@ export default function ProjectListPage() {
 
   const projectTitleMap = useMemo(() => {
     const map = new Map<string, string>();
-    for (const r of toRecArray(projectsRef)) {
+    for (const r of toRecArray(allProjectsRef)) {
       const id = String(r.id ?? "").trim();
       const label = String(r.title ?? r.name ?? "").trim();
       if (id && label) map.set(id, label);
     }
-    return map;
-  }, [projectsRef]);
-
-  const missingProjectTitleIds = useMemo(() => {
-    const missing: string[] = [];
-    for (const row of rows) {
-      const projectId = String(row.project_id ?? "").trim();
-      if (!projectId) continue;
-      if (projectTitleMap.has(projectId)) continue;
-      missing.push(projectId);
+    for (const r of toRecArray(projectsRef)) {
+      const id = String(r.id ?? "").trim();
+      const label = String(r.title ?? r.name ?? "").trim();
+      if (id && label && !map.has(id)) map.set(id, label);
     }
-    return Array.from(new Set(missing));
-  }, [projectTitleMap, rows]);
-
-  useEffect(() => {
-    const unresolved = missingProjectTitleIds.filter(
-      (id) => !requestedProjectTitleRefreshIdsRef.current.has(id),
-    );
-    if (unresolved.length === 0) return;
-    unresolved.forEach((id) => requestedProjectTitleRefreshIdsRef.current.add(id));
-    void fetchAllHarvestingReferenceData(true);
-  }, [fetchAllHarvestingReferenceData, missingProjectTitleIds]);
+    return map;
+  }, [allProjectsRef, projectsRef]);
 
   const countryNameMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -660,13 +666,13 @@ export default function ProjectListPage() {
 
   const keyAreaNameMap = useMemo(() => {
     const map = new Map<string, string>();
-    for (const r of keyAreaCatalogRows) {
+    for (const r of keyAreasRef) {
       const id = String(r.id ?? "").trim();
       const title = String(r.title ?? "").trim();
       if (id && title) map.set(id, title);
     }
     return map;
-  }, [keyAreaCatalogRows]);
+  }, [keyAreasRef]);
 
   const countryOptions = useMemo(() => {
     const list = toRecArray(activeCountriesRef)

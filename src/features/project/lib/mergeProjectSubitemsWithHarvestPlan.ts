@@ -127,6 +127,31 @@ export async function fetchAllHarvestPlanIndexRows(options?: {
   return planRows;
 }
 
+/** Harvest plan rows for specific project ids only (project list lazy progress). */
+export async function fetchHarvestPlanIndexRowsForProjects(
+  projectIds: string[],
+  options?: { perPage?: number; maxPages?: number; userId?: string | number },
+): Promise<Array<Record<string, unknown>>> {
+  const ids = [
+    ...new Set(
+      projectIds.map((id) => String(id ?? "").trim()).filter(Boolean),
+    ),
+  ];
+  if (ids.length === 0) return [];
+
+  const { planRows } = await fetchHarvestPlanPages(
+    {
+      user_id: options?.userId,
+      project_id: ids.join(","),
+      project_progress_scope: HARVEST_PROJECT_PROGRESS_SCOPE,
+    },
+    options,
+  );
+  return planRows;
+}
+
+export { mergeHarvestPlanRows };
+
 /** All plan rows for one project — progress bars / delivered totals (not harvest history list). */
 export async function fetchAllHarvestPlanPagesForProjectProgress(
   projectId: string,

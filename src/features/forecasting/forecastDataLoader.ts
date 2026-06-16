@@ -217,6 +217,21 @@ export async function ensureForecastDataLoaded(
   }
 }
 
+const FORECAST_PREFETCH_PATH_PREFIXES = [
+  "/dashboard",
+  "/forecasting",
+  "/inventory",
+  "/inventory-import",
+] as const;
+
+/** Routes that benefit from warming the forecast harvest cache in the background. */
+export function isForecastHarvestPrefetchPath(pathname: string): boolean {
+  const path = pathname.split("?")[0] ?? pathname;
+  return FORECAST_PREFETCH_PATH_PREFIXES.some(
+    (prefix) => path === prefix || path.startsWith(`${prefix}/`),
+  );
+}
+
 /** Warm cache when idle (e.g. from dashboard). */
 export async function prefetchForecastDataIfIdle(): Promise<void> {
   const store = useForecastDataStore.getState();

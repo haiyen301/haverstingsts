@@ -163,17 +163,45 @@ function buildMondayProjectListFilter(
   };
 }
 
+function mondayProjectListRequestKey(params?: MondayProjectListQuery): string {
+  const filter = buildMondayProjectListFilter(params);
+  return JSON.stringify({
+    filter,
+    page: params?.page ?? 1,
+    perPage: params?.perPage ?? 20,
+  });
+}
+
+const mondayProjectListInflight = new Map<string, Promise<MondayDynamicTableResponse>>();
+
 /**
  * Backward-compatible wrapper (existing call-sites).
+ * Paged project list requests dedupe identical in-flight calls (React Strict Mode / URL sync).
  */
 export async function fetchMondayProjectRowsFromServer(
   params?: MondayProjectListQuery,
 ): Promise<MondayDynamicTableResponse> {
-  return getAllDynamicTableDataFromServer({
+  const request = {
     page: params?.page,
     perPage: params?.perPage,
     filter: buildMondayProjectListFilter(params),
+  };
+
+  if (!params?.listPaged) {
+    return getAllDynamicTableDataFromServer(request);
+  }
+
+  const key = mondayProjectListRequestKey(params);
+  const existing = mondayProjectListInflight.get(key);
+  if (existing) return existing;
+
+  const promise = getAllDynamicTableDataFromServer(request).finally(() => {
+    if (mondayProjectListInflight.get(key) === promise) {
+      mondayProjectListInflight.delete(key);
+    }
   });
+  mondayProjectListInflight.set(key, promise);
+  return promise;
 }
 
 /** Filtered project card count only — one HTTP call, no row payload. */

@@ -19,7 +19,9 @@ export {
 } from "./lib/projectImageHelpers";
 export {
   mergeProjectSubitemsWithHarvestPlan,
+  mergeHarvestPlanRows,
   fetchAllHarvestPlanIndexRows,
+  fetchHarvestPlanIndexRowsForProjects,
   fetchAllHarvestPlanPagesForProjectProgress,
   HARVEST_PROJECT_PROGRESS_SCOPE,
 } from "./lib/mergeProjectSubitemsWithHarvestPlan";
