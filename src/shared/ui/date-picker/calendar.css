@@ -7,6 +7,69 @@
   --rdp-disabled-opacity: 1;
   --rdp-day_button-border-radius: 0.375rem;
   --rdp-selected-border: 2px solid hsl(var(--primary));
+  --rdp-day-width: 2.25rem;
+  --rdp-day-height: 2.25rem;
+  --rdp-day_button-width: 2.25rem;
+  --rdp-day_button-height: 2.25rem;
+  --sts-calendar-control-height: 2rem;
+  --rdp-nav-height: var(--sts-calendar-control-height);
+  --rdp-nav_button-height: var(--sts-calendar-control-height);
+  --rdp-nav_button-width: var(--sts-calendar-control-height);
+}
+
+/* Month/year header — one shared height for nav buttons + dropdowns */
+.sts-calendar .sts-calendar-caption {
+  height: var(--sts-calendar-control-height);
+  min-height: var(--sts-calendar-control-height);
+}
+
+.sts-calendar .sts-calendar-nav-button {
+  width: var(--sts-calendar-control-height);
+  height: var(--sts-calendar-control-height);
+}
+
+.sts-calendar .sts-calendar-dropdown-root {
+  height: var(--sts-calendar-control-height);
+}
+
+.sts-calendar .sts-calendar-dropdown-select {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: pointer;
+  opacity: 0;
+  border: none;
+  outline: none;
+}
+
+.sts-calendar .sts-calendar-dropdown-root .sts-calendar-caption-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.125rem;
+  height: var(--sts-calendar-control-height);
+  padding: 0 0.5rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.375rem;
+  background: hsl(var(--background));
+  font-size: 0.875rem;
+  line-height: 1;
+  white-space: nowrap;
+  color: hsl(var(--foreground));
+}
+
+.sts-calendar .sts-calendar-dropdown-root .sts-calendar-caption-label .rdp-chevron {
+  margin-left: 0.125rem;
+}
+
+.sts-calendar .rdp-month_grid {
+  width: 100%;
+}
+
+.sts-calendar tbody tr + tr .rdp-day {
+  padding-top: 0.25rem;
 }
 
 .sts-calendar .rdp-selected {

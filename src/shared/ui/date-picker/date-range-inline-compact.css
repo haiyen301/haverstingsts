@@ -1,32 +1,42 @@
 /* Compact embedded range picker — fit popover within ~640px+ viewports */
 
+.sts-date-range-inline-compact.rdp-root,
+.sts-date-range-inline-compact .rdp-root {
+  --sts-calendar-control-height: 1.75rem;
+  --rdp-day-width: 1.75rem;
+  --rdp-day-height: 1.75rem;
+  --rdp-day_button-width: 1.75rem;
+  --rdp-day_button-height: 1.75rem;
+}
+
+@media (min-width: 640px) {
+  .sts-date-range-inline-compact.rdp-root,
+  .sts-date-range-inline-compact .rdp-root {
+    --sts-calendar-control-height: 2rem;
+    --rdp-day-width: 2rem;
+    --rdp-day-height: 2rem;
+    --rdp-day_button-width: 2rem;
+    --rdp-day_button-height: 2rem;
+  }
+}
+
+.sts-date-range-inline-compact .sts-calendar-dropdown-root .sts-calendar-caption-label {
+  font-size: 0.75rem;
+  padding-inline: 0.375rem;
+}
+
+@media (min-width: 640px) {
+  .sts-date-range-inline-compact .sts-calendar-dropdown-root .sts-calendar-caption-label {
+    font-size: 0.875rem;
+    padding-inline: 0.5rem;
+  }
+}
+
 .sts-date-range-inline-compact .rdp-month,
 .sts-date-range-inline-compact .rdp-months,
-.sts-date-range-inline-compact .rdp-weeks,
-.sts-date-range-inline-compact .rdp-week {
+.sts-date-range-inline-compact .rdp-month_grid {
   width: 100%;
   max-width: 100%;
-}
-
-.sts-date-range-inline-compact .rdp-week {
-  display: grid !important;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 0;
-}
-
-.sts-date-range-inline-compact .rdp-day {
-  width: 100% !important;
-  height: auto !important;
-  aspect-ratio: 1;
-  max-width: none;
-  padding: 0;
-}
-
-.sts-date-range-inline-compact .rdp-day_button {
-  width: 100% !important;
-  height: 100% !important;
-  min-height: 1.75rem;
-  margin: 0;
 }
 
 .sts-date-range-inline-compact .rdp-month_caption,

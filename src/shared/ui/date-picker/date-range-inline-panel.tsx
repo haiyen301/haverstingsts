@@ -167,14 +167,10 @@ export function DateRangePickerInlinePanel({
 
   const compactCalendarClassNames = compact
     ? {
-        month_caption: "relative z-10 mx-auto flex h-7 w-fit items-center justify-center",
-        caption: "relative flex min-h-7 items-center justify-center pt-1",
-        dropdown:
-          "h-7 rounded-md border border-border bg-background px-1.5 text-xs text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        weekday: "w-7 rounded-md text-[0.7rem] font-medium text-muted-foreground sm:w-8",
-        week: "mt-1 flex w-full",
-        day: "rdp-day h-7 w-7 p-0 text-center text-xs sm:h-8 sm:w-8 sm:text-sm",
-        day_button: "rdp-day_button h-7 w-7 p-0 text-xs font-medium sm:h-8 sm:w-8 sm:text-sm",
+        weekday: "rounded-md text-[0.7rem] font-medium text-muted-foreground sm:text-[0.75rem]",
+        week: "",
+        day: "rdp-day p-0 text-center text-xs sm:text-sm",
+        day_button: "rdp-day_button p-0 text-xs font-medium sm:text-sm",
       }
     : {};
 
