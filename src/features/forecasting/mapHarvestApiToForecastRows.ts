@@ -39,7 +39,7 @@ import {
 } from "./resolveHarvestPlanFarm";
 
 /** Plan có cột zone (không trống) xử lý trước để phần no-zone spread thấy headroom đã bị plan có zone chiếm. */
-function compareRawHarvestPlansForNoZoneSpread(
+export function compareRawHarvestPlansForNoZoneSpread(
   a: Record<string, unknown>,
   b: Record<string, unknown>,
 ): number {
@@ -49,7 +49,7 @@ function compareRawHarvestPlansForNoZoneSpread(
   return harvestPlanScalarFromRaw(a.id) - harvestPlanScalarFromRaw(b.id);
 }
 
-function recordFragmentsOnUsedByFarmProduct(
+export function recordFragmentsOnUsedByFarmProduct(
   usedByFarmProduct: Map<string, Map<string, number>>,
   farmId: number,
   productId: number,
