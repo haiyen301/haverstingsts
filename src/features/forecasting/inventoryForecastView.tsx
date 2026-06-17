@@ -2254,7 +2254,7 @@ export function InventoryForecast({
   const upcomingTotalsSummary = useMemo(() => {
     if (upcomingHarvestTotalKg <= 0) return "";
     return t("upcoming.summaryKg", {
-      quantity: upcomingHarvestTotalKg.toLocaleString(),
+      quantity: Math.ceil(upcomingHarvestTotalKg).toLocaleString(),
     });
   }, [upcomingHarvestTotalKg, t]);
 

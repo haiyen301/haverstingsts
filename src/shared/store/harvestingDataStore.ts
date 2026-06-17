@@ -1,6 +1,11 @@
 import { create } from "zustand";
+import {
+  persist,
+  createJSONStorage,
+  type StateStorage,
+} from "zustand/middleware";
 
-import type { ZoneConfigurationRow } from "@/features/admin/api/adminApi";
+import type { RegrowthRuleRow, ZoneConfigurationRow } from "@/features/admin/api/adminApi";
 import { STS_API_PATHS } from "@/shared/api/stsApiPaths";
 import {
   filterActiveCountryRows,
@@ -16,6 +21,8 @@ import {
   type KeyAreaReferenceRow,
 } from "@/shared/lib/harvestReferenceData";
 import { stsProxyGetWithParams, stsProxyGetWithParamsOptional } from "@/shared/api/stsProxyClient";
+
+export const HARVESTING_REFERENCE_PERSIST_KEY = "sts-harvesting-reference-v1";
 
 function asArray(v: unknown): unknown[] {
   if (Array.isArray(v)) return v;
@@ -76,6 +83,8 @@ const empty = {
   zoneConfigurations: [] as ZoneConfigurationRow[],
   /** Key areas from admin `/api/keyareas` (id → title). */
   keyAreas: [] as KeyAreaReferenceRow[],
+  /** Regrowth rule rows from `/api/regrowth_rules`. */
+  regrowthRules: [] as RegrowthRuleRow[],
   farms: [] as unknown[],
   /** All active projects (`deleted = 0`) — no role filter. */
   allProjects: [] as unknown[],
@@ -98,6 +107,7 @@ const empty = {
   harvestListProjectFilter: "",
   harvestListGrassFilter: "",
   harvestListStatusFilter: "",
+  referenceUserId: null as number | null,
 };
 
 export type HarvestingDataState = {
@@ -106,6 +116,7 @@ export type HarvestingDataState = {
   /** Zone setup rows linking farms to grasses (`/api/zone_configurations`). */
   zoneConfigurations: ZoneConfigurationRow[];
   keyAreas: KeyAreaReferenceRow[];
+  regrowthRules: RegrowthRuleRow[];
   farms: unknown[];
   /** Full project catalog (`GET /api/projects/react_get_all_projects`). */
   allProjects: unknown[];
@@ -124,6 +135,8 @@ export type HarvestingDataState = {
   error: string | null;
   /** True after first successful bootstrap (skip duplicate fetches). */
   bootstrapDone: boolean;
+  /** Session user id when reference rows were cached — cleared on logout / user switch. */
+  referenceUserId: number | null;
   /** Harvest list `/harvest`: search box (project, farm, grass, zone, status). */
   harvestListSearch: string;
   /** Harvest list: farm select; empty = all. */
@@ -142,6 +155,7 @@ export type HarvestingDataState = {
   setFarmZones: (farmZones: FarmZoneReferenceRow[]) => void;
   setZoneConfigurations: (zoneConfigurations: ZoneConfigurationRow[]) => void;
   setKeyAreas: (keyAreas: KeyAreaReferenceRow[]) => void;
+  setRegrowthRules: (regrowthRules: RegrowthRuleRow[]) => void;
   setFarms: (farms: unknown[]) => void;
   setAllProjects: (allProjects: unknown[]) => void;
   setRoleVisibleProjects: (roleVisibleProjects: unknown[]) => void;
@@ -179,15 +193,60 @@ export type HarvestingDataState = {
   reset: () => void;
 };
 
-export const useHarvestingDataStore = create<HarvestingDataState>((set, get) => ({
+const noopStorage: StateStorage = {
+  getItem: () => null,
+  setItem: () => {},
+  removeItem: () => {},
+};
+
+function getHarvestingPersistStorage(): StateStorage {
+  if (typeof window === "undefined") return noopStorage;
+  try {
+    return window.sessionStorage;
+  } catch {
+    return noopStorage;
+  }
+}
+
+/** Catalog is usable for forecast/inventory when bootstrap finished and core rows exist. */
+export function hasHarvestReferenceCatalog(
+  state: Pick<HarvestingDataState, "bootstrapDone" | "farms" | "grasses">,
+): boolean {
+  return state.bootstrapDone && state.farms.length > 0 && state.grasses.length > 0;
+}
+
+type PersistedHarvestReferenceSlice = Pick<
+  HarvestingDataState,
+  | "farmZones"
+  | "zoneConfigurations"
+  | "keyAreas"
+  | "regrowthRules"
+  | "farms"
+  | "allProjects"
+  | "roleVisibleProjects"
+  | "projects"
+  | "staffs"
+  | "countries"
+  | "activeCountries"
+  | "grasses"
+  | "products"
+  | "bootstrapDone"
+  | "referenceUserId"
+>;
+
+export const useHarvestingDataStore = create<HarvestingDataState>()(
+  persist(
+    (set, get) => ({
   ...empty,
   loading: false,
   error: null,
   bootstrapDone: false,
+  referenceUserId: null,
 
   setFarmZones: (farmZones) => set({ farmZones }),
   setZoneConfigurations: (zoneConfigurations) => set({ zoneConfigurations }),
   setKeyAreas: (keyAreas) => set({ keyAreas }),
+  setRegrowthRules: (regrowthRules) => set({ regrowthRules }),
   setFarms: (farms) => set({ farms }),
   setAllProjects: (allProjects) => set({ allProjects }),
   setRoleVisibleProjects: (roleVisibleProjects) =>
@@ -289,6 +348,7 @@ export const useHarvestingDataStore = create<HarvestingDataState>((set, get) => 
         ["activeCountries", STS_API_PATHS.countries, { active_only: 1 }],
         ["grasses", STS_API_PATHS.grasses, undefined],
         ["products", STS_API_PATHS.products, undefined],
+        ["regrowthRules", STS_API_PATHS.regrowthRules, undefined],
       ] as const;
       const settled = await Promise.allSettled([
         ...entries.map(([, path, extra]) =>
@@ -329,6 +389,7 @@ export const useHarvestingDataStore = create<HarvestingDataState>((set, get) => 
       const activeCountriesRaw = byKey.get("activeCountries");
       const grassesRaw = byKey.get("grasses");
       const products = byKey.get("products");
+      const regrowthRulesRaw = byKey.get("regrowthRules");
       const grassesArr = grassesRaw !== undefined ? asArray(grassesRaw) : [];
       const productsArr = asArray(products);
       const countriesArr = asArray(countries);
@@ -340,6 +401,11 @@ export const useHarvestingDataStore = create<HarvestingDataState>((set, get) => 
       const allProjectsArr = asArray(allProjects);
       const resolvedAllProjects =
         allProjectsArr.length > 0 ? allProjectsArr : roleVisibleProjectsArr;
+      const referenceUserId =
+        refParams.react_client_user_id != null &&
+        Number.isFinite(Number(refParams.react_client_user_id))
+          ? Number(refParams.react_client_user_id)
+          : null;
 
       set({
         farmZones: normalizeFarmZoneRows(farmZones),
@@ -355,9 +421,11 @@ export const useHarvestingDataStore = create<HarvestingDataState>((set, get) => 
         /** `sts_grasses` via `/api/grasses`; fall back to `/api/items` if grasses request failed or returned nothing. */
         grasses: grassesArr.length > 0 ? grassesArr : productsArr,
         products: productsArr,
+        regrowthRules: asArray(regrowthRulesRaw) as RegrowthRuleRow[],
         loading: false,
         error: errors.length ? `Reference partial load: ${errors.join(" | ")}` : null,
         bootstrapDone: true,
+        referenceUserId,
       });
     };
 
@@ -376,6 +444,47 @@ export const useHarvestingDataStore = create<HarvestingDataState>((set, get) => 
       loading: false,
       error: null,
       bootstrapDone: false,
+      referenceUserId: null,
     });
+    void useHarvestingDataStore.persist.clearStorage();
   },
-}));
+    }),
+    {
+      name: HARVESTING_REFERENCE_PERSIST_KEY,
+      storage: createJSONStorage(getHarvestingPersistStorage),
+      partialize: (state): PersistedHarvestReferenceSlice => ({
+        farmZones: state.farmZones,
+        zoneConfigurations: state.zoneConfigurations,
+        keyAreas: state.keyAreas,
+        regrowthRules: state.regrowthRules,
+        farms: state.farms,
+        allProjects: state.allProjects,
+        roleVisibleProjects: state.roleVisibleProjects,
+        projects: state.projects,
+        staffs: state.staffs,
+        countries: state.countries,
+        activeCountries: state.activeCountries,
+        grasses: state.grasses,
+        products: state.products,
+        bootstrapDone: state.bootstrapDone,
+        referenceUserId: state.referenceUserId,
+      }),
+      onRehydrateStorage: () => (state) => {
+        if (!state) return;
+        void (async () => {
+          const { getSessionUser } = await import("@/shared/store/authUserStore");
+          const uid = getSessionUser()?.id;
+          const cachedFor = state.referenceUserId;
+          if (
+            cachedFor != null &&
+            uid != null &&
+            Number.isFinite(Number(uid)) &&
+            Number(uid) !== cachedFor
+          ) {
+            useHarvestingDataStore.getState().reset();
+          }
+        })();
+      },
+    },
+  ),
+);

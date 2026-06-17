@@ -1,10 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
   CalendarDays,
+  ChevronDown,
+  ChevronUp,
   Database,
   HelpCircle,
   RefreshCw,
@@ -27,10 +29,7 @@ import {
   type RegrowthReferenceConfig,
 } from "@/features/forecasting/forecastingRegrowth";
 import {
-  computeAllocatedAvailableByZoneAtDate,
   computeInventoryStyleFarmGrassDailySeries,
-  computeInventoryStyleZoneDailySnapshots,
-  computeRegrowthCreditedOnDate,
   sumFarmProductCapacityCapsFromZoneConfigAtDate,
   type ZoneInventoryDaySnapshot,
 } from "@/features/forecasting/forecastAvailableAtDate";
@@ -45,7 +44,6 @@ import {
   zoneConfigIsActiveAtYmd,
   zoneConfigurationMaxKg,
 } from "@/features/forecasting/inventoryRegrowthCalculator";
-import { applyInventoryAvailableOverridesToZoneMap } from "@/features/forecasting/inventoryAvailableOverrides";
 import {
   DEFAULT_FALLBACK_INVENTORY_KG_PER_M2,
   DEFAULT_FALLBACK_MAX_INVENTORY_KG,
@@ -53,10 +51,13 @@ import {
   applyLatestZoneMaxKgToForecastRows,
   forecastHarvestRowEffectiveM2,
   forecastHarvestRowInventoryKg,
+  forecastHarvestRowPlanQuantityKg,
   forecastHarvestRowUsesHarvestedAreaForMagnitude,
   harvestPlanEffectiveMagnitudeFromRaw,
   harvestPlanQuantityFromRaw,
   isForecastExcludedZone,
+  isSodToSprigForecastRow,
+  isSodToSprigPlanRow,
   planRowUsesHarvestedAreaForMagnitude,
   resolvePlanRowUomFromRaw,
   resolveZone1InventoryKgPerM2,
@@ -769,6 +770,45 @@ function dbHarvestDateSource(raw: Record<string, unknown> | undefined): string {
   return "mapped harvestDate";
 }
 
+function auditRowIsSodToSprig(params: {
+  raw: Record<string, unknown> | undefined;
+  row: ForecastHarvestRow;
+}): boolean {
+  const { raw, row } = params;
+  if (raw && isSodToSprigPlanRow(raw)) return true;
+  return isSodToSprigForecastRow(row);
+}
+
+/** Sod→Sprig plan `quantity` is kg even when API UOM is mistakenly M². */
+function auditRawUom(params: {
+  raw: Record<string, unknown> | undefined;
+  row: ForecastHarvestRow;
+}): string {
+  if (auditRowIsSodToSprig(params)) return "kg";
+  const { raw, row } = params;
+  return raw ? resolvePlanRowUom(raw) : String(row.uom ?? "");
+}
+
+function auditRawQty(params: {
+  raw: Record<string, unknown> | undefined;
+  row: ForecastHarvestRow;
+  zoneConfigs?: ZoneConfigurationRow[];
+}): number {
+  const { raw, row, zoneConfigs } = params;
+  if (raw) {
+    return isSodToSprigPlanRow(raw)
+      ? harvestPlanQuantityFromRaw(raw)
+      : harvestPlanEffectiveMagnitudeFromRaw(raw);
+  }
+  if (isSodToSprigForecastRow(row)) {
+    return forecastHarvestRowPlanQuantityKg(row) || row.quantity;
+  }
+  if (forecastHarvestRowUsesHarvestedAreaForMagnitude(row)) {
+    return forecastHarvestRowEffectiveM2(row, { zoneConfigs });
+  }
+  return forecastHarvestRowPlanQuantityKg(row) || row.quantity;
+}
+
 function buildM2ConversionRow(params: {
   row: ForecastHarvestRow;
   raw: Record<string, unknown> | undefined;
@@ -776,6 +816,8 @@ function buildM2ConversionRow(params: {
   zoneLabel: (zone: string) => string;
 }): M2ConversionRow | null {
   const { row, raw, zoneConfigs, zoneLabel } = params;
+  if (auditRowIsSodToSprig({ raw, row })) return null;
+
   const rawUom = raw ? resolvePlanRowUomFromRaw(raw) : String(row.uom ?? "");
   const usesM2Magnitude = raw
     ? planRowUsesHarvestedAreaForMagnitude(raw) || isM2Uom(rawUom)
@@ -890,8 +932,8 @@ function addSourceContribution(params: {
       ? Number(row.inventoryKgFromNozoneSpread)
       : 0,
   );
-  const rawQty = raw ? harvestPlanQuantityFromRaw(raw) : row.quantity;
-  const rawUom = raw ? resolvePlanRowUom(raw) : String(row.uom ?? "");
+  const rawQty = auditRawQty({ raw, row });
+  const rawUom = auditRawUom({ raw, row });
 
   const existing = sourceMap.get(planId);
   const next: SourceAuditRow =
@@ -1296,8 +1338,9 @@ export function DevForecastingAvailableSourceClient() {
 
   const [forecastDate, setForecastDate] = useState(() => ymdFromDate(startOfLocalDay(new Date())));
   const [forecastEndDate, setForecastEndDate] = useState(() =>
-    ymdFromDate(addMonths(startOfLocalDay(new Date()), 6)),
+    ymdFromDate(addMonths(startOfLocalDay(new Date()), 3)),
   );
+  const [calendarOpen, setCalendarOpen] = useState(false);
   const [rawRows, setRawRows] = useState<Record<string, unknown>[]>([]);
   const [rows, setRows] = useState<ForecastHarvestRow[]>([]);
   const [zoneConfigs, setZoneConfigs] = useState<ZoneConfigurationRow[]>([]);
@@ -1307,6 +1350,11 @@ export function DevForecastingAvailableSourceClient() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+
+  const deferredForecastDate = useDeferredValue(forecastDate);
+  const deferredForecastEndDate = useDeferredValue(forecastEndDate);
+  const datesPending =
+    deferredForecastDate !== forecastDate || deferredForecastEndDate !== forecastEndDate;
 
   const selectedGrassIds = useMemo(
     () => parseCsvList(harvestListGrassFilter),
@@ -1324,12 +1372,12 @@ export function DevForecastingAvailableSourceClient() {
   );
 
   const forecastDateObj = useMemo(
-    () => parseYmdLocal(forecastDate) ?? startOfLocalDay(new Date()),
-    [forecastDate],
+    () => parseYmdLocal(deferredForecastDate) ?? startOfLocalDay(new Date()),
+    [deferredForecastDate],
   );
   const horizonEndDateObj = useMemo(
-    () => parseYmdLocal(forecastEndDate) ?? addMonths(forecastDateObj, 6),
-    [forecastDateObj, forecastEndDate],
+    () => parseYmdLocal(deferredForecastEndDate) ?? addMonths(forecastDateObj, 3),
+    [forecastDateObj, deferredForecastEndDate],
   );
   const horizonEndYmd = useMemo(() => ymdFromDate(horizonEndDateObj), [horizonEndDateObj]);
   const forecastStartYmd = useMemo(() => ymdFromDate(forecastDateObj), [forecastDateObj]);
@@ -1471,6 +1519,8 @@ export function DevForecastingAvailableSourceClient() {
 
   /** Per RG day: harvest rows whose regrowth lands on that day (not limited by harvest From–To). */
   const regrowthAuditByDate = useMemo(() => {
+    if (!calendarOpen) return new Map<string, AvailableSourceAudit>();
+
     const byYmd = new Map<string, ForecastHarvestRow[]>();
     for (const row of filteredRows) {
       const regrowthDate = getRegrowthDateFromHarvest(row, regrowthConfig);
@@ -1499,6 +1549,7 @@ export function DevForecastingAvailableSourceClient() {
     }
     return out;
   }, [
+    calendarOpen,
     filteredRows,
     rawByPlanId,
     regrowthConfig,
@@ -1555,34 +1606,6 @@ export function DevForecastingAvailableSourceClient() {
     ],
   );
 
-  const calculated = useMemo(
-    () =>
-      computeAllocatedAvailableByZoneAtDate(
-        rowsInDateRange,
-        regrowthConfig,
-        horizonEndDateObj,
-        zoneConfigs,
-      ),
-    [rowsInDateRange, regrowthConfig, horizonEndDateObj, zoneConfigs],
-  );
-
-  const capacityByZone = useMemo(
-    () => mergeZoneCapacityMapsAtDate(rowsInDateRange, zoneConfigs, horizonEndDateObj),
-    [rowsInDateRange, zoneConfigs, horizonEndDateObj],
-  );
-
-  const overrideResult = useMemo(
-    () =>
-      applyInventoryAvailableOverridesToZoneMap({
-        availableByZone: calculated.availableByZone,
-        maxByZone: capacityByZone,
-        overridesByZone,
-        asOf: horizonEndDateObj,
-        overrideRecoveryDays: regrowthConfig.overrideRecoveryDays,
-      }),
-    [calculated.availableByZone, capacityByZone, overridesByZone, horizonEndDateObj, regrowthConfig],
-  );
-
   const calculatedTotal = useMemo(() => {
     const lastDay = rollingDailyAvailable[rollingDailyAvailable.length - 1];
     return lastDay ? Math.max(0, Math.round(lastDay.availableKg)) : 0;
@@ -1611,116 +1634,19 @@ export function DevForecastingAvailableSourceClient() {
   }, [rollingDailyAvailable]);
   const auditDiff = Math.abs(calculatedTotal - rawAvailableAtHorizon);
 
-  const filteredSourceRows = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return audit.sourceRows;
-    return audit.sourceRows.filter((row) => {
-      const haystack = [
-        row.planId,
-        row.project,
-        row.customer,
-        row.doSoNumber,
-        row.farm,
-        row.grass,
-        row.dbZone,
-        row.mappedZones.join(" "),
-        row.forecastRowIds.join(" "),
-      ]
-        .join(" ")
-        .toLowerCase();
-      return haystack.includes(q);
-    });
-  }, [audit.sourceRows, search]);
-
   const dailyRegrowthTimeline = useMemo<DailyRegrowthTimelineRow[]>(() => {
+    if (!calendarOpen) return [];
+
     const allSources: SourceAuditRow[] = [];
     for (const dayAudit of regrowthAuditByDate.values()) {
       allSources.push(...dayAudit.sourceRows);
     }
     return aggregateDailyRegrowthTimeline(allSources, zoneLabel);
-  }, [regrowthAuditByDate, zoneLabel]);
-
-  const zoneTimelineRows = useMemo<DevZoneTimelineRow[]>(() => {
-    const seenKeys = new Set<string>();
-    const rows: DevZoneTimelineRow[] = [];
-    for (const config of zoneConfigs) {
-      if (!zoneConfigIsActiveAtYmd(config, horizonEndYmd)) continue;
-      if (isForecastExcludedZone(config.zone)) continue;
-      const farmId = Number(config.farm_id) || 0;
-      const grassId = Number(config.grass_id) || 0;
-      if (hiddenGrassIdSet.has(String(grassId))) continue;
-      if (!farmProductFilter(farmId, grassId)) continue;
-      const zoneKey = forecastZoneKeyFromParts(
-        config.farm_id,
-        String(config.zone ?? ""),
-        config.grass_id,
-      );
-      if (seenKeys.has(zoneKey)) continue;
-      const active = findActiveZoneConfiguration(zoneConfigs, {
-        farmId,
-        zone: String(config.zone ?? ""),
-        productId: grassId,
-        ymd: horizonEndYmd,
-      });
-      if (!active) continue;
-      seenKeys.add(zoneKey);
-      rows.push({
-        zoneKey,
-        farmName: String(active.farm_name ?? "").trim(),
-        turfgrass: String(active.turfgrass ?? "").trim(),
-        zone: String(active.zone ?? "").trim(),
-        sizeM2: toNum(active.size_m2),
-        maxKg: zoneConfigurationMaxKg(active),
-      });
-    }
-    return rows.sort((a, b) => {
-      const farm = a.farmName.localeCompare(b.farmName);
-      if (farm !== 0) return farm;
-      const grass = a.turfgrass.localeCompare(b.turfgrass);
-      if (grass !== 0) return grass;
-      return a.zone.localeCompare(b.zone);
-    });
-  }, [zoneConfigs, horizonEndYmd, hiddenGrassIdSet, farmProductFilter]);
-
-  const zoneDailySnapshots = useMemo(
-    () =>
-      computeInventoryStyleZoneDailySnapshots(
-        filteredRows,
-        zoneConfigs,
-        regrowthConfig,
-        overridesByZone,
-        forecastDateObj,
-        horizonEndDateObj,
-        { farmProductFilter, applyRecovery: false },
-      ),
-    [
-      filteredRows,
-      zoneConfigs,
-      regrowthConfig,
-      overridesByZone,
-      forecastDateObj,
-      horizonEndDateObj,
-      farmProductFilter,
-    ],
-  );
-
-  const overrideRows = useMemo(
-    () =>
-      Array.from(overrideResult.appliedByZone.entries()).map(([zoneKey, applied]) => ({
-        zoneKey,
-        zone: zoneLabel(applied.override.zone),
-        farm: applied.override.farmName,
-        grass: applied.override.turfgrass,
-        date: applied.override.date,
-        savedAvailableKg: applied.override.availableKg,
-        calculatedKg: applied.calculatedKg,
-        effectiveKg: applied.effectiveKg,
-        remainingDeltaKg: applied.remainingDeltaKg,
-      })),
-    [overrideResult.appliedByZone, zoneLabel],
-  );
+  }, [calendarOpen, regrowthAuditByDate, zoneLabel]);
 
   const forecastCalendarDays = useMemo<DevForecastCalendarDay[]>(() => {
+    if (!calendarOpen) return [];
+
     const today = startOfLocalDay(new Date());
     const todayYmd = ymdFromDate(today);
     const start = forecastDateObj;
@@ -1749,10 +1675,8 @@ export function DevForecastingAvailableSourceClient() {
       const kg = rowInventoryKg(row);
       const planKey = forecastLogicalPlanRowId(row.id);
       const raw = rawByPlanId.get(planKey);
-      const rawQty = raw
-        ? harvestPlanEffectiveMagnitudeFromRaw(raw)
-        : forecastHarvestRowEffectiveM2(row) || row.quantity;
-      const rawUom = raw ? resolvePlanRowUom(raw) : String(row.uom ?? "");
+      const rawQty = auditRawQty({ raw, row, zoneConfigs });
+      const rawUom = auditRawUom({ raw, row });
       const regrowthDate = getRegrowthDateFromHarvest(row, regrowthConfig);
       const cur = harvestByDate.get(harvestYmd) ?? { kg: 0, plans: new Map() };
       cur.kg += Number.isFinite(kg) ? Math.max(0, kg) : 0;
@@ -1790,6 +1714,14 @@ export function DevForecastingAvailableSourceClient() {
     const regrowthTimelineByDate = new Map(
       dailyRegrowthTimeline.map((row) => [row.date, row] as const),
     );
+    const regrowthFragmentsByDate = new Map<string, number>();
+    for (const row of filteredRows) {
+      const regrowthDate = getRegrowthDateFromHarvest(row, regrowthConfig);
+      if (!regrowthDate) continue;
+      const rgYmd = ymdFromDate(regrowthDate);
+      if (rgYmd < startYmd || rgYmd > endYmd) continue;
+      regrowthFragmentsByDate.set(rgYmd, (regrowthFragmentsByDate.get(rgYmd) ?? 0) + 1);
+    }
 
     const days: DevForecastCalendarDay[] = [];
     for (let i = 0; i < totalDays; i++) {
@@ -1814,12 +1746,9 @@ export function DevForecastingAvailableSourceClient() {
 
       const regrowthTimeline = regrowthTimelineByDate.get(dateStr) ?? null;
       const regrowthSources = regrowthSourcesByDate.get(dateStr) ?? [];
-      const regrowthFragmentCount = filteredRows.filter((row) => {
-        const regrowthDate = getRegrowthDateFromHarvest(row, regrowthConfig);
-        return regrowthDate != null && ymdFromDate(regrowthDate) === dateStr;
-      }).length;
+      const regrowthFragmentCount = regrowthFragmentsByDate.get(dateStr) ?? 0;
       const regrowthEngineCreditedKg = Math.round(
-        computeRegrowthCreditedOnDate(filteredRows, regrowthConfig, date, zoneConfigs).creditedKg,
+        rolling?.regrowthKg ?? regrowthTimeline?.creditedKg ?? 0,
       );
       const available = Math.max(0, Math.round(rolling?.availableKg ?? 0));
       const hint = buildInventoryAvailableHintModel({
@@ -1870,6 +1799,7 @@ export function DevForecastingAvailableSourceClient() {
 
     return days;
   }, [
+    calendarOpen,
     dailyRegrowthTimeline,
     filteredRows,
     regrowthSourcesByDate,
@@ -1879,7 +1809,6 @@ export function DevForecastingAvailableSourceClient() {
     rawByPlanId,
     regrowthConfig,
     rollingDailyAvailable,
-    zoneConfigs,
     zoneLabel,
     overridesByZone,
     selectedFarmIds,
@@ -2067,9 +1996,29 @@ export function DevForecastingAvailableSourceClient() {
 
             <section className="rounded-lg border border-slate-200 bg-white">
               <div className="flex flex-col gap-1 border-b border-slate-200 p-4">
-                <h2 className="text-lg font-semibold text-slate-950">
-                  Daily harvest / available calendar
-                </h2>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <h2 className="text-lg font-semibold text-slate-950">
+                    Daily harvest / available calendar
+                  </h2>
+                  <button
+                    type="button"
+                    onClick={() => setCalendarOpen((open) => !open)}
+                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    aria-expanded={calendarOpen}
+                  >
+                    {calendarOpen ? (
+                      <>
+                        Hide calendar
+                        <ChevronUp className="h-4 w-4" />
+                      </>
+                    ) : (
+                      <>
+                        Show calendar
+                        <ChevronDown className="h-4 w-4" />
+                      </>
+                    )}
+                  </button>
+                </div>
                 <p className="text-sm text-slate-600">
                   Scroll horizontally by day from {toDisplayDate(forecastStartYmd)} to{" "}
                   {toDisplayDate(horizonEndYmd)}. First day opens at Σ zone-config max per
@@ -2079,6 +2028,14 @@ export function DevForecastingAvailableSourceClient() {
                   <HelpCircle className="inline h-3.5 w-3.5 align-text-bottom" /> on Available for
                   the calculation or saved stock count.
                 </p>
+                {!calendarOpen ? (
+                  <p className="text-xs text-slate-500">
+                    Calendar is collapsed to keep the page responsive. Click Show calendar to load
+                    the daily grid.
+                  </p>
+                ) : datesPending ? (
+                  <p className="text-xs text-amber-700">Updating calendar for new date range…</p>
+                ) : null}
                 <div className="mt-2 rounded-md border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-950">
                   <p className="font-semibold text-violet-900">Regrowth config (admin rules)</p>
                   <ul className="mt-1 list-inside list-disc space-y-0.5">
@@ -2088,6 +2045,7 @@ export function DevForecastingAvailableSourceClient() {
                   </ul>
                 </div>
               </div>
+              {calendarOpen ? (
               <div className="overflow-x-auto p-4">
                 <table className="min-w-max border-separate border-spacing-0 rounded-lg border border-slate-200 text-xs">
                   <thead>
@@ -2375,9 +2333,10 @@ export function DevForecastingAvailableSourceClient() {
                   </tbody>
                 </table>
               </div>
+              ) : null}
             </section>
 
-            <section className="rounded-lg border border-slate-200 bg-white">
+            {/* <section className="rounded-lg border border-slate-200 bg-white">
               <div className="flex flex-col gap-1 border-b border-slate-200 p-4">
                 <h2 className="text-lg font-semibold text-slate-950">
                   Daily zone balance timeline
@@ -2482,7 +2441,7 @@ export function DevForecastingAvailableSourceClient() {
                   ))
                 )}
               </div>
-            </section>
+            </section> */}
 
         
 

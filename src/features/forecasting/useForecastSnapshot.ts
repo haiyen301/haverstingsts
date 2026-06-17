@@ -4,16 +4,21 @@ import { useCallback, useEffect, useMemo } from "react";
 
 import { getForecastToday } from "@/features/forecasting/forecastDateUtils";
 import { ensureForecastDataLoaded } from "@/features/forecasting/forecastDataLoader";
-import { filterActiveZoneConfigurations } from "@/features/forecasting/forecastActiveRecords";
+import {
+  filterActiveRegrowthRules,
+  filterActiveZoneConfigurations,
+} from "@/features/forecasting/forecastActiveRecords";
 import { buildForecastRowsFromHarvestRaw } from "@/features/forecasting/mapHarvestApiToForecastRows";
 import {
   DEFAULT_REGROWTH_REFERENCE_CONFIG,
+  resolveRegrowthReferenceConfigFromRules,
 } from "@/features/forecasting/forecastingRegrowth";
 import {
   type ForecastCacheScope,
   useForecastDataStore,
 } from "@/shared/store/forecastDataStore";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
+import { useHarvestingReferenceHydrated } from "@/shared/hooks/useHarvestingReferenceHydrated";
 import { useInventoryAvailableOverrideStore } from "@/shared/store/inventoryAvailableOverrideStore";
 import { setForecastZoneCatalog } from "@/features/forecasting/zoneKeyNormalization";
 
@@ -41,10 +46,43 @@ export function useForecastSnapshot(options?: { enabled?: boolean }) {
 
   const overridesByZone = useInventoryAvailableOverrideStore((s) => s.overridesByZone);
   const farmZones = useHarvestingDataStore((s) => s.farmZones);
+  const zoneConfigurationsRef = useHarvestingDataStore((s) => s.zoneConfigurations);
+  const regrowthRulesRef = useHarvestingDataStore((s) => s.regrowthRules);
+  const referenceBootstrapDone = useHarvestingDataStore((s) => s.bootstrapDone);
+  const referenceHydrated = useHarvestingReferenceHydrated();
 
   useEffect(() => {
     setForecastZoneCatalog(farmZones);
   }, [farmZones]);
+
+  /** Keep forecast config scopes aligned with `harvestingDataStore` without network calls. */
+  useEffect(() => {
+    if (!enabled) return;
+    if (referenceBootstrapDone || farmZones.length > 0) {
+      useForecastDataStore.getState().markValid("reference");
+    }
+    if (referenceBootstrapDone || zoneConfigurationsRef.length > 0) {
+      const active = filterActiveZoneConfigurations(zoneConfigurationsRef);
+      useForecastDataStore.getState().setZoneConfigs(active);
+      useForecastDataStore.getState().markValid("zones");
+    }
+    if (referenceBootstrapDone || regrowthRulesRef.length > 0) {
+      useForecastDataStore
+        .getState()
+        .setRegrowthConfig(
+          resolveRegrowthReferenceConfigFromRules(
+            filterActiveRegrowthRules(regrowthRulesRef),
+          ),
+        );
+      useForecastDataStore.getState().markValid("rules");
+    }
+  }, [
+    enabled,
+    farmZones,
+    zoneConfigurationsRef,
+    regrowthRulesRef,
+    referenceBootstrapDone,
+  ]);
 
   const reloadFromCache = useCallback(
     async (scopes: Set<ForecastCacheScope> = ALL_SCOPES) => {
@@ -57,7 +95,7 @@ export function useForecastSnapshot(options?: { enabled?: boolean }) {
   );
 
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || !referenceHydrated) return;
     let cancelled = false;
     void ensureForecastDataLoaded({ scopes: ALL_SCOPES }).then(() => {
       if (cancelled) return;
@@ -65,7 +103,7 @@ export function useForecastSnapshot(options?: { enabled?: boolean }) {
     return () => {
       cancelled = true;
     };
-  }, [enabled]);
+  }, [enabled, referenceHydrated]);
 
   const combinedError = error ?? harvestError ?? null;
 

@@ -4,7 +4,7 @@ import {
   forecastHarvestRowInventoryKg,
   forecastHarvestRowPlanQuantityKg,
   forecastHarvestRowUsesHarvestedAreaForMagnitude,
-  isSprigKgEstimateOnlyForecastRow,
+  isKgMagnitudeEstimateOnlyForecastRow,
 } from "@/features/forecasting/forecastingInventoryConversion";
 import { safeDivideStrictPhp } from "@/shared/lib/grassRegrowthPhp";
 
@@ -138,7 +138,7 @@ export function regrowthReferenceFromRuleRows(
 export function harvestDensityKgPerM2ForRegrowth(row: ForecastHarvestRow): number {
   const fromRow = row.kgPerM2;
   if (fromRow != null && Number.isFinite(fromRow) && fromRow > 0) return fromRow;
-  if (isSprigKgEstimateOnlyForecastRow(row)) return 0;
+  if (isKgMagnitudeEstimateOnlyForecastRow(row)) return 0;
   if (forecastHarvestRowUsesHarvestedAreaForMagnitude(row)) return 0;
   return safeDivideStrictPhp(
     forecastHarvestRowPlanQuantityKg(row),

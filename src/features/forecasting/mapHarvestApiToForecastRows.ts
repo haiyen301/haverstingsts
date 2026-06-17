@@ -100,7 +100,9 @@ export function harvestApiRowToForecastRow(
   ).trim();
   const harvestType = resolvePlanRowHarvestTypeForForecast(raw);
   const uom = resolvePlanRowUom(raw);
-  const harvestedAreaM2 = harvestPlanHarvestedAreaFromRaw(raw);
+  const harvestedAreaM2 = harvestPlanHarvestedAreaFromRaw(raw, {
+    zoneConfigs: zoneConfigs ?? [],
+  });
   const quantity = harvestPlanEffectiveMagnitudeFromRaw(raw);
   const inventoryKgEst = harvestPlanInventoryKgFromRaw(raw, {
     zoneConfigs: zoneConfigs ?? [],

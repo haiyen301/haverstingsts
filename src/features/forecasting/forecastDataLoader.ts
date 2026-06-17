@@ -1,8 +1,4 @@
 import {
-  fetchRegrowthRules,
-  fetchZoneConfigurations,
-} from "@/features/admin/api/adminApi";
-import {
   filterActiveRegrowthRules,
   filterActiveZoneConfigurations,
 } from "@/features/forecasting/forecastActiveRecords";
@@ -38,14 +34,21 @@ export type EnsureLoadedOptions = {
   showLoading?: boolean;
 };
 
-async function loadReference(force: boolean): Promise<void> {
-  await useHarvestingDataStore.getState().fetchAllHarvestingReferenceData(force);
-  setForecastZoneCatalog(useHarvestingDataStore.getState().farmZones);
+/** Sync catalog rows already held in `harvestingDataStore` — never hits the network. */
+function syncReferenceFromHarvestingStore(): void {
+  const harvestStore = useHarvestingDataStore.getState();
+  setForecastZoneCatalog(harvestStore.farmZones);
   useForecastDataStore.getState().markValid("reference");
 }
 
+async function loadReference(_force: boolean): Promise<void> {
+  syncReferenceFromHarvestingStore();
+}
+
 async function loadZones(token: number): Promise<void> {
-  const rows = filterActiveZoneConfigurations(await fetchZoneConfigurations());
+  const rows = filterActiveZoneConfigurations(
+    useHarvestingDataStore.getState().zoneConfigurations,
+  );
   if (token !== loadToken) return;
   const store = useForecastDataStore.getState();
   store.setZoneConfigs(rows);
@@ -53,18 +56,13 @@ async function loadZones(token: number): Promise<void> {
 }
 
 async function loadRules(token: number): Promise<void> {
-  try {
-    const rules = filterActiveRegrowthRules(await fetchRegrowthRules());
-    if (token !== loadToken) return;
-    useForecastDataStore
-      .getState()
-      .setRegrowthConfig(resolveRegrowthReferenceConfigFromRules(rules));
-  } catch {
-    if (token !== loadToken) return;
-    useForecastDataStore
-      .getState()
-      .setRegrowthConfig(resolveRegrowthReferenceConfigFromRules([]));
-  }
+  const rules = filterActiveRegrowthRules(
+    useHarvestingDataStore.getState().regrowthRules,
+  );
+  if (token !== loadToken) return;
+  useForecastDataStore
+    .getState()
+    .setRegrowthConfig(resolveRegrowthReferenceConfigFromRules(rules));
   useForecastDataStore.getState().markValid("rules");
 }
 
@@ -217,11 +215,23 @@ export async function ensureForecastDataLoaded(
   }
 }
 
-const FORECAST_PREFETCH_PATH_PREFIXES = [
-  "/dashboard",
+/** Forecast/inventory screens read reference catalog from Zustand — never bootstrap here. */
+export const HARVEST_REFERENCE_STORE_ONLY_PATH_PREFIXES = [
   "/forecasting",
   "/inventory",
   "/inventory-import",
+] as const;
+
+export function isHarvestReferenceStoreOnlyPath(pathname: string): boolean {
+  const path = pathname.split("?")[0] ?? pathname;
+  return HARVEST_REFERENCE_STORE_ONLY_PATH_PREFIXES.some(
+    (prefix) => path === prefix || path.startsWith(`${prefix}/`),
+  );
+}
+
+const FORECAST_PREFETCH_PATH_PREFIXES = [
+  "/dashboard",
+  ...HARVEST_REFERENCE_STORE_ONLY_PATH_PREFIXES,
 ] as const;
 
 /** Routes that benefit from warming the forecast harvest cache in the background. */

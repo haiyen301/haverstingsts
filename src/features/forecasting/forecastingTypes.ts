@@ -17,11 +17,11 @@ export type ForecastHarvestRow = {
   /** Ngày giao — có giá trị thì không hiện trong Upcoming Harvests. */
   deliveryDate?: string;
   readyDate: string;
-  /** Magnitude đã chuẩn hoá: Sod/Sod→Sprig/M² → m² từ `harvested_area`; Sprig/Kg → kg từ `quantity`. */
+  /** Magnitude đã chuẩn hoá: Sod/M² → m² từ `harvested_area`; Sprig/Sod→Sprig/Kg → kg từ `quantity`. */
   quantity: number;
   /** Giá trị gốc cột `quantity` trên plan (kg cho Sod→Sprig/Sprig, m² cho Sod). */
   planQuantityRaw: number;
-  /** `harvested_area` từ plan (m²). Sprig: mẫu số kg/m²; Sod/M²: nguồn magnitude. */
+  /** `harvested_area` từ plan (m²). Sod→Sprig: suy ra từ kg ÷ yield; Sprig: mẫu số kg/m². */
   harvestedAreaM2: number;
   /** Sprig: kg/m² từ API hoặc `quantity`÷`harvestedAreaM2`. Sod/M²: thường 0. */
   kgPerM2?: number;
@@ -31,8 +31,8 @@ export type ForecastHarvestRow = {
   uom?: string;
   /**
    * Kg dùng trừ tồn / chart:
-   * - Sod / Sod→Sprig / M²: `harvested_area` × zone kg/m².
-   * - Sprig / Kg: từ `quantity` (kg), có thể cap theo zone.
+   * - Sod / M²: `harvested_area` × zone kg/m².
+   * - Sprig / Sod→Sprig / Kg: từ `quantity` (kg), có thể cap theo zone.
    */
   inventoryKg: number;
   /** Đã bị cắt về max_inventory_kg khi convert từ m² → kg. */

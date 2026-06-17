@@ -144,22 +144,61 @@ export function resolvePlanRowHarvestTypeForForecast(
   return "sod";
 }
 
-/** Sprig/Kg plan with only `estimated_harvest_date` (no actual harvest yet). */
-export function isSprigKgEstimateOnlyPlanRow(
+export function isSodToSprigPlanRow(rawPlanRow: Record<string, unknown>): boolean {
+  return planRowHarvestTypeKeyFromRaw(rawPlanRow) === "sod_to_sprig";
+}
+
+export function isSodToSprigForecastRow(row: ForecastHarvestRow): boolean {
+  return row.harvestType === "sod_for_sprig";
+}
+
+/** Sod→Sprig plan `quantity` is always kg (ignore mistaken M² UOM on API rows). */
+export function isSodToSprigKgPlanRow(rawPlanRow: Record<string, unknown>): boolean {
+  return isSodToSprigPlanRow(rawPlanRow);
+}
+
+export function isSodToSprigKgForecastRow(row: ForecastHarvestRow): boolean {
+  return isSodToSprigForecastRow(row);
+}
+
+/** Sprig/Kg or Sod→Sprig plan with only `estimated_harvest_date` (no actual harvest yet). */
+export function isKgMagnitudeEstimateOnlyPlanRow(
   rawPlanRow: Record<string, unknown>,
 ): boolean {
-  if (resolvePlanRowHarvestTypeForForecast(rawPlanRow) !== "sprig") return false;
-  if (!isKgUom(resolvePlanRowUomFromRaw(rawPlanRow))) return false;
+  const harvestType = resolvePlanRowHarvestTypeForForecast(rawPlanRow);
+  if (harvestType === "sprig") {
+    if (!isKgUom(resolvePlanRowUomFromRaw(rawPlanRow))) return false;
+  } else if (harvestType !== "sod_for_sprig") {
+    return false;
+  }
   if (isValidHarvestDateString(rawPlanRow.actual_harvest_date)) return false;
   return isValidHarvestDateString(rawPlanRow.estimated_harvest_date);
 }
 
-/** Sprig/Kg forecast row not yet harvested (estimate / effective date only). */
-export function isSprigKgEstimateOnlyForecastRow(row: ForecastHarvestRow): boolean {
-  if (row.harvestType !== "sprig") return false;
-  if (!isKgUom(String(row.uom ?? ""))) return false;
+/** Sprig/Kg or Sod→Sprig forecast row not yet harvested (estimate / effective date only). */
+export function isKgMagnitudeEstimateOnlyForecastRow(row: ForecastHarvestRow): boolean {
+  if (row.harvestType === "sprig") {
+    if (!isKgUom(String(row.uom ?? ""))) return false;
+  } else if (row.harvestType !== "sod_for_sprig") {
+    return false;
+  }
   if (isValidHarvestDateString(row.actualHarvestDate)) return false;
   return isValidHarvestDateString(row.harvestDate);
+}
+
+/** Sprig/Kg plan with only `estimated_harvest_date` (no actual harvest yet). */
+export function isSprigKgEstimateOnlyPlanRow(
+  rawPlanRow: Record<string, unknown>,
+): boolean {
+  return (
+    resolvePlanRowHarvestTypeForForecast(rawPlanRow) === "sprig" &&
+    isKgMagnitudeEstimateOnlyPlanRow(rawPlanRow)
+  );
+}
+
+/** Sprig/Kg forecast row not yet harvested (estimate / effective date only). */
+export function isSprigKgEstimateOnlyForecastRow(row: ForecastHarvestRow): boolean {
+  return row.harvestType === "sprig" && isKgMagnitudeEstimateOnlyForecastRow(row);
 }
 
 /** Sprig estimate-only: Yield (kg/m²) by farm + grass only — same across all zones. */
@@ -200,7 +239,7 @@ export function resolveForecastPlanRowKgPerM2(
   const zoneConfigs = options.zoneConfigs ?? [];
 
   /** Estimate only: zone-config Yield only — never API `kg_per_m2` or quantity÷area. */
-  if (isSprigKgEstimateOnlyPlanRow(rawPlanRow)) {
+  if (isKgMagnitudeEstimateOnlyPlanRow(rawPlanRow)) {
     if (zoneConfigs.length === 0) return 0;
     const farmId = toNumber(rawPlanRow.farm_id);
     const productId = harvestPlanProductIdFromRaw(rawPlanRow);
@@ -215,7 +254,8 @@ export function resolveForecastPlanRowKgPerM2(
   if (Number.isFinite(kgPerM2Raw) && kgPerM2Raw > 0) return kgPerM2Raw;
 
   const harvestedAreaM2 =
-    options.harvestedAreaM2 ?? harvestPlanHarvestedAreaFromRaw(rawPlanRow);
+    options.harvestedAreaM2 ??
+    harvestPlanHarvestedAreaFromRaw(rawPlanRow, { zoneConfigs });
   const isSprigKg =
     harvestType === "sprig" && isKgUom(resolvePlanRowUomFromRaw(rawPlanRow));
   const hasActualHarvestDate = isValidHarvestDateString(
@@ -226,6 +266,32 @@ export function resolveForecastPlanRowKgPerM2(
   if (isSprigKg && hasActualHarvestDate) {
     if (harvestedAreaM2 > 0) {
       return harvestPlanQuantityFromRaw(rawPlanRow) / harvestedAreaM2;
+    }
+    return 0;
+  }
+
+  if (harvestType === "sod_for_sprig") {
+    if (isSodToSprigKgPlanRow(rawPlanRow)) {
+      if (zoneConfigs.length === 0) return 0;
+      const farmId = toNumber(rawPlanRow.farm_id);
+      const productId = harvestPlanProductIdFromRaw(rawPlanRow);
+      return resolveFarmGrassYieldKgPerM2FromZoneConfig(
+        zoneConfigs,
+        farmId,
+        productId,
+      );
+    }
+    if (hasActualHarvestDate && harvestedAreaM2 > 0) {
+      return harvestPlanQuantityFromRaw(rawPlanRow) / harvestedAreaM2;
+    }
+    if (zoneConfigs.length > 0) {
+      const farmId = toNumber(rawPlanRow.farm_id);
+      const productId = harvestPlanProductIdFromRaw(rawPlanRow);
+      return resolveFarmGrassYieldKgPerM2FromZoneConfig(
+        zoneConfigs,
+        farmId,
+        productId,
+      );
     }
     return 0;
   }
@@ -342,7 +408,7 @@ function resolveInventoryKgPerM2ForPlanRow(params: {
 
 /**
  * Kg dùng trừ tồn / forecast (trước cap `max_inventory_kg`).
- * Sod / Sod→Sprig / M²: harvested_area × zone kg/m²; Sprig/Kg: plan `quantity`.
+ * Sod / M²: harvested_area × zone kg/m²; Sprig / Sod→Sprig / Kg: plan `quantity`.
  */
 export function harvestPlanInventoryKgFromRaw(
   rawPlanRow: Record<string, unknown>,
@@ -368,26 +434,82 @@ export function harvestPlanInventoryKgFromRaw(
   return Math.max(0, rawQty);
 }
 
-/** Sod / Sod -> Sprig / M² plans use `harvested_area` for inventory & regrowth magnitude (not `quantity`). */
+/** Sod / M²: `harvested_area` (or `quantity` as m²) × zone kg/m². Sprig / Sod→Sprig / UOM kg: plan `quantity` (kg). */
 export function planRowUsesHarvestedAreaForMagnitude(
   rawPlanRow: Record<string, unknown>,
 ): boolean {
+  if (isSodToSprigPlanRow(rawPlanRow)) return false;
   if (isM2Uom(resolvePlanRowUomFromRaw(rawPlanRow))) return true;
-  const harvestType = planRowHarvestTypeKeyFromRaw(rawPlanRow);
-  return harvestType === "sod" || harvestType === "sod_to_sprig";
+  return planRowHarvestTypeKeyFromRaw(rawPlanRow) === "sod";
+}
+
+/** Sod→Sprig: derive m² from plan kg ÷ zone-config yield (farm + grass). */
+export function sodToSprigHarvestAreaM2FromRaw(
+  rawPlanRow: Record<string, unknown>,
+  options: { zoneConfigs?: ZoneConfigurationRow[] } = {},
+): number {
+  const qtyKg = harvestPlanQuantityFromRaw(rawPlanRow);
+  if (qtyKg <= 0) return 0;
+  const zoneConfigs = options.zoneConfigs ?? [];
+  if (!zoneConfigs.length) return 0;
+  const farmId = toNumber(rawPlanRow.farm_id);
+  const productId = harvestPlanProductIdFromRaw(rawPlanRow);
+  const yieldKgPerM2 = resolveFarmGrassYieldKgPerM2FromZoneConfig(
+    zoneConfigs,
+    farmId,
+    productId,
+  );
+  if (yieldKgPerM2 <= 0) return 0;
+  return qtyKg / yieldKgPerM2;
+}
+
+export function sodToSprigHarvestAreaM2FromRow(
+  row: ForecastHarvestRow,
+  options: { zoneConfigs?: ZoneConfigurationRow[] } = {},
+): number {
+  if (!isSodToSprigKgForecastRow(row)) {
+    if (Number.isFinite(row.harvestedAreaM2) && row.harvestedAreaM2 > 0) {
+      return row.harvestedAreaM2;
+    }
+  }
+  const qtyKg =
+    isSodToSprigKgForecastRow(row) &&
+    Number.isFinite(row.quantity) &&
+    row.quantity > 0
+      ? row.quantity
+      : forecastHarvestRowPlanQuantityKg(row);
+  if (qtyKg <= 0) return 0;
+  if (Number.isFinite(row.kgPerM2) && row.kgPerM2! > 0) return qtyKg / row.kgPerM2!;
+  const zoneConfigs = options.zoneConfigs ?? [];
+  if (zoneConfigs.length && row.farmId > 0 && row.productId > 0) {
+    const yieldKgPerM2 = resolveFarmGrassYieldKgPerM2FromZoneConfig(
+      zoneConfigs,
+      row.farmId,
+      row.productId,
+    );
+    if (yieldKgPerM2 > 0) return qtyKg / yieldKgPerM2;
+  }
+  return 0;
 }
 
 export function harvestPlanHarvestedAreaFromRaw(
   rawPlanRow: Record<string, unknown>,
+  options: { zoneConfigs?: ZoneConfigurationRow[] } = {},
 ): number {
+  if (isSodToSprigKgPlanRow(rawPlanRow)) {
+    return sodToSprigHarvestAreaM2FromRaw(rawPlanRow, options);
+  }
+
   const fromHarvestedArea = harvestQuantityCellPresent(rawPlanRow.harvested_area)
     ? harvestPlanScalarFromRaw(rawPlanRow.harvested_area)
     : 0;
   if (fromHarvestedArea > 0) return fromHarvestedArea;
 
-  /** Sod / Sod→Sprig: `harvested_area` trống → dùng `quantity` (m²) làm diện tích thu hoạch. */
   const harvestType = planRowHarvestTypeKeyFromRaw(rawPlanRow);
-  if (harvestType === "sod" || harvestType === "sod_to_sprig") {
+  if (harvestType === "sod_to_sprig") {
+    return sodToSprigHarvestAreaM2FromRaw(rawPlanRow, options);
+  }
+  if (harvestType === "sod") {
     return Math.max(0, harvestPlanQuantityFromRaw(rawPlanRow));
   }
 
@@ -403,7 +525,7 @@ export function harvestPlanHarvestedAreaFromRaw(
 
 /**
  * Magnitude used for m²→kg conversion, zone spread, and M² regrowth totals.
- * Sprig (Kg) keeps `quantity`; Sod / Sod -> Sprig / M² UOM use `harvested_area` only.
+ * Sprig / Sod→Sprig (Kg) keep `quantity`; Sod / M² UOM use `harvested_area`.
  */
 export function harvestPlanEffectiveMagnitudeFromRaw(
   rawPlanRow: Record<string, unknown>,
@@ -417,12 +539,19 @@ export function harvestPlanEffectiveMagnitudeFromRaw(
 export function forecastHarvestRowUsesHarvestedAreaForMagnitude(
   row: ForecastHarvestRow,
 ): boolean {
-  if (row.harvestType === "sod" || row.harvestType === "sod_for_sprig") return true;
+  if (isSodToSprigForecastRow(row)) return false;
+  if (row.harvestType === "sod") return true;
   return isM2Uom(String(row.uom ?? ""));
 }
 
-/** m² basis for display / tooltip when plan is Sod or M² UOM. */
-export function forecastHarvestRowEffectiveM2(row: ForecastHarvestRow): number {
+/** m² basis for display / tooltip when plan is Sod or M² UOM; Sod→Sprig derives m² from kg ÷ yield. */
+export function forecastHarvestRowEffectiveM2(
+  row: ForecastHarvestRow,
+  options: { zoneConfigs?: ZoneConfigurationRow[] } = {},
+): number {
+  if (isSodToSprigForecastRow(row)) {
+    return sodToSprigHarvestAreaM2FromRow(row, options);
+  }
   if (!forecastHarvestRowUsesHarvestedAreaForMagnitude(row)) return 0;
   if (Number.isFinite(row.harvestedAreaM2) && row.harvestedAreaM2 > 0) {
     return row.harvestedAreaM2;
@@ -431,18 +560,21 @@ export function forecastHarvestRowEffectiveM2(row: ForecastHarvestRow): number {
 }
 
 /**
- * Plan `quantity` (kg) — chỉ Sprig / UOM Kg.
- * Sod / Sod→Sprig / M²: luôn 0 (không đọc cột quantity plan).
+ * Plan `quantity` (kg) — Sprig / Sod→Sprig / UOM Kg.
+ * Sod / M²: luôn 0 (không đọc cột quantity plan).
  */
 export function forecastHarvestRowPlanQuantityKg(row: ForecastHarvestRow): number {
+  if (isSodToSprigKgForecastRow(row)) {
+    return Number.isFinite(row.quantity) && row.quantity > 0 ? row.quantity : 0;
+  }
   if (forecastHarvestRowUsesHarvestedAreaForMagnitude(row)) return 0;
   return Number.isFinite(row.quantity) && row.quantity > 0 ? row.quantity : 0;
 }
 
 /**
  * Kg dùng trừ tồn / biểu đồ / daily calendar: ưu tiên `inventoryKg` đã convert.
- * Sod / Sod→Sprig / M²: fallback m² × Yield (kg/m²) khi `inventoryKg` chưa được gán.
- * Sprig fallback `quantity` (kg).
+ * Sod / M²: fallback m² × Yield (kg/m²) khi `inventoryKg` chưa được gán.
+ * Sprig / Sod→Sprig fallback `quantity` (kg).
  */
 export function resolveForecastHarvestRowInventoryKgPerM2(
   row: ForecastHarvestRow,
@@ -476,7 +608,7 @@ export function resolveForecastHarvestRowInventoryKgPerM2(
     if (farmGrass > 0) return farmGrass;
   }
 
-  const m2 = forecastHarvestRowEffectiveM2(row);
+  const m2 = forecastHarvestRowEffectiveM2(row, { zoneConfigs });
   const storedKg = Number.isFinite(row.inventoryKg) ? row.inventoryKg : 0;
   if (m2 > 0 && storedKg > 0) return storedKg / m2;
 
@@ -490,7 +622,7 @@ export function forecastHarvestRowInventoryKg(
   const stored = Number.isFinite(row.inventoryKg) ? row.inventoryKg : 0;
   if (stored > 0) return stored;
   if (forecastHarvestRowUsesHarvestedAreaForMagnitude(row)) {
-    const m2 = forecastHarvestRowEffectiveM2(row);
+    const m2 = forecastHarvestRowEffectiveM2(row, { zoneConfigs: options?.zoneConfigs });
     if (m2 <= 0) return 0;
     const kgPerM2 = resolveForecastHarvestRowInventoryKgPerM2(row, options?.zoneConfigs);
     if (kgPerM2 <= 0) return 0;
@@ -506,7 +638,7 @@ export function planRowUsesPlanQuantityForMagnitude(
   return !planRowUsesHarvestedAreaForMagnitude(rawPlanRow);
 }
 
-/** m² gom theo tháng / zone — Sod, Sod→Sprig, UOM M². */
+/** m² gom theo tháng / zone — Sod, UOM M² (Sod→Sprig dùng kg ÷ yield qua `sodToSprigHarvestAreaM2FromRaw`). */
 export function harvestPlanM2MagnitudeFromRaw(
   rawPlanRow: Record<string, unknown>,
 ): number {
@@ -515,7 +647,7 @@ export function harvestPlanM2MagnitudeFromRaw(
     : 0;
 }
 
-/** kg gom theo tháng — Sprig / UOM Kg (`quantity`); Sod / Sod→Sprig (m² × zone kg/m²). */
+/** kg gom theo tháng — Sprig / Sod→Sprig / UOM Kg (`quantity`); Sod / M² (m² × zone kg/m²). */
 export function harvestPlanKgMagnitudeFromRaw(
   rawPlanRow: Record<string, unknown>,
   options: {

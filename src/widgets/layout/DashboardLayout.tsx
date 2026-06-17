@@ -49,9 +49,11 @@ import { PRIVILEGED_ADMIN_USER_IDS } from "@/shared/auth/privilegedAdminAccess";
 import {
   canAccessModule,
 } from "@/shared/auth/permissions";
-import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
+import { useHarvestingDataStore, hasHarvestReferenceCatalog } from "@/shared/store/harvestingDataStore";
+import { useHarvestingReferenceHydrated } from "@/shared/hooks/useHarvestingReferenceHydrated";
 import {
   isForecastHarvestPrefetchPath,
+  isHarvestReferenceStoreOnlyPath,
   prefetchForecastDataIfIdle,
 } from "@/features/forecasting/forecastDataLoader";
 import { useAuthUserStore } from "@/shared/store/authUserStore";
@@ -155,6 +157,7 @@ export function DashboardLayout({
   const [openItemTabs, setOpenItemTabs] = useState<Record<string, boolean>>({});
   const [mounted, setMounted] = useState(false);
   const [alertUnreadBadge, setAlertUnreadBadge] = useState(0);
+  const referenceHydrated = useHarvestingReferenceHydrated();
 
   useEffect(() => {
     setMounted(true);
@@ -202,12 +205,15 @@ export function DashboardLayout({
   }, [mounted, refreshAlertUnreadBadge, pathname]);
 
   useEffect(() => {
-    if (!mounted) return;
-    const { bootstrapDone, fetchAllHarvestingReferenceData } =
-      useHarvestingDataStore.getState();
-    if (bootstrapDone) return;
-    void fetchAllHarvestingReferenceData();
-  }, [mounted]);
+    if (!mounted || !referenceHydrated) return;
+    const store = useHarvestingDataStore.getState();
+    // Forecast/inventory: skip network when catalog already in memory or sessionStorage.
+    if (isHarvestReferenceStoreOnlyPath(pathname) && hasHarvestReferenceCatalog(store)) {
+      return;
+    }
+    if (store.bootstrapDone) return;
+    void store.fetchAllHarvestingReferenceData();
+  }, [mounted, referenceHydrated, pathname]);
 
   if (!mounted) return null;
 
