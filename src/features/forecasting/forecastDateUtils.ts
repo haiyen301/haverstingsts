@@ -1,5 +1,8 @@
 /** Local calendar helpers shared by forecast cache, compute, and UI. */
 
+/** Parity STSPortal `ForecastConstants::DATA_START_DATE` — inventory roll begins here. */
+export const FORECAST_DATA_START_YMD = "2019-01-01";
+
 export function startOfLocalDay(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }

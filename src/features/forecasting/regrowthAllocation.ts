@@ -5,17 +5,14 @@ export type RegrowthFragmentInput = {
   zoneKey: string;
   zoneLabel: string;
   qty: number;
-  /** Kg trên fragment có nguồn từ spread plan không zone lúc map (`inventoryKgFromNozoneSpread`). */
   inventoryKgFromNozoneSpread?: number;
 };
 
 export type ZoneRegrowthBreakdown = {
   zoneKey: string;
   zoneLabel: string;
-  /** Per-zone config max (reference only); crediting uses `farmProductCapKg`. */
   capKg: number;
   grossZonedKg: number;
-  /** Tổng kg gán thẳng zone có đánh dấu từ spread plan không zone. */
   grossZonedFromNozoneSpreadKg: number;
   creditedZonedKg: number;
   zonedOverflowKg: number;
@@ -27,7 +24,6 @@ export type ZoneRegrowthBreakdown = {
 
 export type RegrowthAllocationResult = {
   zoneBreakdowns: ZoneRegrowthBreakdown[];
-  /** Σ zone-config max kg for this farm + grass (excl. nozone); single credit ceiling. */
   farmProductCapKg: number;
   configuredZoneCount: number;
   nozoneInputKg: number;
@@ -82,11 +78,7 @@ function listConfiguredZoneKeysForFarmProduct(
   return keys;
 }
 
-/**
- * 1) Zoned harvest fragments: aggregate gross per zone (no per-zone cap).
- * 2) No-zone pool: fill configured zones in sort order until farm+grass total cap.
- * 3) Credit in zone order against one farm+grass ceiling (`sumConfiguredZoneCapKgForFarmProduct`).
- */
+/** Regrowth credit display helper for UI drill-down (not chart series). */
 export function computeRegrowthAllocationForFarmProductDate(params: {
   farmId: number;
   productId: number;

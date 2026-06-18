@@ -26,6 +26,13 @@ export type ZoneBalanceHarvestEvent = {
   kg: number;
   label: string;
   m2Hint: ZoneBalanceM2Hint | null;
+  /** Sod / Sprig / Sod to Sprig label from plan */
+  loadType?: string;
+  /** qty + uom or m² line from plan / zone config */
+  qtyLine?: string;
+  /** zone config × m² formula or source note */
+  conversionNote?: string;
+  usesZoneConfig?: boolean;
 };
 
 export type ZoneBalanceRegrowthEvent = {
@@ -35,6 +42,10 @@ export type ZoneBalanceRegrowthEvent = {
   creditedKg: number;
   label: string;
   m2Hint: ZoneBalanceM2Hint | null;
+  loadType?: string;
+  qtyLine?: string;
+  conversionNote?: string;
+  usesZoneConfig?: boolean;
 };
 
 function parseYmdLocal(ymd: string): Date | null {

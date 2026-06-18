@@ -14,6 +14,7 @@ import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
+import { onForecastMutation } from "@/features/forecasting/forecastDataSync";
 import { DatePicker } from "@/shared/ui/date-picker";
 
 const inputClass =
@@ -147,6 +148,7 @@ export default function AdminGrassesPage() {
       setOpen(false);
       setForm(emptyForm());
       void fetchAllHarvestingReferenceData(true);
+      onForecastMutation("harvest");
     } catch (e) {
       setError(e instanceof Error ? e.message : t("errors.save"));
     } finally {
@@ -175,6 +177,7 @@ export default function AdminGrassesPage() {
         return next.sort((a, b) => String(a.title).localeCompare(String(b.title)));
       });
       void fetchAllHarvestingReferenceData(true);
+      onForecastMutation("harvest");
     } catch (e) {
       setError(e instanceof Error ? e.message : t("errors.statusToggle"));
     } finally {
@@ -192,6 +195,7 @@ export default function AdminGrassesPage() {
       await removeGrassType(id);
       setRows((prev) => prev.filter((r) => Number(r.id) !== id));
       void fetchAllHarvestingReferenceData(true);
+      onForecastMutation("harvest");
     } catch (e) {
       setError(e instanceof Error ? e.message : t("errors.delete"));
     } finally {

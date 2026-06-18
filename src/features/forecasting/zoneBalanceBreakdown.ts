@@ -1,5 +1,9 @@
 import { DEFAULT_FALLBACK_INVENTORY_KG_PER_M2 } from "@/features/forecasting/forecastingInventoryConversion";
-import type { ZoneInventoryDaySnapshot } from "@/features/forecasting/forecastAvailableAtDate";
+import type { ZoneInventoryDaySnapshot } from "@/features/forecasting/forecastDbTypes";
+import {
+  canonicalForecastZoneKey,
+  forecastZoneKeysEqual,
+} from "@/features/forecasting/inventoryRegrowthCalculator";
 
 export type BalanceBreakdownDisplayUnit = "kg" | "m2";
 
@@ -26,17 +30,168 @@ function snapToTimelineEntry(
   snap: ZoneInventoryDaySnapshot,
   dateYmd: string,
 ): ZoneBalanceTimelineEntry {
-  return {
+  const systemRolled = Math.max(
+    0,
+    snap.previousKg + snap.regrowthKg - snap.harvestKg,
+  );
+  const hasActivity = snap.regrowthKg > 0 || snap.harvestKg > 0;
+  const provisionalManualKg = snap.exactManualSetToday ? snap.manualOverrideKg : null;
+  const provisional: ZoneBalanceTimelineEntry = {
     dateYmd,
     previousKg: snap.previousKg,
     regrowthKg: snap.regrowthKg,
     harvestKg: snap.harvestKg,
-    endKg: snap.calculatedKg,
-    manualKg: snap.exactManualSetToday ? snap.manualOverrideKg : null,
+    endKg: hasActivity ? systemRolled : snap.calculatedKg,
+    manualKg: provisionalManualKg,
     isOpeningDay: snap.isOpeningDay,
     isManualSetToday: snap.exactManualSetToday,
     rollingBeforeManualKg: snap.rollingBeforeManualSetKg,
   };
+  const manualOverride = hasManualBalanceOverride(provisional);
+  const manualKg = manualOverride ? provisionalManualKg : null;
+  const endKg =
+    manualOverride && manualKg != null
+      ? manualKg
+      : hasActivity
+        ? systemRolled
+        : snap.calculatedKg;
+  return {
+    ...provisional,
+    endKg,
+    manualKg,
+    isManualSetToday: manualOverride,
+  };
+}
+
+export type ZoneBalanceSource = "manual";
+
+/** System balance after applying this day's regrowth − harvest. */
+export function systemRolledKg(entry: ZoneBalanceTimelineEntry): number {
+  const harvestKg = Math.max(0, entry.harvestKg);
+  const regrowthKg = Math.max(0, entry.regrowthKg);
+  return Math.max(0, entry.previousKg + regrowthKg - harvestKg);
+}
+
+export function rolledKgBeforeManual(entry: ZoneBalanceTimelineEntry): number {
+  return systemRolledKg(entry);
+}
+
+/** True only when user manual balance differs from the system-rolled value. */
+export function hasManualBalanceOverride(entry: ZoneBalanceTimelineEntry): boolean {
+  if (!entry.isManualSetToday || entry.manualKg == null) return false;
+  const rolled = rolledKgBeforeManual(entry);
+  if (Math.round(entry.manualKg) === Math.round(rolled)) return false;
+  if (
+    entry.harvestKg > 0 &&
+    Math.round(entry.manualKg) === Math.round(entry.previousKg)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/** Manual badge only on days with a real manual override. */
+export function resolveZoneBalanceSource(
+  entry: ZoneBalanceTimelineEntry,
+): ZoneBalanceSource | null {
+  if (entry.isOpeningDay || entry.isBridgeEntry) return null;
+  if (hasManualBalanceOverride(entry)) return "manual";
+  return null;
+}
+
+export function hasBalanceTimelineImpact(entry: ZoneBalanceTimelineEntry): boolean {
+  if (entry.isOpeningDay || entry.isBridgeEntry) return true;
+
+  const harvestKg = Math.max(0, entry.harvestKg);
+  const regrowthKg = Math.max(0, entry.regrowthKg);
+  if (harvestKg > 0 || regrowthKg > 0) return true;
+
+  return hasManualBalanceOverride(entry);
+}
+
+/** Drop days with no harvest, regrowth, or manual balance change. Keeps opening/bridge/today. */
+export function filterZoneBalanceTimelineToImpactDays(
+  entries: ZoneBalanceTimelineEntry[],
+  todayYmd?: string,
+): ZoneBalanceTimelineEntry[] {
+  return entries.filter((entry) => {
+    if (todayYmd && entry.dateYmd === todayYmd) return true;
+    return hasBalanceTimelineImpact(entry);
+  });
+}
+
+function rechainTimelineEntry(
+  entry: ZoneBalanceTimelineEntry,
+  priorClosingKg: number,
+): ZoneBalanceTimelineEntry {
+  const previousKg = priorClosingKg;
+  const regrowthKg = Math.max(0, entry.regrowthKg);
+  const harvestKg = Math.max(0, entry.harvestKg);
+  const provisional: ZoneBalanceTimelineEntry = {
+    ...entry,
+    previousKg,
+    regrowthKg,
+    harvestKg,
+  };
+  const manualOverride = hasManualBalanceOverride(provisional);
+  const endKg =
+    manualOverride && entry.manualKg != null
+      ? entry.manualKg
+      : systemRolledKg(provisional);
+
+  return {
+    ...entry,
+    previousKg,
+    regrowthKg,
+    harvestKg,
+    endKg,
+    isManualSetToday:
+      entry.manualKg != null &&
+      hasManualBalanceOverride({ ...entry, previousKg, regrowthKg, harvestKg, endKg }),
+  };
+}
+
+/** Carry closing balance forward on history days. Today keeps DB snapshot fields. */
+export function rechainZoneBalanceTimelineForDisplay(
+  entries: ZoneBalanceTimelineEntry[],
+  params: { todayYmd?: string } = {},
+): ZoneBalanceTimelineEntry[] {
+  let closingKg = 0;
+  const out: ZoneBalanceTimelineEntry[] = [];
+
+  for (const entry of entries) {
+    if (entry.isOpeningDay) {
+      out.push(entry);
+      closingKg = entry.endKg;
+      continue;
+    }
+    if (entry.isBridgeEntry) {
+      out.push(entry);
+      closingKg = entry.endKg;
+      continue;
+    }
+
+    const isToday =
+      params.todayYmd != null && entry.dateYmd === params.todayYmd;
+    if (isToday) {
+      out.push(entry);
+      closingKg = entry.endKg;
+      continue;
+    }
+
+    const rechained = rechainTimelineEntry(entry, closingKg);
+    out.push(rechained);
+    closingKg = rechained.endKg;
+  }
+
+  return out;
+}
+
+function snapHasBalanceImpact(
+  snap: ZoneInventoryDaySnapshot,
+  dateYmd: string,
+): boolean {
+  return hasBalanceTimelineImpact(snapToTimelineEntry(snap, dateYmd));
 }
 
 export function buildZoneBalanceTimeline(
@@ -46,17 +201,30 @@ export function buildZoneBalanceTimeline(
   const entries: ZoneBalanceTimelineEntry[] = [];
   const dates = Array.from(snapshotsByDate.keys()).sort();
   for (const dateYmd of dates) {
-    const snap = snapshotsByDate.get(dateYmd)?.get(zoneKey);
+    const snap = lookupZoneSnapshotForDate(snapshotsByDate, dateYmd, zoneKey);
     if (!snap) continue;
     const hasActivity =
       snap.isOpeningDay ||
-      snap.regrowthKg > 0 ||
-      snap.harvestKg > 0 ||
-      snap.exactManualSetToday;
+      snapHasBalanceImpact(snap, dateYmd);
     if (!hasActivity) continue;
     entries.push(snapToTimelineEntry(snap, dateYmd));
   }
   return entries;
+}
+
+function lookupZoneSnapshotForDate(
+  snapshotsByDate: Map<string, Map<string, ZoneInventoryDaySnapshot>>,
+  dateYmd: string,
+  zoneKey: string,
+): ZoneInventoryDaySnapshot | undefined {
+  const dayMap = snapshotsByDate.get(dateYmd);
+  if (!dayMap) return undefined;
+  const canonical = canonicalForecastZoneKey(zoneKey);
+  if (dayMap.has(canonical)) return dayMap.get(canonical);
+  for (const [key, snap] of dayMap) {
+    if (forecastZoneKeysEqual(key, zoneKey)) return snap;
+  }
+  return undefined;
 }
 
 /** Full display timeline: always opens at zone max, then every activity day in range. */
@@ -71,7 +239,7 @@ export function buildZoneBalanceTimelineForDisplay(
   let simOpeningEntry: ZoneBalanceTimelineEntry | null = null;
 
   for (const dateYmd of dates) {
-    const snap = snapshotsByDate.get(dateYmd)?.get(zoneKey);
+    const snap = lookupZoneSnapshotForDate(snapshotsByDate, dateYmd, zoneKey);
     if (!snap) continue;
 
     if (snap.isOpeningDay) {
@@ -83,8 +251,7 @@ export function buildZoneBalanceTimelineForDisplay(
       continue;
     }
 
-    const hasActivity =
-      snap.regrowthKg > 0 || snap.harvestKg > 0 || snap.exactManualSetToday;
+    const hasActivity = snapHasBalanceImpact(snap, dateYmd);
     if (hasActivity) {
       activityEntries.push(snapToTimelineEntry(snap, dateYmd));
     }
@@ -133,6 +300,51 @@ export function buildZoneBalanceTimelineForDisplay(
   }
 
   return result;
+}
+
+/**
+ * When today's DB `previousKg` differs from the last displayed closing (e.g. regrowth
+ * landed on days omitted from the sparse timeline), insert a bridge so Today does not
+ * inherit a fake lump-sum regrowth from the gap.
+ */
+export function insertGapBridgeBeforeToday(
+  entries: ZoneBalanceTimelineEntry[],
+  todayYmd: string,
+): ZoneBalanceTimelineEntry[] {
+  if (!todayYmd) return entries;
+  const todayIdx = entries.findIndex(
+    (e) => e.dateYmd === todayYmd && !e.isOpeningDay && !e.isBridgeEntry,
+  );
+  if (todayIdx <= 0) return entries;
+
+  const todayEntry = entries[todayIdx]!;
+  const priorClosing = entries[todayIdx - 1]!.endKg;
+
+  if (Math.round(todayEntry.previousKg) === Math.round(priorClosing)) return entries;
+
+  const bridge: ZoneBalanceTimelineEntry = {
+    dateYmd: todayYmd,
+    previousKg: priorClosing,
+    regrowthKg: 0,
+    harvestKg: 0,
+    endKg: todayEntry.previousKg,
+    manualKg: null,
+    isOpeningDay: false,
+    isManualSetToday: false,
+    rollingBeforeManualKg: null,
+    isBridgeEntry: true,
+  };
+
+  const result = [...entries];
+  result.splice(todayIdx, 0, bridge);
+  return result;
+}
+
+/** Newest day first (today at top, opening at bottom). */
+export function reverseZoneBalanceTimelineForDisplay(
+  entries: ZoneBalanceTimelineEntry[],
+): ZoneBalanceTimelineEntry[] {
+  return [...entries].reverse();
 }
 
 export function formatShortDateYmd(ymd: string | null | undefined): string {
@@ -213,10 +425,7 @@ export function formatTimelineEntryFormula(
         });
   }
 
-  const rolled =
-    entry.isManualSetToday && entry.rollingBeforeManualKg != null
-      ? entry.rollingBeforeManualKg
-      : Math.max(0, entry.previousKg + entry.regrowthKg - entry.harvestKg);
+  const rolled = rolledKgBeforeManual(entry);
 
   const formula = useM2
     ? t("breakdownFormulaLineM2", {
@@ -232,7 +441,7 @@ export function formatTimelineEntryFormula(
         result: formatKg(rolled),
       });
 
-  if (entry.isManualSetToday && entry.manualKg != null) {
+  if (hasManualBalanceOverride(entry) && entry.manualKg != null) {
     const manualPart = useM2
       ? t("breakdownManualReplaceLineM2", {
           rolled: toDisplay(rolled),
@@ -281,10 +490,8 @@ export function computeZoneBalanceChangeSummary(params: {
     if (entry.isOpeningDay || entry.isBridgeEntry) continue;
     totalRegrowthKg += Math.max(0, entry.regrowthKg);
     totalHarvestKg += Math.max(0, entry.harvestKg);
-    if (entry.isManualSetToday && entry.manualKg != null) {
-      const rolled =
-        entry.rollingBeforeManualKg ??
-        Math.max(0, entry.previousKg + entry.regrowthKg - entry.harvestKg);
+    if (hasManualBalanceOverride(entry) && entry.manualKg != null) {
+      const rolled = rolledKgBeforeManual(entry);
       manualAdjustmentKg += entry.manualKg - rolled;
       manualEventCount += 1;
     }

@@ -11,6 +11,7 @@ import {
   saveZoneConfiguration,
   type ZoneConfigurationRow,
 } from "@/features/admin/api/adminApi";
+import { onForecastMutation } from "@/features/forecasting/forecastDataSync";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -447,6 +448,12 @@ export default function AdminZoneConfigurationsPage() {
       setOpen(false);
       setForm(emptyForm());
       setFormError(null);
+      try {
+        await fetchAllHarvestingReferenceData(true);
+      } catch {
+        /* best-effort */
+      }
+      onForecastMutation("zones");
     } catch (e) {
       setFormError(e instanceof Error ? e.message : "Could not save zone configuration.");
     } finally {
@@ -465,6 +472,12 @@ export default function AdminZoneConfigurationsPage() {
       setPageError(null);
       await removeZoneConfiguration(id);
       setRows((prev) => prev.filter((item) => Number(item.id) !== id));
+      try {
+        await fetchAllHarvestingReferenceData(true);
+      } catch {
+        /* best-effort */
+      }
+      onForecastMutation("zones");
     } catch (e) {
       setPageError(e instanceof Error ? e.message : "Could not delete zone configuration.");
     } finally {

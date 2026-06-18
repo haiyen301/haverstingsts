@@ -29,8 +29,8 @@ import type { ForecastHarvestRow } from "@/features/forecasting/forecastingTypes
 import type { RegrowthReferenceConfig } from "@/features/forecasting/forecastingRegrowth";
 import {
   sumFarmProductCapacityCapsFromZoneConfigAtDate,
-  type RollingDailyAvailableDay,
-} from "@/features/forecasting/forecastAvailableAtDate";
+} from "@/features/forecasting/inventoryRegrowthCalculator";
+import type { RollingDailyAvailableDay } from "@/features/forecasting/forecastDbTypes";
 import {
   buildInventoryAvailableHintModel,
   filterBalanceOverridesForSeries,
@@ -94,7 +94,7 @@ import {
   upcomingHarvestDateYmdFromRow,
 } from "@/shared/lib/harvestPlanDates";
 import { useDebouncedValue } from "@/features/forecasting/useDebouncedValue";
-import { useForecastDailySeries } from "@/features/forecasting/useForecastCompute";
+import { useForecastDbSeries } from "@/features/forecasting/useForecastDbSeries";
 import { MultiSelect } from "@/shared/ui/multi-select";
 import { cn } from "@/lib/utils";
 import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
@@ -1341,7 +1341,6 @@ export function InventoryForecast({
     overridesByZone,
     isLoading: loading,
     isRefreshing,
-    isRecomputing,
     hasSnapshot,
     error,
   } = useForecastSnapshot();
@@ -1505,18 +1504,19 @@ export function InventoryForecast({
     return parseYmdLocal(endYmd) ?? addMonths(getForecastToday(), forecastSpanMonths);
   }, [forecastDateRange.end, forecastSpanMonths]);
 
-  /** Same rolling daily basis as dev Daily harvest / available calendar. */
-  const dailySeriesResult = useForecastDailySeries({
-    filteredRows,
-    zoneConfigs: zoneConfigSnapshot,
-    regrowthConfig,
-    overridesByZone,
-    forecastHorizonEnd,
-    debouncedFarmIds,
-    debouncedGrassIds,
-    hiddenGrassIds: useMemo(() => Array.from(hiddenGrassIdSet), [hiddenGrassIdSet]),
+  /** Chart series: inventory_daily_snapshots only (parity /forecast_audit). */
+  const dbSeries = useForecastDbSeries({
+    dateFrom: forecastDateRange.start,
+    dateTo: forecastDateRange.end,
+    farmIds: debouncedFarmIds,
+    grassIds: debouncedGrassIds,
     enabled: hasSnapshot,
   });
+
+  const dailySeriesResult = dbSeries.result;
+  const regrowthStatsByDate = dbSeries.regrowthStatsByDate;
+  const chartDbReady = dbSeries.hasData && !dbSeries.isLoading;
+  const chartDbPending = dbSeries.isLoading || dbSeries.isStale;
 
   const rollingDailyAvailable = dailySeriesResult.aggregate;
 
@@ -2462,8 +2462,13 @@ export function InventoryForecast({
           /** Mỗi dòng forecast trong nhóm (debug: so với `planIds` nếu thiếu plan DB). */
           sourceForecastRowIds,
           totalGrossKg: alloc.totalGrossKg,
-          primaryDisplayKg: alloc.totalCreditedMappedKg,
-          overflowBeyondCapKg: alloc.overflowUncreditedKg,
+          primaryDisplayKg: rollingRegrowthKg > 0 ? rollingRegrowthKg : alloc.totalCreditedMappedKg,
+          overflowBeyondCapKg:
+            rollingRegrowthKg <= 0 && alloc.totalGrossKg > 0
+              ? Math.max(alloc.overflowUncreditedKg, alloc.totalGrossKg)
+              : alloc.overflowUncreditedKg,
+          regrowthOverlimitDayKg: regrowthStatsByDate.get(first.date)?.overlimit_kg ?? 0,
+          regrowthGrossDayKg: regrowthStatsByDate.get(first.date)?.gross_kg ?? 0,
           maxOverlimitKg,
           maxAvailablePrevKg: availablePrevKg,
           maxRegrowthDayKg: rollingRegrowthKg,
@@ -2522,6 +2527,7 @@ export function InventoryForecast({
     t,
     zoneConfigSnapshot,
     zoneLabel,
+    regrowthStatsByDate,
   ]);
 
   const selectedRegrowthEvent = useMemo(() => {
@@ -2690,6 +2696,26 @@ export function InventoryForecast({
         </div>
       ) : null}
 
+      {dbSeries.isStale ? (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          Snapshot đang rebuild sau thay đổi harvest/zone — chart sẽ tự cập nhật khi worker xong
+          (parity <code className="text-[11px]">/forecast_audit</code>).
+        </div>
+      ) : null}
+
+      {dbSeries.error ? (
+        <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+          {dbSeries.error}
+        </div>
+      ) : null}
+
+      {!chartDbReady && !chartDbPending && hasSnapshot ? (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          Không có snapshot DB trong khoảng ngày đã chọn. Chạy{" "}
+          <code className="text-[11px]">php spark forecast:rebuild</code> hoặc mở rộng filter ngày.
+        </div>
+      ) : null}
+
       {error ? (
         <div className="rounded-xl border border-red-200 bg-red-50 p-5 text-sm text-red-700">
           {error}
@@ -2705,7 +2731,7 @@ export function InventoryForecast({
       />
 
       <div className="relative rounded-xl border  border-border bg-card p-5">
-        {isRecomputing ? (
+        {chartDbPending ? (
           <div className="pointer-events-none absolute inset-0 z-10 rounded-xl bg-background/30" />
         ) : null}
         <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -3094,6 +3120,15 @@ export function InventoryForecast({
                                   kg: ev.nozoneRemainingKg.toLocaleString(),
                                 })}
                                 className="bg-orange-100 text-orange-900"
+                              />,
+                            ]
+                          : []),
+                        ...(ev.primaryDisplayKg <= 0 && ev.overflowBeyondCapKg > 0
+                          ? [
+                              <ForecastEventBadge
+                                key="zero-credited"
+                                label={`0 kg · over ${ev.overflowBeyondCapKg.toLocaleString()} kg`}
+                                className="bg-amber-100 text-amber-800"
                               />,
                             ]
                           : []),

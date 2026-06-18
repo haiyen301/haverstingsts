@@ -40,8 +40,10 @@ import {
   type ZoneAutoConfigurationRow,
   type ZoneConfigurationRow,
 } from "@/features/admin/api/adminApi";
+import { onForecastMutation } from "@/features/forecasting/forecastDataSync";
 import { Checkbox } from "@/shared/ui/checkbox";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
+import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import {
   Card,
   CardContent,
@@ -1050,6 +1052,9 @@ export default function AdminRegrowthPage() {
         variant: "ok",
         text: t("notices.saved"),
       });
+      const fetchAll = useHarvestingDataStore.getState().fetchAllHarvestingReferenceData;
+      void fetchAll(true);
+      onForecastMutation("rules");
     } catch (e) {
       setNotice({
         variant: "err",

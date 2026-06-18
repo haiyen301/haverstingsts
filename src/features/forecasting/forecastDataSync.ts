@@ -1,8 +1,11 @@
 import type { ForecastCacheScope } from "@/shared/store/forecastDataStore";
+import { useForecastDataStore } from "@/shared/store/forecastDataStore";
 import {
   ensureForecastDataLoaded,
   reloadForecastFromCache,
 } from "@/features/forecasting/forecastDataLoader";
+import { queueForecastForwardRebuild } from "@/features/forecasting/forecastSnapshotApi";
+import { getForecastToday, ymdFromDate } from "@/features/forecasting/forecastDateUtils";
 
 let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 const pendingScopes = new Set<ForecastCacheScope>();
@@ -11,6 +14,10 @@ function flushPending(): void {
   const scopes = new Set(pendingScopes);
   pendingScopes.clear();
   void reloadForecastFromCache(scopes, false);
+  if (scopes.has("harvest") || scopes.has("zones") || scopes.has("overrides") || scopes.has("rules")) {
+    useForecastDataStore.getState().bumpDbSeriesRefresh();
+    void queueForecastForwardRebuild(ymdFromDate(getForecastToday())).catch(() => undefined);
+  }
 }
 
 function scheduleRefresh(scope: ForecastCacheScope): void {

@@ -7,44 +7,30 @@ import { toast } from "react-toastify";
 import { useTranslations } from "next-intl";
 
 import RequireAuth from "@/features/auth/RequireAuth";
-import { pickInventoryOverrideForExactDate } from "@/features/forecasting/inventoryAvailableOverrides";
+import { filterActiveZoneConfigurations } from "@/features/forecasting/forecastActiveRecords";
 import {
-  applyLatestZoneMaxKgToForecastRows,
-  isForecastExcludedZone,
-} from "@/features/forecasting/forecastingInventoryConversion";
-import {
-  computeAllocatedAvailableByZoneAtDate,
-  computeInventoryStyleAvailableByZoneAtDate,
-  computeInventoryStyleZoneDailySnapshots,
-  type ZoneInventoryDaySnapshot,
-} from "@/features/forecasting/forecastAvailableAtDate";
-import { InventoryOverlimitBreakdownPanel } from "@/features/forecasting/InventoryOverlimitBreakdownPanel";
-import { buildInventoryOverlimitBreakdown } from "@/features/forecasting/inventoryOverlimitBreakdown";
+  buildInventoryRowsFromDbSnapshots,
+  buildZoneDailySnapshotsFromDb,
+  lookupZoneSnapshotInDayMap,
+  resolveDbZoneKeyFromSnapshotRows,
+} from "@/features/forecasting/inventoryDbSnapshots";
 import { InventoryZoneBalanceBreakdownPanel } from "@/features/forecasting/InventoryZoneBalanceBreakdownPanel";
 import type { EnrichedZoneBalanceTimelineEntry } from "@/features/forecasting/InventoryZoneBalanceBreakdownPanel";
-import { buildZoneBalanceTimelineForDisplay } from "@/features/forecasting/zoneBalanceBreakdown";
-import { buildZoneBalanceDayEvents } from "@/features/forecasting/zoneBalanceDayEvents";
-import type {
-  ZoneBalanceHarvestEvent,
-  ZoneBalanceRegrowthEvent,
-} from "@/features/forecasting/zoneBalanceDayEvents";
+import { buildZoneBalanceTimelineForDisplay, filterZoneBalanceTimelineToImpactDays, insertGapBridgeBeforeToday, rechainZoneBalanceTimelineForDisplay, reverseZoneBalanceTimelineForDisplay } from "@/features/forecasting/zoneBalanceBreakdown";
+import { enrichZoneBalanceTimelineForBreakdown } from "@/features/forecasting/zoneBalanceEventsFromDayDetail";
+import { resolveDbBreakdownHistoryStartYmd } from "@/features/forecasting/resolveDbBreakdownHistoryStart";
 import { getForecastToday } from "@/features/forecasting/forecastDateUtils";
 import { onForecastMutation } from "@/features/forecasting/forecastDataSync";
-import { useForecastSnapshot } from "@/features/forecasting/useForecastSnapshot";
+import type { ZoneInventoryDaySnapshot } from "@/features/forecasting/forecastDbTypes";
+import { useInventoryZoneDbSnapshots } from "@/features/forecasting/useInventoryZoneDbSnapshots";
+import { fetchForecastMeta, type DbSnapshotRow, type ForecastMetaResponse } from "@/features/forecasting/forecastSnapshotApi";
+import { useForecastDataStore } from "@/shared/store/forecastDataStore";
 import { setForecastZoneCatalog } from "@/features/forecasting/zoneKeyNormalization";
 import type { ZoneConfigurationRow } from "@/features/admin/api/adminApi";
-import type { ForecastHarvestRow } from "@/features/forecasting/forecastingTypes";
-import type { RegrowthReferenceConfig } from "@/features/forecasting/forecastingRegrowth";
 import { DEFAULT_FALLBACK_INVENTORY_KG_PER_M2 } from "@/features/forecasting/forecastingInventoryConversion";
 import {
   canonicalForecastZoneKey,
-  computeZoneCapacityMap,
-  findActiveZoneConfiguration,
-  forecastZoneKeyFromParts,
-  forecastZoneKeyFromRow,
   forecastZoneKeysEqual,
-  zoneConfigIsActiveAtYmd,
-  zoneConfigurationMaxKg,
 } from "@/features/forecasting/inventoryRegrowthCalculator";
 import {
   collectHiddenGrassIdsForCatalogOnDate,
@@ -59,6 +45,7 @@ import {
   useInventoryAvailableOverrideStore,
 } from "@/shared/store/inventoryAvailableOverrideStore";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
+import { useHarvestingReferenceHydrated } from "@/shared/hooks/useHarvestingReferenceHydrated";
 import {
   parseCsvList,
   toCsvList,
@@ -140,11 +127,6 @@ type GrassPieSlice = {
   kind: "available" | "overlimit";
 };
 
-function toNum(v: string | number | null | undefined): number {
-  const n = Number(v ?? 0);
-  return Number.isFinite(n) ? n : 0;
-}
-
 function parseUpdateDateYmd(ymd: string): Date {
   const trimmed = ymd.trim().slice(0, 10);
   const m = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
@@ -194,146 +176,52 @@ function inventoryBalanceKgToM2(kg: number, kgPerM2: number): number {
   return Math.max(0, Math.round(kg / rate));
 }
 
-/** When zone configuration is empty, list one row per harvest-derived zone key (same basis as Inventory Forecast). */
-function buildInventoryRowsFromHarvestOnly(
-  forecastRows: ForecastHarvestRow[],
-  calculatedByZone: Map<string, number>,
-  overridesByZone: Record<string, InventoryAvailableOverrideEntry>,
-  asOfYmd: string,
-): InventoryRow[] {
-  const maxMap = computeZoneCapacityMap(forecastRows);
-  const meta = new Map<
-    string,
-    { farmId: number; grassId: number; farmName: string; turfgrass: string; zone: string }
-  >();
-  for (const r of forecastRows) {
-    const k = forecastZoneKeyFromRow(r);
-    if (!meta.has(k)) {
-      meta.set(k, {
-        farmId: Number(r.farmId) || 0,
-        grassId: Number(r.productId) || 0,
-        farmName: String(r.farm ?? "").trim(),
-        turfgrass: String(r.grassType ?? "").trim(),
-        zone: String(r.zone ?? "").trim(),
-      });
+/** Scale grass/farm slice totals to match DB aggregate (parity forecasting chart). */
+function reconcileGrassStackedTotals(
+  rows: Array<Record<string, string | number>>,
+  farmNames: string[],
+  targetTotal: number,
+): void {
+  if (rows.length === 0) return;
+  const roundedTarget = Math.max(0, Math.round(targetTotal));
+  let sum = 0;
+  for (const row of rows) {
+    sum += Number(row.total ?? 0);
+  }
+  if (sum <= 0) {
+    if (rows[0]) rows[0].total = roundedTarget;
+    return;
+  }
+  if (sum === roundedTarget) return;
+
+  let newSum = 0;
+  let largestIdx = 0;
+  let largestVal = -1;
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i]!;
+    const oldTotal = Number(row.total ?? 0);
+    const scaledTotal = Math.max(0, Math.round((oldTotal * roundedTarget) / sum));
+    row.total = scaledTotal;
+    newSum += scaledTotal;
+    if (scaledTotal > largestVal) {
+      largestVal = scaledTotal;
+      largestIdx = i;
+    }
+    for (const farmName of farmNames) {
+      const oldFarm = Number(row[farmName] ?? 0);
+      row[farmName] = Math.max(0, Math.round((oldFarm * scaledTotal) / (oldTotal || 1)));
     }
   }
-  const keys = Array.from(
-    new Set([...maxMap.keys(), ...calculatedByZone.keys(), ...meta.keys()]),
-  );
-  return keys.map((key, i) => {
-    const m = meta.get(key) ?? { farmId: 0, grassId: 0, farmName: "", turfgrass: "", zone: "" };
-    const maxKg = maxMap.get(key) ?? 0;
-    const calculatedKgRaw = Math.round(calculatedByZone.get(key) ?? 0);
-    const calculatedKg = maxKg > 0 ? Math.min(maxKg, Math.max(0, calculatedKgRaw)) : Math.max(0, calculatedKgRaw);
-    const currentKg = calculatedKg;
-    const pct = maxKg > 0 ? Math.round((currentKg / maxKg) * 100) : 0;
-    const exactOverride = pickInventoryOverrideForExactDate(overridesByZone, key, asOfYmd);
-    return {
-      key: `harvest:${key}:${i}`,
-      zoneConfigurationId: null,
-      forecastZoneKey: key,
-      farmId: m.farmId,
-      grassId: m.grassId,
-      farmName: m.farmName,
-      turfgrass: m.turfgrass,
-      zone: m.zone,
-      sizeM2: 0,
-      inventoryKgPerM2: 0,
-      maxKg,
-      calculatedKg,
-      currentKg,
-      pct,
-      manualOverrideKg: exactOverride ? Math.round(Math.max(0, exactOverride.availableKg)) : null,
-      manualOverrideDate: exactOverride?.date ?? null,
-      systemKgAtManualOverride: exactOverride
-        ? Math.round(Math.max(0, Number(exactOverride.calculatedKg) || 0))
-        : null,
-      isManualOverrideActive: !!exactOverride,
-    };
-  });
-}
-
-function mapZoneToInventoryRow(
-  row: ZoneConfigurationRow,
-  calculatedByZone: Map<string, number>,
-  overridesByZone: Record<string, InventoryAvailableOverrideEntry>,
-  asOfYmd: string,
-): InventoryRow | null {
-  const sizeM2 = toNum(row.size_m2);
-  const inventoryKgPerM2 = toNum(row.inventory_kg_per_m2);
-  const maxKg = zoneConfigurationMaxKg(row);
-  const key = forecastZoneKeyFromParts(row.farm_id, String(row.zone ?? ""), row.grass_id);
-  const calculatedAvailable = calculatedByZone.get(key) ?? 0;
-  const calculatedKg = Math.round(Math.min(maxKg, Math.max(0, calculatedAvailable)));
-  const currentKg = calculatedKg;
-  const pct = maxKg > 0 ? Math.round((currentKg / maxKg) * 100) : 0;
-  const exactOverride = pickInventoryOverrideForExactDate(overridesByZone, key, asOfYmd);
-  return {
-    key: String(row.id),
-    zoneConfigurationId: Number(row.id) || null,
-    forecastZoneKey: key,
-    farmId: Number(row.farm_id) || 0,
-    grassId: Number(row.grass_id) || 0,
-    farmName: String(row.farm_name ?? "").trim(),
-    turfgrass: String(row.turfgrass ?? "").trim(),
-    zone: String(row.zone ?? "").trim(),
-    sizeM2,
-    inventoryKgPerM2,
-    maxKg,
-    calculatedKg,
-    currentKg,
-    pct,
-    manualOverrideKg: exactOverride ? Math.round(Math.max(0, exactOverride.availableKg)) : null,
-    manualOverrideDate: exactOverride?.date ?? null,
-    systemKgAtManualOverride: exactOverride
-      ? Math.round(Math.max(0, Number(exactOverride.calculatedKg) || 0))
-      : null,
-    isManualOverrideActive: !!exactOverride,
-  };
-}
-
-/** One inventory row per zone identity using the setup active on `asOfYmd` (period wins over default). */
-function buildInventoryRowsFromZoneConfigs(
-  zoneConfigurations: ZoneConfigurationRow[],
-  calculatedByZone: Map<string, number>,
-  overridesByZone: Record<string, InventoryAvailableOverrideEntry>,
-  asOfYmd: string,
-): InventoryRow[] {
-  const seenKeys = new Set<string>();
-  const rows: InventoryRow[] = [];
-
-  for (const row of zoneConfigurations) {
-    if (!zoneConfigIsActiveAtYmd(row, asOfYmd)) continue;
-    if (isForecastExcludedZone(row.zone)) continue;
-    const key = forecastZoneKeyFromParts(row.farm_id, String(row.zone ?? ""), row.grass_id);
-    if (seenKeys.has(key)) continue;
-
-    const active = findActiveZoneConfiguration(zoneConfigurations, {
-      farmId: Number(row.farm_id),
-      zone: String(row.zone ?? ""),
-      productId: Number(row.grass_id),
-      ymd: asOfYmd,
-    });
-    if (!active) continue;
-
-    seenKeys.add(key);
-    const inventoryRow = mapZoneToInventoryRow(
-      active,
-      calculatedByZone,
-      overridesByZone,
-      asOfYmd,
-    );
-    if (inventoryRow) rows.push(inventoryRow);
+  const drift = roundedTarget - newSum;
+  if (drift !== 0 && rows[largestIdx]) {
+    rows[largestIdx]!.total = Math.max(0, Number(rows[largestIdx]!.total ?? 0) + drift);
   }
-
-  return rows;
 }
 
 function buildOverlimitEntries(
   overlimitByFarmProduct: Map<string, number>,
-  forecastRows: ForecastHarvestRow[],
   zoneConfigurations: ZoneConfigurationRow[],
+  inventoryRows: InventoryRow[],
 ): OverlimitEntry[] {
   const entries: OverlimitEntry[] = [];
   for (const [fpKey, kg] of overlimitByFarmProduct) {
@@ -345,10 +233,10 @@ function buildOverlimitEntries(
 
     let farmName = "";
     let turfgrass = "";
-    for (const r of forecastRows) {
-      if (r.farmId !== farmId || r.productId !== productId) continue;
-      if (!farmName && r.farm) farmName = String(r.farm).trim();
-      if (!turfgrass && r.grassType) turfgrass = String(r.grassType).trim();
+    for (const r of inventoryRows) {
+      if (r.farmId !== farmId || r.grassId !== productId) continue;
+      if (!farmName && r.farmName) farmName = String(r.farmName).trim();
+      if (!turfgrass && r.turfgrass) turfgrass = String(r.turfgrass).trim();
       if (farmName && turfgrass) break;
     }
     if (!farmName || !turfgrass) {
@@ -375,55 +263,34 @@ function buildOverlimitEntries(
   );
 }
 
+/** Build inventory table rows from zone-level DB snapshots only. */
 function buildInventoryRowsAtDate(params: {
   asOf: Date;
-  forecastRows: ForecastHarvestRow[];
   zoneConfigurations: ZoneConfigurationRow[];
-  regrowthConfig: RegrowthReferenceConfig;
   overridesByZone: Record<string, InventoryAvailableOverrideEntry>;
+  dbSnapshotRows: DbSnapshotRow[];
 }): InventoryBuildResult {
-  const { asOf, forecastRows, zoneConfigurations, regrowthConfig, overridesByZone } = params;
+  const { asOf, zoneConfigurations, overridesByZone, dbSnapshotRows } = params;
   const asOfYmd = ymdFromDate(asOf);
-  const forecastRowsWithLiveCaps = applyLatestZoneMaxKgToForecastRows(
-    forecastRows,
-    zoneConfigurations,
-    asOfYmd,
-  );
-  const calculatedByZone = computeInventoryStyleAvailableByZoneAtDate(
-    forecastRows,
-    zoneConfigurations,
-    regrowthConfig,
-    overridesByZone,
-    asOf,
-  );
-  const allocated = computeAllocatedAvailableByZoneAtDate(
-    forecastRowsWithLiveCaps,
-    regrowthConfig,
-    asOf,
-    zoneConfigurations,
-  );
 
-  const rows =
-    zoneConfigurations.length > 0
-      ? buildInventoryRowsFromZoneConfigs(
-          zoneConfigurations,
-          calculatedByZone,
-          overridesByZone,
-          asOfYmd,
-        )
-      : buildInventoryRowsFromHarvestOnly(
-          forecastRowsWithLiveCaps,
-          calculatedByZone,
-          overridesByZone,
-          asOfYmd,
-        );
+  const dbResult = buildInventoryRowsFromDbSnapshots({
+    snapshotRows: dbSnapshotRows,
+    asOfYmd,
+    zoneConfigurations,
+    forecastRows: [],
+    overridesByZone,
+  });
+
+  if (!dbResult) {
+    return { rows: [], overlimitEntries: [] };
+  }
 
   return {
-    rows,
+    rows: dbResult.rows,
     overlimitEntries: buildOverlimitEntries(
-      allocated.overlimitByFarmProduct,
-      forecastRowsWithLiveCaps,
+      dbResult.overlimitByFarmProduct,
       zoneConfigurations,
+      dbResult.rows,
     ),
   };
 }
@@ -431,18 +298,16 @@ function buildInventoryRowsAtDate(params: {
 export default function InventoryPage() {
   const t = useTranslations("InventoryBalance");
   const tForecast = useTranslations("ForecastInventory");
-  const {
-    forecastRows,
-    zoneConfigs: zoneConfigurations,
-    regrowthConfig,
-    overridesByZone,
-    isLoading: loading,
-    isRefreshing,
-    hasSnapshot,
-    error,
-    reloadFromCache,
-  } = useForecastSnapshot();
-  const farmZonesLoadedRef = useRef(false);
+  const referenceHydrated = useHarvestingReferenceHydrated();
+  const zoneConfigurationsRaw = useHarvestingDataStore((s) => s.zoneConfigurations);
+  const zoneConfigurations = useMemo(
+    () => filterActiveZoneConfigurations(zoneConfigurationsRaw),
+    [zoneConfigurationsRaw],
+  );
+  const overridesByZone = useInventoryAvailableOverrideStore((s) => s.overridesByZone);
+  const overridesLoading = useInventoryAvailableOverrideStore((s) => s.loading);
+  const referenceError = useHarvestingDataStore((s) => s.error);
+  const referenceBootstrapDone = useHarvestingDataStore((s) => s.bootstrapDone);
   const [drillFarm, setDrillFarm] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [updateOpen, setUpdateOpen] = useState(false);
@@ -450,7 +315,6 @@ export default function InventoryPage() {
   const [updateDate, setUpdateDate] = useState(() => ymdFromDate(startOfLocalDay(new Date())));
   const [balanceUpdates, setBalanceUpdates] = useState<Record<string, string>>({});
 
-  const overridesLoading = useInventoryAvailableOverrideStore((s) => s.loading);
   const upsertOverrides = useInventoryAvailableOverrideStore((s) => s.upsertOverrides);
   const removeOverride = useInventoryAvailableOverrideStore((s) => s.removeOverride);
   const farmZones = useHarvestingDataStore((s) => s.farmZones);
@@ -476,6 +340,31 @@ export default function InventoryPage() {
   const setSelectedGrassIds = (ids: string[]) => setHarvestListGrassFilter(toCsvList(ids));
 
   const inventoryTodayYmd = useMemo(() => ymdFromDate(getForecastToday()), []);
+  const dbSeriesRefreshKey = useForecastDataStore((s) => s.dbSeriesRefreshKey);
+
+  const inventoryDbDateFrom = useMemo(() => {
+    const updateYmd = updateDate.trim().slice(0, 10);
+    return updateYmd < inventoryTodayYmd ? updateYmd : inventoryTodayYmd;
+  }, [inventoryTodayYmd, updateDate]);
+
+  const inventoryDbDateTo = useMemo(() => {
+    const updateYmd = updateDate.trim().slice(0, 10);
+    return updateYmd > inventoryTodayYmd ? updateYmd : inventoryTodayYmd;
+  }, [inventoryTodayYmd, updateDate]);
+
+  const inventoryDb = useInventoryZoneDbSnapshots({
+    dateFrom: inventoryTodayYmd,
+    dateTo: inventoryTodayYmd,
+    enabled: referenceHydrated,
+    refreshKey: dbSeriesRefreshKey,
+  });
+
+  const updateInventoryDb = useInventoryZoneDbSnapshots({
+    dateFrom: inventoryDbDateFrom,
+    dateTo: inventoryDbDateTo,
+    enabled: referenceHydrated && updateOpen,
+    refreshKey: dbSeriesRefreshKey,
+  });
 
   const activeGrasses = useMemo(() => filterActiveGrassRows(grasses), [grasses]);
 
@@ -512,16 +401,26 @@ export default function InventoryPage() {
 
   useEffect(() => {
     setForecastZoneCatalog(farmZones);
-    if (farmZones.length > 0 && !farmZonesLoadedRef.current) {
-      farmZonesLoadedRef.current = true;
-      void reloadFromCache(new Set(["reference", "harvest"]));
-    }
-  }, [farmZones, reloadFromCache]);
+  }, [farmZones]);
 
   useEffect(() => {
-    if (!error) return;
-    toast.error(error, { toastId: `inventory-error:${error}` });
-  }, [error]);
+    if (!referenceHydrated) return;
+    void useInventoryAvailableOverrideStore.getState().fetchOverrides();
+    const store = useHarvestingDataStore.getState();
+    if (!store.bootstrapDone || store.zoneConfigurations.length === 0) {
+      void store.fetchAllHarvestingReferenceData();
+    }
+  }, [referenceHydrated]);
+
+  useEffect(() => {
+    if (!referenceError) return;
+    toast.error(referenceError, { toastId: `inventory-reference-error:${referenceError}` });
+  }, [referenceError]);
+
+  useEffect(() => {
+    if (!inventoryDb.error) return;
+    toast.error(inventoryDb.error, { toastId: `inventory-db-error:${inventoryDb.error}` });
+  }, [inventoryDb.error]);
 
   useEffect(() => {
     if (!updateOpen) return;
@@ -534,27 +433,45 @@ export default function InventoryPage() {
     return () => window.clearTimeout(timer);
   }, [notice]);
 
+  const dbReady = inventoryDb.hasData && !inventoryDb.isLoading;
+  const zoneRowsReady = inventoryDb.snapshotRows.length > 0 && !inventoryDb.isLoading;
+  const aggregateAvailableToday = inventoryDb.aggregateAvailableByDate.get(inventoryTodayYmd) ?? null;
+  const inventoryFiltersAll =
+    selectedFarmIds.length === 0 && selectedGrassIds.length === 0;
+  const pageLoading =
+    !referenceHydrated ||
+    (!referenceBootstrapDone && zoneConfigurations.length === 0) ||
+    (inventoryDb.isLoading && !inventoryDb.hasData);
+
   const { rows, overlimitEntries } = useMemo(() => {
+    if (!zoneRowsReady) return { rows: [], overlimitEntries: [] };
     const today = getForecastToday();
     return buildInventoryRowsAtDate({
       asOf: today,
-      forecastRows,
       zoneConfigurations,
-      regrowthConfig,
       overridesByZone,
+      dbSnapshotRows: inventoryDb.snapshotRows,
     });
-  }, [forecastRows, overridesByZone, regrowthConfig, zoneConfigurations]);
+  }, [zoneRowsReady, overridesByZone, zoneConfigurations, inventoryDb.snapshotRows]);
 
   const { rows: updateRows } = useMemo(() => {
+    const source = updateOpen ? updateInventoryDb : inventoryDb;
+    if (!source.hasData || source.isLoading) return { rows: [] };
     const asOf = startOfLocalDay(parseUpdateDateYmd(updateDate));
     return buildInventoryRowsAtDate({
       asOf,
-      forecastRows,
       zoneConfigurations,
-      regrowthConfig,
       overridesByZone,
+      dbSnapshotRows: source.snapshotRows,
     });
-  }, [forecastRows, overridesByZone, regrowthConfig, updateDate, zoneConfigurations]);
+  }, [
+    updateOpen,
+    updateInventoryDb,
+    inventoryDb,
+    overridesByZone,
+    updateDate,
+    zoneConfigurations,
+  ]);
 
   const resolveFarmLabel = (row: InventoryRow): string => {
     const fromRow = String(row.farmName ?? "").trim();
@@ -663,8 +580,47 @@ export default function InventoryPage() {
   );
 
   const [balanceBreakdownZoneKey, setBalanceBreakdownZoneKey] = useState<string | null>(null);
+  const [forecastMeta, setForecastMeta] = useState<ForecastMetaResponse | null>(null);
+
+  useEffect(() => {
+    if (!referenceHydrated) return;
+    let cancelled = false;
+    void fetchForecastMeta(inventoryTodayYmd).then((meta) => {
+      if (!cancelled) setForecastMeta(meta);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [referenceHydrated, inventoryTodayYmd]);
+
+  const breakdownHistoryStartYmd = useMemo(
+    () => resolveDbBreakdownHistoryStartYmd(forecastMeta),
+    [forecastMeta],
+  );
+
+  const breakdownTargetRow = useMemo(() => {
+    if (!balanceBreakdownZoneKey) return undefined;
+    return rows.find((r) => forecastZoneKeysEqual(r.forecastZoneKey, balanceBreakdownZoneKey));
+  }, [rows, balanceBreakdownZoneKey]);
+
+  const breakdownDbZoneKey = useMemo(() => {
+    if (!balanceBreakdownZoneKey) return null;
+    return (
+      resolveDbZoneKeyFromSnapshotRows(inventoryDb.snapshotRows, balanceBreakdownZoneKey) ??
+      balanceBreakdownZoneKey
+    );
+  }, [balanceBreakdownZoneKey, inventoryDb.snapshotRows]);
+
+  const breakdownDb = useInventoryZoneDbSnapshots({
+    dateFrom: breakdownHistoryStartYmd,
+    dateTo: inventoryTodayYmd,
+    zoneKey: breakdownDbZoneKey,
+    farmId: breakdownTargetRow?.farmId,
+    grassId: breakdownTargetRow?.grassId,
+    enabled: referenceHydrated && !!balanceBreakdownZoneKey,
+    refreshKey: dbSeriesRefreshKey,
+  });
   const [balanceBreakdownUnit, setBalanceBreakdownUnit] = useState<"kg" | "m2">("kg");
-  const [overlimitBreakdownKey, setOverlimitBreakdownKey] = useState<string | null>(null);
   const [balanceBreakdownData, setBalanceBreakdownData] = useState<{
     row: InventoryRow;
     todaySnapshot: ZoneInventoryDaySnapshot | undefined;
@@ -672,7 +628,6 @@ export default function InventoryPage() {
   } | null>(null);
   const [breakdownLoading, setBreakdownLoading] = useState(false);
   const balanceBreakdownRef = useRef<HTMLDivElement | null>(null);
-  const overlimitBreakdownRef = useRef<HTMLDivElement | null>(null);
 
   const scrollToBalanceBreakdown = () => {
     window.setTimeout(() => {
@@ -680,24 +635,16 @@ export default function InventoryPage() {
     }, 80);
   };
 
-  const forecastRowsForBreakdown = useMemo(
-    () => applyLatestZoneMaxKgToForecastRows(forecastRows, zoneConfigurations, inventoryTodayYmd),
-    [forecastRows, zoneConfigurations, inventoryTodayYmd],
-  );
-
   const zoneSnapshotsToday = useMemo(() => {
-    const today = getForecastToday();
-    const byDate = computeInventoryStyleZoneDailySnapshots(
-      forecastRows,
-      zoneConfigurations,
-      regrowthConfig,
+    if (!zoneRowsReady) return new Map<string, ZoneInventoryDaySnapshot>();
+    const byDate = buildZoneDailySnapshotsFromDb(
+      inventoryDb.snapshotRows,
       overridesByZone,
-      today,
-      today,
-      { applyRecovery: false },
+      inventoryTodayYmd,
+      inventoryTodayYmd,
     );
     return byDate.get(inventoryTodayYmd) ?? new Map();
-  }, [forecastRows, zoneConfigurations, regrowthConfig, overridesByZone, inventoryTodayYmd]);
+  }, [zoneRowsReady, inventoryDb.snapshotRows, overridesByZone, inventoryTodayYmd]);
 
   useEffect(() => {
     if (!balanceBreakdownZoneKey) {
@@ -715,36 +662,42 @@ export default function InventoryPage() {
     const zoneKey = balanceBreakdownZoneKey;
 
     let paintTimer: number | undefined;
-    const runCompute = () => {
+    const runCompute = async () => {
       if (cancelled) return;
+      if (breakdownDb.isLoading) return;
 
-      const row = inventory.find((r) => r.forecastZoneKey === zoneKey);
+      const row =
+        breakdownTargetRow ??
+        inventory.find((r) => forecastZoneKeysEqual(r.forecastZoneKey, zoneKey));
       if (!row) {
         setBreakdownLoading(false);
         return;
       }
 
-      const today = getForecastToday();
-      const historyStart = addMonths(today, -24);
-      const historyStartYmd = ymdFromDate(historyStart);
-      const byDate = computeInventoryStyleZoneDailySnapshots(
-        forecastRows,
-        zoneConfigurations,
-        regrowthConfig,
+      const historyStartYmd = breakdownHistoryStartYmd;
+      const historyRows =
+        breakdownDb.snapshotRows.length > 0
+          ? breakdownDb.snapshotRows
+          : inventoryDb.snapshotRows;
+
+      const byDate = buildZoneDailySnapshotsFromDb(
+        historyRows,
         overridesByZone,
-        historyStart,
-        today,
-        { applyRecovery: false },
+        historyStartYmd,
+        inventoryTodayYmd,
       );
 
-      const timeline = buildZoneBalanceTimelineForDisplay(
-        byDate,
-        zoneKey,
-        row.maxKg,
-        historyStartYmd,
+      const timeline = filterZoneBalanceTimelineToImpactDays(
+        buildZoneBalanceTimelineForDisplay(
+          byDate,
+          zoneKey,
+          row.maxKg,
+          historyStartYmd,
+        ),
+        inventoryTodayYmd,
       );
       const hasToday = timeline.some((entry) => entry.dateYmd === inventoryTodayYmd);
-      const todaySnapshot = zoneSnapshotsToday.get(zoneKey);
+      const todaySnapshot = lookupZoneSnapshotInDayMap(zoneSnapshotsToday, zoneKey);
       const baseTimeline = [...timeline];
       if (!hasToday && todaySnapshot) {
         baseTimeline.push({
@@ -752,34 +705,52 @@ export default function InventoryPage() {
           previousKg: todaySnapshot.previousKg,
           regrowthKg: todaySnapshot.regrowthKg,
           harvestKg: todaySnapshot.harvestKg,
-          endKg: todaySnapshot.calculatedKg,
+          endKg: todaySnapshot.exactManualSetToday
+            ? (todaySnapshot.manualOverrideKg ?? todaySnapshot.calculatedKg)
+            : todaySnapshot.calculatedKg,
           manualKg: todaySnapshot.exactManualSetToday ? todaySnapshot.manualOverrideKg : null,
           isOpeningDay: false,
           isManualSetToday: todaySnapshot.exactManualSetToday,
           rollingBeforeManualKg: todaySnapshot.rollingBeforeManualSetKg,
         });
+      } else if (!hasToday && !todaySnapshot && row.currentKg > 0) {
+        baseTimeline.push({
+          dateYmd: inventoryTodayYmd,
+          previousKg: row.currentKg,
+          regrowthKg: 0,
+          harvestKg: 0,
+          endKg: row.currentKg,
+          manualKg: row.isManualOverrideActive ? row.manualOverrideKg : null,
+          isOpeningDay: false,
+          isManualSetToday: row.isManualOverrideActive,
+          rollingBeforeManualKg: row.isManualOverrideActive
+            ? row.systemKgAtManualOverride ?? row.calculatedKg
+            : null,
+        });
       }
 
-      const enrichedTimeline = baseTimeline.map((entry) => {
-        if (entry.isOpeningDay || entry.isBridgeEntry) {
-          return {
-            ...entry,
-            harvestEvents: [] as ZoneBalanceHarvestEvent[],
-            regrowthEvents: [] as ZoneBalanceRegrowthEvent[],
-          };
-        }
-        const dayEvents = buildZoneBalanceDayEvents({
-          forecastRows,
-          zoneKey,
-          dateYmd: entry.dateYmd,
-          regrowthConfig,
-          zoneConfigs: zoneConfigurations,
-        });
-        return {
-          ...entry,
-          ...dayEvents,
-        };
-      });
+      if (baseTimeline.length === 0 && !todaySnapshot) {
+        setBreakdownLoading(false);
+        return;
+      }
+
+      const chainedTimeline = insertGapBridgeBeforeToday(
+        rechainZoneBalanceTimelineForDisplay(baseTimeline, {
+          todayYmd: inventoryTodayYmd,
+        }),
+        inventoryTodayYmd,
+      );
+
+      const enrichedTimeline = await enrichZoneBalanceTimelineForBreakdown(
+        chainedTimeline,
+        zoneKey,
+        inventoryTodayYmd,
+        {
+          farmName: row.farmName,
+          turfgrass: row.turfgrass,
+          zone: row.zone,
+        },
+      );
 
       const elapsed = performance.now() - startedAt;
       const remainMs = Math.max(0, 600 - elapsed);
@@ -788,14 +759,18 @@ export default function InventoryPage() {
         setBalanceBreakdownData({
           row,
           todaySnapshot,
-          timelineEntries: enrichedTimeline,
+          timelineEntries: reverseZoneBalanceTimelineForDisplay(
+            enrichedTimeline,
+          ) as EnrichedZoneBalanceTimelineEntry[],
         });
         setBreakdownLoading(false);
       }, remainMs);
     };
 
     // Let the browser paint the spinner and start CSS animation before heavy work.
-    paintTimer = window.setTimeout(runCompute, 80);
+    paintTimer = window.setTimeout(() => {
+      void runCompute();
+    }, 80);
 
     return () => {
       cancelled = true;
@@ -804,13 +779,16 @@ export default function InventoryPage() {
     };
   }, [
     balanceBreakdownZoneKey,
+    breakdownTargetRow,
     inventory,
-    forecastRows,
     zoneConfigurations,
-    regrowthConfig,
     overridesByZone,
     inventoryTodayYmd,
     zoneSnapshotsToday,
+    breakdownHistoryStartYmd,
+    breakdownDb.isLoading,
+    breakdownDb.snapshotRows,
+    inventoryDb.snapshotRows,
   ]);
 
   useEffect(() => {
@@ -829,9 +807,12 @@ export default function InventoryPage() {
       balanceKg += row.currentKg;
       balanceM2 += inventoryBalanceKgToM2(row.currentKg, row.inventoryKgPerM2);
     }
+    if (inventoryFiltersAll && aggregateAvailableToday != null) {
+      balanceKg = aggregateAvailableToday;
+    }
     const pct = maxKg > 0 ? Math.round((balanceKg / maxKg) * 100) : 0;
     return { sizeM2, maxKg, balanceKg, balanceM2, pct };
-  }, [inventory]);
+  }, [inventory, inventoryFiltersAll, aggregateAvailableToday]);
 
   const inventoryOverlimit = useMemo(() => {
     const withFarmNames = overlimitEntries.map((entry) => {
@@ -855,40 +836,6 @@ export default function InventoryPage() {
     selectedGrassIdSet,
     farmNameById,
   ]);
-
-  const overlimitBreakdownData = useMemo(() => {
-    if (!overlimitBreakdownKey) return null;
-    const entry = inventoryOverlimit.find((o) => o.key === overlimitBreakdownKey);
-    if (!entry) return null;
-    const farmName =
-      String(entry.farmName ?? "").trim() ||
-      (entry.farmId > 0 ? farmNameById.get(String(entry.farmId)) ?? "" : "");
-    return buildInventoryOverlimitBreakdown({
-      farmId: entry.farmId,
-      grassId: entry.grassId,
-      farmName,
-      turfgrass: entry.turfgrass,
-      asOf: getForecastToday(),
-      forecastRows: forecastRowsForBreakdown,
-      zoneConfigurations,
-      regrowthConfig,
-    });
-  }, [
-    overlimitBreakdownKey,
-    inventoryOverlimit,
-    forecastRowsForBreakdown,
-    zoneConfigurations,
-    regrowthConfig,
-    farmNameById,
-  ]);
-
-  useEffect(() => {
-    if (!overlimitBreakdownKey) return;
-    const timer = window.setTimeout(() => {
-      overlimitBreakdownRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 50);
-    return () => window.clearTimeout(timer);
-  }, [overlimitBreakdownKey, overlimitBreakdownData]);
 
   /** Grass ids shown in "Inventory by Grass Type" (farm → all zone grasses; else data + filter). */
   const chartGrassIds = useMemo(() => {
@@ -975,7 +922,6 @@ export default function InventoryPage() {
       scrollToBalanceBreakdown();
       return;
     }
-    setOverlimitBreakdownKey(null);
     setBalanceBreakdownUnit(unit);
     setBalanceBreakdownZoneKey(zoneKey);
     setBreakdownLoading(true);
@@ -1008,34 +954,11 @@ export default function InventoryPage() {
     );
   };
 
-  const renderOverlimitButton = (entry: OverlimitEntry) => {
-    const isActive = overlimitBreakdownKey === entry.key;
-    return (
-      <button
-        type="button"
-        aria-label={t("overlimitBreakdownAria")}
-        aria-expanded={isActive}
-        onClick={() => {
-          if (overlimitBreakdownKey === entry.key) {
-            setOverlimitBreakdownKey(null);
-            return;
-          }
-          setBalanceBreakdownZoneKey(null);
-          setBreakdownLoading(false);
-          setBalanceBreakdownData(null);
-          setOverlimitBreakdownKey(entry.key);
-        }}
-        className={cn(
-          "font-semibold tabular-nums underline decoration-dotted underline-offset-2 transition",
-          isActive
-            ? "text-red-800 decoration-red-800"
-            : "text-red-700 decoration-red-400/70 hover:text-red-800 hover:decoration-red-700",
-        )}
-      >
-        +{entry.overlimitKg.toLocaleString()} kg
-      </button>
-    );
-  };
+  const renderOverlimitKg = (entry: OverlimitEntry) => (
+    <span className="font-semibold tabular-nums text-red-700">
+      +{entry.overlimitKg.toLocaleString()} kg
+    </span>
+  );
 
   useEffect(() => {
     if (!updateOpen) return;
@@ -1111,7 +1034,8 @@ export default function InventoryPage() {
 
   const stackedByGrass = useMemo(() => {
     const showAllFarmGrasses = selectedFarmIds.length > 0 && selectedGrassIds.length === 0;
-    return chartGrassIds
+    const farmNames = chartFarms.map((f) => f.name);
+    const built = chartGrassIds
       .map((grassId) => {
         const grass =
           grassIdToTurfgrass.get(grassId) ??
@@ -1139,6 +1063,17 @@ export default function InventoryPage() {
           (r.total as number) > 0 ||
           (r.overlimitTotal as number) > 0,
       );
+
+    if (
+      inventoryFiltersAll &&
+      aggregateAvailableToday != null &&
+      aggregateAvailableToday >= 0 &&
+      built.length > 0
+    ) {
+      reconcileGrassStackedTotals(built, farmNames, aggregateAvailableToday);
+    }
+
+    return built;
   }, [
     chartGrassIds,
     chartFarms,
@@ -1148,12 +1083,16 @@ export default function InventoryPage() {
     inventoryOverlimit,
     selectedFarmIds,
     selectedGrassIds,
+    inventoryFiltersAll,
+    aggregateAvailableToday,
   ]);
 
-  const companyTotalKg = useMemo(
-    () => stackedByGrass.reduce((s, r) => s + (r.total as number), 0),
-    [stackedByGrass],
-  );
+  const companyTotalKg = useMemo(() => {
+    if (inventoryFiltersAll && aggregateAvailableToday != null) {
+      return aggregateAvailableToday;
+    }
+    return stackedByGrass.reduce((s, r) => s + (r.total as number), 0);
+  }, [inventoryFiltersAll, aggregateAvailableToday, stackedByGrass]);
 
   const companyOverlimitKg = useMemo(
     () => inventoryOverlimit.reduce((s, o) => s + o.overlimitKg, 0),
@@ -1215,13 +1154,27 @@ export default function InventoryPage() {
             </div>
           ) : null}
 
-          {loading && !hasSnapshot ? (
+          {pageLoading ? (
             <p className="text-sm text-gray-500">{t("loading")}</p>
           ) : null}
-          {isRefreshing ? (
+          {!pageLoading && dbReady && !zoneRowsReady && !inventoryDb.error ? (
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              {t("loading")}
+            </p>
+          ) : null}
+          {!pageLoading && dbReady && zoneRowsReady && rows.length === 0 && !inventoryDb.error ? (
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              {t("emptyInventory")}
+            </p>
+          ) : null}
+          {inventoryDb.isLoading && inventoryDb.hasData ? (
             <p className="text-xs text-gray-500">{t("loading")}</p>
           ) : null}
-          
+          {inventoryDb.isStale ? (
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              Snapshot đang rebuild sau thay đổi harvest/zone — bảng sẽ tự cập nhật khi worker xong.
+            </p>
+          ) : null}
           {updateOpen ? (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
               <div className="flex max-h-[min(90vh,52rem)] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-border bg-white shadow-2xl">
@@ -1773,12 +1726,7 @@ export default function InventoryPage() {
               {inventoryOverlimit.map((o) => (
                 <div
                   key={o.key}
-                  className={cn(
-                    "rounded-lg border p-3 shadow-sm",
-                    overlimitBreakdownKey === o.key
-                      ? "border-red-400 bg-red-50 ring-1 ring-red-200"
-                      : "border-red-200 bg-red-50/60",
-                  )}
+                  className="rounded-lg border border-red-200 bg-red-50/60 p-3 shadow-sm"
                 >
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-foreground">
@@ -1790,7 +1738,7 @@ export default function InventoryPage() {
                   <div className="mt-3">
                     <p className="text-[11px] text-muted-foreground">{t("overlimitKg")}</p>
                     <p className="text-sm font-semibold text-red-700">
-                      {renderOverlimitButton(o)}
+                      {renderOverlimitKg(o)}
                     </p>
                   </div>
                 </div>
@@ -1925,12 +1873,7 @@ export default function InventoryPage() {
                   {inventoryOverlimit.map((o) => (
                     <tr
                       key={o.key}
-                      className={cn(
-                        "border-t hover:bg-red-50/70",
-                        overlimitBreakdownKey === o.key
-                          ? "border-red-200 bg-red-50 ring-1 ring-inset ring-red-200"
-                          : "border-red-100 bg-red-50/40",
-                      )}
+                      className="border-t border-red-100 bg-red-50/40 hover:bg-red-50/70"
                     >
                       <td className="py-3 px-4 font-medium">{resolveOverlimitFarmLabel(o)}</td>
                       <td className="py-3 px-4">{o.turfgrass}</td>
@@ -1939,7 +1882,7 @@ export default function InventoryPage() {
                       <td className="py-3 px-4 text-right text-muted-foreground">—</td>
                       <td className="py-3 px-4 text-right text-muted-foreground">—</td>
                       <td className="py-3 px-4 text-right font-semibold text-red-700">
-                        {renderOverlimitButton(o)}
+                        {renderOverlimitKg(o)}
                       </td>
                       <td className="py-3 px-4 text-muted-foreground">—</td>
                     </tr>
@@ -2028,16 +1971,6 @@ export default function InventoryPage() {
                     setBalanceBreakdownZoneKey(null);
                     setBalanceBreakdownUnit("kg");
                   }}
-                />
-              </div>
-            ) : null}
-
-            {overlimitBreakdownKey && overlimitBreakdownData ? (
-              <div ref={overlimitBreakdownRef} className="pt-5">
-                <InventoryOverlimitBreakdownPanel
-                  breakdown={overlimitBreakdownData}
-                  zoneLabelFn={zoneLabel}
-                  onClose={() => setOverlimitBreakdownKey(null)}
                 />
               </div>
             ) : null}
