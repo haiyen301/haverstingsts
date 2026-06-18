@@ -1494,6 +1494,9 @@
     },
     "errors": {
       "required": "Zone name is required, and at least one farm must be selected unless this zone applies to all farms."
+    },
+    "notices": {
+      "deletedRebuildQueuedFull": "Deleted — forecasting and inventory will be fully recalculated. Please wait a few minutes while snapshot rebuild finishes."
     }
   },
   "AdminZones": {
@@ -1578,6 +1581,14 @@
       "calendarSelectIdentityHint": "Select farm, grass type, and zone to see existing setup dates on the calendar.",
       "calendarDisabledHint": "Dates with an existing setup (dimmed) cannot be selected."
     },
+    "notices": {
+      "savedRebuildQueuedFull": "Saved — forecasting and inventory will be fully recalculated (open-ended zone setup). Please wait a few minutes while snapshot rebuild finishes.",
+      "savedRebuildQueuedForward": "Saved — forecasting and inventory will be updated from {fromDate}. Please wait a few minutes while snapshot rebuild finishes.",
+      "savedRebuildQueuedRange": "Saved — forecasting and inventory will be updated from {fromDate} through {toDate}. Please wait a few minutes while snapshot rebuild finishes.",
+      "deletedRebuildQueuedFull": "Deleted — forecasting and inventory will be fully recalculated. Please wait a few minutes while snapshot rebuild finishes.",
+      "deletedRebuildQueuedForward": "Deleted — forecasting and inventory will be updated from {fromDate}. Please wait a few minutes while snapshot rebuild finishes.",
+      "deletedRebuildQueuedRange": "Deleted — forecasting and inventory will be updated from {fromDate} through {toDate}. Please wait a few minutes while snapshot rebuild finishes."
+    },
     "errors": {
       "required": "Farm, grass, zone, size, and yield are required.",
       "dateRange": "Setup To must be on or after Setup From.",
@@ -1648,6 +1659,9 @@
       "save": "Could not save.",
       "delete": "Could not delete."
     },
+    "notices": {
+      "deletedRebuildQueuedFull": "Deleted — forecasting and inventory will be fully recalculated. Please wait a few minutes while snapshot rebuild finishes."
+    },
     "deleteConfirm": "Remove this farm? Linked zones and harvest data may be affected."
   },
   "AdminGrasses": {
@@ -1688,6 +1702,9 @@
       "save": "Could not save.",
       "delete": "Could not delete.",
       "statusToggle": "Could not update status."
+    },
+    "notices": {
+      "savedRebuildQueued": "Saved — forecasting and inventory will be recalculated for the new grass status / sales window. Please wait a few minutes while snapshot rebuild finishes."
     },
     "deleteConfirm": "Remove this grass type? Linked zone configuration may need updating."
   },
@@ -1870,6 +1887,7 @@
       "defaultsRestored": "Defaults restored — regrowth rules reset to the original methodology.",
       "noChanges": "No changes detected — nothing to save.",
       "saved": "Saved — regrowth rules are stored on the server.",
+      "savedRebuildQueued": "Saved — forecasting and inventory will be recalculated with the new rules. Please wait a few minutes while snapshot rebuild finishes.",
       "bandAdded": "Band added — {label}: {days} days.",
       "calculateAutoDone": "Calculated {farm} · {grass} — zone {zone}."
     }
@@ -2174,6 +2192,10 @@
     "alertInventoryUpdatedTitle": "Inventory updated: {farm}",
     "alertInventoryUpdatedMessage": "{count} zone balance(s) · {date}",
     "saveBalanceFailed": "Failed to save balance updates.",
+    "notices": {
+      "savedRebuildQueuedForward": "Saved — forecasting and inventory will be updated from {fromDate}. Please wait a few minutes while snapshot rebuild finishes.",
+      "removedRebuildQueuedForward": "Override removed — forecasting and inventory will be updated from {fromDate}. Please wait a few minutes while snapshot rebuild finishes."
+    },
     "dialogTitle": "Monthly Inventory Balance Update",
     "dialogSubtitle": "Manual balance overrides the system value for the selected zone, then fades back using the override recovery rule.",
     "closeDialogAria": "Close update inventory dialog",

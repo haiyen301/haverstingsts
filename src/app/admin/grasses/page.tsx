@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Pencil, Plus, Trash2, X } from "lucide-react";
 import { useTranslations } from "next-intl";
+import { toast } from "react-toastify";
 import RequireAuth from "@/features/auth/RequireAuth";
 import {
   fetchGrassTypes,
@@ -14,7 +15,11 @@ import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
-import { onForecastMutation } from "@/features/forecasting/forecastDataSync";
+import {
+  grassCatalogMutationAffectsForecast,
+  onGrassCatalogForecastMutation,
+} from "@/features/forecasting/forecastDataSync";
+import { TOAST_CONTAINER_TOP_RIGHT } from "@/shared/ui/AppToasts";
 import { DatePicker } from "@/shared/ui/date-picker";
 
 const inputClass =
@@ -68,6 +73,14 @@ const INACTIVE_STATUS_VALUES = new Set(["inactive", "0", "false", "disabled"]);
 function isGrassActive(status: string | null | undefined): boolean {
   const s = String(status ?? "active").trim().toLowerCase();
   return !INACTIVE_STATUS_VALUES.has(s);
+}
+
+function notifyGrassForecastRebuildQueued(t: (key: string) => string): void {
+  toast.success(t("notices.savedRebuildQueued"), {
+    containerId: TOAST_CONTAINER_TOP_RIGHT,
+    autoClose: 10000,
+  });
+  onGrassCatalogForecastMutation();
 }
 
 export default function AdminGrassesPage() {
@@ -148,7 +161,28 @@ export default function AdminGrassesPage() {
       setOpen(false);
       setForm(emptyForm());
       void fetchAllHarvestingReferenceData(true);
-      onForecastMutation("harvest");
+      const existing = form.id
+        ? rows.find((r) => Number(r.id) === Number(form.id)) ?? null
+        : null;
+      const afterCatalog = {
+        status: existing?.status ?? "active",
+        sales_from: form.sales_from.trim() || null,
+        sales_to: form.sales_to.trim() || null,
+      };
+      if (
+        grassCatalogMutationAffectsForecast(
+          existing
+            ? {
+                status: existing.status,
+                sales_from: existing.sales_from,
+                sales_to: existing.sales_to,
+              }
+            : null,
+          afterCatalog,
+        )
+      ) {
+        notifyGrassForecastRebuildQueued(t);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : t("errors.save"));
     } finally {
@@ -177,7 +211,7 @@ export default function AdminGrassesPage() {
         return next.sort((a, b) => String(a.title).localeCompare(String(b.title)));
       });
       void fetchAllHarvestingReferenceData(true);
-      onForecastMutation("harvest");
+      notifyGrassForecastRebuildQueued(t);
     } catch (e) {
       setError(e instanceof Error ? e.message : t("errors.statusToggle"));
     } finally {
@@ -195,7 +229,7 @@ export default function AdminGrassesPage() {
       await removeGrassType(id);
       setRows((prev) => prev.filter((r) => Number(r.id) !== id));
       void fetchAllHarvestingReferenceData(true);
-      onForecastMutation("harvest");
+      notifyGrassForecastRebuildQueued(t);
     } catch (e) {
       setError(e instanceof Error ? e.message : t("errors.delete"));
     } finally {

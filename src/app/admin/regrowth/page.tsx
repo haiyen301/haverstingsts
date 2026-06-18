@@ -23,6 +23,7 @@ import {
   X,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
+import { toast } from "react-toastify";
 import RequireAuth from "@/features/auth/RequireAuth";
 import {
   calculateZoneAutoConfiguration,
@@ -41,6 +42,7 @@ import {
   type ZoneConfigurationRow,
 } from "@/features/admin/api/adminApi";
 import { onForecastMutation } from "@/features/forecasting/forecastDataSync";
+import { TOAST_CONTAINER_TOP_RIGHT } from "@/shared/ui/AppToasts";
 import { Checkbox } from "@/shared/ui/checkbox";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
@@ -1048,9 +1050,9 @@ export default function AdminRegrowthPage() {
       const nextConfig = rowsToFormState(rows);
       setConfig(nextConfig);
       setSavedFingerprint(payloadFingerprint(formStateToSavePayload(nextConfig)));
-      setNotice({
-        variant: "ok",
-        text: t("notices.saved"),
+      toast.success(t("notices.savedRebuildQueued"), {
+        containerId: TOAST_CONTAINER_TOP_RIGHT,
+        autoClose: 10000,
       });
       const fetchAll = useHarvestingDataStore.getState().fetchAllHarvestingReferenceData;
       void fetchAll(true);

@@ -160,3 +160,31 @@ export async function queueForecastForwardRebuild(fromDate: string): Promise<voi
     queue: true,
   });
 }
+
+export type ForecastSnapshotMechanism =
+  | "harvest_plan"
+  | "harvest_estimate"
+  | "harvest_actual"
+  | "project_pace"
+  | "regrowth_rules"
+  | "zone_configuration"
+  | "inventory_balance"
+  | "grass_catalog"
+  | "farm_remove"
+  | "zone_remove"
+  | "bootstrap_initial"
+  | "full_reseed";
+
+export type ForecastSnapshotUpdateRequest = {
+  mechanism: ForecastSnapshotMechanism;
+  from_date?: string;
+  to_date?: string;
+  scope?: Record<string, unknown>;
+};
+
+/** Queue a mechanism-specific snapshot update on the server (always async). */
+export async function queueForecastSnapshotUpdate(
+  body: ForecastSnapshotUpdateRequest,
+): Promise<void> {
+  await stsProxyPostJson(STS_API_PATHS.forecastSnapshotUpdate, body);
+}

@@ -1497,6 +1497,9 @@
     },
     "errors": {
       "required": "กรุณากรอกชื่อโซน และเลือกอย่างน้อยหนึ่งฟาร์มหากโซนนี้ไม่ได้ใช้กับทุกฟาร์ม"
+    },
+    "notices": {
+      "deletedRebuildQueuedFull": "ลบแล้ว — ระบบจะคำนวณ forecasting และ inventory ใหม่ทั้งประวัติ กรุณารอสักครู่ระหว่าง rebuild snapshot"
     }
   },
   "AdminZones": {
@@ -1581,6 +1584,14 @@
       "calendarSelectIdentityHint": "Select farm, grass type, and zone to see existing setup dates on the calendar.",
       "calendarDisabledHint": "Dates with an existing setup (dimmed) cannot be selected."
     },
+    "notices": {
+      "savedRebuildQueuedFull": "บันทึกแล้ว — ระบบจะคำนวณ forecasting และ inventory ใหม่ทั้งประวัติ (การตั้งค่า zone ไม่จำกัดวัน) กรุณารอสักครู่ระหว่าง rebuild snapshot",
+      "savedRebuildQueuedForward": "บันทึกแล้ว — ระบบจะอัปเดต forecasting และ inventory ตั้งแต่วันที่ {fromDate} กรุณารอสักครู่ระหว่าง rebuild snapshot",
+      "savedRebuildQueuedRange": "บันทึกแล้ว — ระบบจะอัปเดต forecasting และ inventory ตั้งแต่ {fromDate} ถึง {toDate} กรุณารอสักครู่ระหว่าง rebuild snapshot",
+      "deletedRebuildQueuedFull": "ลบแล้ว — ระบบจะคำนวณ forecasting และ inventory ใหม่ทั้งประวัติ กรุณารอสักครู่ระหว่าง rebuild snapshot",
+      "deletedRebuildQueuedForward": "ลบแล้ว — ระบบจะอัปเดต forecasting และ inventory ตั้งแต่วันที่ {fromDate} กรุณารอสักครู่ระหว่าง rebuild snapshot",
+      "deletedRebuildQueuedRange": "ลบแล้ว — ระบบจะอัปเดต forecasting และ inventory ตั้งแต่ {fromDate} ถึง {toDate} กรุณารอสักครู่ระหว่าง rebuild snapshot"
+    },
     "errors": {
       "required": "Farm, grass, zone, size, and yield are required.",
       "dateRange": "วันที่ “ถึง” ต้องไม่ก่อนวันที่ “จาก”",
@@ -1651,6 +1662,9 @@
       "save": "บันทึกไม่ได้",
       "delete": "ลบไม่ได้"
     },
+    "notices": {
+      "deletedRebuildQueuedFull": "ลบแล้ว — ระบบจะคำนวณ forecasting และ inventory ใหม่ทั้งประวัติ กรุณารอสักครู่ระหว่าง rebuild snapshot"
+    },
     "deleteConfirm": "ลบฟาร์มนี้หรือไม่? โซนและข้อมูลการเก็บเกี่ยวที่เชื่อมโยงอาจได้รับผลกระทบ"
   },
   "AdminGrasses": {
@@ -1691,6 +1705,9 @@
       "save": "บันทึกไม่ได้",
       "delete": "ลบไม่ได้",
       "statusToggle": "อัปเดตสถานะไม่ได้"
+    },
+    "notices": {
+      "savedRebuildQueued": "บันทึกแล้ว — ระบบจะคำนวณ forecasting และ inventory ใหม่ตามสถานะหญ้า / ช่วงขาย กรุณารอสักครู่ระหว่าง rebuild snapshot"
     },
     "deleteConfirm": "ลบประเภทหญ้านี้? การตั้งค่าโซนที่เชื่อมอาจต้องปรับ"
   },
@@ -1873,6 +1890,7 @@
       "defaultsRestored": "คืนค่าเริ่มต้นแล้ว — กฎการฟื้นตัวกลับไปตามวิธีดั้งเดิม",
       "noChanges": "ไม่พบการเปลี่ยนแปลง — ไม่มีอะไรให้บันทึก",
       "saved": "บันทึกแล้ว — กฎการฟื้นตัวถูกเก็บบนเซิร์ฟเวอร์",
+      "savedRebuildQueued": "บันทึกแล้ว — ระบบจะคำนวณ forecasting และ inventory ใหม่ตามกฎล่าสุด กรุณารอสักครู่ระหว่าง rebuild snapshot",
       "bandAdded": "เพิ่มช่วงแล้ว — {label}: {days} วัน",
       "calculateAutoDone": "คำนวณแล้ว {farm} · {grass} — โซน {zone}"
     }
@@ -2163,6 +2181,10 @@
     "alertInventoryUpdatedTitle": "อัปเดตสินค้าคงคลัง: {farm}",
     "alertInventoryUpdatedMessage": "{count} โซน · {date}",
     "saveBalanceFailed": "บันทึกการอัปเดตยอดไม่สำเร็จ",
+    "notices": {
+      "savedRebuildQueuedForward": "บันทึกแล้ว — ระบบจะอัปเดต forecasting และ inventory ตั้งแต่วันที่ {fromDate} กรุณารอสักครู่ระหว่าง rebuild snapshot",
+      "removedRebuildQueuedForward": "ลบการแทนที่แล้ว — ระบบจะอัปเดต forecasting และ inventory ตั้งแต่วันที่ {fromDate} กรุณารอสักครู่ระหว่าง rebuild snapshot"
+    },
     "dialogTitle": "อัปเดตยอดสินค้าคงคลังรายเดือน",
     "dialogSubtitle": "ยอดแทนที่ด้วยตนเองจะแทนที่ค่าระบบสำหรับโซนที่เลือก แล้วค่อยๆ กลับตามกฎการฟื้นตัวหลังแทนที่",
     "closeDialogAria": "ปิดกล่องโต้ตอบอัปเดตสินค้าคงคลัง",

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import { useTranslations } from "next-intl";
+import { toast } from "react-toastify";
 import RequireAuth from "@/features/auth/RequireAuth";
 import {
   fetchFarms,
@@ -11,11 +12,13 @@ import {
   type FarmRow,
 } from "@/features/admin/api/adminApi";
 import { fetchActiveCountries } from "@/features/admin/api/countriesApi";
+import { onForecastFullRebuildMutation } from "@/features/forecasting/forecastDataSync";
 import { buildCountrySelectOptions } from "@/shared/lib/harvestReferenceData";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
+import { TOAST_CONTAINER_TOP_RIGHT } from "@/shared/ui/AppToasts";
 
 const inputClass =
   "flex h-9 w-full min-w-0 rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground shadow-sm outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/35";
@@ -168,6 +171,11 @@ export default function AdminFarmsPage() {
       await removeFarm(id);
       setRows((prev) => prev.filter((r) => Number(r.id) !== id));
       void fetchAllHarvestingReferenceData(true);
+      toast.success(t("notices.deletedRebuildQueuedFull"), {
+        containerId: TOAST_CONTAINER_TOP_RIGHT,
+        autoClose: 10000,
+      });
+      onForecastFullRebuildMutation();
     } catch (e) {
       setError(e instanceof Error ? e.message : t("errors.delete"));
     } finally {

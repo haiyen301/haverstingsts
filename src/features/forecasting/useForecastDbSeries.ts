@@ -12,10 +12,10 @@ import {
   fetchForecastMeta,
   fetchForecastSnapshots,
   fetchRegrowthStats,
-  queueForecastForwardRebuild,
   AGGREGATE_ZONE_KEY,
   type DbSnapshotRow,
 } from "@/features/forecasting/forecastSnapshotApi";
+import { useForecastSnapshotRebuildPoll } from "@/features/forecasting/useForecastSnapshotRebuildPoll";
 import { useForecastDataStore } from "@/shared/store/forecastDataStore";
 
 /** Zone rows carry farm_id + grass_id for stacked breakdown; aggregate rows do not. */
@@ -39,9 +39,9 @@ type Args = {
 export function useForecastDbSeries(args: Args) {
   const enabled = args.enabled ?? true;
   const dbSeriesRefreshKey = useForecastDataStore((s) => s.dbSeriesRefreshKey);
+  const { rebuilding } = useForecastSnapshotRebuildPoll(enabled);
   const [dbResult, setDbResult] = useState<DbDailySeriesResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [isStale, setIsStale] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const inputKey = useMemo(
@@ -65,14 +65,8 @@ export function useForecastDbSeries(args: Args) {
       setError(null);
       try {
         const anchor = ymdFromDate(getForecastToday());
-        const meta = await fetchForecastMeta(anchor);
+        await fetchForecastMeta(anchor);
         if (cancelled) return;
-
-        const stale = Boolean(meta?.is_stale);
-        setIsStale(stale);
-        if (stale && (meta?.snapshot_count ?? 0) > 0) {
-          void queueForecastForwardRebuild(anchor).catch(() => undefined);
-        }
 
         const useAggregateOnly =
           args.farmIds.length === 0 && args.grassIds.length === 0;
@@ -87,9 +81,6 @@ export function useForecastDbSeries(args: Args) {
         let regrowthStats: Awaited<typeof regrowthPromise>;
 
         if (useAggregateOnly) {
-          // Main chart reads aggregate rows; grass breakdown needs per-zone rows
-          // (summed client-side by farm_id|grass_id). A single aggregate-only fetch
-          // left byFarmProduct empty and stacked all inventory onto one grass series.
           const [aggregateRows, scopedRows, stats] = await Promise.all([
             fetchForecastSnapshots({
               dateFrom: args.dateFrom,
@@ -142,28 +133,6 @@ export function useForecastDbSeries(args: Args) {
     };
   }, [enabled, inputKey, args.dateFrom, args.dateTo, args.farmIds, args.grassIds]);
 
-  /** Poll meta until forward rebuild finishes, then refetch snapshots. */
-  useEffect(() => {
-    if (!enabled || !isStale) return;
-    let cancelled = false;
-    const intervalId = setInterval(() => {
-      void (async () => {
-        try {
-          const anchor = ymdFromDate(getForecastToday());
-          const meta = await fetchForecastMeta(anchor);
-          if (cancelled || meta?.is_stale) return;
-          useForecastDataStore.getState().bumpDbSeriesRefresh();
-        } catch {
-          /* retry on next tick */
-        }
-      })();
-    }, 5000);
-    return () => {
-      cancelled = true;
-      clearInterval(intervalId);
-    };
-  }, [enabled, isStale]);
-
   const result: DailySeriesResult = dbResult
     ? { aggregate: dbResult.aggregate, byFarmProduct: dbResult.byFarmProduct }
     : EMPTY;
@@ -173,7 +142,7 @@ export function useForecastDbSeries(args: Args) {
     regrowthStatsByDate: dbResult?.regrowthStatsByDate ?? new Map(),
     hasData: (dbResult?.aggregate.length ?? 0) > 0,
     isLoading,
-    isStale,
+    isStale: rebuilding,
     error,
   };
 }

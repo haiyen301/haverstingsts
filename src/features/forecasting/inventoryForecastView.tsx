@@ -2698,8 +2698,8 @@ export function InventoryForecast({
 
       {dbSeries.isStale ? (
         <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-          Snapshot đang rebuild sau thay đổi harvest/zone — chart sẽ tự cập nhật khi worker xong
-          (parity <code className="text-[11px]">/forecast_audit</code>).
+          Snapshot đang rebuild — chart sẽ tự cập nhật khi worker xong (thường 2–20 phút tùy loại
+          job).
         </div>
       ) : null}
 

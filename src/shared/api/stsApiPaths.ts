@@ -117,4 +117,6 @@ export const STS_API_PATHS = {
   forecastRegrowthStats: "/api/forecast/regrowth_stats",
   /** POST queue forward/full rebuild. */
   forecastRebuild: "/api/forecast/rebuild",
+  /** POST mechanism-specific snapshot queue (harvest_plan, project_pace, …). */
+  forecastSnapshotUpdate: "/api/forecast/snapshot_update",
 } as const;

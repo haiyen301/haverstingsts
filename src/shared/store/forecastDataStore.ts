@@ -9,6 +9,7 @@ export type ForecastCacheScope =
   | "harvest"
   | "zones"
   | "rules"
+  | "grass"
   | "reference"
   | "all";
 
@@ -39,8 +40,11 @@ export type ForecastDataState = {
   hasSnapshot: boolean;
   /** Bumped after harvest/zone save so chart hooks refetch inventory_daily_snapshots. */
   dbSeriesRefreshKey: number;
+  /** True after regrowth rules save until meta reports rebuild complete. */
+  snapshotRebuildPending: boolean;
   error: string | null;
   bumpDbSeriesRefresh: () => void;
+  setSnapshotRebuildPending: (pending: boolean) => void;
   invalidate: (scope: ForecastCacheScope) => void;
   markValid: (scope: ForecastCacheScope) => void;
   needsFetch: (scope: ForecastCacheScope, force?: boolean) => boolean;
@@ -107,10 +111,13 @@ export const useForecastDataStore = create<ForecastDataState>((set, get) => ({
   isRefreshing: false,
   hasSnapshot: false,
   dbSeriesRefreshKey: 0,
+  snapshotRebuildPending: false,
   error: null,
 
   bumpDbSeriesRefresh: () =>
     set((state) => ({ dbSeriesRefreshKey: state.dbSeriesRefreshKey + 1 })),
+
+  setSnapshotRebuildPending: (pending) => set({ snapshotRebuildPending: pending }),
 
   invalidate: (scope) => {
     set((state) => {
@@ -279,6 +286,7 @@ export const useForecastDataStore = create<ForecastDataState>((set, get) => ({
       isRefreshing: false,
       hasSnapshot: false,
       dbSeriesRefreshKey: 0,
+      snapshotRebuildPending: false,
       error: null,
     }),
 }));

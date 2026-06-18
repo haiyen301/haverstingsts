@@ -20,7 +20,10 @@ import { buildZoneBalanceTimelineForDisplay, filterZoneBalanceTimelineToImpactDa
 import { enrichZoneBalanceTimelineForBreakdown } from "@/features/forecasting/zoneBalanceEventsFromDayDetail";
 import { resolveDbBreakdownHistoryStartYmd } from "@/features/forecasting/resolveDbBreakdownHistoryStart";
 import { getForecastToday } from "@/features/forecasting/forecastDateUtils";
-import { onForecastMutation } from "@/features/forecasting/forecastDataSync";
+import {
+  inventoryBalanceRebuildFromDate,
+  onInventoryBalanceForecastMutation,
+} from "@/features/forecasting/forecastDataSync";
 import type { ZoneInventoryDaySnapshot } from "@/features/forecasting/forecastDbTypes";
 import { useInventoryZoneDbSnapshots } from "@/features/forecasting/useInventoryZoneDbSnapshots";
 import { fetchForecastMeta, type DbSnapshotRow, type ForecastMetaResponse } from "@/features/forecasting/forecastSnapshotApi";
@@ -56,6 +59,7 @@ import { MultiSelect } from "@/shared/ui/multi-select";
 import { cn } from "@/lib/utils";
 import { dispatchRouteAlert } from "@/features/alerts/dispatchRouteAlert";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
+import { TOAST_CONTAINER_TOP_RIGHT } from "@/shared/ui/AppToasts";
 
 type InventoryRow = {
   key: string;
@@ -1009,7 +1013,12 @@ export default function InventoryPage() {
 
     try {
       await upsertOverrides(updates);
-      onForecastMutation("overrides");
+      const rebuildFromDate = inventoryBalanceRebuildFromDate(null, updateDate);
+      toast.success(t("notices.savedRebuildQueuedForward", { fromDate: rebuildFromDate }), {
+        containerId: TOAST_CONTAINER_TOP_RIGHT,
+        autoClose: 10000,
+      });
+      onInventoryBalanceForecastMutation();
       const farmLabel = farmNameById.get(selectedFarm) ?? selectedFarm;
       setNotice(t("savedOverrides", {
         count: updates.length,
@@ -1172,7 +1181,8 @@ export default function InventoryPage() {
           ) : null}
           {inventoryDb.isStale ? (
             <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-              Snapshot đang rebuild sau thay đổi harvest/zone — bảng sẽ tự cập nhật khi worker xong.
+              Snapshot đang rebuild — bảng sẽ tự cập nhật khi worker xong (thường 2–20 phút tùy loại
+              job).
             </p>
           ) : null}
           {updateOpen ? (
@@ -1302,7 +1312,20 @@ export default function InventoryPage() {
                                               void (async () => {
                                                 try {
                                                   await removeOverride(existing);
-                                                  onForecastMutation("overrides");
+                                                  const rebuildFromDate = inventoryBalanceRebuildFromDate(
+                                                    existing.date,
+                                                    null,
+                                                  );
+                                                  toast.success(
+                                                    t("notices.removedRebuildQueuedForward", {
+                                                      fromDate: rebuildFromDate,
+                                                    }),
+                                                    {
+                                                      containerId: TOAST_CONTAINER_TOP_RIGHT,
+                                                      autoClose: 10000,
+                                                    },
+                                                  );
+                                                  onInventoryBalanceForecastMutation();
                                                   setBalanceUpdates((prev) => {
                                                     const next = { ...prev };
                                                     delete next[row.key];

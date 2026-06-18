@@ -6,7 +6,6 @@ import { getForecastToday, ymdFromDate } from "@/features/forecasting/forecastDa
 import {
   fetchForecastMeta,
   fetchForecastSnapshots,
-  queueForecastForwardRebuild,
   AGGREGATE_ZONE_KEY,
   type DbSnapshotRow,
 } from "@/features/forecasting/forecastSnapshotApi";
@@ -16,6 +15,7 @@ import {
   zoneLevelSnapshotRows,
 } from "@/features/forecasting/inventoryDbSnapshots";
 import { forecastZoneKeysEqual } from "@/features/forecasting/inventoryRegrowthCalculator";
+import { useForecastSnapshotRebuildPoll } from "@/features/forecasting/useForecastSnapshotRebuildPoll";
 import { useForecastDataStore } from "@/shared/store/forecastDataStore";
 
 type Args = {
@@ -30,12 +30,13 @@ type Args = {
 
 export function useInventoryZoneDbSnapshots(args: Args) {
   const enabled = args.enabled ?? true;
+  const dbSeriesRefreshKey = useForecastDataStore((s) => s.dbSeriesRefreshKey);
+  const { rebuilding } = useForecastSnapshotRebuildPoll(enabled);
   const [snapshotRows, setSnapshotRows] = useState<DbSnapshotRow[]>([]);
   const [aggregateAvailableByDate, setAggregateAvailableByDate] = useState<Map<string, number>>(
     () => new Map(),
   );
   const [isLoading, setIsLoading] = useState(false);
-  const [isStale, setIsStale] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const inputKey = useMemo(
@@ -47,8 +48,17 @@ export function useInventoryZoneDbSnapshots(args: Args) {
         farmId: args.farmId ?? "",
         grassId: args.grassId ?? "",
         refresh: args.refreshKey ?? 0,
+        storeRefresh: dbSeriesRefreshKey,
       }),
-    [args.dateFrom, args.dateTo, args.zoneKey, args.farmId, args.grassId, args.refreshKey],
+    [
+      args.dateFrom,
+      args.dateTo,
+      args.zoneKey,
+      args.farmId,
+      args.grassId,
+      args.refreshKey,
+      dbSeriesRefreshKey,
+    ],
   );
 
   useEffect(() => {
@@ -60,14 +70,8 @@ export function useInventoryZoneDbSnapshots(args: Args) {
       setError(null);
       try {
         const anchor = ymdFromDate(getForecastToday());
-        const meta = await fetchForecastMeta(anchor);
+        await fetchForecastMeta(anchor);
         if (cancelled) return;
-
-        const stale = Boolean(meta?.is_stale);
-        setIsStale(stale);
-        if (stale && (meta?.snapshot_count ?? 0) > 0) {
-          void queueForecastForwardRebuild(anchor).catch(() => undefined);
-        }
 
         const farmId = args.farmId != null && args.farmId > 0 ? args.farmId : undefined;
         const grassId = args.grassId != null && args.grassId > 0 ? args.grassId : undefined;
@@ -136,27 +140,6 @@ export function useInventoryZoneDbSnapshots(args: Args) {
     };
   }, [enabled, inputKey, args.dateFrom, args.dateTo, args.zoneKey, args.farmId, args.grassId]);
 
-  useEffect(() => {
-    if (!enabled || !isStale) return;
-    let cancelled = false;
-    const intervalId = setInterval(() => {
-      void (async () => {
-        try {
-          const anchor = ymdFromDate(getForecastToday());
-          const meta = await fetchForecastMeta(anchor);
-          if (cancelled || meta?.is_stale) return;
-          useForecastDataStore.getState().bumpDbSeriesRefresh();
-        } catch {
-          /* retry on next tick */
-        }
-      })();
-    }, 5000);
-    return () => {
-      cancelled = true;
-      clearInterval(intervalId);
-    };
-  }, [enabled, isStale]);
-
   const hasData = snapshotRows.length > 0 || aggregateAvailableByDate.size > 0;
 
   return {
@@ -164,7 +147,7 @@ export function useInventoryZoneDbSnapshots(args: Args) {
     aggregateAvailableByDate,
     hasData,
     isLoading,
-    isStale,
+    isStale: rebuilding,
     error,
   };
 }
