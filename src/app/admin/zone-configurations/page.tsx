@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import { format, isValid, parseISO } from "date-fns";
 import { CalendarDays, CircleAlert, Pencil, Plus, Trash2, X } from "lucide-react";
 import { useTranslations } from "next-intl";
+import { toast } from "react-toastify";
 import RequireAuth from "@/features/auth/RequireAuth";
 import {
   fetchZoneConfigurations,
@@ -11,6 +12,13 @@ import {
   saveZoneConfiguration,
   type ZoneConfigurationRow,
 } from "@/features/admin/api/adminApi";
+import {
+  onZoneConfigurationForecastMutation,
+  zoneConfigurationRebuildPlanClient,
+  zoneMutationAffectsForecast,
+  type ZoneConfigForecastRow,
+} from "@/features/forecasting/forecastDataSync";
+import { TOAST_CONTAINER_TOP_RIGHT } from "@/shared/ui/AppToasts";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -25,6 +33,54 @@ import {
 } from "@/shared/lib/harvestReferenceData";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { DatePicker, DateRangePicker } from "@/shared/ui/date-picker";
+
+function zoneRowToForecastRow(row: ZoneConfigurationRow): ZoneConfigForecastRow {
+  return {
+    farm_id: row.farm_id,
+    grass_id: row.grass_id,
+    zone: row.zone,
+    size_m2: row.size_m2,
+    inventory_kg_per_m2: row.inventory_kg_per_m2,
+    max_inventory_kg: row.max_inventory_kg,
+    effective_from: row.effective_from,
+    effective_to: row.effective_to,
+    status: "active",
+  };
+}
+
+function showZoneRebuildToast(
+  t: (key: string, values?: Record<string, string>) => string,
+  before: ZoneConfigForecastRow | null | undefined,
+  after: ZoneConfigForecastRow | null | undefined,
+  mode: "save" | "delete",
+): void {
+  const plan = zoneConfigurationRebuildPlanClient(before, after);
+  let messageKey: string;
+  if (plan.kind === "full") {
+    messageKey =
+      mode === "delete"
+        ? "notices.deletedRebuildQueuedFull"
+        : "notices.savedRebuildQueuedFull";
+  } else if (plan.kind === "range") {
+    messageKey =
+      mode === "delete"
+        ? "notices.deletedRebuildQueuedRange"
+        : "notices.savedRebuildQueuedRange";
+  } else {
+    messageKey =
+      mode === "delete"
+        ? "notices.deletedRebuildQueuedForward"
+        : "notices.savedRebuildQueuedForward";
+  }
+
+  const message =
+    plan.kind === "full"
+      ? t(messageKey)
+      : plan.kind === "range"
+        ? t(messageKey, { fromDate: plan.fromDate, toDate: plan.toDate })
+        : t(messageKey, { fromDate: plan.fromDate });
+  toast.success(message, { containerId: TOAST_CONTAINER_TOP_RIGHT, autoClose: 10000 });
+}
 
 const inputClass =
   "flex h-9 w-full min-w-0 rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground shadow-sm outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/35";
@@ -422,6 +478,11 @@ export default function AdminZoneConfigurationsPage() {
     try {
       setSaving(true);
       setFormError(null);
+      const beforeRow =
+        form.id != null
+          ? rows.find((row) => Number(row.id) === Number(form.id))
+          : undefined;
+      const beforeForecast = beforeRow ? zoneRowToForecastRow(beforeRow) : null;
       const saved = await saveZoneConfiguration({
         id: form.id,
         farm_id: farmId,
@@ -447,6 +508,16 @@ export default function AdminZoneConfigurationsPage() {
       setOpen(false);
       setForm(emptyForm());
       setFormError(null);
+      try {
+        await fetchAllHarvestingReferenceData(true);
+      } catch {
+        /* best-effort */
+      }
+      const afterForecast = zoneRowToForecastRow(saved);
+      if (zoneMutationAffectsForecast(beforeForecast, afterForecast)) {
+        showZoneRebuildToast(t, beforeForecast, afterForecast, "save");
+        onZoneConfigurationForecastMutation();
+      }
     } catch (e) {
       setFormError(e instanceof Error ? e.message : "Could not save zone configuration.");
     } finally {
@@ -465,6 +536,14 @@ export default function AdminZoneConfigurationsPage() {
       setPageError(null);
       await removeZoneConfiguration(id);
       setRows((prev) => prev.filter((item) => Number(item.id) !== id));
+      try {
+        await fetchAllHarvestingReferenceData(true);
+      } catch {
+        /* best-effort */
+      }
+      const beforeForecast = zoneRowToForecastRow(row);
+      showZoneRebuildToast(t, beforeForecast, null, "delete");
+      onZoneConfigurationForecastMutation();
     } catch (e) {
       setPageError(e instanceof Error ? e.message : "Could not delete zone configuration.");
     } finally {

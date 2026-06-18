@@ -110,4 +110,13 @@ export const STS_API_PATHS = {
   maintenanceSave: "/api/base/react_save_maintenance_mode",
   /** GET activity audit log — user id 409 only (`Activity_logs::index`). */
   activityLogs: "/api/activity_logs",
+  /** GET inventory forecast snapshots (aggregate + zone rows). */
+  forecastSnapshots: "/api/forecast/snapshots",
+  forecastMeta: "/api/forecast/meta",
+  forecastDayDetail: "/api/forecast/day_detail",
+  forecastRegrowthStats: "/api/forecast/regrowth_stats",
+  /** POST queue forward/full rebuild. */
+  forecastRebuild: "/api/forecast/rebuild",
+  /** POST mechanism-specific snapshot queue (harvest_plan, project_pace, …). */
+  forecastSnapshotUpdate: "/api/forecast/snapshot_update",
 } as const;

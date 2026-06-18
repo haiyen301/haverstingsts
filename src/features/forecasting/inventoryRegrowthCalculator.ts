@@ -331,3 +331,56 @@ export function computeDepletedKgByZoneAtDate(
   }
   return depleted;
 }
+
+function collectFarmProductKeysAtYmd(
+  forecastRows: ForecastHarvestRow[],
+  zoneConfigs: ZoneConfigurationRow[],
+  ymd: string,
+  farmProductFilter?: (farmId: number, productId: number) => boolean,
+): Set<string> {
+  const keys = new Set<string>();
+  for (const row of zoneConfigs) {
+    if (!zoneConfigIsActiveAtYmd(row, ymd)) continue;
+    if (isForecastExcludedZone(row.zone)) continue;
+    const farmId = Number(row.farm_id);
+    const productId = Number(row.grass_id);
+    if (!Number.isFinite(farmId) || !Number.isFinite(productId) || farmId <= 0 || productId <= 0) {
+      continue;
+    }
+    if (farmProductFilter && !farmProductFilter(farmId, productId)) continue;
+    keys.add(`${farmId}|${productId}`);
+  }
+  for (const row of forecastRows) {
+    if (row.farmId <= 0 || row.productId <= 0) continue;
+    if (isForecastExcludedZone(row.zone)) continue;
+    if (farmProductFilter && !farmProductFilter(row.farmId, row.productId)) continue;
+    if (!farmProductHasMappedZoneConfigAtYmd(zoneConfigs, row.farmId, row.productId, ymd)) {
+      continue;
+    }
+    const zoneKey = forecastZoneKeyFromRow(row);
+    if (!isMappedForecastZoneKey(zoneKey)) continue;
+    keys.add(`${row.farmId}|${row.productId}`);
+  }
+  return keys;
+}
+
+/** Σ zone-config max kg for distinct farm+grass groups active on `asOf` (excl. nozone). */
+export function sumFarmProductCapacityCapsFromZoneConfigAtDate(
+  zoneConfigs: ZoneConfigurationRow[],
+  asOf: Date,
+  farmProductFilter?: (farmId: number, productId: number) => boolean,
+): number {
+  const ymd = ymdFromDateLocal(asOf);
+  const configCaps = buildZoneConfigurationCapacityMapAtDate(zoneConfigs, asOf);
+  const keys = collectFarmProductKeysAtYmd([], zoneConfigs, ymd, farmProductFilter);
+  let sum = 0;
+  for (const key of keys) {
+    const [farmIdStr, productIdStr] = key.split("|");
+    sum += sumConfiguredZoneCapKgForFarmProduct(
+      configCaps,
+      Number(farmIdStr),
+      Number(productIdStr),
+    );
+  }
+  return sum;
+}

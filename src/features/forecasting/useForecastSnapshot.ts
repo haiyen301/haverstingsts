@@ -40,7 +40,6 @@ export function useForecastSnapshot(options?: { enabled?: boolean }) {
   const harvestError = useForecastDataStore((s) => s.harvestError);
   const isLoading = useForecastDataStore((s) => s.isLoading);
   const isRefreshing = useForecastDataStore((s) => s.isRefreshing);
-  const isRecomputing = useForecastDataStore((s) => s.isRecomputing);
   const hasSnapshot = useForecastDataStore((s) => s.hasSnapshot);
   const error = useForecastDataStore((s) => s.error);
 
@@ -133,7 +132,6 @@ export function useForecastSnapshot(options?: { enabled?: boolean }) {
     overridesByZone,
     isLoading,
     isRefreshing,
-    isRecomputing,
     hasSnapshot,
     error: combinedError,
     reloadFromCache,

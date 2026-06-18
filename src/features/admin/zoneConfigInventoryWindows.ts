@@ -6,7 +6,6 @@ import {
   mergeZoneCapacityMapsAtDate,
   ymdFromDateLocal,
 } from "@/features/forecasting/inventoryRegrowthCalculator";
-import { computeCappedAvailableByZoneAtDate } from "@/features/forecasting/forecastAvailableAtDate";
 
 export type ZoneInventoryWindowStatus = "full" | "limited";
 
@@ -98,7 +97,7 @@ function statusForAvailableMax(availableKg: number, maxKg: number): ZoneInventor
   return availableKg >= maxKg ? "full" : "limited";
 }
 
-function scanDailyStatusForZoneKey(params: {
+function scanDailyStatusForZoneKey(_params: {
   forecastRows: ForecastHarvestRow[];
   zoneConfigs: ZoneConfigurationRow[];
   regrowthConfig: RegrowthReferenceConfig;
@@ -106,30 +105,11 @@ function scanDailyStatusForZoneKey(params: {
   fromYmd: string;
   toYmd: string;
 }): DailyStatus[] {
-  const { forecastRows, zoneConfigs, regrowthConfig, zoneKey, fromYmd, toYmd } = params;
-  const start = parseYmdLocal(fromYmd);
-  const end = parseYmdLocal(toYmd);
-  if (!start || !end || start > end) return [];
-
-  const days: DailyStatus[] = [];
-  for (let d = new Date(start); d <= end; d = addDays(d, 1)) {
-    const maxByZone = mergeZoneCapacityMapsAtDate(forecastRows, zoneConfigs, d);
-    const availByZone = computeCappedAvailableByZoneAtDate(
-      forecastRows,
-      regrowthConfig,
-      d,
-      zoneConfigs,
-    );
-    const maxKg = maxByZone.get(zoneKey) ?? 0;
-    const availableKg = availByZone.get(zoneKey) ?? 0;
-    const status = statusForAvailableMax(availableKg, maxKg);
-    if (!status) continue;
-    days.push({ ymd: ymdFromDateLocal(d), status, availableKg, maxKg });
-  }
-  return days;
+  // Client simulate removed — wire to GET /api/forecast/snapshots when this admin view ships.
+  return [];
 }
 
-function scanDailyAggregateStatusForFarmProduct(params: {
+function scanDailyAggregateStatusForFarmProduct(_params: {
   forecastRows: ForecastHarvestRow[];
   zoneConfigs: ZoneConfigurationRow[];
   regrowthConfig: RegrowthReferenceConfig;
@@ -138,39 +118,7 @@ function scanDailyAggregateStatusForFarmProduct(params: {
   fromYmd: string;
   toYmd: string;
 }): DailyStatus[] {
-  const { forecastRows, zoneConfigs, regrowthConfig, farmId, grassId, fromYmd, toYmd } = params;
-  const start = parseYmdLocal(fromYmd);
-  const end = parseYmdLocal(toYmd);
-  if (!start || !end || start > end) return [];
-
-  const zoneKeys = zoneKeysForFarmProduct(zoneConfigs, farmId, grassId);
-  if (zoneKeys.length === 0) return [];
-
-  const days: DailyStatus[] = [];
-  for (let d = new Date(start); d <= end; d = addDays(d, 1)) {
-    const maxByZone = mergeZoneCapacityMapsAtDate(forecastRows, zoneConfigs, d);
-    const availByZone = computeCappedAvailableByZoneAtDate(
-      forecastRows,
-      regrowthConfig,
-      d,
-      zoneConfigs,
-    );
-    let totalMax = 0;
-    let totalAvailable = 0;
-    for (const { zoneKey } of zoneKeys) {
-      totalMax += maxByZone.get(zoneKey) ?? 0;
-      totalAvailable += availByZone.get(zoneKey) ?? 0;
-    }
-    const status = statusForAvailableMax(totalAvailable, totalMax);
-    if (!status) continue;
-    days.push({
-      ymd: ymdFromDateLocal(d),
-      status,
-      availableKg: totalAvailable,
-      maxKg: totalMax,
-    });
-  }
-  return days;
+  return [];
 }
 
 function mergeDailyStatusIntoWindows(
@@ -252,7 +200,7 @@ function filterForecastRows(
   return next;
 }
 
-/** Per-zone full / limited windows from harvest + regrowth (same logic as Forecasting chart). */
+/** Per-zone full / limited windows — requires DB snapshots (client simulate removed). */
 export function computeZoneInventoryWindows(
   params: ComputeZoneInventoryWindowsParams,
 ): ZoneInventoryWindow[] {

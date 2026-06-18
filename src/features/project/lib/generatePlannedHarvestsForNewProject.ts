@@ -478,6 +478,7 @@ export async function persistPlannedHarvestSeedsForProject(params: {
   customerId: string;
   userId: string | undefined;
   seeds: PlannedHarvestSeed[];
+  paceSnapshotSpan?: { firstYmd: string; lastYmd: string } | null;
 }): Promise<{ ok: number; fail: number; firstMessage: string | null }> {
   let ok = 0;
   let fail = 0;
@@ -486,8 +487,11 @@ export async function persistPlannedHarvestSeedsForProject(params: {
   const createdBy =
     params.userId != null ? String(params.userId) : undefined;
   const customerId = params.customerId.trim() || undefined;
+  const total = params.seeds.length;
+  const batchSpan = params.paceSnapshotSpan;
 
-  for (const row of params.seeds) {
+  for (let index = 0; index < params.seeds.length; index++) {
+    const row = params.seeds[index]!;
     try {
       await submitFlutterHarvest(
         {
@@ -509,6 +513,17 @@ export async function persistPlannedHarvestSeedsForProject(params: {
           assignedTo,
           createdBy,
           ...(row.harvestedArea ? { harvestedArea: row.harvestedArea } : {}),
+          ...(batchSpan && total > 0
+            ? {
+                forecastBatch: {
+                  kind: "project_pace" as const,
+                  from_date: batchSpan.firstYmd,
+                  to_date: batchSpan.lastYmd,
+                  index,
+                  total,
+                },
+              }
+            : {}),
         },
         {},
       );

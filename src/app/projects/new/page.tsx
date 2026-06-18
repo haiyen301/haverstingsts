@@ -13,7 +13,8 @@ import { ArrowLeft, ChevronDown, Plus, Trash2 } from "lucide-react";
 
 import RequireAuth from "@/features/auth/RequireAuth";
 import {
-  onForecastMutations,
+  onForecastMutation,
+  onHarvestForecastMutation,
   rowDataAffectsHarvest,
 } from "@/features/forecasting/forecastDataSync";
 import { canAccessModule, isSuperAdmin } from "@/shared/auth/permissions";
@@ -1251,6 +1252,7 @@ export default function ProjectInputPage() {
     try {
       setSavePhase("project");
       setError(null);
+      let harvestSnapshotPending = false;
       const resolvedTableId = isEdit ? editTableId : defaultTableId;
       if (!resolvedTableId) {
         setError(t("missingTableIdForSave"));
@@ -1457,7 +1459,7 @@ export default function ProjectInputPage() {
           plannedHarvestAlertSeverity = "warning";
         }
         if (ok > 0 || fail > 0) {
-          onForecastMutations(["harvest"]);
+          harvestSnapshotPending = true;
         }
       }
 
@@ -1470,6 +1472,10 @@ export default function ProjectInputPage() {
           const anchorYmd =
             formData.estimateStartDate.trim() ||
             formData.actualStartDate.trim();
+          const paceSpan = estimatePaceHarvestDateSpan({
+            paceConfig: projectPaceConfigFromRow(selectedPaceForSave),
+            estimatedStartYmd: anchorYmd,
+          });
           const seeds = generatePlannedHarvestsForNewProject({
             paceConfig: projectPaceConfigFromRow(selectedPaceForSave),
             estimatedStartYmd: anchorYmd,
@@ -1485,8 +1491,10 @@ export default function ProjectInputPage() {
                 customerId: formData.odooCustomerId,
                 userId: user?.id != null ? String(user.id) : undefined,
                 seeds,
+                paceSnapshotSpan: paceSpan,
               });
             if (ok > 0) {
+              harvestSnapshotPending = true;
               plannedHarvestAlertSuffix += t(
                 "alertPlannedHarvestsSavedSuffix",
                 { count: ok },
@@ -1549,11 +1557,15 @@ export default function ProjectInputPage() {
       } catch {
         // Navigation still carries a refresh token so the list can re-fetch on return.
       }
-      const mutationScopes: Array<"reference" | "harvest"> = ["reference"];
-      if (rowData && typeof rowData === "object" && rowDataAffectsHarvest(rowData as Record<string, unknown>)) {
-        mutationScopes.push("harvest");
+      onForecastMutation("reference");
+      if (
+        harvestSnapshotPending ||
+        (rowData &&
+          typeof rowData === "object" &&
+          rowDataAffectsHarvest(rowData as Record<string, unknown>))
+      ) {
+        onHarvestForecastMutation();
       }
-      onForecastMutations(mutationScopes);
       const nextReturnTarget = returnTarget.startsWith("/projects")
         ? withRefreshQueryParam(returnTarget)
         : returnTarget;

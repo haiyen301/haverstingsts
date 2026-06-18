@@ -62,6 +62,17 @@ export type FlutterNewHarvestInput = {
   harvestedArea?: string;
   /** Maps to `created_by` in `project_harvesting_plan` (set on create). */
   createdBy?: string;
+  /**
+   * When seeding planned harvests for a new project, PHP queues one range rebuild
+   * on the last row instead of per-row forward jobs.
+   */
+  forecastBatch?: {
+    kind: "project_pace";
+    from_date: string;
+    to_date: string;
+    index: number;
+    total: number;
+  };
 };
 
 export type HarvestPhotoFiles = Partial<Record<HarvestDocPhotoField, File>>;
@@ -177,12 +188,16 @@ function buildRecordsJson(
     }
   }
 
-  const recordsData = {
+  const recordsData: Record<string, unknown> = {
     newSub,
     images_removed,
     files_removed,
     upload_types: uploadTypes,
   };
+
+  if (input.forecastBatch) {
+    recordsData.forecast_batch = input.forecastBatch;
+  }
 
   return JSON.stringify(recordsData);
 }

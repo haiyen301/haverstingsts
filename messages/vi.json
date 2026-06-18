@@ -1493,6 +1493,9 @@
     },
     "errors": {
       "required": "Vui lòng nhập tên khu vực và chọn ít nhất một nông trại nếu khu vực này không áp dụng cho tất cả nông trại."
+    },
+    "notices": {
+      "deletedRebuildQueuedFull": "Đã xóa — forecasting và inventory sẽ được tính lại toàn bộ lịch sử. Vui lòng chờ ít phút để hệ thống rebuild snapshot."
     }
   },
   "AdminZones": {
@@ -1577,6 +1580,14 @@
       "calendarSelectIdentityHint": "Chọn nông trại, loại cỏ và khu vực để xem ngày đã có setup trên lịch.",
       "calendarDisabledHint": "Ngày đã có setup (mờ) không thể chọn."
     },
+    "notices": {
+      "savedRebuildQueuedFull": "Đã lưu — forecasting và inventory sẽ được tính lại toàn bộ lịch sử (cấu hình không giới hạn ngày). Vui lòng chờ ít phút để hệ thống rebuild snapshot.",
+      "savedRebuildQueuedForward": "Đã lưu — forecasting và inventory sẽ được cập nhật lại từ ngày {fromDate}. Vui lòng chờ ít phút để hệ thống rebuild snapshot.",
+      "savedRebuildQueuedRange": "Đã lưu — forecasting và inventory sẽ được cập nhật lại từ {fromDate} đến {toDate}. Vui lòng chờ ít phút để hệ thống rebuild snapshot.",
+      "deletedRebuildQueuedFull": "Đã xóa — forecasting và inventory sẽ được tính lại toàn bộ lịch sử. Vui lòng chờ ít phút để hệ thống rebuild snapshot.",
+      "deletedRebuildQueuedForward": "Đã xóa — forecasting và inventory sẽ được cập nhật lại từ ngày {fromDate}. Vui lòng chờ ít phút để hệ thống rebuild snapshot.",
+      "deletedRebuildQueuedRange": "Đã xóa — forecasting và inventory sẽ được cập nhật lại từ {fromDate} đến {toDate}. Vui lòng chờ ít phút để hệ thống rebuild snapshot."
+    },
     "errors": {
       "required": "Vui lòng chọn farm, loại cỏ, khu vực và nhập diện tích, năng suất hợp lệ.",
       "dateRange": "Ngày “Đến” phải sau hoặc bằng ngày “Từ”.",
@@ -1647,6 +1658,9 @@
       "save": "Không thể lưu.",
       "delete": "Không thể xóa."
     },
+    "notices": {
+      "deletedRebuildQueuedFull": "Đã xóa — forecasting và inventory sẽ được tính lại toàn bộ lịch sử. Vui lòng chờ ít phút để hệ thống rebuild snapshot."
+    },
     "deleteConfirm": "Xóa nông trại này? Dữ liệu khu vực và thu hoạch liên quan có thể bị ảnh hưởng."
   },
   "AdminGrasses": {
@@ -1687,6 +1701,9 @@
       "save": "Không lưu được.",
       "delete": "Không xóa được.",
       "statusToggle": "Không cập nhật được trạng thái."
+    },
+    "notices": {
+      "savedRebuildQueued": "Đã lưu — forecasting và inventory sẽ được cập nhật lại theo trạng thái cỏ / khoảng bán mới. Vui lòng chờ ít phút để hệ thống rebuild snapshot."
     },
     "deleteConfirm": "Xóa loại cỏ này? Cấu hình khu vực đang trỏ tới có thể cần cập nhật."
   },
@@ -1869,6 +1886,7 @@
       "defaultsRestored": "Đã khôi phục mặc định — quy tắc tái sinh trở về phương pháp gốc.",
       "noChanges": "Không có thay đổi — không cần lưu.",
       "saved": "Đã lưu — quy tắc tái sinh đã được lưu trên máy chủ.",
+      "savedRebuildQueued": "Đã lưu — forecasting và inventory sẽ được cập nhật lại theo cách tính mới. Vui lòng chờ ít phút để hệ thống rebuild snapshot.",
       "bandAdded": "Đã thêm dải — {label}: {days} ngày.",
       "calculateAutoDone": "Đã tính {farm} · {grass} — khu vực {zone}."
     }
@@ -2176,6 +2194,10 @@
     "alertInventoryUpdatedTitle": "Đã cập nhật tồn kho: {farm}",
     "alertInventoryUpdatedMessage": "{count} khu vực · {date}",
     "saveBalanceFailed": "Không lưu được cập nhật số dư.",
+    "notices": {
+      "savedRebuildQueuedForward": "Đã lưu — forecasting và inventory sẽ được cập nhật lại từ ngày {fromDate}. Vui lòng chờ ít phút để hệ thống rebuild snapshot.",
+      "removedRebuildQueuedForward": "Đã xóa ghi đè — forecasting và inventory sẽ được cập nhật lại từ ngày {fromDate}. Vui lòng chờ ít phút để hệ thống rebuild snapshot."
+    },
     "dialogTitle": "Cập nhật số dư tồn kho hàng tháng",
     "dialogSubtitle": "Số dư thủ công ghi đè giá trị hệ thống cho khu vực đã chọn, sau đó giảm dần theo quy tắc phục hồi ghi đè.",
     "closeDialogAria": "Đóng hộp thoại cập nhật tồn kho",
@@ -2241,9 +2263,9 @@
     "breakdownM2FromKgLine": "Số dư m² = {kg} kg ÷ {rate} kg/m² (Yield) = {m2} m²",
     "breakdownHistoryHint": "Mỗi bước: số dư hôm trước + regrowth − harvest. Cập nhật thủ công chỉ thay giá trị rolled trong ngày đó.",
     "breakdownHistoryHintM2": "Mỗi bước tính theo m² (kg ÷ Yield). Sự kiện harvest/regrowth hiển thị m² từ kế hoạch hoặc quy đổi qua Yield (kg/m²).",
-    "breakdownNoHistory": "Không có thay đổi theo ngày trong 24 tháng gần đây.",
+    "breakdownNoHistory": "Không có thay đổi theo ngày trong lịch sử DB.",
     "breakdownLoading": "Đang tính toán lịch sử số dư…",
-    "breakdownLoadingHint": "Vui lòng chờ trong khi hệ thống tính các bước gặt và regrowth.",
+    "breakdownLoadingHint": "Đang tải snapshot zone từ database…",
     "breakdownBackToTop": "Lên đầu danh sách",
     "breakdownBridgeLine": "{from} kg → {to} kg (các thay đổi trước ngày này)",
     "breakdownBridgeLineM2": "{from} m² → {to} m² (các thay đổi trước ngày này)",
@@ -2259,9 +2281,14 @@
     "breakdownManualReplaceLineM2": "{rolled} m² → thủ công {manual} m²",
     "breakdownKgSubtitle": "{kg} kg",
     "breakdownManualSet": "Cân bằng thủ công",
+    "breakdownBalanceSourceManual": "Cân bằng thủ công",
+    "breakdownBalanceSourceSystem": "Hệ thống tính",
+    "breakdownSystemCalculated": "Hệ thống tính: {kg} kg",
+    "breakdownSystemCalculatedM2": "Hệ thống tính: {m2} m² ({kg} kg)",
     "breakdownHarvestLabel": "Gặt",
     "breakdownRegrowthLabel": "Regrowth",
     "breakdownRegrowthFromHarvest": "từ đợt gặt {date}",
+    "breakdownZoneConfigTitle": "Quy đổi từ zone config",
     "breakdownConfigSectionTitle": "Từ cấu hình zone",
     "breakdownConfigMaxCapacity": "Sức chứa tối đa",
     "breakdownConfigSizeYield": "{size} m² × {rate} kg/m²",
@@ -2276,7 +2303,7 @@
     "breakdownNetChangeHint": "{from} → {to}",
     "breakdownEventCount": "({count} sự kiện)",
     "breakdownNoChangesYet": "Không có gặt, regrowth hoặc cập nhật thủ công trong cửa sổ theo dõi.",
-    "breakdownBridgeNote": "Bước bridge nghĩa là số dư đã thay đổi trước cửa sổ lịch sử 24 tháng.",
+    "breakdownBridgeNote": "Bước bridge nghĩa là số dư đã thay đổi trước ngày bắt đầu snapshot DB.",
     "m2ConversionTooltipTitle": "Quy đổi m² → kg",
     "m2ConversionTooltipLine": "{m2} m² × {rate} kg/m² = {kg} kg",
     "m2ConversionTooltipAria": "Xem chi tiết quy đổi m² sang kg",

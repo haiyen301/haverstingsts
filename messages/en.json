@@ -1494,6 +1494,9 @@
     },
     "errors": {
       "required": "Zone name is required, and at least one farm must be selected unless this zone applies to all farms."
+    },
+    "notices": {
+      "deletedRebuildQueuedFull": "Deleted — forecasting and inventory will be fully recalculated. Please wait a few minutes while snapshot rebuild finishes."
     }
   },
   "AdminZones": {
@@ -1578,6 +1581,14 @@
       "calendarSelectIdentityHint": "Select farm, grass type, and zone to see existing setup dates on the calendar.",
       "calendarDisabledHint": "Dates with an existing setup (dimmed) cannot be selected."
     },
+    "notices": {
+      "savedRebuildQueuedFull": "Saved — forecasting and inventory will be fully recalculated (open-ended zone setup). Please wait a few minutes while snapshot rebuild finishes.",
+      "savedRebuildQueuedForward": "Saved — forecasting and inventory will be updated from {fromDate}. Please wait a few minutes while snapshot rebuild finishes.",
+      "savedRebuildQueuedRange": "Saved — forecasting and inventory will be updated from {fromDate} through {toDate}. Please wait a few minutes while snapshot rebuild finishes.",
+      "deletedRebuildQueuedFull": "Deleted — forecasting and inventory will be fully recalculated. Please wait a few minutes while snapshot rebuild finishes.",
+      "deletedRebuildQueuedForward": "Deleted — forecasting and inventory will be updated from {fromDate}. Please wait a few minutes while snapshot rebuild finishes.",
+      "deletedRebuildQueuedRange": "Deleted — forecasting and inventory will be updated from {fromDate} through {toDate}. Please wait a few minutes while snapshot rebuild finishes."
+    },
     "errors": {
       "required": "Farm, grass, zone, size, and yield are required.",
       "dateRange": "Setup To must be on or after Setup From.",
@@ -1648,6 +1659,9 @@
       "save": "Could not save.",
       "delete": "Could not delete."
     },
+    "notices": {
+      "deletedRebuildQueuedFull": "Deleted — forecasting and inventory will be fully recalculated. Please wait a few minutes while snapshot rebuild finishes."
+    },
     "deleteConfirm": "Remove this farm? Linked zones and harvest data may be affected."
   },
   "AdminGrasses": {
@@ -1688,6 +1702,9 @@
       "save": "Could not save.",
       "delete": "Could not delete.",
       "statusToggle": "Could not update status."
+    },
+    "notices": {
+      "savedRebuildQueued": "Saved — forecasting and inventory will be recalculated for the new grass status / sales window. Please wait a few minutes while snapshot rebuild finishes."
     },
     "deleteConfirm": "Remove this grass type? Linked zone configuration may need updating."
   },
@@ -1870,6 +1887,7 @@
       "defaultsRestored": "Defaults restored — regrowth rules reset to the original methodology.",
       "noChanges": "No changes detected — nothing to save.",
       "saved": "Saved — regrowth rules are stored on the server.",
+      "savedRebuildQueued": "Saved — forecasting and inventory will be recalculated with the new rules. Please wait a few minutes while snapshot rebuild finishes.",
       "bandAdded": "Band added — {label}: {days} days.",
       "calculateAutoDone": "Calculated {farm} · {grass} — zone {zone}."
     }
@@ -2174,6 +2192,10 @@
     "alertInventoryUpdatedTitle": "Inventory updated: {farm}",
     "alertInventoryUpdatedMessage": "{count} zone balance(s) · {date}",
     "saveBalanceFailed": "Failed to save balance updates.",
+    "notices": {
+      "savedRebuildQueuedForward": "Saved — forecasting and inventory will be updated from {fromDate}. Please wait a few minutes while snapshot rebuild finishes.",
+      "removedRebuildQueuedForward": "Override removed — forecasting and inventory will be updated from {fromDate}. Please wait a few minutes while snapshot rebuild finishes."
+    },
     "dialogTitle": "Monthly Inventory Balance Update",
     "dialogSubtitle": "Manual balance overrides the system value for the selected zone, then fades back using the override recovery rule.",
     "closeDialogAria": "Close update inventory dialog",
@@ -2239,9 +2261,9 @@
     "breakdownM2FromKgLine": "Balance m² = {kg} kg ÷ {rate} kg/m² (Yield) = {m2} m²",
     "breakdownHistoryHint": "Each step: previous balance + regrowth − harvest. Manual updates replace the rolled value on that day only.",
     "breakdownHistoryHintM2": "Each step in m² (kg ÷ Yield). Harvest/regrowth events show m² from plan or converted via Yield (kg/m²).",
-    "breakdownNoHistory": "No daily changes recorded in the last 24 months.",
+    "breakdownNoHistory": "No daily changes in DB history.",
     "breakdownLoading": "Calculating balance history…",
-    "breakdownLoadingHint": "Please wait while we roll through harvest and regrowth steps.",
+    "breakdownLoadingHint": "Loading zone snapshots from database…",
     "breakdownBackToTop": "Back to top",
     "breakdownBridgeLine": "{from} kg → {to} kg (earlier changes before this date)",
     "breakdownBridgeLineM2": "{from} m² → {to} m² (earlier changes before this date)",
@@ -2257,9 +2279,14 @@
     "breakdownManualReplaceLineM2": "{rolled} m² → manual {manual} m²",
     "breakdownKgSubtitle": "{kg} kg",
     "breakdownManualSet": "Manual balance",
+    "breakdownBalanceSourceManual": "Manual balance",
+    "breakdownBalanceSourceSystem": "System balance",
+    "breakdownSystemCalculated": "System calculated: {kg} kg",
+    "breakdownSystemCalculatedM2": "System calculated: {m2} m² ({kg} kg)",
     "breakdownHarvestLabel": "Harvest",
     "breakdownRegrowthLabel": "Regrowth",
     "breakdownRegrowthFromHarvest": "from harvest {date}",
+    "breakdownZoneConfigTitle": "Conversion from zone config",
     "breakdownConfigSectionTitle": "From zone configuration",
     "breakdownConfigMaxCapacity": "Max capacity",
     "breakdownConfigSizeYield": "{size} m² × {rate} kg/m²",
@@ -2274,7 +2301,7 @@
     "breakdownNetChangeHint": "{from} → {to}",
     "breakdownEventCount": "({count} events)",
     "breakdownNoChangesYet": "No harvest, regrowth, or manual changes in the tracking window.",
-    "breakdownBridgeNote": "A bridge step indicates balance changed before the 24-month history window.",
+    "breakdownBridgeNote": "A bridge step indicates balance changed before the DB snapshot history start.",
     "m2ConversionTooltipTitle": "m² → kg conversion",
     "m2ConversionTooltipLine": "{m2} m² × {rate} kg/m² = {kg} kg",
     "m2ConversionTooltipAria": "Show m² to kg conversion details",

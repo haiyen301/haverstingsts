@@ -9,6 +9,7 @@ export type ForecastCacheScope =
   | "harvest"
   | "zones"
   | "rules"
+  | "grass"
   | "reference"
   | "all";
 
@@ -36,9 +37,14 @@ export type ForecastDataState = {
   invalidated: ForecastCacheScope[];
   isLoading: boolean;
   isRefreshing: boolean;
-  isRecomputing: boolean;
   hasSnapshot: boolean;
+  /** Bumped after harvest/zone save so chart hooks refetch inventory_daily_snapshots. */
+  dbSeriesRefreshKey: number;
+  /** True after regrowth rules save until meta reports rebuild complete. */
+  snapshotRebuildPending: boolean;
   error: string | null;
+  bumpDbSeriesRefresh: () => void;
+  setSnapshotRebuildPending: (pending: boolean) => void;
   invalidate: (scope: ForecastCacheScope) => void;
   markValid: (scope: ForecastCacheScope) => void;
   needsFetch: (scope: ForecastCacheScope, force?: boolean) => boolean;
@@ -48,7 +54,7 @@ export type ForecastDataState = {
     patch: Partial<
       Pick<
         ForecastDataState,
-        "isLoading" | "isRefreshing" | "isRecomputing" | "error" | "hasSnapshot"
+        "isLoading" | "isRefreshing" | "error" | "hasSnapshot"
       >
     >,
   ) => void;
@@ -103,9 +109,15 @@ export const useForecastDataStore = create<ForecastDataState>((set, get) => ({
   invalidated: [...INITIAL_INVALIDATED],
   isLoading: false,
   isRefreshing: false,
-  isRecomputing: false,
   hasSnapshot: false,
+  dbSeriesRefreshKey: 0,
+  snapshotRebuildPending: false,
   error: null,
+
+  bumpDbSeriesRefresh: () =>
+    set((state) => ({ dbSeriesRefreshKey: state.dbSeriesRefreshKey + 1 })),
+
+  setSnapshotRebuildPending: (pending) => set({ snapshotRebuildPending: pending }),
 
   invalidate: (scope) => {
     set((state) => {
@@ -272,8 +284,9 @@ export const useForecastDataStore = create<ForecastDataState>((set, get) => ({
       invalidated: [...INITIAL_INVALIDATED],
       isLoading: false,
       isRefreshing: false,
-      isRecomputing: false,
       hasSnapshot: false,
+      dbSeriesRefreshKey: 0,
+      snapshotRebuildPending: false,
       error: null,
     }),
 }));

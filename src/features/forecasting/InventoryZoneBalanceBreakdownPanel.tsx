@@ -4,8 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { ArrowUp, Loader2, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 
-import { InventoryM2ConversionHint } from "@/features/forecasting/InventoryM2ConversionHint";
-import type { ZoneInventoryDaySnapshot } from "@/features/forecasting/forecastAvailableAtDate";
+import { ZoneBalanceEventHint } from "@/features/forecasting/InventoryConversionNoteHint";
+import type { ZoneInventoryDaySnapshot } from "@/features/forecasting/forecastDbTypes";
 import type {
   ZoneBalanceHarvestEvent,
   ZoneBalanceRegrowthEvent,
@@ -20,6 +20,8 @@ import {
   formatSignedKg,
   formatSignedM2,
   formatTimelineEntryFormula,
+  hasManualBalanceOverride,
+  resolveZoneBalanceSource,
   type BalanceBreakdownDisplayUnit,
   type ZoneBalanceChangeSummary,
   type ZoneBalanceTimelineEntry,
@@ -30,6 +32,14 @@ export type EnrichedZoneBalanceTimelineEntry = ZoneBalanceTimelineEntry & {
   harvestEvents: ZoneBalanceHarvestEvent[];
   regrowthEvents: ZoneBalanceRegrowthEvent[];
 };
+
+function BalanceSourceBadge({ label }: { label: string }) {
+  return (
+    <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium leading-none text-amber-900 ring-1 ring-amber-200/80">
+      {label}
+    </span>
+  );
+}
 
 function EventLine({
   tone,
@@ -80,6 +90,7 @@ function HistoryStep({
   const t = useTranslations("InventoryBalance");
   const showM2 = displayUnit === "m2";
   const isToday = entry.dateYmd === todayYmd;
+  const manualOverride = hasManualBalanceOverride(entry);
   const label = entry.isOpeningDay
     ? t("breakdownOpeningDay")
     : entry.isBridgeEntry
@@ -96,7 +107,7 @@ function HistoryStep({
           ? "border-primary/30 bg-primary/5"
           : entry.isBridgeEntry
             ? "border-border/70 bg-muted/30"
-            : entry.isManualSetToday
+            : manualOverride
               ? "border-amber-200 bg-amber-50/40"
               : "border-border/70 bg-background",
       )}
@@ -106,10 +117,15 @@ function HistoryStep({
           <p
             className={cn(
               "text-sm font-semibold",
-              isToday ? "text-primary" : entry.isManualSetToday ? "text-amber-900" : "text-foreground",
+              isToday ? "text-primary" : manualOverride ? "text-amber-900" : "text-foreground",
             )}
           >
             {label}
+            {resolveZoneBalanceSource(entry) ? (
+              <span className="ml-2 inline-flex align-middle">
+                <BalanceSourceBadge label={t("breakdownBalanceSourceManual")} />
+              </span>
+            ) : null}
           </p>
           <p className="text-[11px] leading-relaxed tabular-nums text-muted-foreground">
             {formatTimelineEntryFormula(entry, maxKg, (key, values) => t(key, values), {
@@ -124,17 +140,29 @@ function HistoryStep({
                 <EventLine
                   key={`rg-${ev.rowId}-${ev.sourceHarvestDateYmd}`}
                   tone="regrowth"
-                  hint={<InventoryM2ConversionHint hint={ev.m2Hint} />}
+                  hint={
+                    <ZoneBalanceEventHint
+                      m2Hint={ev.m2Hint}
+                      conversionNote={ev.conversionNote}
+                      usesZoneConfig={ev.usesZoneConfig}
+                    />
+                  }
                 >
-                  <span className="font-semibold">{t("breakdownRegrowthLabel")}</span>{" "}
-                  {showM2
-                    ? `${formatSignedM2(eventDisplayM2(ev.creditedKg, ev.m2Hint, inventoryKgPerM2), "+")} m²`
-                    : `${formatSignedKg(ev.creditedKg, "+")} kg`}{" "}
-                  ·{" "}
-                  {t("breakdownRegrowthFromHarvest", {
-                    date: formatShortDateYmd(ev.sourceHarvestDateYmd),
-                  })}
-                  {ev.label ? ` · ${ev.label}` : ""}
+                  <div>
+                    <span className="font-semibold">{t("breakdownRegrowthLabel")}</span>{" "}
+                    {showM2
+                      ? `${formatSignedM2(eventDisplayM2(ev.creditedKg, ev.m2Hint, inventoryKgPerM2), "+")} m²`
+                      : `${formatSignedKg(ev.creditedKg, "+")} kg`}{" "}
+                    ·{" "}
+                    {t("breakdownRegrowthFromHarvest", {
+                      date: formatShortDateYmd(ev.sourceHarvestDateYmd),
+                    })}
+                    {ev.loadType ? ` · ${ev.loadType}` : ""}
+                    {ev.label ? ` · ${ev.label}` : ""}
+                    {ev.qtyLine ? (
+                      <p className="mt-0.5 text-[10px] text-muted-foreground">{ev.qtyLine}</p>
+                    ) : null}
+                  </div>
                 </EventLine>
               ))}
             </div>
@@ -146,26 +174,29 @@ function HistoryStep({
                 <EventLine
                   key={`hv-${ev.rowId}`}
                   tone="harvest"
-                  hint={<InventoryM2ConversionHint hint={ev.m2Hint} />}
+                  hint={
+                    <ZoneBalanceEventHint
+                      m2Hint={ev.m2Hint}
+                      conversionNote={ev.conversionNote}
+                      usesZoneConfig={ev.usesZoneConfig}
+                    />
+                  }
                 >
-                  <span className="font-semibold">{t("breakdownHarvestLabel")}</span>{" "}
-                  {showM2
-                    ? `${formatSignedM2(eventDisplayM2(ev.kg, ev.m2Hint, inventoryKgPerM2), "−")} m²`
-                    : `${formatSignedKg(ev.kg, "−")} kg`}{" "}
+                  <div>
+                    <span className="font-semibold">{t("breakdownHarvestLabel")}</span>{" "}
+                    {showM2
+                      ? `${formatSignedM2(eventDisplayM2(ev.kg, ev.m2Hint, inventoryKgPerM2), "−")} m²`
+                      : `${formatSignedKg(ev.kg, "−")} kg`}{" "}
                   · {formatShortDateYmd(ev.harvestDateYmd)}
+                  {ev.loadType ? ` · ${ev.loadType}` : ""}
                   {ev.label ? ` · ${ev.label}` : ""}
+                    {ev.qtyLine ? (
+                      <p className="mt-0.5 text-[10px] text-muted-foreground">{ev.qtyLine}</p>
+                    ) : null}
+                  </div>
                 </EventLine>
               ))}
             </div>
-          ) : null}
-
-          {entry.isManualSetToday && entry.manualKg != null ? (
-            <EventLine tone="manual">
-              <span className="font-semibold">{t("breakdownManualSet")}</span>{" "}
-              {showM2
-                ? `${formatM2(balanceKgToM2(entry.manualKg, inventoryKgPerM2))} m²`
-                : `${formatKg(entry.manualKg)} kg`}
-            </EventLine>
           ) : null}
         </div>
         <div className="shrink-0 text-right">
@@ -234,85 +265,6 @@ function SummaryRow({
   );
 }
 
-function BalanceChangeSummaryCard({
-  summary,
-  inventoryKgPerM2,
-  displayUnit,
-  hasBridgeEntry,
-}: {
-  summary: ZoneBalanceChangeSummary;
-  inventoryKgPerM2: number;
-  displayUnit: BalanceBreakdownDisplayUnit;
-  hasBridgeEntry: boolean;
-}) {
-  const t = useTranslations("InventoryBalance");
-  const showM2 = displayUnit === "m2";
-  const fmt = (kg: number) =>
-    showM2 ? `${formatM2(balanceKgToM2(kg, inventoryKgPerM2))} m²` : `${formatKg(kg)} kg`;
-  const fmtSigned = (kg: number) => {
-    if (kg === 0) return showM2 ? "0 m²" : "0 kg";
-    const sign = kg > 0 ? "+" : "−";
-    return showM2
-      ? `${formatSignedM2(Math.abs(kg), sign === "+" ? "+" : "−")} m²`
-      : `${formatSignedKg(Math.abs(kg), sign === "+" ? "+" : "−")} kg`;
-  };
-  const eventCount = (n: number) => (n > 0 ? t("breakdownEventCount", { count: n }) : "");
-
-  return (
-    <div className="rounded-lg border border-border/80 bg-background px-4 py-3 shadow-sm">
-      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        {t("breakdownChangesSectionTitle")}
-      </p>
-      {summary.totalRegrowthKg > 0 ? (
-        <SummaryRow
-          label={`${t("breakdownTotalRegrowth")} ${eventCount(summary.regrowthEventCount)}`.trim()}
-          value={fmtSigned(summary.totalRegrowthKg)}
-          tone="positive"
-        />
-      ) : null}
-      {summary.totalHarvestKg > 0 ? (
-        <SummaryRow
-          label={`${t("breakdownTotalHarvest")} ${eventCount(summary.harvestEventCount)}`.trim()}
-          value={fmtSigned(-summary.totalHarvestKg)}
-          tone="negative"
-        />
-      ) : null}
-      {summary.manualEventCount > 0 ? (
-        <SummaryRow
-          label={`${t("breakdownManualAdjustment")} ${eventCount(summary.manualEventCount)}`.trim()}
-          value={fmtSigned(summary.manualAdjustmentKg)}
-        />
-      ) : null}
-      {summary.totalRegrowthKg === 0 &&
-      summary.totalHarvestKg === 0 &&
-      summary.manualEventCount === 0 ? (
-        <p className="py-1 text-xs text-muted-foreground">{t("breakdownNoChangesYet")}</p>
-      ) : null}
-
-      <div className="my-2 border-t border-border/70" />
-
-      <SummaryRow
-        label={t("breakdownCurrentBalance")}
-        value={fmt(summary.currentKg)}
-        tone="emphasis"
-      />
-      <SummaryRow
-        label={t("breakdownNetChange")}
-        value={fmtSigned(summary.netChangeKg)}
-        subValue={t("breakdownNetChangeHint", {
-          from: fmt(summary.openingKg),
-          to: fmt(summary.currentKg),
-        })}
-      />
-
-      {hasBridgeEntry ? (
-        <p className="mt-2 text-[10px] leading-relaxed text-muted-foreground">
-          {t("breakdownBridgeNote")}
-        </p>
-      ) : null}
-    </div>
-  );
-}
 
 export function InventoryZoneBalanceBreakdownPanel({
   zoneLabel,
@@ -360,7 +312,11 @@ export function InventoryZoneBalanceBreakdownPanel({
   }, [timelineEntries.length, loading]);
 
   const showM2 = displayUnit === "m2";
-  const currentBalanceKg = todaySnapshot?.calculatedKg ?? timelineEntries.at(-1)?.endKg ?? 0;
+  const currentBalanceKg =
+    todaySnapshot?.calculatedKg ??
+    timelineEntries.find((entry) => entry.dateYmd === todayYmd)?.endKg ??
+    timelineEntries.find((entry) => !entry.isOpeningDay && !entry.isBridgeEntry)?.endKg ??
+    0;
   const openingKg = timelineEntries.find((entry) => entry.isOpeningDay)?.endKg ?? maxKg;
   const currentBalanceM2 = balanceKgToM2(currentBalanceKg, inventoryKgPerM2);
   const openingM2 = balanceKgToM2(openingKg, inventoryKgPerM2);
@@ -460,14 +416,6 @@ export function InventoryZoneBalanceBreakdownPanel({
         <p className="text-sm text-muted-foreground">{t("breakdownUnavailable")}</p>
       ) : (
         <div className="space-y-4">
-          {!loading && timelineEntries.length > 0 ? (
-            <BalanceChangeSummaryCard
-              summary={changeSummary}
-              inventoryKgPerM2={inventoryKgPerM2}
-              displayUnit={displayUnit}
-              hasBridgeEntry={hasBridgeEntry}
-            />
-          ) : null}
           <p className="text-xs text-muted-foreground">
             {showM2 ? t("breakdownHistoryHintM2") : t("breakdownHistoryHint")}
           </p>
