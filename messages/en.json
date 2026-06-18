@@ -2347,5 +2347,11 @@
     "save": "Save",
     "cancel": "Cancel",
     "odooPlaceholder": "—"
+  },
+  "ForecastQueue": {
+    "refresh": "Refresh",
+    "refreshAria": "Refresh page data",
+    "updateData": "Update data",
+    "updateDataAria": "Run next forecast queue job"
   }
 }

@@ -2349,5 +2349,11 @@
     "save": "Lưu",
     "cancel": "Hủy",
     "odooPlaceholder": "—"
+  },
+  "ForecastQueue": {
+    "refresh": "Làm mới",
+    "refreshAria": "Làm mới dữ liệu trang",
+    "updateData": "Cập nhật dữ liệu",
+    "updateDataAria": "Chạy job queue forecast tiếp theo"
   }
 }

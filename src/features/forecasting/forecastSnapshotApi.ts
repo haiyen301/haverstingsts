@@ -1,5 +1,6 @@
 import { STS_API_PATHS } from "@/shared/api/stsApiPaths";
 import {
+  getInternalStsProxyUrl,
   stsProxyGetWithParamsOptional,
   stsProxyPostJson,
 } from "@/shared/api/stsProxyClient";
@@ -38,6 +39,8 @@ export type ForecastMetaResponse = {
   total_snapshot_count?: number;
   logic_version?: number;
   is_stale?: boolean;
+  pending_queue_jobs?: number;
+  queue_processing?: boolean;
   data_start_date?: string;
   horizon_months?: number;
   snapshot_date_bounds?: {
@@ -187,4 +190,52 @@ export async function queueForecastSnapshotUpdate(
   body: ForecastSnapshotUpdateRequest,
 ): Promise<void> {
   await stsProxyPostJson(STS_API_PATHS.forecastSnapshotUpdate, body);
+}
+
+export type ForecastQueueStatus = {
+  queue: string;
+  pending_jobs: number;
+  reserved_jobs: number;
+  is_processing: boolean;
+  is_stale: boolean;
+};
+
+export type ForecastProcessQueueResult = ForecastQueueStatus & {
+  outcome: "completed" | "failed" | "busy" | "empty";
+  message?: string;
+  job_id?: number;
+  job_key?: string;
+  error?: string | null;
+};
+
+export async function fetchForecastQueueStatus(): Promise<ForecastQueueStatus | null> {
+  return stsProxyGetWithParamsOptional<ForecastQueueStatus>(STS_API_PATHS.forecastQueueStatus);
+}
+
+/** Run exactly one forecast queue job (blocks until the job finishes or fails). */
+export async function processForecastQueueJob(): Promise<ForecastProcessQueueResult> {
+  if (typeof window === "undefined") {
+    throw new Error("processForecastQueueJob is client-only");
+  }
+
+  const url = getInternalStsProxyUrl(STS_API_PATHS.forecastProcessQueue);
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "same-origin",
+    body: JSON.stringify({}),
+  });
+
+  let json: { success?: boolean; data?: ForecastProcessQueueResult; message?: string };
+  try {
+    json = (await res.json()) as typeof json;
+  } catch {
+    throw new Error("Invalid JSON response");
+  }
+
+  if (json.data) {
+    return json.data;
+  }
+
+  throw new Error(json.message ?? `Request failed (${res.status})`);
 }

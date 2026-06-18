@@ -2336,5 +2336,11 @@
     "save": "บันทึก",
     "cancel": "ยกเลิก",
     "odooPlaceholder": "—"
+  },
+  "ForecastQueue": {
+    "refresh": "รีเฟรช",
+    "refreshAria": "รีเฟรชข้อมูลหน้า",
+    "updateData": "อัปเดตข้อมูล",
+    "updateDataAria": "รันคิวงานพยากรณ์ถัดไป"
   }
 }

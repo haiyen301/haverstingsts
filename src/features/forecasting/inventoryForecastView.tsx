@@ -87,6 +87,7 @@ import {
   buildRegrowthPlanDetailRows,
   regrowthEventKey,
 } from "@/features/forecasting/regrowthEventPlanDetails";
+import { ForecastPageHeaderActions } from "@/features/forecasting/ForecastPageHeaderActions";
 import { useForecastSnapshot } from "@/features/forecasting/useForecastSnapshot";
 import { getForecastToday } from "@/features/forecasting/forecastDateUtils";
 import {
@@ -2651,7 +2652,10 @@ export function InventoryForecast({
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold">{t("title")}</h2>
+        <div className="flex items-center gap-3">
+          <h2 className="text-2xl font-bold">{t("title")}</h2>
+          <ForecastPageHeaderActions className="shrink-0" />
+        </div>
         <p className="mt-1 text-sm text-muted-foreground">
           {t("subtitle", { months: forecastSpanMonths })}
         </p>

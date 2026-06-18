@@ -58,6 +58,7 @@ import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
 import { MultiSelect } from "@/shared/ui/multi-select";
 import { cn } from "@/lib/utils";
 import { dispatchRouteAlert } from "@/features/alerts/dispatchRouteAlert";
+import { ForecastPageHeaderActions } from "@/features/forecasting/ForecastPageHeaderActions";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 import { TOAST_CONTAINER_TOP_RIGHT } from "@/shared/ui/AppToasts";
 
@@ -1121,7 +1122,10 @@ export default function InventoryPage() {
         <div className="space-y-6 p-4 lg:p-8">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <h1 className="text-2xl lg:text-3xl font-semibold text-gray-900">{t("title")}</h1>
+              <div className="flex items-center gap-3">
+                <h1 className="text-2xl lg:text-3xl font-semibold text-gray-900">{t("title")}</h1>
+                <ForecastPageHeaderActions className="shrink-0" />
+              </div>
               <p className="mt-1 text-sm text-gray-600">
                 {t("subtitle")}
               </p>
