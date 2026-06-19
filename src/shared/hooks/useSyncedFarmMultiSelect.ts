@@ -1,8 +1,14 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
-import { mapRowsToSelectOptions, type HarvestSelectOption } from "@/shared/lib/harvestReferenceData";
+import type { AppPermissionModule } from "@/shared/auth/permissions";
+import type { HarvestSelectOption } from "@/shared/lib/harvestReferenceData";
+import {
+  buildScopedFarmSelectOptions,
+  clampFarmIdsToScope,
+  useFarmUserScope,
+} from "@/shared/store/farmUserScope";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 
 export function parseCsvList(value: string | null | undefined): string[] {
@@ -27,14 +33,18 @@ type SyncedFarmMultiSelect = {
 };
 
 /** Shared helper for farm MultiSelect synchronized with global harvestListFarmFilter. */
-export function useSyncedFarmMultiSelect(): SyncedFarmMultiSelect {
+export function useSyncedFarmMultiSelect(
+  module: AppPermissionModule = "harvests",
+): SyncedFarmMultiSelect {
   const farms = useHarvestingDataStore((s) => s.farms);
   const harvestListFarmFilter = useHarvestingDataStore((s) => s.harvestListFarmFilter);
   const setHarvestListFarmFilter = useHarvestingDataStore((s) => s.setHarvestListFarmFilter);
+  const { scopeIds, scopeKey } = useFarmUserScope(module);
+  const appliedScopeKeyRef = useRef<string | null>(null);
 
   const farmOptions = useMemo(
-    () => mapRowsToSelectOptions(farms as unknown[], "name"),
-    [farms],
+    () => buildScopedFarmSelectOptions(farms as unknown[], scopeIds),
+    [farms, scopeIds],
   );
   const selectedFarmIds = useMemo(
     () => parseCsvList(harvestListFarmFilter),
@@ -60,10 +70,25 @@ export function useSyncedFarmMultiSelect(): SyncedFarmMultiSelect {
 
   const setSelectedFarmIds = useCallback(
     (ids: string[]) => {
-      setHarvestListFarmFilter(toCsvList(ids));
+      const next = toCsvList(clampFarmIdsToScope(ids, scopeIds));
+      if (next === useHarvestingDataStore.getState().harvestListFarmFilter) return;
+      setHarvestListFarmFilter(next);
     },
-    [setHarvestListFarmFilter],
+    [scopeIds, setHarvestListFarmFilter],
   );
+
+  /** One-time clamp when farm scope becomes known — avoids URL/store fight loops. */
+  useEffect(() => {
+    if (appliedScopeKeyRef.current === scopeKey) return;
+    appliedScopeKeyRef.current = scopeKey;
+    if (!scopeIds?.length) return;
+
+    const current = parseCsvList(useHarvestingDataStore.getState().harvestListFarmFilter);
+    const next = toCsvList(clampFarmIdsToScope(current, scopeIds));
+    if (next !== useHarvestingDataStore.getState().harvestListFarmFilter) {
+      setHarvestListFarmFilter(next);
+    }
+  }, [scopeKey, scopeIds, setHarvestListFarmFilter]);
 
   return {
     farmOptions,

@@ -3,6 +3,7 @@ import { Fancybox } from "@fancyapps/ui";
 import {
   HARVEST_ATTACHMENT_SOURCES,
   getAttachmentUrls,
+  getHarvestRowImageFieldValue,
 } from "@/shared/lib/harvestAttachmentImages";
 
 export type HarvestAttachmentSlide = { label: string; url: string };
@@ -15,7 +16,7 @@ export function buildHarvestAttachmentSlidesFromRow(
   const slides: HarvestAttachmentSlide[] = [];
   for (const src of HARVEST_ATTACHMENT_SOURCES) {
     const label = labelByField?.[src.field] ?? src.label;
-    const urls = getAttachmentUrls(r[src.field]);
+    const urls = getAttachmentUrls(getHarvestRowImageFieldValue(r, src.field));
     if (urls.length === 0) {
       slides.push({ label, url: "" });
       continue;

@@ -27,6 +27,11 @@ import RequireAuth from "@/features/auth/RequireAuth";
 import { useSyncedFarmMultiSelect } from "@/shared/hooks/useSyncedFarmMultiSelect";
 import { stsProxyGetHarvestingIndex } from "@/shared/api/stsProxyClient";
 import { canAccessModule, canViewAllModuleData } from "@/shared/auth/permissions";
+import {
+  clampFarmIdsToScope,
+  farmUserMetaFromSessionUser,
+  useFarmUserScope,
+} from "@/shared/store/farmUserScope";
 import { useAuthUserStore } from "@/shared/store/authUserStore";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import {
@@ -95,19 +100,9 @@ const PORTAL_STATUS_RANK: Record<HarvestPortalStatus, number> = {
 
 /** Pass-through for `/api/harvesting` (server still scopes by DB `users_meta`; useful for proxies/logging). */
 function farmUserMetaForHarvestApi(
-  user: { farm_user_id?: unknown; farmUserId?: unknown } | null | undefined,
+  user: Parameters<typeof farmUserMetaFromSessionUser>[0],
 ): string | undefined {
-  if (!user) return undefined;
-  const a = user.farm_user_id;
-  const b = user.farmUserId;
-  const raw =
-    typeof a === "string"
-      ? a
-      : typeof b === "string"
-        ? b
-        : "";
-  const t = raw.trim();
-  return t || undefined;
+  return farmUserMetaFromSessionUser(user);
 }
 
 function deriveHarvestPortalStatus(
@@ -563,7 +558,6 @@ export default function HarvestListPage() {
     () => (canViewAllHarvestData ? undefined : farmUserMetaForHarvestApi(user)),
     [user, canViewAllHarvestData],
   );
-  const farms = useHarvestingDataStore((s) => s.farms);
   const projects = useHarvestingDataStore((s) => s.projects);
   const allProjects = useHarvestingDataStore((s) => s.allProjects);
   const grasses = useHarvestingDataStore((s) => s.grasses);
@@ -581,7 +575,15 @@ export default function HarvestListPage() {
   const harvestListFarmFilter = useHarvestingDataStore(
     (s) => s.harvestListFarmFilter,
   );
-  const { selectedFarmIds: farmFilterIds, setSelectedFarmIds } = useSyncedFarmMultiSelect();
+  const { scopeIds, scopeKey: farmScopeKey } = useFarmUserScope("harvests");
+  const {
+    selectedFarmIds: farmFilterIds,
+    setSelectedFarmIds,
+    farmOptions,
+  } = useSyncedFarmMultiSelect("harvests");
+  const setHarvestListFarmFilterDirect = useHarvestingDataStore(
+    (s) => s.setHarvestListFarmFilter,
+  );
   const harvestListProjectFilter = useHarvestingDataStore(
     (s) => s.harvestListProjectFilter,
   );
@@ -642,11 +644,22 @@ export default function HarvestListPage() {
     const project = parsed.get("project") ?? "";
     const status = parsed.get("status") ?? "";
     const p = parsePageParam(parsed.get("page"));
-    setHarvestListSearch(q);
-    setSelectedFarmIds(parseCsvFilter(farm));
-    setHarvestListGrassFilter(grass);
-    setHarvestListProjectFilter(project);
-    setHarvestListStatusFilter(status);
+    const store = useHarvestingDataStore.getState();
+    if (q !== store.harvestListSearch) setHarvestListSearch(q);
+    /** Only overwrite global farm filter when URL carries `farm` (parity with Projects page). */
+    if (parsed.has("farm")) {
+      const nextFarmCsv = toCsvFilter(
+        clampFarmIdsToScope(parseCsvFilter(farm), scopeIds),
+      );
+      if (nextFarmCsv !== store.harvestListFarmFilter) {
+        setHarvestListFarmFilterDirect(nextFarmCsv);
+      }
+    }
+    if (grass !== store.harvestListGrassFilter) setHarvestListGrassFilter(grass);
+    if (project !== store.harvestListProjectFilter) {
+      setHarvestListProjectFilter(project);
+    }
+    if (status !== store.harvestListStatusFilter) setHarvestListStatusFilter(status);
     const deliveryFrom = parseUrlDeliveryYmd(parsed.get("deliveryFrom"));
     const deliveryTo = parseUrlDeliveryYmd(parsed.get("deliveryTo"));
     if (deliveryFrom && deliveryTo) {
@@ -662,12 +675,14 @@ export default function HarvestListPage() {
     setDebouncedSearch(q.trim());
     setUrlReady(true);
   }, [
+    farmScopeKey,
     searchParamsKey,
-    setSelectedFarmIds,
+    setHarvestListFarmFilterDirect,
     setHarvestListGrassFilter,
     setHarvestListProjectFilter,
     setHarvestListSearch,
     setHarvestListStatusFilter,
+    scopeIds,
   ]);
 
   const clearGoogleSheetExportQuery = useCallback(() => {
@@ -863,10 +878,6 @@ export default function HarvestListPage() {
     void fetchAllHarvestingReferenceData();
   }, [fetchAllHarvestingReferenceData]);
 
-  const farmOptions = useMemo(
-    () => mapRowsToSelectOptions(farms as unknown[], "name"),
-    [farms],
-  );
   const projectOptions = useMemo(
     () => mapRowsToSelectOptions(projects as unknown[], "title"),
     [projects],

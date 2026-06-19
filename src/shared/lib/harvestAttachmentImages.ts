@@ -3,6 +3,7 @@
  * (uses {@link resolveHarvestDisplayUrl} — same rules as Flutter).
  */
 
+import { parseHarvestImageField } from "@/features/harvesting/lib/parseHarvestDocImages";
 import { resolveHarvestDisplayUrl } from "@/shared/config/stsUrls";
 
 import { parseJsonMaybe, parseSubitems } from "@/shared/lib/parseJsonMaybe";
@@ -16,8 +17,29 @@ export const HARVEST_ATTACHMENT_SOURCES: Array<{ field: string; label: string }>
   { field: "truck_loaded_img", label: "Truck Loaded" },
 ];
 
+/** Main column or `*_data` from `get_detail` (grouped `{ image, file }`). */
+export function getHarvestRowImageFieldValue(
+  row: Record<string, unknown>,
+  field: string,
+): unknown {
+  const main = row[field];
+  if (main != null && main !== "") return main;
+  const dataKey = `${field}_data`;
+  const d = row[dataKey];
+  if (d != null && d !== "") return d;
+  return null;
+}
+
 export function getAttachmentUrls(raw: unknown): string[] {
+  const parsed = parseHarvestImageField(raw);
   const out = new Set<string>();
+  for (const fn of [...parsed.imageFileNames, ...parsed.documentFileNames]) {
+    const url = resolveHarvestDisplayUrl(fn);
+    if (url) out.add(url);
+  }
+  if (out.size > 0) return Array.from(out);
+
+  // Legacy fallback for unstructured nested values (non-harvest field shapes).
   const visit = (val: unknown) => {
     if (!val) return;
     if (Array.isArray(val)) {
@@ -34,18 +56,9 @@ export function getAttachmentUrls(raw: unknown): string[] {
     if (typeof val !== "string") return;
     const s = val.trim();
     if (!s) return;
-    const parsed = parseJsonMaybe(s);
-    if (parsed !== s) {
-      visit(parsed);
-      return;
-    }
-    const re =
-      /(https?:\/\/[^\s"'<>]+|\/?files\/[^\s"'<>]+\.(?:png|jpe?g|gif|webp)|\/?timeline_files\/[^\s"'<>]+\.(?:png|jpe?g|gif|webp)|[A-Za-z0-9_\-\/]+\.(?:png|jpe?g|gif|webp))/gi;
-    const matches = s.match(re) ?? [];
-    for (const m of matches) {
-      const cleaned = m.replace(/^"+|"+$/g, "").replace(/^'+|'+$/g, "").trim();
-      if (!cleaned) continue;
-      out.add(resolveHarvestDisplayUrl(cleaned));
+    const jsonParsed = parseJsonMaybe(s);
+    if (jsonParsed !== s) {
+      visit(jsonParsed);
     }
   };
   visit(raw);

@@ -10,6 +10,7 @@ import RequireAuth from "@/features/auth/RequireAuth";
 import { canAccessModule } from "@/shared/auth/permissions";
 import { useSyncedFarmMultiSelect } from "@/shared/hooks/useSyncedFarmMultiSelect";
 import { useAuthUserStore } from "@/shared/store/authUserStore";
+import { useFarmUserScope } from "@/shared/store/farmUserScope";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { MultiSelect } from "@/shared/ui/multi-select";
 import {
@@ -152,6 +153,9 @@ export default function ProjectListPage() {
   const searchParams = useSearchParams();
   const refreshParam = (searchParams.get("refresh") ?? "").trim();
   const user = useAuthUserStore((s) => s.user);
+  const aclReady = useAuthUserStore((s) => s.aclReady);
+  const { scopeKey: farmScopeKey } = useFarmUserScope("projects");
+  const authReady = !!user && aclReady;
   const canCreateProjects = canAccessModule(user, "projects", "create");
   const canEditProjects = canAccessModule(user, "projects", "edit");
   const canImportProjects = canAccessModule(user, "projects", "import");
@@ -178,7 +182,11 @@ export default function ProjectListPage() {
   );
 
   const harvestListFarmFilter = useHarvestingDataStore((s) => s.harvestListFarmFilter);
-  const { selectedFarmIds: farmFilterIds, setSelectedFarmIds } = useSyncedFarmMultiSelect();
+  const {
+    selectedFarmIds: farmFilterIds,
+    setSelectedFarmIds,
+    farmOptions,
+  } = useSyncedFarmMultiSelect("projects");
   const projectsRef = useHarvestingDataStore((s) => s.projects);
   const allProjectsRef = useHarvestingDataStore((s) => s.allProjects);
   const keyAreasRef = useHarvestingDataStore((s) => s.keyAreas);
@@ -382,13 +390,14 @@ export default function ProjectListPage() {
       projectId: p.projectId ?? "",
       sortBy: p.sortBy ?? "",
       sortDir: p.sortDir ?? "",
+      farmScopeKey,
       page: 1,
       perPage: PROJECT_LIST_PAGE_SIZE,
     });
-  }, [buildProjectListFetchParams]);
+  }, [buildProjectListFetchParams, farmScopeKey]);
 
   useEffect(() => {
-    if (!urlReady) return;
+    if (!urlReady || !authReady) return;
 
     let cancelled = false;
     pageLoadedRef.current = 0;
@@ -426,7 +435,7 @@ export default function ProjectListPage() {
     return () => {
       cancelled = true;
     };
-  }, [urlReady, projectListPageOneFetchKey, manualReloadSeq, buildProjectListFetchParams, t]);
+  }, [authReady, urlReady, projectListPageOneFetchKey, manualReloadSeq, buildProjectListFetchParams, t]);
 
   useEffect(() => {
     const projectIds = [
@@ -440,6 +449,7 @@ export default function ProjectListPage() {
     if (missing.length === 0) return;
 
     let cancelled = false;
+    /** Progress bars: `fetchHarvestPlanIndexRowsForProjects` uses `project_progress_scope=1` (all plan rows). */
     void fetchHarvestPlanIndexRowsForProjects(missing, { userId: user?.id })
       .then((planRows) => {
         if (cancelled) return;
@@ -467,7 +477,7 @@ export default function ProjectListPage() {
 
   useEffect(() => {
     const el = loadMoreSentinelRef.current;
-    if (!el || loading || !hasMore) return;
+    if (!el || loading || !hasMore || !authReady) return;
 
     const obs = new IntersectionObserver(
       (entries) => {
@@ -507,7 +517,7 @@ export default function ProjectListPage() {
     obs.observe(el);
     return () => obs.disconnect();
     // Re-bind after each append so a still-visible sentinel triggers the next page.
-  }, [loading, hasMore, buildProjectListFetchParams, rows.length, totalRecords]);
+  }, [authReady, loading, hasMore, buildProjectListFetchParams, rows.length, totalRecords]);
 
   const projectCountryById = useMemo(() => {
     const map = new Map<string, string>();
@@ -711,17 +721,6 @@ export default function ProjectListPage() {
     }));
   }, [projectsRef, projectFilterIds]);
 
-  const farmOptions = useMemo(() => {
-    const list = toRecArray(farmsRef)
-      .map((r) => ({
-        id: String(r.id ?? "").trim(),
-        name: String(r.name ?? r.title ?? "").trim(),
-      }))
-      .filter((x) => x.id && x.name);
-    list.sort((a, b) => a.name.localeCompare(b.name));
-    return list;
-  }, [farmsRef]);
-
   const exportFilter = useMemo<ProjectListExportFilter>(
     () => ({
       search: debouncedSearch,
@@ -897,11 +896,12 @@ export default function ProjectListPage() {
               rightIcon={filterTriggerIcon}
             /> */}
             <MultiSelect
-              options={farmOptions.map((f) => ({ value: f.id, label: f.name }))}
+              options={farmOptions.map((f) => ({ value: f.id, label: f.label }))}
               values={farmFilterIds}
               onChange={setSelectedFarmIds}
               placeholder={t("allFarms")}
-              showAllOption
+              showAllOption={farmOptions.length > 1}
+              disabled={farmOptions.length === 0}
               className={cn(multiSelectBaseClass, bgSurfaceFilter(farmFilterIds.length > 0))}
               rightIcon={filterTriggerIcon}
             />

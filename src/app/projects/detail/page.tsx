@@ -30,10 +30,10 @@ import RequireAuth from "@/features/auth/RequireAuth";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 import {
   canAccessModule,
-  canViewAllModuleData,
 } from "@/shared/auth/permissions";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { useAuthUserStore } from "@/shared/store/authUserStore";
+import { useFarmUserScope } from "@/shared/store/farmUserScope";
 import type { MondayProjectServerRow } from "@/entities/projects";
 import {
   deleteMondayParentOrSubItem,
@@ -70,7 +70,7 @@ import {
   PROJECT_DETAIL_HARVEST_HISTORY_DISPLAY_MODE,
 } from "@/features/harvesting/lib/harvestPlanVisibility";
 import {
-  HARVEST_PROJECT_PROGRESS_SCOPE,
+  fetchAllHarvestPlanPagesForProjectProgress,
 } from "@/features/project/lib/mergeProjectSubitemsWithHarvestPlan";
 import {
   effectiveRequiredQuantityFromRecord,
@@ -156,7 +156,7 @@ function harvestPlanHasMoreFromResponse(
   return lastPageRowCount >= HARVEST_HISTORY_PER_PAGE;
 }
 
-/** Harvest history on project detail: all plan rows for the project; edit/delete gated client-side. */
+/** Harvest history on project detail — scoped list (progress uses a separate unscoped fetch). */
 function buildProjectDetailHarvestHistoryApiParams(
   projectId: string,
   page: number,
@@ -167,8 +167,6 @@ function buildProjectDetailHarvestHistoryApiParams(
     per_page: HARVEST_HISTORY_PER_PAGE,
     page,
     user_id: scope.userId,
-    project_progress_scope: HARVEST_PROJECT_PROGRESS_SCOPE,
-    view_all_data_module: "harvests",
     order_mode: PROJECT_DETAIL_HARVEST_HISTORY_ORDER_MODE,
   };
 }
@@ -800,7 +798,7 @@ export default function ProjectDetailPage() {
   const canEditHarvest = canAccessModule(user, "harvests", "edit");
   const canDeleteHarvest = canAccessModule(user, "harvests", "delete");
   const canExportHarvest = canAccessModule(user, "harvests", "export");
-  const canViewAllHarvestData = canViewAllModuleData(user, "harvests");
+  const { canViewAllModule: canViewAllHarvestData } = useFarmUserScope("harvests");
   const userId = user?.id;
   const harvestHistoryScope = useMemo(
     (): ProjectDetailHarvestScope => ({ userId }),
@@ -838,16 +836,6 @@ export default function ProjectDetailPage() {
     (s) => s.fetchAllHarvestingReferenceData,
   );
 
-  const harvestVisibilityCtx = useMemo(
-    () =>
-      buildHarvestPlanVisibilityCtx(
-        user,
-        canViewAllHarvestData,
-        staffsRef as unknown[],
-      ),
-    [user, canViewAllHarvestData, staffsRef],
-  );
-
   const locale = useLocale();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -857,6 +845,28 @@ export default function ProjectDetailPage() {
   >([]);
   const [harvestSource, setHarvestSource] = useState<HarvestSourceBundle | null>(
     null,
+  );
+
+  const harvestVisibilityCtx = useMemo(
+    () =>
+      buildHarvestPlanVisibilityCtx(
+        user,
+        canViewAllHarvestData,
+        staffsRef as unknown[],
+        {
+          quantityRequiredSprigSod: projectRow?.quantity_required_sprig_sod,
+          harvestPlanRecords: (harvestSource?.planRows ?? []) as Array<
+            Record<string, unknown>
+          >,
+        },
+      ),
+    [
+      user,
+      canViewAllHarvestData,
+      staffsRef,
+      projectRow?.quantity_required_sprig_sod,
+      harvestSource?.planRows,
+    ],
   );
   const [expandedHarvestId, setExpandedHarvestId] = useState<string | null>(null);
   const [harvestDeleteTarget, setHarvestDeleteTarget] = useState<HarvestRow | null>(
@@ -1121,11 +1131,20 @@ export default function ProjectDetailPage() {
           return;
         }
 
-        const historyHarvest = await fetchAllHarvestPlanPagesForProjectDetailHistory(
+        const [progressHarvest, historyHarvest] = await Promise.all([
+          fetchAllHarvestPlanPagesForProjectProgress(normalizedProjectId, {
+            userId,
+          }),
+          fetchAllHarvestPlanPagesForProjectDetailHistory(
+            normalizedProjectId,
+            harvestHistoryScope,
+          ),
+        ]);
+        const progressPlanRows = harvestPlanRowsForProject(
+          progressHarvest.planRows,
           normalizedProjectId,
-          harvestHistoryScope,
         );
-        const allPlanRows = harvestPlanRowsForProject(
+        const historyPlanRows = harvestPlanRowsForProject(
           historyHarvest.planRows,
           normalizedProjectId,
         );
@@ -1134,19 +1153,20 @@ export default function ProjectDetailPage() {
 
         harvestPlanPageRef.current = Math.max(
           1,
-          Math.ceil(allPlanRows.length / HARVEST_HISTORY_PER_PAGE),
+          Math.ceil(historyPlanRows.length / HARVEST_HISTORY_PER_PAGE),
         );
         setHarvestPlanTotalRecords(totalRecords);
         setHarvestPlanHasMore(
           harvestPlanHasMoreFromResponse(
-            allPlanRows.length,
-            allPlanRows.length,
+            historyPlanRows.length,
+            historyPlanRows.length,
             totalRecords,
           ),
         );
         setProjectRow(row);
 
-        setDeliveredQuantityRows(allPlanRows);
+        /** Progress bars — all plan rows on the project (every farm / creator). */
+        setDeliveredQuantityRows(progressPlanRows);
 
         const requirementRows = parseRequirements(row.quantity_required_sprig_sod);
         const remainingByProductUom = new Map<string, number>();
@@ -1157,7 +1177,7 @@ export default function ProjectDetailPage() {
           const reqUomRaw = String(req.uom ?? "").trim();
           const required = effectiveRequiredQuantityFromRecord(req as Record<string, unknown>);
           const delivered = calculateDeliveredQuantityForRequirementLine(
-            allPlanRows,
+            progressPlanRows,
             req as Record<string, unknown>,
             normalizedProjectId,
           );
@@ -1171,7 +1191,7 @@ export default function ProjectDetailPage() {
         }
 
         setHarvestSource({
-          planRows: allPlanRows,
+          planRows: historyPlanRows,
           projectId: normalizedProjectId,
           defaultTableId: String(row.table_id ?? tableId ?? "").trim(),
           defaultTableName: String(row.table_name ?? "Harvesting").trim() || "Harvesting",

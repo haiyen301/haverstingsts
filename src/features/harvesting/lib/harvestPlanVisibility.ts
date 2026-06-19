@@ -1,4 +1,6 @@
+import { isSuperAdmin } from "@/shared/auth/permissions";
 import { parseFarmIdsFromMeta } from "@/shared/lib/harvestReferenceData";
+import { parseQuantityRequiredRows } from "@/shared/lib/parseJsonMaybe";
 import type { SessionUser } from "@/shared/lib/sessionUser";
 
 /** Mirrors `Project_harvesting_plan_model::_build_created_by_scope_where` on the client. */
@@ -8,6 +10,10 @@ export type HarvestPlanVisibilityCtx = {
   canViewAll: boolean;
   /** `sts_users.id` where `is_admin = 1` — for admin-created plan rows. */
   adminCreatorIds: Set<string>;
+  /** Priority 2: `quantity_required_sprig_sod` lines for the open project (project detail). */
+  quantityRequiredFarmIds?: Set<string>;
+  /** Priority 1 on project detail: any plan row farm_id on this project in user's farm list. */
+  projectHasHarvestPlanFarmMatch?: boolean;
 };
 
 export function isEmptyHarvestCreatedBy(value: unknown): boolean {
@@ -27,18 +33,72 @@ export function buildAdminCreatorIdsFromStaffs(staffs: unknown[]): Set<string> {
   return out;
 }
 
+export function extractFarmIdsFromQuantityRequired(raw: unknown): Set<string> {
+  const out = new Set<string>();
+  for (const line of parseQuantityRequiredRows(raw)) {
+    const farmId = String(line.farm_id ?? "").trim();
+    if (farmId && farmId !== "0") out.add(farmId);
+  }
+  return out;
+}
+
 export function buildHarvestPlanVisibilityCtx(
   user: SessionUser | null | undefined,
   canViewAll: boolean,
   staffs: unknown[] = [],
+  options?: {
+    quantityRequiredSprigSod?: unknown;
+    harvestPlanRecords?: Array<Record<string, unknown>>;
+  },
 ): HarvestPlanVisibilityCtx {
   const farmMeta = String(user?.farm_user_id ?? user?.farmUserId ?? "").trim();
+  const userFarmIds = parseFarmIdsFromMeta(farmMeta || undefined);
+  /** farm_user_id always scopes harvest history; only super admin bypasses. */
+  const effectiveCanViewAll =
+    canViewAll && (userFarmIds.length === 0 || isSuperAdmin(user));
+  const userFarmIdSet = new Set(userFarmIds);
+  let projectHasHarvestPlanFarmMatch = false;
+  if (userFarmIdSet.size > 0 && options?.harvestPlanRecords?.length) {
+    projectHasHarvestPlanFarmMatch = options.harvestPlanRecords.some((record) => {
+      const farmId = String(record.farm_id ?? record.farmId ?? "").trim();
+      return Boolean(farmId && userFarmIdSet.has(farmId));
+    });
+  }
+
   return {
     userId: user?.id,
-    userFarmIds: parseFarmIdsFromMeta(farmMeta || undefined),
-    canViewAll,
+    userFarmIds,
+    canViewAll: effectiveCanViewAll,
     adminCreatorIds: buildAdminCreatorIdsFromStaffs(staffs),
+    quantityRequiredFarmIds: extractFarmIdsFromQuantityRequired(
+      options?.quantityRequiredSprigSod,
+    ),
+    projectHasHarvestPlanFarmMatch,
   };
+}
+
+function quantityRequiredFarmMatchesUser(ctx: HarvestPlanVisibilityCtx): boolean {
+  if (ctx.userFarmIds.length === 0 || !ctx.quantityRequiredFarmIds?.size) return false;
+  if (ctx.projectHasHarvestPlanFarmMatch) return false;
+  return ctx.userFarmIds.some((farmId) => ctx.quantityRequiredFarmIds?.has(farmId));
+}
+
+function canUserViewHarvestPlanRecordByFarmScope(
+  record: Record<string, unknown>,
+  ctx: HarvestPlanVisibilityCtx,
+): boolean {
+  if (ctx.userFarmIds.length === 0) return false;
+
+  const farmId = String(record.farm_id ?? record.farmId ?? "").trim();
+  if (farmId && ctx.userFarmIds.includes(farmId)) {
+    return true;
+  }
+
+  if (quantityRequiredFarmMatchesUser(ctx)) {
+    return true;
+  }
+
+  return false;
 }
 
 export function canUserViewHarvestPlanRecord(
@@ -53,16 +113,7 @@ export function canUserViewHarvestPlanRecord(
   const createdBy = String(record.created_by ?? record.createdBy ?? "").trim();
   if (createdBy && createdBy !== "0" && createdBy === uid) return true;
 
-  if (ctx.userFarmIds.length === 0) return false;
-
-  const farmId = String(record.farm_id ?? record.farmId ?? "").trim();
-  const farmMatches = Boolean(farmId && ctx.userFarmIds.includes(farmId));
-  if (!farmMatches) return false;
-
-  if (isEmptyHarvestCreatedBy(record.created_by ?? record.createdBy)) return true;
-  if (ctx.adminCreatorIds.has(createdBy)) return true;
-
-  return false;
+  return canUserViewHarvestPlanRecordByFarmScope(record, ctx);
 }
 
 export function filterHarvestPlanRecordsForUser<T extends Record<string, unknown>>(
@@ -76,16 +127,15 @@ export function filterHarvestPlanRecordsForUser<T extends Record<string, unknown
 /**
  * Project detail — Harvest History (`/projects/detail` only).
  *
- * - `show-readonly`: API loads every plan row for the project (`project_progress_scope=1`);
- *   rows stay visible; edit/delete only when `canUserManageHarvestPlanRecord` passes.
- * - `hide`: only rows the user may manage (same rules as `/harvest` list) — legacy behavior.
+ * - Progress bars use a separate API call with `project_progress_scope=1` (all plan rows).
+ * - Harvest history list uses scoped API + client filter (`hide` = rows user may view).
  *
- * Toggle here when product wants hide vs show-without-edit for other users' records.
+ * Toggle to `show-readonly` only if product wants other users' rows visible without edit.
  */
 export type ProjectDetailHarvestHistoryDisplayMode = "show-readonly" | "hide";
 
 export const PROJECT_DETAIL_HARVEST_HISTORY_DISPLAY_MODE: ProjectDetailHarvestHistoryDisplayMode =
-  "show-readonly";
+  "hide";
 
 /**
  * Edit/delete on project detail harvest history — mirrors the view table in
