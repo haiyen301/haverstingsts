@@ -1865,11 +1865,11 @@ export default function InventoryPage() {
                       <td className="py-3 px-4 text-right">
                         <div className="flex items-center justify-end gap-2">
                           {renderBalanceBreakdownButton(z, z.currentKg, "kg")}
-                          {z.isManualOverrideActive ? (
+                          {/* {z.isManualOverrideActive ? (
                             <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
                               {t("manualBadge")}
                             </span>
-                          ) : null}
+                          ) : null} */}
                         </div>
                         {z.isManualOverrideActive ? (
                           <p className="mt-1 text-[11px] text-muted-foreground">
