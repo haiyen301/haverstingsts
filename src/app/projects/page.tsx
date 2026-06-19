@@ -26,6 +26,7 @@ import {
   mergeHarvestPlanRows,
   mergeMondayDisplayData,
   mergeProjectSubitemsWithHarvestPlan,
+  mondayProjectTitleFromRow,
 } from "@/features/project";
 import { resolveStaffAvatarImageUrl } from "@/features/project/lib/staffAvatarUrl";
 import { cn } from "@/lib/utils";
@@ -969,8 +970,19 @@ export default function ProjectListPage() {
                           (data as Record<string, unknown>).id ??
                           "",
                       ).trim();
+                      const projectTitle = mondayProjectTitleFromRow(
+                        data as Record<string, unknown>,
+                        {
+                          catalogTitle: projectTitleMap.get(projectId),
+                          projectId,
+                        },
+                      );
+                      const titleQuery =
+                        projectTitle && projectTitle !== projectId
+                          ? `&projectTitle=${encodeURIComponent(projectTitle)}`
+                          : "";
                       router.push(
-                        `/projects/detail?rowId=${encodeURIComponent(args.rowId ?? "")}&tableId=${encodeURIComponent(args.tableId ?? "")}&projectId=${encodeURIComponent(projectId)}&returnTo=${encodeURIComponent(returnTo)}`,
+                        `/projects/detail?rowId=${encodeURIComponent(args.rowId ?? "")}&tableId=${encodeURIComponent(args.tableId ?? "")}&projectId=${encodeURIComponent(projectId)}${titleQuery}&returnTo=${encodeURIComponent(returnTo)}`,
                       );
                     }}
                     onEditProject={() => {

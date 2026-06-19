@@ -83,10 +83,15 @@ export interface MondayProjectServerRow {
   table_id?: string | number;
   table_name?: string;
   project_id?: string | number;
+  /** Canonical project name from `sts_projects` (server-enriched on list rows). */
   title?: string;
+  /** SQL summary alias for `title` (legacy / parity). */
+  project_title?: string;
   name?: string;
   /** Golf club / stadium label (matches `react_get_harvesting_table`). */
   alias_title?: string;
+  /** SQL summary alias for `alias_title` (legacy / parity). */
+  project_alias_title?: string;
   /** Company / customer name from dynamic table row. */
   company_name?: string;
   /** Odoo customer reference stored in projects + dynamic table row. */

@@ -108,9 +108,10 @@ export function parseHarvestImageField(value: unknown): ParsedHarvestDocSlot {
       return { previewUrl: null, imageFileNames: [], documentFileNames: [] };
     }
     if (s.startsWith("http://") || s.startsWith("https://")) {
+      const fixed = resolveHarvestDisplayUrl(s);
       const base = s.split("/").pop() ?? "";
       return {
-        previewUrl: s,
+        previewUrl: fixed,
         imageFileNames: base ? [base] : [],
         documentFileNames: [],
       };

@@ -70,6 +70,10 @@ import {
   projectPaceConfigFromRow,
 } from "@/features/project/lib/generatePlannedHarvestsForNewProject";
 import {
+  mondayProjectAliasTitleFromRow,
+  mondayProjectTitleFromRow,
+} from "@/features/project/lib/resolveMondayProjectRowFields";
+import {
   buildCountrySelectOptions,
   pickGrassCatalogRows,
   todayYmdLocal,
@@ -1101,19 +1105,21 @@ export default function ProjectInputPage() {
 
   const applyEditRow = (row: MondayProjectServerRow) => {
     const projectId = String(row.project_id ?? "").trim();
+    const rec = row as Record<string, unknown>;
     setEditProjectIdForLabel(projectId);
     const fromList = projectNameOptions.find((p) => p.id === projectId);
-    const titleFromRow = String(row.title ?? "").trim();
-    const projectNameDisplay = fromList?.label ?? (titleFromRow || projectId);
+    const projectNameDisplay = mondayProjectTitleFromRow(rec, {
+      catalogTitle: fromList?.label,
+      projectId,
+    });
     setEditTableName(String(row.table_name ?? "").trim());
     const rowTableId = String(row.table_id ?? "").trim();
     if (rowTableId) setEditTableId(rowTableId);
-    const rec = row as Record<string, unknown>;
     const paceRaw = String(rec.project_pace ?? "").trim().toLowerCase();
     const projectPace = paceRaw === "none" ? "" : paceRaw;
     setFormData({
       projectName: projectNameDisplay,
-      golfClub: String(row.alias_title ?? "").trim(),
+      golfClub: mondayProjectAliasTitleFromRow(rec),
       company: String(rec.company_name ?? "").trim(),
       architect: String(rec.golf_course_architect ?? "").trim(),
       country: String(row.country_id ?? "").trim(),

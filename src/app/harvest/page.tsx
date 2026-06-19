@@ -900,6 +900,7 @@ export default function HarvestListPage() {
       if (harvestListProjectFilter) params.project_id = harvestListProjectFilter;
       if (harvestListStatusFilter) params.harvest_status = harvestListStatusFilter;
       if (deliveryHarvestFrom && deliveryHarvestTo) {
+        // Backend matches any harvest date column in range (estimated/actual/delivery/shipment/do_so).
         params.delivery_harvest_date_from = deliveryHarvestFrom;
         params.delivery_harvest_date_to = deliveryHarvestTo;
       }

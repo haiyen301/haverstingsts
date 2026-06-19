@@ -33,6 +33,63 @@ export const STS_PUBLIC_PATHS = {
   customerVisit: "/files/timeline_files/customer_visit",
 } as const;
 
+const HARVESTING_URL_MARKER = "/files/timeline_files/harvesting/";
+const MONTH_SUBFOLDER_RE = /^\d{1,2}\//;
+const UPLOAD_TIMESTAMP_PREFIX_RE = /^(\d{10})_file/i;
+
+function fileNameFromHarvestingUrl(url: string): string | null {
+  const idx = url.indexOf(HARVESTING_URL_MARKER);
+  if (idx < 0) return null;
+  const tail = url.slice(idx + HARVESTING_URL_MARKER.length);
+  return tail || null;
+}
+
+/**
+ * Mirrors PHP `ensure_harvest_stored_file_name` and Flutter
+ * `HarvestImageUrlResolver.ensureHarvestStoredFileName`.
+ *
+ * DB rows (e.g. harvest id 1883) may store only `1781850409_file....jpg` while
+ * files live under `06/1781850409_file....jpg` on disk.
+ */
+export function ensureHarvestStoredFileName(fileName: string): string {
+  let text = fileName.trim();
+  if (!text) return "";
+
+  if (/^https?:\/\//i.test(text)) {
+    const fromUrl = fileNameFromHarvestingUrl(text);
+    if (fromUrl) return ensureHarvestStoredFileName(fromUrl);
+    return text;
+  }
+
+  let normalized = text.replace(/\\/g, "/");
+  for (const prefix of [
+    "/files/timeline_files/harvesting/",
+    "files/timeline_files/harvesting/",
+    "/timeline_files/harvesting/",
+    "timeline_files/harvesting/",
+    "harvesting/",
+  ]) {
+    if (normalized.startsWith(prefix)) {
+      return ensureHarvestStoredFileName(normalized.slice(prefix.length));
+    }
+  }
+
+  if (MONTH_SUBFOLDER_RE.test(normalized)) {
+    return normalized;
+  }
+
+  const match = UPLOAD_TIMESTAMP_PREFIX_RE.exec(normalized);
+  if (match) {
+    const ts = Number.parseInt(match[1], 10);
+    if (Number.isFinite(ts) && ts >= 946684800) {
+      const month = String(new Date(ts * 1000).getMonth() + 1).padStart(2, "0");
+      return `${month}/${normalized}`;
+    }
+  }
+
+  return normalized;
+}
+
 /** Flutter `harvestingImgUrl` without trailing slash — use for basename-only `file_name`. */
 export function getHarvestingImagePathSource(): string {
   const root = getStsDomainUrl();
@@ -55,7 +112,16 @@ export function resolveHarvestDisplayUrl(fileNameOrUrl: string): string {
       s = `https:${s}`;
     }
   }
-  if (s.startsWith("http://") || s.startsWith("https://")) return s;
+
+  if (s.startsWith("http://") || s.startsWith("https://")) {
+    const fromUrl = fileNameFromHarvestingUrl(s);
+    if (fromUrl) {
+      return resolveHarvestDisplayUrl(ensureHarvestStoredFileName(fromUrl));
+    }
+    return s;
+  }
+
+  s = ensureHarvestStoredFileName(s);
 
   const domain = getStsDomainUrl();
   if (!domain) return s;

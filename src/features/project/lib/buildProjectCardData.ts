@@ -22,6 +22,10 @@ import {
 } from "./effectiveRequirementQuantity";
 import { formatProjectTypeForDisplay } from "./projectTypeDisplay";
 import { normalizeHarvestTypeStorageKey } from "@/shared/lib/harvestType";
+import {
+  mondayProjectAliasTitleFromRow,
+  mondayProjectTitleFromRow,
+} from "./resolveMondayProjectRowFields";
 
 /** Kg → sprig; M2 / m² → sod (legacy fallback when `load_type` is absent). */
 export function sprigSodLabelFromUom(uom: string | undefined): "sprig" | "sod" {
@@ -411,14 +415,11 @@ export function buildProjectDataFromServerRow(
       ? resolveReactHarvestingImageUrl(projectImageFile)
       : "";
 
-  const titleFromLookup = options.getProjectTitleById?.(projectId);
-  const fromRow = String(row.title ?? row.name ?? "").trim();
-  let name = titleFromLookup?.trim() || fromRow;
-  if (!name) {
-    if (!projectId) {
-      name = "Unknown Project";
-    }
-  }
+  const name = mondayProjectTitleFromRow(row as Record<string, unknown>, {
+    catalogTitle: options.getProjectTitleById?.(projectId),
+    projectId,
+    fallback: "Unknown Project",
+  });
 
   const countryId = String(row.country_id ?? "").trim() || undefined;
   const countryName =
@@ -459,7 +460,7 @@ export function buildProjectDataFromServerRow(
   return {
     id: String(row.row_id ?? row.id ?? ""),
     name: name.toUpperCase(),
-    subtitle: String(row.alias_title ?? "").trim(),
+    subtitle: mondayProjectAliasTitleFromRow(row as Record<string, unknown>),
     country_id: countryId || "",
     country_name: countryName,
     holes: Number.parseInt(noOfHoles, 10) || 0,

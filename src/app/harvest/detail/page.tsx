@@ -100,6 +100,11 @@ export default function HarvestDetailPage() {
   const canManageHarvest = canAccessModule(user, "harvests", "edit") || canAccessModule(user, "harvests", "delete");
   const id = (searchParams.get("id") ?? "").trim();
   const returnTo = (searchParams.get("returnTo") ?? "/harvest").trim() || "/harvest";
+  const detailSelfHref = useMemo(() => {
+    const params = new URLSearchParams({ id });
+    if (returnTo !== "/harvest") params.set("returnTo", returnTo);
+    return `/harvest/detail?${params.toString()}`;
+  }, [id, returnTo]);
 
   const farmZones = useHarvestingDataStore((s) => s.farmZones);
   const fetchAllHarvestingReferenceData = useHarvestingDataStore(
@@ -294,7 +299,9 @@ export default function HarvestDetailPage() {
                 <button
                   type="button"
                   onClick={() =>
-                    router.push(`/harvest/new?id=${encodeURIComponent(id)}&returnTo=${encodeURIComponent(returnTo)}`)
+                    router.push(
+                      `/harvest/new?id=${encodeURIComponent(id)}&returnTo=${encodeURIComponent(detailSelfHref)}`,
+                    )
                   }
                   className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
                 >

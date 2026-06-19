@@ -86,6 +86,10 @@ import {
   formatGrassRequirementDisplayName,
 } from "@/features/project/lib/buildProjectCardData";
 import {
+  mondayProjectAliasTitleFromRow,
+  mondayProjectTitleFromRow,
+} from "@/features/project/lib/resolveMondayProjectRowFields";
+import {
   getActualHarvestEndDateFromRow,
   getEstimatedDateEndFromRow,
   getGeneralNoteFromRow,
@@ -216,13 +220,26 @@ function mergeProjectDetailFromServer(
   projectId: string,
   catalogRow: Record<string, unknown> | undefined,
   dynamicRow: Record<string, unknown> | undefined,
+  titleHint?: string,
 ): MondayProjectServerRow {
   const rowId = String(
     dynamicRow?.id_row ?? dynamicRow?.row_id ?? catalogRow?.row_id ?? catalogRow?.id ?? "",
   ).trim();
-  return {
+  const mergedRec: Record<string, unknown> = {
     ...(catalogRow ?? {}),
     ...(dynamicRow ?? {}),
+  };
+  const resolvedTitle = mondayProjectTitleFromRow(mergedRec, {
+    catalogTitle:
+      titleHint?.trim() ||
+      String(catalogRow?.title ?? catalogRow?.name ?? "").trim() ||
+      undefined,
+    projectId,
+  });
+  const displayTitle =
+    resolvedTitle && resolvedTitle !== projectId ? resolvedTitle : titleHint?.trim() || resolvedTitle;
+  return {
+    ...mergedRec,
     project_id: projectId,
     row_id: rowId || undefined,
     id: (rowId || catalogRow?.id) as string | number | undefined,
@@ -233,13 +250,8 @@ function mergeProjectDetailFromServer(
     table_name:
       String(dynamicRow?.table_name ?? catalogRow?.table_name ?? "Harvesting").trim() ||
       "Harvesting",
-    title: String(
-      catalogRow?.title ??
-      catalogRow?.name ??
-      dynamicRow?.title ??
-      dynamicRow?.name ??
-      "",
-    ).trim() || undefined,
+    title: displayTitle || undefined,
+    alias_title: mondayProjectAliasTitleFromRow(mergedRec) || undefined,
     quantity_required_sprig_sod:
       dynamicRow?.quantity_required_sprig_sod ??
       catalogRow?.quantity_required_sprig_sod,
@@ -812,6 +824,7 @@ export default function ProjectDetailPage() {
     searchParams.get("projectId")?.trim() ||
     searchParams.get("id")?.trim() ||
     "";
+  const projectTitleFromQuery = searchParams.get("projectTitle")?.trim() ?? "";
   const returnTo = useMemo(() => {
     const query = searchParams.toString();
     return normalizeAppNavigationHref(query ? `${pathname}?${query}` : pathname);
@@ -826,6 +839,7 @@ export default function ProjectDetailPage() {
   const googleSheetExportError = (searchParams.get("googleSheetError") ?? "").trim();
 
   const projectsRef = useHarvestingDataStore((s) => s.projects);
+  const allProjectsRef = useHarvestingDataStore((s) => s.allProjects);
   const countriesRef = useHarvestingDataStore((s) => s.countries);
   const staffsRef = useHarvestingDataStore((s) => s.staffs);
   const productsRef = useHarvestingDataStore((s) => s.products);
@@ -943,15 +957,17 @@ export default function ProjectDetailPage() {
 
   const projectTitleMap = useMemo(() => {
     const map = new Map<string, string>();
-    for (const r of projectsRef as unknown[]) {
-      if (!r || typeof r !== "object") continue;
-      const rec = r as Record<string, unknown>;
-      const id = String(rec.id ?? "").trim();
-      const title = String(rec.title ?? rec.name ?? "").trim();
-      if (id && title) map.set(id, title);
+    for (const source of [allProjectsRef, projectsRef]) {
+      for (const r of source as unknown[]) {
+        if (!r || typeof r !== "object") continue;
+        const rec = r as Record<string, unknown>;
+        const id = String(rec.id ?? "").trim();
+        const title = String(rec.title ?? rec.name ?? "").trim();
+        if (id && title && !map.has(id)) map.set(id, title);
+      }
     }
     return map;
-  }, [projectsRef]);
+  }, [allProjectsRef, projectsRef]);
 
   const countryMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -1113,6 +1129,10 @@ export default function ProjectDetailPage() {
         const catalogRow =
           findProjectRowBySelectId(storeProjects.allProjects, normalizedProjectId) ??
           findProjectRowBySelectId(storeProjects.projects, normalizedProjectId);
+        const catalogTitleHint =
+          projectTitleFromQuery ||
+          String(catalogRow?.title ?? catalogRow?.name ?? "").trim() ||
+          undefined;
 
         const dynamicRows = await fetchProjectDynamicFieldsByProjectId(normalizedProjectId);
         if (!mounted) return;
@@ -1122,6 +1142,7 @@ export default function ProjectDetailPage() {
           normalizedProjectId,
           catalogRow,
           dynamicRow,
+          catalogTitleHint,
         );
 
         if (!catalogRow && !dynamicRow) {
@@ -1211,7 +1232,7 @@ export default function ProjectDetailPage() {
     return () => {
       mounted = false;
     };
-  }, [fetchAllHarvestingReferenceData, harvestHistoryScope, projectIdFromQuery, rowId, tableId, t, userId]);
+  }, [fetchAllHarvestingReferenceData, harvestHistoryScope, projectIdFromQuery, projectTitleFromQuery, rowId, tableId, t, userId]);
 
   useEffect(() => {
     if (!expandedHarvestId) {
@@ -1227,11 +1248,9 @@ export default function ProjectDetailPage() {
     const countryId = String(r.country_id ?? "").trim();
     const picId = String(r.pic ?? "").trim();
     /** Same field mapping as `projects/new` `applyEditRow` + `buildProjectDataFromServerRow` dates. */
-    const golfClubFromRow =
-      String(r.alias_title ?? "").trim() ||
-      String(r.name ?? r.title ?? "").trim();
+    const golfClubFromRow = mondayProjectAliasTitleFromRow(rec) || "-";
     const companyFromRow =
-      String(rec.company_name ?? "").trim() || String(r.alias_title ?? "").trim();
+      String(rec.company_name ?? "").trim() || mondayProjectAliasTitleFromRow(rec) || "-";
     const keyAreasRaw = r.key_areas;
     const keyAreasParsed = (() => {
       const decoded = parseJsonMaybe(keyAreasRaw);
@@ -1249,10 +1268,20 @@ export default function ProjectDetailPage() {
     const actualStartRaw =
       (rec.start_date as string | undefined) ??
       (rec.actual_start_date as string | undefined);
+    const resolvedProjectName = mondayProjectTitleFromRow(rec, {
+      catalogTitle:
+        projectTitleFromQuery || projectTitleMap.get(projectId) || r.title,
+      projectId,
+      fallback: "-",
+    });
     return {
       projectName:
-        projectTitleMap.get(projectId) ||
-        String((r.title ?? r.name ?? projectId) || "-"),
+        resolvedProjectName && resolvedProjectName !== projectId
+          ? resolvedProjectName
+          : projectTitleFromQuery ||
+            projectTitleMap.get(projectId) ||
+            String(r.title ?? "").trim() ||
+            "-",
       golfClub: golfClubFromRow || "-",
       company: companyFromRow || "-",
       odooCustomerRef: String(rec.odoo_customer_id ?? "").trim() || "-",
@@ -1276,7 +1305,7 @@ export default function ProjectDetailPage() {
       mainContactPhone: String(rec.main_contact_phone ?? "").trim(),
       actualCompletionDisplay: formatDateDisplay(rec.actual_completion_date, locale),
     };
-  }, [projectRow, projectTitleMap, countryMap, staffMap, keyAreasFromStore, tProjectForm, locale]);
+  }, [projectRow, projectTitleMap, projectTitleFromQuery, countryMap, staffMap, keyAreasFromStore, tProjectForm, locale]);
 
   const grassRows = useMemo<GrassRow[]>(() => {
     if (!projectRow) return [];

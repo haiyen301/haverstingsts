@@ -8,6 +8,11 @@ export {
   buildMondayEditArgs,
 } from "./lib/mondayRowOps";
 export {
+  mondayProjectAliasTitleFromRow,
+  mondayProjectTitleFromRow,
+} from "./lib/resolveMondayProjectRowFields";
+export type { MondayProjectRowLike } from "./lib/resolveMondayProjectRowFields";
+export {
   buildProjectDataFromServerRow,
   calculateOverallProjectProgressFromRaw,
   resolveMondayCardStatusForListFilter,
