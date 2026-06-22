@@ -3,6 +3,9 @@ import {
   updateMondayProjectParentItem,
 } from "@/entities/projects";
 import {
+  HARVEST_IMPORT_CLIENT_SOURCE,
+} from "@/features/harvesting/lib/harvestImportForecastBatch";
+import {
   defaultHarvestTypeForUom,
   normalizeHarvestTypeStorageKey,
   type HarvestTypeStorageKey,
@@ -108,7 +111,7 @@ export async function createMinimalProjectForHarvestImport(params: {
   tableId: string;
   grassRequirements: GrassRequirementLine[];
   existingProjectId?: string;
-}): Promise<{ projectId: string; project: unknown }> {
+}): Promise<{ projectId: string; project: unknown; rowId: string; tableId: string }> {
   const projectName = params.projectName.trim();
   if (!projectName) {
     throw new Error("Project name is required.");
@@ -127,7 +130,7 @@ export async function createMinimalProjectForHarvestImport(params: {
   const payload: Record<string, unknown> = {
     id: rowId,
     table_id: params.tableId,
-    ...(isExisting ? {} : { client_source: "nextjs" }),
+    ...(isExisting ? {} : { client_source: HARVEST_IMPORT_CLIENT_SOURCE }),
     data: {
       project_name: projectName,
       ...(isExisting ? { project_id: params.existingProjectId!.trim() } : {}),
@@ -183,5 +186,21 @@ export async function createMinimalProjectForHarvestImport(params: {
     throw new Error("Project created but missing project id in response.");
   }
 
-  return { projectId, project: proj ?? null };
+  const mondayRowId = (() => {
+    const savedId = String(saveResponse?.saved_id ?? "").trim();
+    if (savedId) return savedId;
+    if (rowData && typeof rowData === "object") {
+      const rd = rowData as Record<string, unknown>;
+      const fromRow = String(rd.id ?? rd.row_id ?? rd.id_row ?? "").trim();
+      if (fromRow) return fromRow;
+    }
+    return rowId;
+  })();
+
+  return {
+    projectId,
+    project: proj ?? null,
+    rowId: mondayRowId,
+    tableId: params.tableId.trim(),
+  };
 }

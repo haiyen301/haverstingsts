@@ -23,7 +23,6 @@ import {
   Layers,
   Leaf,
   MapPin,
-  MessageCircle,
   PanelLeftClose,
   PanelLeftOpen,
   Settings,
@@ -58,6 +57,7 @@ import {
 } from "@/features/forecasting/forecastDataLoader";
 import { useAuthUserStore } from "@/shared/store/authUserStore";
 import { MobileBottomNav, type MobileMoreNavSection } from "@/widgets/layout/MobileBottomNav";
+import { AppFooterSupport } from "@/widgets/layout/AppFooterSupport";
 import { SidebarProfile } from "@/widgets/layout/SidebarProfile";
 import { ThemeToggle } from "@/widgets/layout/ThemeToggle";
 import { cn } from "@/lib/utils";
@@ -1035,31 +1035,17 @@ export function DashboardLayout({
           {children}
         </main>
 
-        <footer className="border-t border-border bg-background/80 px-4 py-3 text-xs text-muted-foreground backdrop-blur-md lg:px-6">
-          <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-1 text-center  sm:text-left">
-            <span className="font-medium text-foreground">Support: Ms. Yen</span>
-            <a
-              href="mailto:yen@sportsturfsolutions.com"
-              className="transition-colors hover:text-[rgb(31,122,76)]"
-            >
-              yen@sportsturfsolutions.com
-            </a>
-            <a
-              href="https://wa.me/84983115600"
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1.5 transition-colors hover:text-[rgb(31,122,76)]"
-              aria-label="WhatsApp support"
-            >
-              <MessageCircle className="h-3.5 w-3.5" aria-hidden />
-              <span>WhatsApp</span>
-            </a>
-          </div>
+        <footer className="hidden border-t border-border bg-background/80 px-4 py-3 backdrop-blur-md lg:block lg:px-6">
+          <AppFooterSupport variant="desktop" />
         </footer>
       </div>
 
       {!hideAppNav ? (
-        <MobileBottomNav moreSections={mobileMoreSections} user={user} />
+        <MobileBottomNav
+          moreSections={mobileMoreSections}
+          user={user}
+          footer={<AppFooterSupport variant="mobile" />}
+        />
       ) : null}
     </div>
   );

@@ -176,7 +176,8 @@ export type ForecastSnapshotMechanism =
   | "farm_remove"
   | "zone_remove"
   | "bootstrap_initial"
-  | "full_reseed";
+  | "full_reseed"
+  | "harvest_import";
 
 export type ForecastSnapshotUpdateRequest = {
   mechanism: ForecastSnapshotMechanism;
@@ -190,6 +191,16 @@ export async function queueForecastSnapshotUpdate(
   body: ForecastSnapshotUpdateRequest,
 ): Promise<void> {
   await stsProxyPostJson(STS_API_PATHS.forecastSnapshotUpdate, body);
+}
+
+/** Queue one full-history forecast rebuild after a successful harvest import batch. */
+export async function queueForecastFullRebuildAfterHarvestImport(
+  importSessionId: string,
+): Promise<void> {
+  await queueForecastSnapshotUpdate({
+    mechanism: "harvest_import",
+    scope: { import_session_id: importSessionId.trim() },
+  });
 }
 
 export type ForecastQueueStatus = {

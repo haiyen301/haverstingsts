@@ -3,7 +3,7 @@
 import { usePathname, useRouter } from "next/navigation";
 import { FolderKanban, LayoutDashboard, Leaf, MoreHorizontal, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { useEffect, useState, type ComponentType } from "react";
+import { useEffect, useState, type ComponentType, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useTranslations } from "next-intl";
 import type { SessionUser } from "@/shared/lib/sessionUser";
@@ -46,6 +46,7 @@ export type MobileMoreNavSection = {
 type MobileBottomNavProps = {
   moreSections: MobileMoreNavSection[];
   user?: SessionUser | null;
+  footer?: ReactNode;
 };
 
 function MoreNavButton({
@@ -75,7 +76,7 @@ function MoreNavButton({
   );
 }
 
-export function MobileBottomNav({ moreSections, user = null }: MobileBottomNavProps) {
+export function MobileBottomNav({ moreSections, user = null, footer }: MobileBottomNavProps) {
   const router = useRouter();
   const pathname = usePathname();
   const t = useTranslations("Nav");
@@ -121,6 +122,7 @@ export function MobileBottomNav({ moreSections, user = null }: MobileBottomNavPr
   };
 
   const hasMoreItems = moreSections.some((section) => section.items.length > 0);
+  const showMoreTab = hasMoreItems || Boolean(footer);
 
   const moreActive = moreSections.some((section) => section.items.some(isMoreItemActive));
 
@@ -196,6 +198,11 @@ export function MobileBottomNav({ moreSections, user = null }: MobileBottomNavPr
                       </div>
                     );
                   })}
+                  {footer ? (
+                    <div className="mt-2 border-t border-sidebar-border pt-4">
+                      {footer}
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </div>,
@@ -224,7 +231,7 @@ export function MobileBottomNav({ moreSections, user = null }: MobileBottomNavPr
               </button>
             );
           })}
-          {hasMoreItems ? (
+          {showMoreTab ? (
             <button
               type="button"
               onClick={() => setMoreOpen((o) => !o)}

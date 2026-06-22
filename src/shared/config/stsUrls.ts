@@ -31,6 +31,8 @@ export const STS_PUBLIC_PATHS = {
   systemImages: "/files/system",
   reactHarvesting: "/files/timeline_files/react_harvesting",
   customerVisit: "/files/timeline_files/customer_visit",
+  /** Flutter Android APK builds copied to STSPortal `assets/apk/` */
+  apkAssets: "/assets/apk",
 } as const;
 
 const HARVESTING_URL_MARKER = "/files/timeline_files/harvesting/";
