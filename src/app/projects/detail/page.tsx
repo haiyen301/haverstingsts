@@ -30,6 +30,7 @@ import RequireAuth from "@/features/auth/RequireAuth";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 import {
   canAccessModule,
+  isSuperAdmin,
 } from "@/shared/auth/permissions";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { useAuthUserStore } from "@/shared/store/authUserStore";
@@ -129,6 +130,7 @@ import "swiper/css/free-mode";
 import "@fancyapps/ui/dist/fancybox/fancybox.css";
 
 const HARVEST_HISTORY_PER_PAGE = 30;
+const TURF_FARM_MANAGER_ROLE = "Turf Farm Manager";
 
 type ProjectDetailHarvestScope = {
   userId?: string | number;
@@ -811,6 +813,12 @@ export default function ProjectDetailPage() {
   const canEditHarvest = canAccessModule(user, "harvests", "edit");
   const canDeleteHarvest = canAccessModule(user, "harvests", "delete");
   const canExportHarvest = canAccessModule(user, "harvests", "export");
+  const showProjectLogisticsTimelineDates = useMemo(
+    () =>
+      isSuperAdmin(user) ||
+      user?.role_title?.trim() === TURF_FARM_MANAGER_ROLE,
+    [user],
+  );
   const { canViewAllModule: canViewAllHarvestData } = useFarmUserScope("harvests");
   const userId = user?.id;
   const harvestHistoryScope = useMemo(
@@ -1317,6 +1325,8 @@ export default function ProjectDetailPage() {
       mainContactEmail: String(rec.main_contact_email ?? "").trim(),
       mainContactPhone: String(rec.main_contact_phone ?? "").trim(),
       actualCompletionDisplay: formatDateDisplay(rec.actual_completion_date, locale),
+      inTransitDate: formatDateDisplay(rec.in_transit_date, locale),
+      pickUpDate: formatDateDisplay(rec.pick_up_date, locale),
     };
   }, [projectRow, projectTitleMap, projectTitleFromQuery, countryMap, staffMap, keyAreasFromStore, tProjectForm, locale]);
 
@@ -1904,6 +1914,26 @@ export default function ProjectDetailPage() {
                         {basic.actualCompletionDisplay || "—"}
                       </p>
                     </div>
+                    {showProjectLogisticsTimelineDates ? (
+                      <>
+                        <div>
+                          <p className="mb-0.5 text-xs text-muted-foreground">
+                            {tProjectForm("inTransitDay")}
+                          </p>
+                          <p className="font-medium text-foreground">
+                            {basic.inTransitDate || "—"}
+                          </p>
+                        </div>
+                        <div>
+                          <p className="mb-0.5 text-xs text-muted-foreground">
+                            {tProjectForm("pickUpDay")}
+                          </p>
+                          <p className="font-medium text-foreground">
+                            {basic.pickUpDate || "—"}
+                          </p>
+                        </div>
+                      </>
+                    ) : null}
                   </div>
                 </div>
               </div>
