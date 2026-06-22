@@ -20,9 +20,10 @@ import {
   type FarmZoneReferenceRow,
   type KeyAreaReferenceRow,
 } from "@/shared/lib/harvestReferenceData";
+import { canViewAllModuleData } from "@/shared/auth/permissions";
 import { stsProxyGetWithParams, stsProxyGetWithParamsOptional } from "@/shared/api/stsProxyClient";
 
-export const HARVESTING_REFERENCE_PERSIST_KEY = "sts-harvesting-reference-v1";
+export const HARVESTING_REFERENCE_PERSIST_KEY = "sts-harvesting-reference-v2";
 
 function asArray(v: unknown): unknown[] {
   if (Array.isArray(v)) return v;
@@ -86,7 +87,7 @@ const empty = {
   /** Regrowth rule rows from `/api/regrowth_rules`. */
   regrowthRules: [] as RegrowthRuleRow[],
   farms: [] as unknown[],
-  /** All active projects (`deleted = 0`) — no role filter. */
+  /** Project catalog for forms/export — full list only when user has view-all on projects. */
   allProjects: [] as unknown[],
   /** Projects visible for the current user role (farm / plan / creator scope). */
   roleVisibleProjects: [] as unknown[],
@@ -118,7 +119,7 @@ export type HarvestingDataState = {
   keyAreas: KeyAreaReferenceRow[];
   regrowthRules: RegrowthRuleRow[];
   farms: unknown[];
-  /** Full project catalog (`GET /api/projects/react_get_all_projects`). */
+  /** Project catalog (`react_get_all_projects` when view-all, else role-scoped `/api/projects`). */
   allProjects: unknown[];
   /** Role-scoped projects (`GET /api/projects` → `filterVisibleProjectsForUser`). */
   roleVisibleProjects: unknown[];
@@ -330,13 +331,18 @@ export const useHarvestingDataStore = create<HarvestingDataState>()(
     const run = async () => {
       set({ loading: true, error: null });
       const refParams: Record<string, string | number | undefined> = {};
+      let sessionUser: Awaited<
+        ReturnType<(typeof import("@/shared/store/authUserStore"))["getSessionUser"]>
+      > = null;
       if (typeof window !== "undefined") {
         const { getSessionUser } = await import("@/shared/store/authUserStore");
-        const uid = getSessionUser()?.id;
+        sessionUser = getSessionUser();
+        const uid = sessionUser?.id;
         if (uid != null && Number.isFinite(Number(uid)) && Number(uid) > 0) {
           refParams.react_client_user_id = Number(uid);
         }
       }
+      const canViewAllProjects = canViewAllModuleData(sessionUser, "projects");
       const entries = [
         ["farmZones", STS_API_PATHS.farmZones, undefined],
         ["zoneConfigurations", STS_API_PATHS.zoneConfigurations, undefined],
@@ -354,7 +360,9 @@ export const useHarvestingDataStore = create<HarvestingDataState>()(
         ...entries.map(([, path, extra]) =>
           stsProxyGetWithParams(path, { ...refParams, ...extra }),
         ),
-        stsProxyGetWithParamsOptional(STS_API_PATHS.projectsAll, refParams),
+        ...(canViewAllProjects
+          ? [stsProxyGetWithParamsOptional(STS_API_PATHS.projectsAll, refParams)]
+          : []),
       ]);
       const byKey = new Map<string, unknown>();
       const errors: string[] = [];
@@ -367,15 +375,17 @@ export const useHarvestingDataStore = create<HarvestingDataState>()(
           errors.push(`${key}: ${msg}`);
         }
       });
-      const allProjectsRs = settled[entries.length];
-      if (allProjectsRs?.status === "fulfilled" && allProjectsRs.value != null) {
-        byKey.set("allProjects", allProjectsRs.value);
-      } else if (allProjectsRs?.status === "rejected") {
-        const msg =
-          allProjectsRs.reason instanceof Error
-            ? allProjectsRs.reason.message
-            : String(allProjectsRs.reason);
-        errors.push(`allProjects: ${msg}`);
+      if (canViewAllProjects) {
+        const allProjectsRs = settled[entries.length];
+        if (allProjectsRs?.status === "fulfilled" && allProjectsRs.value != null) {
+          byKey.set("allProjects", allProjectsRs.value);
+        } else if (allProjectsRs?.status === "rejected") {
+          const msg =
+            allProjectsRs.reason instanceof Error
+              ? allProjectsRs.reason.message
+              : String(allProjectsRs.reason);
+          errors.push(`allProjects: ${msg}`);
+        }
       }
 
       const farmZones = byKey.get("farmZones");
@@ -398,9 +408,11 @@ export const useHarvestingDataStore = create<HarvestingDataState>()(
           ? asArray(activeCountriesRaw)
           : filterActiveCountryRows(countriesArr);
       const roleVisibleProjectsArr = asArray(roleVisibleProjects);
-      const allProjectsArr = asArray(allProjects);
+      const allProjectsArr = canViewAllProjects ? asArray(allProjects) : [];
       const resolvedAllProjects =
-        allProjectsArr.length > 0 ? allProjectsArr : roleVisibleProjectsArr;
+        canViewAllProjects && allProjectsArr.length > 0
+          ? allProjectsArr
+          : roleVisibleProjectsArr;
       const referenceUserId =
         refParams.react_client_user_id != null &&
         Number.isFinite(Number(refParams.react_client_user_id))

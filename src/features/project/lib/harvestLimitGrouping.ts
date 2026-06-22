@@ -76,7 +76,9 @@ export function harvestLimitRemainingMapKeyForPlanRow(
 }
 
 /**
- * Match one requirement line (product + uom + load_type). Sod→Sprig Kg includes legacy M² rows.
+ * Match one requirement line (product + uom + load_type).
+ * When the requirement has `load_type`, only the same harvest load type counts
+ * (no Sprig ↔ Sod→Sprig cross-count). Legacy Sod→Sprig plan rows may still use M² UOM.
  * Mirrors PHP `_paceRecalcPlanRowMatchesRequirementLine`.
  */
 export function planRowMatchesRequirementForHarvestLimit(
@@ -89,11 +91,6 @@ export function planRowMatchesRequirementForHarvestLimit(
 
   const rowUom = normalizeUomForHarvestMatch(row.uom);
   const rowLoad = harvestLimitLoadTypeFromPlanRow(row);
-
-  if (requiredLoadType === "sod_to_sprig" && requiredUomNorm === "kg") {
-    if (rowLoad === "sod_to_sprig") return true;
-    return rowLoad === "sprig" && rowUom === "kg";
-  }
 
   if (requiredLoadType && rowLoad !== requiredLoadType) return false;
   if (requiredUomNorm && rowUom !== requiredUomNorm) {

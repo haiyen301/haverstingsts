@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Upload, FlaskConical, CheckCircle2, Download, ExternalLink } from "lucide-react";
+import { Upload, FlaskConical, CheckCircle2, Download, ExternalLink, Loader2 } from "lucide-react";
 import * as XLSX from "xlsx";
 
 import RequireAuth from "@/features/auth/RequireAuth";
@@ -13,8 +13,25 @@ import { dispatchRouteAlert } from "@/features/alerts/dispatchRouteAlert";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { useAuthUserStore } from "@/shared/store/authUserStore";
 import { canAccessModule } from "@/shared/auth/permissions";
+import { projectCatalogForUser } from "@/shared/lib/projectCatalog";
+import { queueForecastFullRebuildAfterHarvestImport } from "@/features/forecasting/forecastSnapshotApi";
+import {
+  createHarvestImportForecastBatch,
+  createHarvestImportSessionId,
+} from "@/features/harvesting/lib/harvestImportForecastBatch";
 import { submitFlutterHarvest } from "@/features/harvesting/api/flutterHarvestSubmit";
+import {
+  aggregateGrassRequirementsForProject,
+  createMinimalProjectForHarvestImport,
+  resolveDefaultProjectTableId,
+  type GrassRequirementLine,
+  type MissingProjectForHarvestImport,
+} from "@/features/harvesting/lib/createMinimalProjectForHarvestImport";
+import { buildProjectGrassRequirementsEditHref } from "@/features/harvesting/lib/buildProjectEditHref";
+import { downloadHarvestImportCreatedProjects } from "@/features/harvesting/lib/harvestImportCreatedProjectsExport";
+import { resolveHarvestImportDeliveryDate } from "@/features/harvesting/lib/harvestImportDeliveryDate";
 import { downloadHarvestImportErrors } from "@/features/harvesting/lib/harvestImportErrorExport";
+import { normalizeHarvestImportGrassLabel } from "@/features/harvesting/lib/harvestImportGrassAliases";
 import { stsProxyGetHarvestingIndex, stsProxyPostJson } from "@/shared/api/stsProxyClient";
 import { STS_API_PATHS } from "@/shared/api/stsApiPaths";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
@@ -24,6 +41,7 @@ import { compareNumbers, compareStrings } from "@/shared/lib/tableSort";
 import { cn } from "@/lib/utils";
 import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
 import {
+  defaultHarvestTypeForUom,
   harvestTypeDisplayLabel,
   normalizeHarvestTypeStorageKey,
 } from "@/shared/lib/harvestType";
@@ -82,6 +100,7 @@ type MappedRow = {
   actualDate: string;
   actualHarvestEndDate: string;
   deliveryDate: string;
+  effectiveDeliveryDate: string;
   shipmentRequiredDate: string;
   doSoDate: string;
   doSoNumber: string;
@@ -117,6 +136,16 @@ type ImportLog = {
   grass?: string;
   quantity?: string;
   uom?: string;
+};
+
+type CreatedProjectDuringImport = {
+  projectName: string;
+  projectId: string;
+  rowId: string;
+  tableId: string;
+  reason: MissingProjectForHarvestImport["reason"];
+  customerName?: string;
+  grassRequirements: GrassRequirementLine[];
 };
 
 const HARVEST_IMPORT_RETURN_TO = "/harvest/import";
@@ -381,14 +410,37 @@ export default function HarvestImportPage() {
   const [dynamicRowCache, setDynamicRowCache] = useState<
     Map<string, { idRow: string; tableId: string }>
   >(new Map());
+  const [missingProjectsPrompt, setMissingProjectsPrompt] = useState<{
+    projects: MissingProjectForHarvestImport[];
+    rowNumbers: Set<number>;
+  } | null>(null);
+  const [creatingMissingProjects, setCreatingMissingProjects] = useState(false);
+  const [createdProjectIdByName, setCreatedProjectIdByName] = useState<
+    Map<string, string>
+  >(new Map());
+  const [createdProjectsDuringImport, setCreatedProjectsDuringImport] = useState<
+    CreatedProjectDuringImport[]
+  >([]);
+  const [downloadingCreatedProjects, setDownloadingCreatedProjects] = useState(false);
+  const [loadingFile, setLoadingFile] = useState(false);
 
   const farms = useHarvestingDataStore((s) => s.farms);
   const projects = useHarvestingDataStore((s) => s.projects);
-  const allProjects = useHarvestingDataStore((s) => s.allProjects);
+  const allProjectsStore = useHarvestingDataStore((s) => s.allProjects);
+  const roleVisibleProjects = useHarvestingDataStore((s) => s.roleVisibleProjects);
+  const projectCatalog = useMemo(
+    () =>
+      projectCatalogForUser(
+        { allProjects: allProjectsStore, roleVisibleProjects, projects },
+        user,
+      ),
+    [allProjectsStore, projects, roleVisibleProjects, user],
+  );
   const products = useHarvestingDataStore((s) => s.products);
   const fetchAllHarvestingReferenceData = useHarvestingDataStore(
     (s) => s.fetchAllHarvestingReferenceData,
   );
+  const upsertProjectInList = useHarvestingDataStore((s) => s.upsertProjectInList);
 
   useEffect(() => {
     void fetchAllHarvestingReferenceData();
@@ -423,7 +475,7 @@ export default function HarvestImportPage() {
 
   const customerCandidates = useMemo(() => {
     const m = new Map<string, string>();
-    for (const item of allProjects as unknown[]) {
+    for (const item of projectCatalog as unknown[]) {
       if (!item || typeof item !== "object") continue;
       const row = item as Record<string, unknown>;
       const cid = toStringSafe(row.odoo_customer_id);
@@ -433,7 +485,9 @@ export default function HarvestImportPage() {
       if (!m.has(cid)) m.set(cid, label);
     }
     return Array.from(m.entries()).map(([id, label]) => ({ id, label }));
-  }, [allProjects]);
+  }, [projectCatalog]);
+
+  const normalizeProjectNameKey = (raw: string): string => normalizeLoose(raw);
 
   const resolveByLooseText = (
     raw: string,
@@ -458,13 +512,37 @@ export default function HarvestImportPage() {
     return like?.id ?? "";
   };
 
+  const resolveProjectId = (
+    projectName: string,
+    overrides?: Map<string, string>,
+  ): string => {
+    const key = normalizeProjectNameKey(projectName);
+    const fromOverrides = overrides?.get(key);
+    if (fromOverrides) return fromOverrides;
+    const fromCreated = createdProjectIdByName.get(key);
+    if (fromCreated) return fromCreated;
+    return resolveByLooseText(projectName, projectCandidates);
+  };
+
+  const resolveProductId = (grass: string): string =>
+    resolveByLooseText(normalizeHarvestImportGrassLabel(grass), productCandidates);
+
   const mappedRows = useMemo((): MappedRow[] => {
     if (!mapping) return [];
     const dateOpts = { date1904: workbookDate1904 };
+    const deliveryColumnMapped = Boolean(mapping.deliveryDate?.trim());
     return rows.map((r, i) => {
       const get = (k: FieldKey) => r[mapping[k]];
       const ht = normalizeHarvestType(toStringSafe(get("harvestType")));
       const uom = normalizeUom(toStringSafe(get("uom")), ht.uom);
+      const harvestType = ht.harvestType || defaultHarvestTypeForUom(uom);
+      const estimatedDate = tryParseDate(get("estimatedDate"), dateOpts);
+      const actualDate = tryParseDate(get("actualDate"), dateOpts);
+      const deliveryDate = tryParseDate(get("deliveryDate"), dateOpts);
+      const effectiveDeliveryDate = resolveHarvestImportDeliveryDate(
+        { deliveryDate, actualDate, estimatedDate },
+        deliveryColumnMapped,
+      );
       return {
         rowNumber: i + 2,
         source: r,
@@ -473,18 +551,19 @@ export default function HarvestImportPage() {
         name: toStringSafe(get("name")),
         farm: toStringSafe(get("farm")),
         zone: toStringSafe(get("zone")),
-        grass: toStringSafe(get("grass")),
+        grass: normalizeHarvestImportGrassLabel(toStringSafe(get("grass"))),
         turfType: toStringSafe(get("turfType")),
-        harvestType: ht.harvestType || "",
+        harvestType,
         quantity: toStringSafe(get("quantity")).replaceAll(",", ""),
         uom,
         refHrvQtySprig: toStringSafe(get("refHrvQtySprig")).replaceAll(",", ""),
         referenceHarvestUom: toStringSafe(get("referenceHarvestUom")),
-        estimatedDate: tryParseDate(get("estimatedDate"), dateOpts),
+        estimatedDate,
         estimatedDateEnd: tryParseDate(get("estimatedDateEnd"), dateOpts),
-        actualDate: tryParseDate(get("actualDate"), dateOpts),
+        actualDate,
         actualHarvestEndDate: tryParseDate(get("actualHarvestEndDate"), dateOpts),
-        deliveryDate: tryParseDate(get("deliveryDate"), dateOpts),
+        deliveryDate,
+        effectiveDeliveryDate,
         shipmentRequiredDate: tryParseDate(get("shipmentRequiredDate"), dateOpts),
         doSoDate: tryParseDate(get("doSoDate"), dateOpts),
         doSoNumber: toStringSafe(get("doSoNumber")),
@@ -498,6 +577,46 @@ export default function HarvestImportPage() {
       };
     });
   }, [mapping, rows, workbookDate1904]);
+
+  const customerNameForProject = (projectName: string): string => {
+    const key = normalizeProjectNameKey(projectName);
+    for (const row of mappedRows) {
+      if (normalizeProjectNameKey(row.projectName) !== key) continue;
+      const customer = row.customerName.trim();
+      if (customer) return customer;
+    }
+    return "";
+  };
+
+  const productLabelById = (productId: string): string =>
+    productCandidates.find((p) => p.id === productId)?.label ?? productId;
+
+  const isBusy =
+    loadingFile ||
+    testing ||
+    importing ||
+    creatingMissingProjects ||
+    downloadingErrors ||
+    downloadingCreatedProjects;
+
+  const busyMessage = (() => {
+    if (loadingFile) return t("processingFile");
+    if (importing) return t("importingHarvests");
+    if (creatingMissingProjects) return t("creatingMissingProjects");
+    if (testing) return t("testing");
+    if (downloadingErrors) return t("downloadingErrors");
+    if (downloadingCreatedProjects) return t("downloadingCreatedProjects");
+    return t("processingBusy");
+  })();
+
+  useEffect(() => {
+    if (!isBusy) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [isBusy]);
 
   type HarvestImportSortKey =
     | "index"
@@ -607,13 +726,286 @@ export default function HarvestImportPage() {
     return { idRow, tableId };
   };
 
+  const findProjectsNeedingSetup = async (
+    rowsToImport: MappedRow[],
+  ): Promise<MissingProjectForHarvestImport[]> => {
+    const byName = new Map<string, { projectName: string; projectId: string }>();
+    for (const r of rowsToImport) {
+      const name = r.projectName.trim();
+      if (!name) continue;
+      const key = normalizeProjectNameKey(name);
+      if (byName.has(key)) continue;
+      const projectId = resolveProjectId(name);
+      byName.set(key, { projectName: name, projectId });
+    }
+
+    const setupRows: MissingProjectForHarvestImport[] = [];
+    for (const { projectName, projectId } of byName.values()) {
+      let reason: MissingProjectForHarvestImport["reason"] | null = null;
+      if (!projectId) {
+        reason = "not_found";
+      } else {
+        const dynamicRow = await getDynamicRowForProjectId(projectId);
+        if (!dynamicRow) reason = "no_dynamic_row";
+      }
+      if (!reason) continue;
+
+      const grassRequirements = aggregateGrassRequirementsForProject(
+        projectName,
+        mappedRows,
+        resolveProductId,
+      );
+      if (!grassRequirements.length) continue;
+
+      setupRows.push({
+        projectName,
+        reason,
+        existingProjectId: projectId || undefined,
+        grassRequirements,
+      });
+    }
+    return setupRows;
+  };
+
+  const createMissingProjectsForImport = async (
+    projects: MissingProjectForHarvestImport[],
+  ): Promise<{
+    ids: Map<string, string>;
+    created: CreatedProjectDuringImport[];
+    dynamicRows: Map<string, { idRow: string; tableId: string }>;
+  }> => {
+    const tableId = await resolveDefaultProjectTableId();
+    if (!tableId) {
+      throw new Error(t("missingProjectTableId"));
+    }
+    const ids = new Map<string, string>();
+    const created: CreatedProjectDuringImport[] = [];
+    const nextDynamicCache = new Map(dynamicRowCache);
+    for (const item of projects) {
+      const { projectId, project, rowId, tableId: savedTableId } =
+        await createMinimalProjectForHarvestImport({
+        projectName: item.projectName,
+        tableId,
+        grassRequirements: item.grassRequirements,
+        existingProjectId:
+          item.reason === "no_dynamic_row" ? item.existingProjectId : undefined,
+      });
+      const dynamicRow = await getDynamicRowForProjectId(projectId);
+      const resolvedRowId = dynamicRow?.idRow || rowId;
+      const resolvedTableId = dynamicRow?.tableId || savedTableId || tableId;
+      if (resolvedRowId && resolvedTableId) {
+        nextDynamicCache.set(projectId, {
+          idRow: resolvedRowId,
+          tableId: resolvedTableId,
+        });
+      }
+      const key = normalizeProjectNameKey(item.projectName);
+      ids.set(key, projectId);
+      created.push({
+        projectName: item.projectName,
+        projectId,
+        rowId: resolvedRowId,
+        tableId: resolvedTableId,
+        reason: item.reason,
+        customerName: customerNameForProject(item.projectName) || undefined,
+        grassRequirements: item.grassRequirements,
+      });
+      if (project) upsertProjectInList(project);
+    }
+    setDynamicRowCache(nextDynamicCache);
+    await fetchAllHarvestingReferenceData(true);
+    return { ids, created, dynamicRows: nextDynamicCache };
+  };
+
+  const runImportRows = async (
+    rowNumbers: Set<number>,
+    projectIdOverrides?: Map<string, string>,
+    dynamicRowOverrides?: Map<string, { idRow: string; tableId: string }>,
+  ) => {
+    setImporting(true);
+    setError("");
+    setSummary("");
+    const logs: ImportLog[] = [];
+    const rowsToImport = mappedRows.filter((r) => rowNumbers.has(r.rowNumber));
+    const importSessionId = createHarvestImportSessionId();
+    const importTotal = rowsToImport.length;
+    let importIndex = 0;
+    try {
+      for (const r of rowsToImport) {
+        importIndex += 1;
+        const projectId = resolveProjectId(r.projectName, projectIdOverrides);
+        const farmId = resolveByLooseText(r.farm, farmCandidates);
+        const productId = resolveProductId(r.grass);
+        const customerIdFromName = resolveByLooseText(r.customerName, customerCandidates);
+        const assignedTo = user?.id != null ? String(user.id) : "";
+        const selectedProjectRow = (projectCatalog as unknown[]).find((item) => {
+          if (!item || typeof item !== "object") return false;
+          const row = item as Record<string, unknown>;
+          return toStringSafe(row.id) === projectId;
+        }) as Record<string, unknown> | undefined;
+        const customerFromProject = toStringSafe(selectedProjectRow?.odoo_customer_id);
+        const customerId = customerIdFromName || customerFromProject || undefined;
+        try {
+          if (!projectId) {
+            throw new Error(t("warnProjectNotFound", { value: r.projectName }));
+          }
+          if (!farmId) {
+            throw new Error(t("warnFarmNotFound", { value: r.farm }));
+          }
+          if (!productId) {
+            throw new Error(t("warnGrassNotFound", { value: r.grass }));
+          }
+          const qty = Number.parseFloat(r.quantity);
+          if (!Number.isFinite(qty) || qty <= 0) {
+            throw new Error(t("warnQuantityInvalid"));
+          }
+          if (!r.estimatedDate && !r.actualDate) {
+            throw new Error(t("warnDatePairEmpty"));
+          }
+          if (!r.harvestType) {
+            throw new Error(t("warnHarvestTypeInvalid"));
+          }
+          const dynamicRow =
+            dynamicRowOverrides?.get(projectId) ??
+            (await getDynamicRowForProjectId(projectId));
+          if (!dynamicRow) {
+            throw new Error(t("errDynamicRowNotFound"));
+          }
+
+          const saveResult = await submitFlutterHarvest(
+            {
+              projectId,
+              productId,
+              farmId,
+              zone: r.zone,
+              quantity: r.quantity,
+              uom: r.uom,
+              harvestType: r.harvestType,
+              name: r.name || undefined,
+              turfType: r.turfType || undefined,
+              estimatedHarvestDate: r.estimatedDate,
+              estimatedHarvestEndDate: r.estimatedDateEnd || undefined,
+              actualHarvestDate: r.actualDate,
+              actualHarvestEndDate: r.actualHarvestEndDate || undefined,
+              deliveryHarvestDate: r.effectiveDeliveryDate,
+              shipmentRequiredDate: r.shipmentRequiredDate || undefined,
+              doSoDate: r.doSoDate,
+              doSoNumber: r.doSoNumber,
+              truckNote: r.truckNote,
+              shippingDispatchDetails: r.shippingDispatchDetails || undefined,
+              generalNote: r.generalNote || undefined,
+              licensePlate: r.licensePlate,
+              paymentId: r.paymentId || undefined,
+              refHrvQtySprig: r.refHrvQtySprig || undefined,
+              referenceHarvestUom: r.referenceHarvestUom || undefined,
+              country: r.country || undefined,
+              customerId,
+              assignedTo,
+              createdBy: user?.id != null ? String(user.id) : undefined,
+              harvestedArea: r.harvestedArea || undefined,
+              forecastBatch: createHarvestImportForecastBatch(
+                importSessionId,
+                importIndex,
+                importTotal,
+              ),
+            },
+            {},
+          );
+          const harvestId = toStringSafe(saveResult.harvest?.id);
+          logs.push({
+            rowNumber: r.rowNumber,
+            status: "success",
+            message: harvestId
+              ? t("logImportSuccess", { id: harvestId })
+              : `Imported successfully (id_row=${dynamicRow.idRow}, table_id=${dynamicRow.tableId})`,
+            source: r.source,
+            harvestId: harvestId || undefined,
+            projectName: r.projectName,
+            farm: r.farm,
+            zone: r.zone,
+            grass: r.grass,
+            quantity: r.quantity,
+            uom: r.uom,
+          });
+        } catch (e) {
+          logs.push({
+            rowNumber: r.rowNumber,
+            status: "error",
+            message: e instanceof Error ? e.message : t("logImportFailed"),
+            source: r.source,
+          });
+        }
+      }
+      setImportLogs(logs);
+      const ok = logs.filter((x) => x.status === "success").length;
+      const bad = logs.filter((x) => x.status === "error").length;
+      let summaryText = t("summaryDone", { ok, bad });
+      if (ok > 0) {
+        try {
+          await queueForecastFullRebuildAfterHarvestImport(importSessionId);
+          summaryText = `${summaryText} ${t("forecastRebuildQueued")}`;
+        } catch (e) {
+          console.error("Failed to queue forecast rebuild after harvest import", e);
+          summaryText = `${summaryText} ${t("forecastRebuildQueueFailed")}`;
+        }
+        void dispatchRouteAlert({
+          routeKey: "harvest_import",
+          title: t("alertImportHarvestTitle", { ok }),
+          message: t("alertImportHarvestMessage", { ok, bad }),
+          href: "/harvest/import",
+          sourceEntityId: currentFileHash.trim() || `harvest-import-${Date.now()}`,
+        });
+      }
+      setSummary(summaryText);
+      if (currentFileHash) {
+        localStorage.setItem("stsrenew:harvest-import:last-file-hash", currentFileHash);
+      }
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const confirmCreateMissingProjects = async () => {
+    if (!missingProjectsPrompt) return;
+    setCreatingMissingProjects(true);
+    setError("");
+    try {
+      const created = await createMissingProjectsForImport(missingProjectsPrompt.projects);
+      setCreatedProjectIdByName((prev) => {
+        const next = new Map(prev);
+        for (const [k, v] of created.ids) next.set(k, v);
+        return next;
+      });
+      setCreatedProjectsDuringImport(created.created);
+      const rowNumbers = missingProjectsPrompt.rowNumbers;
+      setMissingProjectsPrompt(null);
+      setCreatingMissingProjects(false);
+      await runImportRows(rowNumbers, created.ids, created.dynamicRows);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t("createMissingProjectsFailed"));
+      setImportPickerOpen(true);
+    } finally {
+      setCreatingMissingProjects(false);
+    }
+  };
+
+  const cancelMissingProjectsPrompt = () => {
+    setMissingProjectsPrompt(null);
+    setImportPickerOpen(true);
+  };
+
   const handleFile = async (file: File) => {
+    setLoadingFile(true);
     setError("");
     setSummary("");
     setTestResult(null);
     setImportLogs([]);
     setImportPickerOpen(false);
     setSelectedImportRows(new Set());
+    setMissingProjectsPrompt(null);
+    setCreatedProjectIdByName(new Map());
+    setCreatedProjectsDuringImport([]);
+    try {
     const hash = await computeFileHash(file);
     setCurrentFileHash(hash);
     const lastHash = localStorage.getItem("stsrenew:harvest-import:last-file-hash") ?? "";
@@ -648,6 +1040,9 @@ export default function HarvestImportPage() {
     setHeaders(h);
     setFileName(file.name);
     setMapping(suggestMapping(h));
+    } finally {
+      setLoadingFile(false);
+    }
   };
 
   const runTest = async () => {
@@ -704,6 +1099,7 @@ export default function HarvestImportPage() {
               estimatedDate: r.estimatedDate,
               actualDate: r.actualDate,
               deliveryDate: r.deliveryDate,
+              effectiveDeliveryDate: r.effectiveDeliveryDate,
               doSoDate: r.doSoDate,
             },
           })),
@@ -721,7 +1117,7 @@ export default function HarvestImportPage() {
         if (!Number.isFinite(qty) || qty <= 0) w.push(t("warnQuantityInvalid"));
         if (!r.estimatedDate && !r.actualDate) w.push(t("warnDatePairEmpty"));
         if (!r.harvestType) w.push(t("warnHarvestTypeInvalid"));
-        const projectId = resolveByLooseText(r.projectName, projectCandidates);
+        const projectId = resolveProjectId(r.projectName);
         if (r.projectName && !projectId) {
           w.push(t("warnProjectNotFound", { value: r.projectName }));
         }
@@ -729,7 +1125,7 @@ export default function HarvestImportPage() {
         if (r.farm && !farmId) {
           w.push(t("warnFarmNotFound", { value: r.farm }));
         }
-        const productId = resolveByLooseText(r.grass, productCandidates);
+        const productId = resolveProductId(r.grass);
         if (r.grass && !productId) {
           w.push(t("warnGrassNotFound", { value: r.grass }));
         }
@@ -738,12 +1134,12 @@ export default function HarvestImportPage() {
             projectId,
             farmId: resolveByLooseText(r.farm, farmCandidates),
             zone: r.zone,
-            productId: resolveByLooseText(r.grass, productCandidates),
+            productId: resolveProductId(r.grass),
             uom: r.uom,
             quantity: r.quantity,
             estimatedDate: r.estimatedDate,
             actualDate: r.actualDate,
-            deliveryDate: r.deliveryDate,
+            deliveryDate: r.effectiveDeliveryDate,
           });
           if (seenBatchKeys.has(rowKey)) {
             w.push(t("warnDuplicateFile"));
@@ -801,127 +1197,24 @@ export default function HarvestImportPage() {
       return;
     }
     setImportPickerOpen(false);
-    setImporting(true);
     setError("");
-    setSummary("");
-    const logs: ImportLog[] = [];
     const rowsToImport = mappedRows.filter((r) => rowNumbers.has(r.rowNumber));
+    setImporting(true);
     try {
-      for (const r of rowsToImport) {
-        const projectId = resolveByLooseText(r.projectName, projectCandidates);
-        const farmId = resolveByLooseText(r.farm, farmCandidates);
-        const productId = resolveByLooseText(r.grass, productCandidates);
-        const customerIdFromName = resolveByLooseText(r.customerName, customerCandidates);
-        const assignedTo = user?.id != null ? String(user.id) : "";
-        const selectedProjectRow = (allProjects as unknown[]).find((item) => {
-          if (!item || typeof item !== "object") return false;
-          const row = item as Record<string, unknown>;
-          return toStringSafe(row.id) === projectId;
-        }) as Record<string, unknown> | undefined;
-        const customerFromProject = toStringSafe(selectedProjectRow?.odoo_customer_id);
-        const customerId = customerIdFromName || customerFromProject || undefined;
-        try {
-          if (!projectId) {
-            throw new Error(t("warnProjectNotFound", { value: r.projectName }));
-          }
-          if (!farmId) {
-            throw new Error(t("warnFarmNotFound", { value: r.farm }));
-          }
-          if (!productId) {
-            throw new Error(t("warnGrassNotFound", { value: r.grass }));
-          }
-          const qty = Number.parseFloat(r.quantity);
-          if (!Number.isFinite(qty) || qty <= 0) {
-            throw new Error(t("warnQuantityInvalid"));
-          }
-          if (!r.estimatedDate && !r.actualDate) {
-            throw new Error(t("warnDatePairEmpty"));
-          }
-          if (!r.harvestType) {
-            throw new Error(t("warnHarvestTypeInvalid"));
-          }
-          const dynamicRow = await getDynamicRowForProjectId(projectId);
-          if (!dynamicRow) {
-            throw new Error(t("errDynamicRowNotFound"));
-          }
-
-          const saveResult = await submitFlutterHarvest(
-            {
-              projectId,
-              productId,
-              farmId,
-              zone: r.zone,
-              quantity: r.quantity,
-              uom: r.uom,
-              harvestType: r.harvestType,
-              name: r.name || undefined,
-              turfType: r.turfType || undefined,
-              estimatedHarvestDate: r.estimatedDate,
-              estimatedHarvestEndDate: r.estimatedDateEnd || undefined,
-              actualHarvestDate: r.actualDate,
-              actualHarvestEndDate: r.actualHarvestEndDate || undefined,
-              deliveryHarvestDate: r.deliveryDate,
-              shipmentRequiredDate: r.shipmentRequiredDate || undefined,
-              doSoDate: r.doSoDate,
-              doSoNumber: r.doSoNumber,
-              truckNote: r.truckNote,
-              shippingDispatchDetails: r.shippingDispatchDetails || undefined,
-              generalNote: r.generalNote || undefined,
-              licensePlate: r.licensePlate,
-              paymentId: r.paymentId || undefined,
-              refHrvQtySprig: r.refHrvQtySprig || undefined,
-              referenceHarvestUom: r.referenceHarvestUom || undefined,
-              country: r.country || undefined,
-              customerId,
-              assignedTo,
-              createdBy: user?.id != null ? String(user.id) : undefined,
-              harvestedArea: r.harvestedArea || undefined,
-            },
-            {},
-          );
-          const harvestId = toStringSafe(saveResult.harvest?.id);
-          logs.push({
-            rowNumber: r.rowNumber,
-            status: "success",
-            message: harvestId
-              ? t("logImportSuccess", { id: harvestId })
-              : `Imported successfully (id_row=${dynamicRow.idRow}, table_id=${dynamicRow.tableId})`,
-            source: r.source,
-            harvestId: harvestId || undefined,
-            projectName: r.projectName,
-            farm: r.farm,
-            zone: r.zone,
-            grass: r.grass,
-            quantity: r.quantity,
-            uom: r.uom,
-          });
-        } catch (e) {
-          logs.push({
-            rowNumber: r.rowNumber,
-            status: "error",
-            message: e instanceof Error ? e.message : t("logImportFailed"),
-            source: r.source,
-          });
-        }
-      }
-      setImportLogs(logs);
-      const ok = logs.filter((x) => x.status === "success").length;
-      const bad = logs.filter((x) => x.status === "error").length;
-      setSummary(t("summaryDone", { ok, bad }));
-      if (ok > 0) {
-        void dispatchRouteAlert({
-          routeKey: "harvest_import",
-          title: t("alertImportHarvestTitle", { ok }),
-          message: t("alertImportHarvestMessage", { ok, bad }),
-          href: "/harvest/import",
-          sourceEntityId: currentFileHash.trim() || `harvest-import-${Date.now()}`,
+      const projectsNeedingSetup = await findProjectsNeedingSetup(rowsToImport);
+      if (projectsNeedingSetup.length > 0) {
+        setMissingProjectsPrompt({
+          projects: projectsNeedingSetup,
+          rowNumbers,
         });
+        setImporting(false);
+        return;
       }
-      if (currentFileHash) {
-        localStorage.setItem("stsrenew:harvest-import:last-file-hash", currentFileHash);
-      }
-    } finally {
+      await runImportRows(rowNumbers);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t("logImportFailed"));
       setImporting(false);
+      setImportPickerOpen(true);
     }
   };
 
@@ -930,6 +1223,24 @@ export default function HarvestImportPage() {
   const importSuccessLogs = importLogs.filter(
     (x) => x.status === "success" && x.harvestId,
   );
+
+  const downloadCreatedProjectsExcel = async () => {
+    if (!createdProjectsDuringImport.length || downloadingCreatedProjects) return;
+    setDownloadingCreatedProjects(true);
+    setError("");
+    try {
+      await downloadHarvestImportCreatedProjects(
+        createdProjectsDuringImport,
+        productLabelById,
+        typeof window !== "undefined" ? window.location.origin : undefined,
+        t("createdProjectExcelStatus"),
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t("downloadCreatedProjectsFailed"));
+    } finally {
+      setDownloadingCreatedProjects(false);
+    }
+  };
 
   const downloadErrorRows = async () => {
     if (!importErrorLogs.length || downloadingErrors) return;
@@ -1178,6 +1489,70 @@ export default function HarvestImportPage() {
                                 <ExternalLink className="h-3.5 w-3.5" />
                                 {t("viewHarvestDetail")}
                               </Link>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  ) : null}
+
+                  {createdProjectsDuringImport.length ? (
+                    <div className="rounded-md border border-sky-200 bg-sky-50 p-3 text-sm">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="font-medium text-sky-900">
+                            {t("createdProjectsTitle", {
+                              count: createdProjectsDuringImport.length,
+                            })}
+                          </p>
+                          <p className="mt-1 text-sky-800">
+                            {t("createdProjectsHint")}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => void downloadCreatedProjectsExcel()}
+                          disabled={downloadingCreatedProjects}
+                          className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-sky-300 px-3 py-2 text-sm text-sky-900 hover:bg-sky-100 disabled:opacity-60"
+                        >
+                          <Download className="h-4 w-4" />
+                          {downloadingCreatedProjects
+                            ? t("downloadingCreatedProjects")
+                            : t("downloadCreatedProjects")}
+                        </button>
+                      </div>
+                      <ul className="mt-3 space-y-2">
+                        {createdProjectsDuringImport.map((project) => {
+                          const editHref = buildProjectGrassRequirementsEditHref({
+                            rowId: project.rowId,
+                            tableId: project.tableId,
+                            returnTo: HARVEST_IMPORT_RETURN_TO,
+                          });
+                          return (
+                            <li
+                              key={`created-project-${project.projectId}`}
+                              className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-sky-200 bg-white px-3 py-2"
+                            >
+                              <div className="min-w-0 text-sky-950">
+                                <p className="font-medium">{project.projectName}</p>
+                                <p className="text-xs text-sky-700">
+                                  {project.reason === "not_found"
+                                    ? t("createMissingProjectReasonNotFound")
+                                    : t("createMissingProjectReasonNoDynamicRow")}
+                                  {project.customerName
+                                    ? ` · ${project.customerName}`
+                                    : ""}
+                                </p>
+                              </div>
+                              {editHref ? (
+                                <Link
+                                  href={editHref}
+                                  className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-sky-300 px-3 py-1.5 text-sm font-medium text-sky-900 hover:bg-sky-100"
+                                >
+                                  <ExternalLink className="h-3.5 w-3.5" />
+                                  {t("editCreatedProject")}
+                                </Link>
+                              ) : null}
                             </li>
                           );
                         })}
@@ -1449,9 +1824,110 @@ export default function HarvestImportPage() {
               </div>
             </div>
           ) : null}
+
+          {missingProjectsPrompt ? (
+            <div
+              className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4"
+              role="presentation"
+              onClick={() => {
+                if (!creatingMissingProjects) cancelMissingProjectsPrompt();
+              }}
+            >
+              <div
+                className="flex max-h-[90vh] w-full max-w-2xl flex-col rounded-xl border border-gray-200 bg-white text-gray-900 shadow-xl"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="harvest-import-create-projects-title"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="border-b border-gray-200 px-5 py-4">
+                  <h2
+                    id="harvest-import-create-projects-title"
+                    className="text-lg font-semibold text-gray-900"
+                  >
+                    {t("createMissingProjectsTitle")}
+                  </h2>
+                  <p className="mt-1 text-sm text-gray-600">
+                    {t("createMissingProjectsHint")}
+                  </p>
+                </div>
+
+                <div className="min-h-0 flex-1 space-y-4 overflow-auto px-5 py-4">
+                  {missingProjectsPrompt.projects.map((item) => (
+                    <div
+                      key={item.projectName}
+                      className="rounded-lg border border-amber-200 bg-amber-50/50 p-3"
+                    >
+                      <p className="font-medium text-gray-900">{item.projectName}</p>
+                      <p className="mt-1 text-sm text-amber-800">
+                        {item.reason === "not_found"
+                          ? t("createMissingProjectReasonNotFound")
+                          : t("createMissingProjectReasonNoDynamicRow")}
+                      </p>
+                      <ul className="mt-2 space-y-1 text-sm text-gray-700">
+                        {item.grassRequirements.map((g) => {
+                          const grassLabel =
+                            productCandidates.find((p) => p.id === g.product_id)?.label ??
+                            g.product_id;
+                          return (
+                            <li key={`${item.projectName}-${g.product_id}-${g.load_type}`}>
+                              {grassLabel}: {g.quantity} {g.uom} (
+                              {harvestTypeDisplayLabel(g.load_type)})
+                            </li>
+                          );
+                        })}
+                      </ul>
+                      <p className="mt-2 text-xs text-gray-500">
+                        {t("createMissingProjectGrassFromExcel")}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex justify-end gap-2 border-t border-gray-200 px-5 py-4">
+                  <button
+                    type="button"
+                    onClick={cancelMissingProjectsPrompt}
+                    disabled={creatingMissingProjects}
+                    className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50 disabled:opacity-60"
+                  >
+                    {t("cancel")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void confirmCreateMissingProjects()}
+                    disabled={creatingMissingProjects}
+                    className="inline-flex items-center gap-2 rounded-lg bg-button-primary px-4 py-2 text-sm text-white hover:bg-[#196A40] disabled:opacity-60"
+                  >
+                    <CheckCircle2 className="h-4 w-4" />
+                    {creatingMissingProjects
+                      ? t("creatingMissingProjects")
+                      : t("confirmCreateMissingProjects")}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </div>
         )}
       </DashboardLayout>
+
+      {isBusy && !importDenied ? (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-4"
+          role="alertdialog"
+          aria-modal="true"
+          aria-busy="true"
+          aria-live="assertive"
+          aria-label={busyMessage}
+        >
+          <div className="flex max-w-sm flex-col items-center gap-3 rounded-xl border border-gray-200 bg-white px-6 py-5 text-center shadow-xl">
+            <Loader2 className="h-8 w-8 animate-spin text-button-primary" aria-hidden />
+            <p className="text-sm font-medium text-gray-900">{busyMessage}</p>
+            <p className="text-xs text-gray-600">{t("processingBusyHint")}</p>
+          </div>
+        </div>
+      ) : null}
     </RequireAuth>
   );
 }

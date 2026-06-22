@@ -54,6 +54,7 @@ import {
   type FarmZoneReferenceRow,
   zoneIdToLabel,
 } from "@/shared/lib/harvestReferenceData";
+import { projectCatalogForUser } from "@/shared/lib/projectCatalog";
 import { parseJsonMaybe } from "@/shared/lib/parseJsonMaybe";
 import {
   calculateDeliveredQuantityForRequirementLine,
@@ -840,6 +841,19 @@ export default function ProjectDetailPage() {
 
   const projectsRef = useHarvestingDataStore((s) => s.projects);
   const allProjectsRef = useHarvestingDataStore((s) => s.allProjects);
+  const roleVisibleProjectsRef = useHarvestingDataStore((s) => s.roleVisibleProjects);
+  const projectCatalog = useMemo(
+    () =>
+      projectCatalogForUser(
+        {
+          allProjects: allProjectsRef,
+          roleVisibleProjects: roleVisibleProjectsRef,
+          projects: projectsRef,
+        },
+        user,
+      ),
+    [allProjectsRef, projectsRef, roleVisibleProjectsRef, user],
+  );
   const countriesRef = useHarvestingDataStore((s) => s.countries);
   const staffsRef = useHarvestingDataStore((s) => s.staffs);
   const productsRef = useHarvestingDataStore((s) => s.products);
@@ -957,17 +971,15 @@ export default function ProjectDetailPage() {
 
   const projectTitleMap = useMemo(() => {
     const map = new Map<string, string>();
-    for (const source of [allProjectsRef, projectsRef]) {
-      for (const r of source as unknown[]) {
-        if (!r || typeof r !== "object") continue;
-        const rec = r as Record<string, unknown>;
-        const id = String(rec.id ?? "").trim();
-        const title = String(rec.title ?? rec.name ?? "").trim();
-        if (id && title && !map.has(id)) map.set(id, title);
-      }
+    for (const r of projectCatalog as unknown[]) {
+      if (!r || typeof r !== "object") continue;
+      const rec = r as Record<string, unknown>;
+      const id = String(rec.id ?? "").trim();
+      const title = String(rec.title ?? rec.name ?? "").trim();
+      if (id && title) map.set(id, title);
     }
     return map;
-  }, [allProjectsRef, projectsRef]);
+  }, [projectCatalog]);
 
   const countryMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -1126,8 +1138,9 @@ export default function ProjectDetailPage() {
         if (!mounted) return;
 
         const storeProjects = useHarvestingDataStore.getState();
+        const scopedCatalog = projectCatalogForUser(storeProjects, user);
         const catalogRow =
-          findProjectRowBySelectId(storeProjects.allProjects, normalizedProjectId) ??
+          findProjectRowBySelectId(scopedCatalog, normalizedProjectId) ??
           findProjectRowBySelectId(storeProjects.projects, normalizedProjectId);
         const catalogTitleHint =
           projectTitleFromQuery ||

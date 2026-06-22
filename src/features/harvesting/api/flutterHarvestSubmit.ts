@@ -7,6 +7,7 @@
 import { STS_API_PATHS } from "@/shared/api/stsApiPaths";
 import { stsProxyPostFormDataEnvelope } from "@/shared/api/stsProxyClient";
 import { normalizeHarvestTypeStorageKey } from "@/shared/lib/harvestType";
+import type { HarvestForecastBatch } from "@/features/harvesting/lib/harvestImportForecastBatch";
 
 /** API base field names (match PHP `imageNamesNeedSaved` / Flutter keys). */
 export const HARVEST_DOC_PHOTO_FIELDS = [
@@ -63,16 +64,11 @@ export type FlutterNewHarvestInput = {
   /** Maps to `created_by` in `project_harvesting_plan` (set on create). */
   createdBy?: string;
   /**
-   * When seeding planned harvests for a new project, PHP queues one range rebuild
-   * on the last row instead of per-row forward jobs.
+   * Batch forecast rebuild control (see STSPortal `ForecastImportBatch`).
+   * - `project_pace`: queue one range rebuild on the last seeded row.
+   * - `harvest_import`: suppress per-row queue; client queues full rebuild after batch.
    */
-  forecastBatch?: {
-    kind: "project_pace";
-    from_date: string;
-    to_date: string;
-    index: number;
-    total: number;
-  };
+  forecastBatch?: HarvestForecastBatch;
 };
 
 export type HarvestPhotoFiles = Partial<Record<HarvestDocPhotoField, File>>;

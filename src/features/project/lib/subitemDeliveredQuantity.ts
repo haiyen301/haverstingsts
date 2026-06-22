@@ -132,6 +132,10 @@ export function deliveredQtyForRequirementLine(
   return parseNumber(s.quantity);
 }
 
+/**
+ * Match harvest → requirement when the requirement line has no `load_type`.
+ * Sod→Sprig harvests count toward Kg (Sprig) lines only — grouped with Sprig, not Sod (M²).
+ */
 function subitemMatchesRequirementForDelivery(
   s: Record<string, unknown>,
   requiredProductId: string,

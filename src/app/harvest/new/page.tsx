@@ -31,7 +31,6 @@ import {
 import {
   paceRecalcNeedsHarvestedAreaSync,
   paceRecalcNeedsSoftDeleteSync,
-  projectGrassHasPaceBatchQuantities,
   projectRowHasActivePace,
   recalculatePaceQuantitiesAfterActualHarvest,
 } from "@/features/project/lib/recalculatePaceQuantitiesAfterActualHarvest";
@@ -44,6 +43,7 @@ import {
 import { STS_API_PATHS } from "@/shared/api/stsApiPaths";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { useAuthUserStore } from "@/shared/store/authUserStore";
+import { projectCatalogForUser } from "@/shared/lib/projectCatalog";
 import {
   filterFarmZoneRowsByFarmId,
   findProjectRowBySelectId,
@@ -1006,7 +1006,21 @@ function HarvestInputPageInner() {
   const canDeleteCurrentHarvest = Boolean(editId) && canDeleteHarvest;
   const farms = useHarvestingDataStore((s) => s.farms);
   const staffs = useHarvestingDataStore((s) => s.staffs);
-  const allProjects = useHarvestingDataStore((s) => s.allProjects);
+  const allProjectsStore = useHarvestingDataStore((s) => s.allProjects);
+  const roleVisibleProjects = useHarvestingDataStore((s) => s.roleVisibleProjects);
+  const projectsScoped = useHarvestingDataStore((s) => s.projects);
+  const projectCatalog = useMemo(
+    () =>
+      projectCatalogForUser(
+        {
+          allProjects: allProjectsStore,
+          roleVisibleProjects,
+          projects: projectsScoped,
+        },
+        user,
+      ),
+    [allProjectsStore, projectsScoped, roleVisibleProjects, user],
+  );
   const products = useHarvestingDataStore((s) => s.products);
   const farmZones = useHarvestingDataStore((s) => s.farmZones);
   const refLoading = useHarvestingDataStore((s) => s.loading);
@@ -1025,8 +1039,8 @@ function HarvestInputPageInner() {
   }, [accessDenied, fetchAllHarvestingReferenceData]);
 
   const projectOptions = useMemo(
-    () => mapRowsToSelectOptions(allProjects as unknown[], "title"),
-    [allProjects],
+    () => mapRowsToSelectOptions(projectCatalog as unknown[], "title"),
+    [projectCatalog],
   );
   const farmOptions = useMemo(
     () => mapRowsToSelectOptions(farms as unknown[], "name"),
@@ -1056,7 +1070,7 @@ function HarvestInputPageInner() {
   const projectDefaultsAppliedRef = useRef("");
   const customerOptions = useMemo(() => {
     const m = new Map<string, string>();
-    for (const item of allProjects) {
+    for (const item of projectCatalog) {
       if (!item || typeof item !== "object") continue;
       const row = item as Record<string, unknown>;
       const cid = String(row.odoo_customer_id ?? "").trim();
@@ -1066,7 +1080,7 @@ function HarvestInputPageInner() {
       if (!m.has(cid)) m.set(cid, label);
     }
     return Array.from(m.entries()).map(([id, label]) => ({ id, label }));
-  }, [allProjects]);
+  }, [projectCatalog]);
 
   const productNameById = useMemo(() => {
     const m = new Map<string, string>();
@@ -1085,12 +1099,12 @@ function HarvestInputPageInner() {
 
   useEffect(() => {
     if (!bootstrapDone || !formData.project.trim()) return;
-    const row = findProjectRowBySelectId(allProjects, formData.project);
+    const row = findProjectRowBySelectId(projectCatalog, formData.project);
     if (!row) return;
     const resolvedProjectId = projectSelectIdFromRow(row);
     if (!resolvedProjectId || resolvedProjectId === formData.project) return;
     setFormData((prev) => ({ ...prev, project: resolvedProjectId }));
-  }, [allProjects, bootstrapDone, formData.project]);
+  }, [projectCatalog, bootstrapDone, formData.project]);
 
   const grassesCatalog = useMemo(() => products as unknown[], [products]);
 
@@ -1266,7 +1280,7 @@ function HarvestInputPageInner() {
     const cid = formData.customerId.trim();
     if (!cid) return projectOptions;
     const filtered = projectOptions.filter((o) => {
-      const pr = findProjectRowBySelectId(allProjects, o.id);
+      const pr = findProjectRowBySelectId(projectCatalog, o.id);
       if (!pr) return false;
       return String(pr.odoo_customer_id ?? "").trim() === cid;
     });
@@ -1286,7 +1300,7 @@ function HarvestInputPageInner() {
       return filtered;
     }
     return [selectedFromAll, ...filtered];
-  }, [formData.customerId, formData.project, projectOptions, allProjects]);
+  }, [formData.customerId, formData.project, projectOptions, projectCatalog]);
 
   const validationMessages: HarvestValidationMessages = {
     selectProject: t("validationSelectProject"),
@@ -1425,7 +1439,7 @@ function HarvestInputPageInner() {
 
     const detailHref = buildProjectDetailHrefForProjectId(
       projectId,
-      allProjects,
+      projectCatalog,
       dynamicProjectRows,
       nestedReturnTo || undefined,
     );
@@ -1436,7 +1450,7 @@ function HarvestInputPageInner() {
     returnTarget,
     formData.project,
     initialProjectId,
-    allProjects,
+    projectCatalog,
     dynamicProjectRows,
   ]);
 
@@ -1536,8 +1550,8 @@ function HarvestInputPageInner() {
   }, [accessDenied, formData.project]);
 
   const selectedProjectRow = useMemo(
-    () => findProjectRowBySelectId(allProjects, formData.project.trim()),
-    [allProjects, formData.project],
+    () => findProjectRowBySelectId(projectCatalog, formData.project.trim()),
+    [projectCatalog, formData.project],
   );
 
   const selectedProjectRequirements = useMemo(() => {
@@ -1549,31 +1563,26 @@ function HarvestInputPageInner() {
       return parseRequirements(dynamicRow.quantity_required_sprig_sod, productNameById);
     }
 
-    const selected = findProjectRowBySelectId(allProjects, formData.project);
+    const selected = findProjectRowBySelectId(projectCatalog, formData.project);
     if (!selected) return [] as QuantityRequirement[];
     return parseRequirements(selected.quantity_required_sprig_sod, productNameById);
-  }, [dynamicProjectRows, formData.project, productNameById, allProjects]);
+  }, [dynamicProjectRows, formData.project, productNameById, projectCatalog]);
 
-  /** Project pace is set for the selected grass (+ uom when chosen). */
-  const paceProjectGrass = useMemo(() => {
-    const grassId = formData.grass.trim();
-    if (!grassId || !projectRowHasActivePace(selectedProjectRow)) return false;
-    return projectGrassHasPaceBatchQuantities(
-      selectedProjectRow,
-      grassId,
-      formData.uom.trim() || undefined,
-    );
-  }, [formData.grass, formData.uom, selectedProjectRow]);
+  /** Project has an active pace — estimate dates are plan-driven, not manual. */
+  const paceProject = useMemo(
+    () => projectRowHasActivePace(selectedProjectRow),
+    [selectedProjectRow],
+  );
 
   /** New harvest: hide estimate inputs. Edit: estimate dates read-only. */
-  const paceBlocksEstimateHarvest = paceProjectGrass;
+  const paceBlocksEstimateHarvest = paceProject;
 
   /** New harvest on pace project must have actual date before save. */
-  const paceRequiresActualDate = paceProjectGrass && !editId;
+  const paceRequiresActualDate = paceProject && !editId;
 
   /** Pace-managed rows: quantity (and harvested area) editable only with actual date. */
   const paceLocksQuantityWithoutActual =
-    paceProjectGrass && !formData.actualDate.trim();
+    paceProject && !formData.actualDate.trim();
 
   const grassRowsForSelectByProject = useMemo(
     () =>
@@ -1836,13 +1845,13 @@ function HarvestInputPageInner() {
 
     const fromRef = buildProjectGrassRequirementsEditHref(
       projectId,
-      allProjects,
+      projectCatalog,
       dynamicProjectRows,
       currentHarvestFormReturnTo,
     );
     if (fromRef) return fromRef;
 
-    const selected = findProjectRowBySelectId(allProjects, projectId);
+    const selected = findProjectRowBySelectId(projectCatalog, projectId);
     const { rowId, tableId } = resolveMondayEditIdsFromRef(selected);
     if (!rowId) return null;
 
@@ -1852,7 +1861,7 @@ function HarvestInputPageInner() {
     params.set("returnTo", currentHarvestFormReturnTo);
     return `/projects/new?${params.toString()}#project-grass-info`;
   }, [
-    allProjects,
+    projectCatalog,
     currentHarvestFormReturnTo,
     dynamicProjectRows,
     formData.project,
@@ -2109,7 +2118,7 @@ function HarvestInputPageInner() {
         harvestedAreaResolved.status ??
         (editId && statusAtLoad ? statusAtLoad : undefined);
       const selectedProjectRow = findProjectRowBySelectId(
-        allProjects,
+        projectCatalog,
         formData.project.trim(),
       );
       const customerFromProject = String(
@@ -2517,7 +2526,7 @@ function HarvestInputPageInner() {
                           values={formData.project ? [formData.project] : []}
                           onChange={(nextValues) => {
                             const project = nextValues[0] ?? "";
-                            const pr = findProjectRowBySelectId(allProjects, project);
+                            const pr = findProjectRowBySelectId(projectCatalog, project);
                             const cid = String(pr?.odoo_customer_id ?? "").trim();
                             const projectChanged = project !== formData.project;
                             if (projectChanged) {
