@@ -73,8 +73,6 @@ type Person = {
   resetPassword?: boolean;
 };
 
-const TURF_FARM_MANAGER_ROLE = "Turf Farm Manager";
-
 type FarmOption = {
   id: string;
   label: string;
@@ -661,13 +659,8 @@ function PeopleSection({
       setSaveError("Please select a role.");
       return;
     }
-    if (
-      form.hasLogin &&
-      !form.isAdmin &&
-      form.role === TURF_FARM_MANAGER_ROLE &&
-      form.farmIds.length === 0
-    ) {
-      setSaveError("Please select at least one farm for Turf Farm Manager.");
+    if (form.hasLogin && !form.isAdmin && form.farmIds.length === 0) {
+      setSaveError("Please select at least one farm.");
       return;
     }
     if (form.hasLogin) {
@@ -1248,13 +1241,9 @@ function PeopleSection({
                       ) : null}
                       {!form.isAdmin && form.roleId ? (
                         <div className="space-y-2">
-                          <label className="text-sm font-medium">
-                            {form.role === TURF_FARM_MANAGER_ROLE
-                              ? "Farms *"
-                              : "Farms"}
-                          </label>
+                          <label className="text-sm font-medium">Farms *</label>
                           <p className="text-xs text-muted-foreground">
-                            Saved to{" "}
+                            Required for non–Super Admin accounts. Saved to{" "}
                             <code className="text-xs">sts_users_meta</code> as{" "}
                             <code className="text-xs">farm_user_id</code>{" "}
                             (comma-separated farm ids for SQL IN).

@@ -33,6 +33,7 @@ import { cn } from "@/lib/utils";
 import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
 import { useGrassFilterByFarm } from "@/shared/hooks/useGrassFilterByFarm";
 import { mapRowsToSelectOptions } from "@/shared/lib/harvestReferenceData";
+import { projectCatalogForUser } from "@/shared/lib/projectCatalog";
 import { ProjectListExportDialog } from "@/features/project/ui/ProjectListExportDialog";
 import { type ProjectListExportFilter } from "@/features/project/lib/projectListExport";
 
@@ -190,6 +191,19 @@ export default function ProjectListPage() {
   } = useSyncedFarmMultiSelect("projects");
   const projectsRef = useHarvestingDataStore((s) => s.projects);
   const allProjectsRef = useHarvestingDataStore((s) => s.allProjects);
+  const roleVisibleProjectsRef = useHarvestingDataStore((s) => s.roleVisibleProjects);
+  const projectCatalog = useMemo(
+    () =>
+      projectCatalogForUser(
+        {
+          allProjects: allProjectsRef,
+          roleVisibleProjects: roleVisibleProjectsRef,
+          projects: projectsRef,
+        },
+        user,
+      ),
+    [allProjectsRef, projectsRef, roleVisibleProjectsRef, user],
+  );
   const keyAreasRef = useHarvestingDataStore((s) => s.keyAreas);
   const countriesRef = useHarvestingDataStore((s) => s.countries);
   const activeCountriesRef = useHarvestingDataStore((s) => s.activeCountries);
@@ -620,18 +634,13 @@ export default function ProjectListPage() {
 
   const projectTitleMap = useMemo(() => {
     const map = new Map<string, string>();
-    for (const r of toRecArray(allProjectsRef)) {
+    for (const r of toRecArray(projectCatalog)) {
       const id = String(r.id ?? "").trim();
       const label = String(r.title ?? r.name ?? "").trim();
       if (id && label) map.set(id, label);
     }
-    for (const r of toRecArray(projectsRef)) {
-      const id = String(r.id ?? "").trim();
-      const label = String(r.title ?? r.name ?? "").trim();
-      if (id && label && !map.has(id)) map.set(id, label);
-    }
     return map;
-  }, [allProjectsRef, projectsRef]);
+  }, [projectCatalog]);
 
   const countryNameMap = useMemo(() => {
     const map = new Map<string, string>();

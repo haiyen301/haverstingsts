@@ -13,7 +13,14 @@ import { dispatchRouteAlert } from "@/features/alerts/dispatchRouteAlert";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { useAuthUserStore } from "@/shared/store/authUserStore";
 import { canAccessModule } from "@/shared/auth/permissions";
+import { projectCatalogForUser } from "@/shared/lib/projectCatalog";
 import { submitFlutterHarvest } from "@/features/harvesting/api/flutterHarvestSubmit";
+import {
+  aggregateGrassRequirementsForProject,
+  createMinimalProjectForHarvestImport,
+  resolveDefaultProjectTableId,
+  type MissingProjectForHarvestImport,
+} from "@/features/harvesting/lib/createMinimalProjectForHarvestImport";
 import { downloadHarvestImportErrors } from "@/features/harvesting/lib/harvestImportErrorExport";
 import { stsProxyGetHarvestingIndex, stsProxyPostJson } from "@/shared/api/stsProxyClient";
 import { STS_API_PATHS } from "@/shared/api/stsApiPaths";
@@ -381,14 +388,32 @@ export default function HarvestImportPage() {
   const [dynamicRowCache, setDynamicRowCache] = useState<
     Map<string, { idRow: string; tableId: string }>
   >(new Map());
+  const [missingProjectsPrompt, setMissingProjectsPrompt] = useState<{
+    projects: MissingProjectForHarvestImport[];
+    rowNumbers: Set<number>;
+  } | null>(null);
+  const [creatingMissingProjects, setCreatingMissingProjects] = useState(false);
+  const [createdProjectIdByName, setCreatedProjectIdByName] = useState<
+    Map<string, string>
+  >(new Map());
 
   const farms = useHarvestingDataStore((s) => s.farms);
   const projects = useHarvestingDataStore((s) => s.projects);
-  const allProjects = useHarvestingDataStore((s) => s.allProjects);
+  const allProjectsStore = useHarvestingDataStore((s) => s.allProjects);
+  const roleVisibleProjects = useHarvestingDataStore((s) => s.roleVisibleProjects);
+  const projectCatalog = useMemo(
+    () =>
+      projectCatalogForUser(
+        { allProjects: allProjectsStore, roleVisibleProjects, projects },
+        user,
+      ),
+    [allProjectsStore, projects, roleVisibleProjects, user],
+  );
   const products = useHarvestingDataStore((s) => s.products);
   const fetchAllHarvestingReferenceData = useHarvestingDataStore(
     (s) => s.fetchAllHarvestingReferenceData,
   );
+  const upsertProjectInList = useHarvestingDataStore((s) => s.upsertProjectInList);
 
   useEffect(() => {
     void fetchAllHarvestingReferenceData();
@@ -423,7 +448,7 @@ export default function HarvestImportPage() {
 
   const customerCandidates = useMemo(() => {
     const m = new Map<string, string>();
-    for (const item of allProjects as unknown[]) {
+    for (const item of projectCatalog as unknown[]) {
       if (!item || typeof item !== "object") continue;
       const row = item as Record<string, unknown>;
       const cid = toStringSafe(row.odoo_customer_id);
@@ -433,7 +458,9 @@ export default function HarvestImportPage() {
       if (!m.has(cid)) m.set(cid, label);
     }
     return Array.from(m.entries()).map(([id, label]) => ({ id, label }));
-  }, [allProjects]);
+  }, [projectCatalog]);
+
+  const normalizeProjectNameKey = (raw: string): string => normalizeLoose(raw);
 
   const resolveByLooseText = (
     raw: string,
@@ -457,6 +484,16 @@ export default function HarvestImportPage() {
     });
     return like?.id ?? "";
   };
+
+  const resolveProjectId = (projectName: string): string => {
+    const key = normalizeProjectNameKey(projectName);
+    const fromCreated = createdProjectIdByName.get(key);
+    if (fromCreated) return fromCreated;
+    return resolveByLooseText(projectName, projectCandidates);
+  };
+
+  const resolveProductId = (grass: string): string =>
+    resolveByLooseText(grass, productCandidates);
 
   const mappedRows = useMemo((): MappedRow[] => {
     if (!mapping) return [];
@@ -607,200 +644,73 @@ export default function HarvestImportPage() {
     return { idRow, tableId };
   };
 
-  const handleFile = async (file: File) => {
-    setError("");
-    setSummary("");
-    setTestResult(null);
-    setImportLogs([]);
-    setImportPickerOpen(false);
-    setSelectedImportRows(new Set());
-    const hash = await computeFileHash(file);
-    setCurrentFileHash(hash);
-    const lastHash = localStorage.getItem("stsrenew:harvest-import:last-file-hash") ?? "";
-    if (lastHash && lastHash === hash) {
-      setSameFileWarning(t("sameFileWarning"));
-    } else {
-      setSameFileWarning("");
+  const findProjectsNeedingSetup = async (
+    rowsToImport: MappedRow[],
+  ): Promise<MissingProjectForHarvestImport[]> => {
+    const byName = new Map<string, { projectName: string; projectId: string }>();
+    for (const r of rowsToImport) {
+      const name = r.projectName.trim();
+      if (!name) continue;
+      const key = normalizeProjectNameKey(name);
+      if (byName.has(key)) continue;
+      const projectId = resolveProjectId(name);
+      byName.set(key, { projectName: name, projectId });
     }
-    const buf = await file.arrayBuffer();
-    const wb = XLSX.read(buf, { type: "array", cellDates: true });
-    const wbProps = (wb as { Workbook?: { WBProps?: { date1904?: boolean | string | number } } })
-      .Workbook?.WBProps;
-    const d1904 = wbProps?.date1904;
-    setWorkbookDate1904(
-      d1904 === true || d1904 === 1 || d1904 === "true" || d1904 === "1",
-    );
-    const sheetName =
-      wb.SheetNames.find((n) => n.trim().toLowerCase() === "data") ??
-      wb.SheetNames[0];
-    const sheet = wb.Sheets[sheetName];
-    if (!sheet) {
-      setError(t("invalidSheet"));
-      return;
-    }
-    const data = XLSX.utils.sheet_to_json<ExcelRow>(sheet, { defval: "" });
-    if (!data.length) {
-      setError(t("emptyExcel"));
-      return;
-    }
-    const h = Object.keys(data[0] ?? {});
-    setRows(data);
-    setHeaders(h);
-    setFileName(file.name);
-    setMapping(suggestMapping(h));
-  };
 
-  const runTest = async () => {
-    if (!canImportHarvest) {
-      setError("You do not have permission to import harvest data.");
-      return;
-    }
-    setTesting(true);
-    try {
-      if (mapping) {
-        const dateKeys: FieldKey[] = [
-          "estimatedDate",
-          "estimatedDateEnd",
-          "actualDate",
-          "actualHarvestEndDate",
-          "deliveryDate",
-          "shipmentRequiredDate",
-          "doSoDate",
-        ];
-        logHarvestImportDates("test data (column mapping + raw vs parsed)", {
-          workbookDate1904,
-          mappingDates: Object.fromEntries(
-            dateKeys.map((k) => [k, mapping[k] || ""]),
-          ),
-          firstRows: mappedRows.slice(0, 8).map((r) => ({
-            row: r.rowNumber,
-            raw: {
-              estimatedDate: mapping.estimatedDate
-                ? r.source[mapping.estimatedDate]
-                : undefined,
-              actualDate: mapping.actualDate
-                ? r.source[mapping.actualDate]
-                : undefined,
-              deliveryDate: mapping.deliveryDate
-                ? r.source[mapping.deliveryDate]
-                : undefined,
-              doSoDate: mapping.doSoDate ? r.source[mapping.doSoDate] : undefined,
-            },
-            rawTypes: {
-              estimatedDate: mapping.estimatedDate
-                ? typeof r.source[mapping.estimatedDate]
-                : undefined,
-              actualDate: mapping.actualDate
-                ? typeof r.source[mapping.actualDate]
-                : undefined,
-              deliveryDate: mapping.deliveryDate
-                ? typeof r.source[mapping.deliveryDate]
-                : undefined,
-              doSoDate: mapping.doSoDate
-                ? typeof r.source[mapping.doSoDate]
-                : undefined,
-            },
-            parsed: {
-              estimatedDate: r.estimatedDate,
-              actualDate: r.actualDate,
-              deliveryDate: r.deliveryDate,
-              doSoDate: r.doSoDate,
-            },
-          })),
-        });
+    const setupRows: MissingProjectForHarvestImport[] = [];
+    for (const { projectName, projectId } of byName.values()) {
+      let reason: MissingProjectForHarvestImport["reason"] | null = null;
+      if (!projectId) {
+        reason = "not_found";
+      } else {
+        const dynamicRow = await getDynamicRowForProjectId(projectId);
+        if (!dynamicRow) reason = "no_dynamic_row";
       }
-      const warnings: RowIssue[] = [];
-      const seenBatchKeys = new Set<string>();
-      for (const r of mappedRows) {
-        const w: string[] = [];
-        if (!r.projectName) w.push(t("warnProjectEmpty"));
-        if (!r.farm) w.push(t("warnFarmEmpty"));
-        if (!r.zone) w.push(t("warnZoneEmpty"));
-        if (!r.grass) w.push(t("warnGrassEmpty"));
-        const qty = Number.parseFloat(r.quantity);
-        if (!Number.isFinite(qty) || qty <= 0) w.push(t("warnQuantityInvalid"));
-        if (!r.estimatedDate && !r.actualDate) w.push(t("warnDatePairEmpty"));
-        if (!r.harvestType) w.push(t("warnHarvestTypeInvalid"));
-        const projectId = resolveByLooseText(r.projectName, projectCandidates);
-        if (r.projectName && !projectId) {
-          w.push(t("warnProjectNotFound", { value: r.projectName }));
-        }
-        const farmId = resolveByLooseText(r.farm, farmCandidates);
-        if (r.farm && !farmId) {
-          w.push(t("warnFarmNotFound", { value: r.farm }));
-        }
-        const productId = resolveByLooseText(r.grass, productCandidates);
-        if (r.grass && !productId) {
-          w.push(t("warnGrassNotFound", { value: r.grass }));
-        }
-        if (projectId) {
-          const rowKey = buildHarvestBusinessKey({
-            projectId,
-            farmId: resolveByLooseText(r.farm, farmCandidates),
-            zone: r.zone,
-            productId: resolveByLooseText(r.grass, productCandidates),
-            uom: r.uom,
-            quantity: r.quantity,
-            estimatedDate: r.estimatedDate,
-            actualDate: r.actualDate,
-            deliveryDate: r.deliveryDate,
-          });
-          if (seenBatchKeys.has(rowKey)) {
-            w.push(t("warnDuplicateFile"));
-          } else {
-            seenBatchKeys.add(rowKey);
-          }
-        }
-        if (w.length) warnings.push({ rowIndex: r.rowNumber, messages: w });
-      }
-      setTestResult({ warningRows: warnings.length, rowsWithWarnings: warnings });
-    } finally {
-      setTesting(false);
+      if (!reason) continue;
+
+      const grassRequirements = aggregateGrassRequirementsForProject(
+        projectName,
+        mappedRows,
+        resolveProductId,
+      );
+      if (!grassRequirements.length) continue;
+
+      setupRows.push({
+        projectName,
+        reason,
+        existingProjectId: projectId || undefined,
+        grassRequirements,
+      });
     }
+    return setupRows;
   };
 
-  const openImportPicker = () => {
-    if (!testResult) return;
-    setSelectedImportRows(new Set(mappedRows.map((r) => r.rowNumber)));
-    setImportPickerOpen(true);
+  const createMissingProjectsForImport = async (
+    projects: MissingProjectForHarvestImport[],
+  ): Promise<Map<string, string>> => {
+    const tableId = await resolveDefaultProjectTableId();
+    if (!tableId) {
+      throw new Error(t("missingProjectTableId"));
+    }
+    const created = new Map<string, string>();
+    for (const item of projects) {
+      const { projectId, project } = await createMinimalProjectForHarvestImport({
+        projectName: item.projectName,
+        tableId,
+        grassRequirements: item.grassRequirements,
+        existingProjectId:
+          item.reason === "no_dynamic_row" ? item.existingProjectId : undefined,
+      });
+      const key = normalizeProjectNameKey(item.projectName);
+      created.set(key, projectId);
+      if (project) upsertProjectInList(project);
+    }
+    setDynamicRowCache(new Map());
+    await fetchAllHarvestingReferenceData(true);
+    return created;
   };
 
-  const toggleImportRow = (rowNumber: number, checked: boolean) => {
-    setSelectedImportRows((prev) => {
-      const next = new Set(prev);
-      if (checked) next.add(rowNumber);
-      else next.delete(rowNumber);
-      return next;
-    });
-  };
-
-  const setAllImportRowsSelected = (checked: boolean) => {
-    if (checked) {
-      setSelectedImportRows(new Set(mappedRows.map((r) => r.rowNumber)));
-    } else {
-      setSelectedImportRows(new Set());
-    }
-  };
-
-  const selectImportRowsWithoutWarnings = () => {
-    const next = new Set<number>();
-    for (const r of mappedRows) {
-      if (!warningByRow.has(r.rowNumber)) next.add(r.rowNumber);
-    }
-    setSelectedImportRows(next);
-  };
-
-  const handleImport = async (rowNumbers: Set<number>) => {
-    if (!canImportHarvest) {
-      setError("You do not have permission to import harvest data.");
-      return;
-    }
-    if (!testResult) return;
-    if (!rowNumbers.size) {
-      setError(t("noRowsSelected"));
-      return;
-    }
-    setImportPickerOpen(false);
+  const runImportRows = async (rowNumbers: Set<number>) => {
     setImporting(true);
     setError("");
     setSummary("");
@@ -808,12 +718,12 @@ export default function HarvestImportPage() {
     const rowsToImport = mappedRows.filter((r) => rowNumbers.has(r.rowNumber));
     try {
       for (const r of rowsToImport) {
-        const projectId = resolveByLooseText(r.projectName, projectCandidates);
+        const projectId = resolveProjectId(r.projectName);
         const farmId = resolveByLooseText(r.farm, farmCandidates);
         const productId = resolveByLooseText(r.grass, productCandidates);
         const customerIdFromName = resolveByLooseText(r.customerName, customerCandidates);
         const assignedTo = user?.id != null ? String(user.id) : "";
-        const selectedProjectRow = (allProjects as unknown[]).find((item) => {
+        const selectedProjectRow = (projectCatalog as unknown[]).find((item) => {
           if (!item || typeof item !== "object") return false;
           const row = item as Record<string, unknown>;
           return toStringSafe(row.id) === projectId;
@@ -922,6 +832,250 @@ export default function HarvestImportPage() {
       }
     } finally {
       setImporting(false);
+    }
+  };
+
+  const confirmCreateMissingProjects = async () => {
+    if (!missingProjectsPrompt) return;
+    setCreatingMissingProjects(true);
+    setError("");
+    try {
+      const created = await createMissingProjectsForImport(missingProjectsPrompt.projects);
+      setCreatedProjectIdByName((prev) => {
+        const next = new Map(prev);
+        for (const [k, v] of created) next.set(k, v);
+        return next;
+      });
+      const rowNumbers = missingProjectsPrompt.rowNumbers;
+      setMissingProjectsPrompt(null);
+      await runImportRows(rowNumbers);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t("createMissingProjectsFailed"));
+      setImportPickerOpen(true);
+    } finally {
+      setCreatingMissingProjects(false);
+    }
+  };
+
+  const cancelMissingProjectsPrompt = () => {
+    setMissingProjectsPrompt(null);
+    setImportPickerOpen(true);
+  };
+
+  const handleFile = async (file: File) => {
+    setError("");
+    setSummary("");
+    setTestResult(null);
+    setImportLogs([]);
+    setImportPickerOpen(false);
+    setSelectedImportRows(new Set());
+    setMissingProjectsPrompt(null);
+    setCreatedProjectIdByName(new Map());
+    const hash = await computeFileHash(file);
+    setCurrentFileHash(hash);
+    const lastHash = localStorage.getItem("stsrenew:harvest-import:last-file-hash") ?? "";
+    if (lastHash && lastHash === hash) {
+      setSameFileWarning(t("sameFileWarning"));
+    } else {
+      setSameFileWarning("");
+    }
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: "array", cellDates: true });
+    const wbProps = (wb as { Workbook?: { WBProps?: { date1904?: boolean | string | number } } })
+      .Workbook?.WBProps;
+    const d1904 = wbProps?.date1904;
+    setWorkbookDate1904(
+      d1904 === true || d1904 === 1 || d1904 === "true" || d1904 === "1",
+    );
+    const sheetName =
+      wb.SheetNames.find((n) => n.trim().toLowerCase() === "data") ??
+      wb.SheetNames[0];
+    const sheet = wb.Sheets[sheetName];
+    if (!sheet) {
+      setError(t("invalidSheet"));
+      return;
+    }
+    const data = XLSX.utils.sheet_to_json<ExcelRow>(sheet, { defval: "" });
+    if (!data.length) {
+      setError(t("emptyExcel"));
+      return;
+    }
+    const h = Object.keys(data[0] ?? {});
+    setRows(data);
+    setHeaders(h);
+    setFileName(file.name);
+    setMapping(suggestMapping(h));
+  };
+
+  const runTest = async () => {
+    if (!canImportHarvest) {
+      setError("You do not have permission to import harvest data.");
+      return;
+    }
+    setTesting(true);
+    try {
+      if (mapping) {
+        const dateKeys: FieldKey[] = [
+          "estimatedDate",
+          "estimatedDateEnd",
+          "actualDate",
+          "actualHarvestEndDate",
+          "deliveryDate",
+          "shipmentRequiredDate",
+          "doSoDate",
+        ];
+        logHarvestImportDates("test data (column mapping + raw vs parsed)", {
+          workbookDate1904,
+          mappingDates: Object.fromEntries(
+            dateKeys.map((k) => [k, mapping[k] || ""]),
+          ),
+          firstRows: mappedRows.slice(0, 8).map((r) => ({
+            row: r.rowNumber,
+            raw: {
+              estimatedDate: mapping.estimatedDate
+                ? r.source[mapping.estimatedDate]
+                : undefined,
+              actualDate: mapping.actualDate
+                ? r.source[mapping.actualDate]
+                : undefined,
+              deliveryDate: mapping.deliveryDate
+                ? r.source[mapping.deliveryDate]
+                : undefined,
+              doSoDate: mapping.doSoDate ? r.source[mapping.doSoDate] : undefined,
+            },
+            rawTypes: {
+              estimatedDate: mapping.estimatedDate
+                ? typeof r.source[mapping.estimatedDate]
+                : undefined,
+              actualDate: mapping.actualDate
+                ? typeof r.source[mapping.actualDate]
+                : undefined,
+              deliveryDate: mapping.deliveryDate
+                ? typeof r.source[mapping.deliveryDate]
+                : undefined,
+              doSoDate: mapping.doSoDate
+                ? typeof r.source[mapping.doSoDate]
+                : undefined,
+            },
+            parsed: {
+              estimatedDate: r.estimatedDate,
+              actualDate: r.actualDate,
+              deliveryDate: r.deliveryDate,
+              doSoDate: r.doSoDate,
+            },
+          })),
+        });
+      }
+      const warnings: RowIssue[] = [];
+      const seenBatchKeys = new Set<string>();
+      for (const r of mappedRows) {
+        const w: string[] = [];
+        if (!r.projectName) w.push(t("warnProjectEmpty"));
+        if (!r.farm) w.push(t("warnFarmEmpty"));
+        if (!r.zone) w.push(t("warnZoneEmpty"));
+        if (!r.grass) w.push(t("warnGrassEmpty"));
+        const qty = Number.parseFloat(r.quantity);
+        if (!Number.isFinite(qty) || qty <= 0) w.push(t("warnQuantityInvalid"));
+        if (!r.estimatedDate && !r.actualDate) w.push(t("warnDatePairEmpty"));
+        if (!r.harvestType) w.push(t("warnHarvestTypeInvalid"));
+        const projectId = resolveProjectId(r.projectName);
+        if (r.projectName && !projectId) {
+          w.push(t("warnProjectNotFound", { value: r.projectName }));
+        }
+        const farmId = resolveByLooseText(r.farm, farmCandidates);
+        if (r.farm && !farmId) {
+          w.push(t("warnFarmNotFound", { value: r.farm }));
+        }
+        const productId = resolveByLooseText(r.grass, productCandidates);
+        if (r.grass && !productId) {
+          w.push(t("warnGrassNotFound", { value: r.grass }));
+        }
+        if (projectId) {
+          const rowKey = buildHarvestBusinessKey({
+            projectId,
+            farmId: resolveByLooseText(r.farm, farmCandidates),
+            zone: r.zone,
+            productId: resolveByLooseText(r.grass, productCandidates),
+            uom: r.uom,
+            quantity: r.quantity,
+            estimatedDate: r.estimatedDate,
+            actualDate: r.actualDate,
+            deliveryDate: r.deliveryDate,
+          });
+          if (seenBatchKeys.has(rowKey)) {
+            w.push(t("warnDuplicateFile"));
+          } else {
+            seenBatchKeys.add(rowKey);
+          }
+        }
+        if (w.length) warnings.push({ rowIndex: r.rowNumber, messages: w });
+      }
+      setTestResult({ warningRows: warnings.length, rowsWithWarnings: warnings });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const openImportPicker = () => {
+    if (!testResult) return;
+    setSelectedImportRows(new Set(mappedRows.map((r) => r.rowNumber)));
+    setImportPickerOpen(true);
+  };
+
+  const toggleImportRow = (rowNumber: number, checked: boolean) => {
+    setSelectedImportRows((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(rowNumber);
+      else next.delete(rowNumber);
+      return next;
+    });
+  };
+
+  const setAllImportRowsSelected = (checked: boolean) => {
+    if (checked) {
+      setSelectedImportRows(new Set(mappedRows.map((r) => r.rowNumber)));
+    } else {
+      setSelectedImportRows(new Set());
+    }
+  };
+
+  const selectImportRowsWithoutWarnings = () => {
+    const next = new Set<number>();
+    for (const r of mappedRows) {
+      if (!warningByRow.has(r.rowNumber)) next.add(r.rowNumber);
+    }
+    setSelectedImportRows(next);
+  };
+
+  const handleImport = async (rowNumbers: Set<number>) => {
+    if (!canImportHarvest) {
+      setError("You do not have permission to import harvest data.");
+      return;
+    }
+    if (!testResult) return;
+    if (!rowNumbers.size) {
+      setError(t("noRowsSelected"));
+      return;
+    }
+    setImportPickerOpen(false);
+    setError("");
+    const rowsToImport = mappedRows.filter((r) => rowNumbers.has(r.rowNumber));
+    setImporting(true);
+    try {
+      const projectsNeedingSetup = await findProjectsNeedingSetup(rowsToImport);
+      if (projectsNeedingSetup.length > 0) {
+        setMissingProjectsPrompt({
+          projects: projectsNeedingSetup,
+          rowNumbers,
+        });
+        setImporting(false);
+        return;
+      }
+      await runImportRows(rowNumbers);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t("logImportFailed"));
+      setImporting(false);
+      setImportPickerOpen(true);
     }
   };
 
@@ -1444,6 +1598,90 @@ export default function HarvestImportPage() {
                     {importing
                       ? t("importing")
                       : t("confirmImport", { count: selectedImportRows.size })}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {missingProjectsPrompt ? (
+            <div
+              className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4"
+              role="presentation"
+              onClick={() => {
+                if (!creatingMissingProjects) cancelMissingProjectsPrompt();
+              }}
+            >
+              <div
+                className="flex max-h-[90vh] w-full max-w-2xl flex-col rounded-xl border border-gray-200 bg-white text-gray-900 shadow-xl"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="harvest-import-create-projects-title"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="border-b border-gray-200 px-5 py-4">
+                  <h2
+                    id="harvest-import-create-projects-title"
+                    className="text-lg font-semibold text-gray-900"
+                  >
+                    {t("createMissingProjectsTitle")}
+                  </h2>
+                  <p className="mt-1 text-sm text-gray-600">
+                    {t("createMissingProjectsHint")}
+                  </p>
+                </div>
+
+                <div className="min-h-0 flex-1 space-y-4 overflow-auto px-5 py-4">
+                  {missingProjectsPrompt.projects.map((item) => (
+                    <div
+                      key={item.projectName}
+                      className="rounded-lg border border-amber-200 bg-amber-50/50 p-3"
+                    >
+                      <p className="font-medium text-gray-900">{item.projectName}</p>
+                      <p className="mt-1 text-sm text-amber-800">
+                        {item.reason === "not_found"
+                          ? t("createMissingProjectReasonNotFound")
+                          : t("createMissingProjectReasonNoDynamicRow")}
+                      </p>
+                      <ul className="mt-2 space-y-1 text-sm text-gray-700">
+                        {item.grassRequirements.map((g) => {
+                          const grassLabel =
+                            productCandidates.find((p) => p.id === g.product_id)?.label ??
+                            g.product_id;
+                          return (
+                            <li key={`${item.projectName}-${g.product_id}-${g.load_type}`}>
+                              {grassLabel}: {g.quantity} {g.uom} (
+                              {harvestTypeDisplayLabel(g.load_type)})
+                            </li>
+                          );
+                        })}
+                      </ul>
+                      <p className="mt-2 text-xs text-gray-500">
+                        {t("createMissingProjectGrassFromExcel")}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex justify-end gap-2 border-t border-gray-200 px-5 py-4">
+                  <button
+                    type="button"
+                    onClick={cancelMissingProjectsPrompt}
+                    disabled={creatingMissingProjects}
+                    className="rounded-lg border border-gray-300 px-4 py-2 text-sm hover:bg-gray-50 disabled:opacity-60"
+                  >
+                    {t("cancel")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void confirmCreateMissingProjects()}
+                    disabled={creatingMissingProjects}
+                    className="inline-flex items-center gap-2 rounded-lg bg-button-primary px-4 py-2 text-sm text-white hover:bg-[#196A40] disabled:opacity-60"
+                  >
+                    <CheckCircle2 className="h-4 w-4" />
+                    {creatingMissingProjects
+                      ? t("creatingMissingProjects")
+                      : t("confirmCreateMissingProjects")}
                   </button>
                 </div>
               </div>

@@ -27,6 +27,7 @@ import RequireAuth from "@/features/auth/RequireAuth";
 import { useSyncedFarmMultiSelect } from "@/shared/hooks/useSyncedFarmMultiSelect";
 import { stsProxyGetHarvestingIndex } from "@/shared/api/stsProxyClient";
 import { canAccessModule, canViewAllModuleData } from "@/shared/auth/permissions";
+import { projectCatalogForUser } from "@/shared/lib/projectCatalog";
 import {
   clampFarmIdsToScope,
   farmUserMetaFromSessionUser,
@@ -560,6 +561,15 @@ export default function HarvestListPage() {
   );
   const projects = useHarvestingDataStore((s) => s.projects);
   const allProjects = useHarvestingDataStore((s) => s.allProjects);
+  const roleVisibleProjects = useHarvestingDataStore((s) => s.roleVisibleProjects);
+  const projectCatalog = useMemo(
+    () =>
+      projectCatalogForUser(
+        { allProjects, roleVisibleProjects, projects },
+        user,
+      ),
+    [allProjects, projects, roleVisibleProjects, user],
+  );
   const grasses = useHarvestingDataStore((s) => s.grasses);
   const zoneConfigurations = useHarvestingDataStore((s) => s.zoneConfigurations);
   const farmZones = useHarvestingDataStore((s) => s.farmZones);
@@ -726,11 +736,11 @@ export default function HarvestListPage() {
 
   const exportResolveContext = useMemo(
     () => ({
-      projects: allProjects.length > 0 ? allProjects : projects,
+      projects: projectCatalog,
       grasses,
       locale,
     }),
-    [allProjects, grasses, locale, projects],
+    [projectCatalog, grasses, locale],
   );
 
   const returnTo = useMemo(() => {
