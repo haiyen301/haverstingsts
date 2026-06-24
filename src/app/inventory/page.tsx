@@ -11,12 +11,13 @@ import { filterActiveZoneConfigurations } from "@/features/forecasting/forecastA
 import {
   buildInventoryRowsFromDbSnapshots,
   buildZoneDailySnapshotsFromDb,
+  filterSnapshotRowsForZoneKey,
   lookupZoneSnapshotInDayMap,
   resolveDbZoneKeyFromSnapshotRows,
 } from "@/features/forecasting/inventoryDbSnapshots";
 import { InventoryZoneBalanceBreakdownPanel } from "@/features/forecasting/InventoryZoneBalanceBreakdownPanel";
 import type { EnrichedZoneBalanceTimelineEntry } from "@/features/forecasting/InventoryZoneBalanceBreakdownPanel";
-import { buildZoneBalanceTimelineForDisplay, filterZoneBalanceTimelineToImpactDays, insertGapBridgeBeforeToday, rechainZoneBalanceTimelineForDisplay, reverseZoneBalanceTimelineForDisplay } from "@/features/forecasting/zoneBalanceBreakdown";
+import { buildZoneBalanceTimelineFromDbSnapshotRows, reverseZoneBalanceTimelineForDisplay } from "@/features/forecasting/zoneBalanceBreakdown";
 import { enrichZoneBalanceTimelineForBreakdown } from "@/features/forecasting/zoneBalanceEventsFromDayDetail";
 import { resolveDbBreakdownHistoryStartYmd } from "@/features/forecasting/resolveDbBreakdownHistoryStart";
 import { getForecastToday } from "@/features/forecasting/forecastDateUtils";
@@ -471,8 +472,12 @@ export default function InventoryPage() {
     });
   }, [
     updateOpen,
-    updateInventoryDb,
-    inventoryDb,
+    updateInventoryDb.snapshotRows,
+    updateInventoryDb.hasData,
+    updateInventoryDb.isLoading,
+    inventoryDb.snapshotRows,
+    inventoryDb.hasData,
+    inventoryDb.isLoading,
     overridesByZone,
     updateDate,
     zoneConfigurations,
@@ -619,10 +624,11 @@ export default function InventoryPage() {
   const breakdownDb = useInventoryZoneDbSnapshots({
     dateFrom: breakdownHistoryStartYmd,
     dateTo: inventoryTodayYmd,
-    zoneKey: breakdownDbZoneKey,
+    allPeriods: true,
+    zoneKey: breakdownDbZoneKey ?? balanceBreakdownZoneKey,
     farmId: breakdownTargetRow?.farmId,
     grassId: breakdownTargetRow?.grassId,
-    enabled: referenceHydrated && !!balanceBreakdownZoneKey,
+    enabled: referenceHydrated && !!balanceBreakdownZoneKey && !!breakdownTargetRow,
     refreshKey: dbSeriesRefreshKey,
   });
   const [balanceBreakdownUnit, setBalanceBreakdownUnit] = useState<"kg" | "m2">("kg");
@@ -680,26 +686,21 @@ export default function InventoryPage() {
       }
 
       const historyStartYmd = breakdownHistoryStartYmd;
-      const historyRows =
+      const rawHistoryRows =
         breakdownDb.snapshotRows.length > 0
           ? breakdownDb.snapshotRows
           : inventoryDb.snapshotRows;
-
-      const byDate = buildZoneDailySnapshotsFromDb(
-        historyRows,
-        overridesByZone,
-        historyStartYmd,
-        inventoryTodayYmd,
+      const historyRows = filterSnapshotRowsForZoneKey(
+        rawHistoryRows,
+        breakdownDbZoneKey ?? zoneKey,
       );
 
-      const timeline = filterZoneBalanceTimelineToImpactDays(
-        buildZoneBalanceTimelineForDisplay(
-          byDate,
-          zoneKey,
-          row.maxKg,
-          historyStartYmd,
-        ),
-        inventoryTodayYmd,
+      const timeline = buildZoneBalanceTimelineFromDbSnapshotRows(
+        historyRows,
+        zoneKey,
+        row.maxKg,
+        historyStartYmd,
+        overridesByZone,
       );
       const hasToday = timeline.some((entry) => entry.dateYmd === inventoryTodayYmd);
       const todaySnapshot = lookupZoneSnapshotInDayMap(zoneSnapshotsToday, zoneKey);
@@ -739,15 +740,8 @@ export default function InventoryPage() {
         return;
       }
 
-      const chainedTimeline = insertGapBridgeBeforeToday(
-        rechainZoneBalanceTimelineForDisplay(baseTimeline, {
-          todayYmd: inventoryTodayYmd,
-        }),
-        inventoryTodayYmd,
-      );
-
       const enrichedTimeline = await enrichZoneBalanceTimelineForBreakdown(
-        chainedTimeline,
+        baseTimeline,
         zoneKey,
         inventoryTodayYmd,
         {
@@ -794,6 +788,7 @@ export default function InventoryPage() {
     breakdownDb.isLoading,
     breakdownDb.snapshotRows,
     inventoryDb.snapshotRows,
+    breakdownDbZoneKey,
   ]);
 
   useEffect(() => {
@@ -972,6 +967,17 @@ export default function InventoryPage() {
     );
   }, [availableFarms, updateOpen]);
 
+  const balanceFormSeedKey = useMemo(() => {
+    if (!updateOpen) return "";
+    const parts: string[] = [updateDate.trim().slice(0, 10), selectedFarm];
+    for (const row of updateZones) {
+      const sk = inventoryBalanceOverrideStorageKey(row.forecastZoneKey, updateDate);
+      const existing = overridesByZone[sk];
+      parts.push(`${row.key}:${existing?.id ?? 0}:${existing?.availableKg ?? ""}`);
+    }
+    return parts.join("\0");
+  }, [updateOpen, updateDate, selectedFarm, updateZones, overridesByZone]);
+
   useEffect(() => {
     if (!updateOpen) return;
     const next: Record<string, string> = {};
@@ -980,8 +986,14 @@ export default function InventoryPage() {
       const existing = overridesByZone[sk];
       if (existing) next[row.key] = formatBalanceInput(existing.availableKg);
     }
-    setBalanceUpdates(next);
-  }, [overridesByZone, updateOpen, updateZones, updateDate]);
+    setBalanceUpdates((prev) => {
+      const keys = new Set([...Object.keys(prev), ...Object.keys(next)]);
+      for (const key of keys) {
+        if ((prev[key] ?? "") !== (next[key] ?? "")) return next;
+      }
+      return prev;
+    });
+  }, [balanceFormSeedKey, updateOpen]);
 
   async function handleSaveUpdates() {
     const updates: InventoryAvailableOverrideEntry[] = [];

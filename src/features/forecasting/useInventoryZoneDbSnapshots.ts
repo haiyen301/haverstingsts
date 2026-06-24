@@ -21,6 +21,9 @@ import { useForecastDataStore } from "@/shared/store/forecastDataStore";
 type Args = {
   dateFrom: string;
   dateTo: string;
+  periodId?: number | null;
+  /** Read MIN(snapshot_date)..dateTo across all periods (balance breakdown). */
+  allPeriods?: boolean;
   zoneKey?: string | null;
   farmId?: number | null;
   grassId?: number | null;
@@ -47,6 +50,8 @@ export function useInventoryZoneDbSnapshots(args: Args) {
         zoneKey: args.zoneKey ?? "",
         farmId: args.farmId ?? "",
         grassId: args.grassId ?? "",
+        periodId: args.periodId ?? "",
+        allPeriods: args.allPeriods ?? false,
         refresh: args.refreshKey ?? 0,
         storeRefresh: dbSeriesRefreshKey,
       }),
@@ -56,6 +61,8 @@ export function useInventoryZoneDbSnapshots(args: Args) {
       args.zoneKey,
       args.farmId,
       args.grassId,
+      args.periodId,
+      args.allPeriods,
       args.refreshKey,
       dbSeriesRefreshKey,
     ],
@@ -77,9 +84,14 @@ export function useInventoryZoneDbSnapshots(args: Args) {
         const grassId = args.grassId != null && args.grassId > 0 ? args.grassId : undefined;
         const zoneKey = args.zoneKey?.trim() || undefined;
 
+        const periodId =
+          args.periodId != null && args.periodId > 0 ? args.periodId : undefined;
+        const allPeriods = args.allPeriods === true;
+
         let rawRows = await fetchForecastSnapshots({
           dateFrom: args.dateFrom,
           dateTo: args.dateTo,
+          ...(allPeriods ? { allPeriods: true } : periodId ? { periodId } : {}),
           ...(zoneKey ? { zoneKey } : {}),
           ...(farmId ? { farmId } : {}),
           ...(grassId ? { grassId } : {}),
@@ -89,11 +101,13 @@ export function useInventoryZoneDbSnapshots(args: Args) {
           zoneKey &&
           rawRows.length === 0 &&
           farmId != null &&
-          grassId != null
+          grassId != null &&
+          !allPeriods
         ) {
           rawRows = await fetchForecastSnapshots({
             dateFrom: args.dateFrom,
             dateTo: args.dateTo,
+            ...(allPeriods ? { allPeriods: true } : periodId ? { periodId } : {}),
             farmId,
             grassId,
           });

@@ -34,7 +34,13 @@ export type SnapshotDateBounds = {
 export type ForecastMetaResponse = {
   period?: { id?: number; opening_balance_date?: string; period_code?: string };
   requested_period?: { id?: number; opening_balance_date?: string };
-  last_run?: { input_hash?: string; completed_at?: string };
+  last_run?: {
+    input_hash?: string;
+    completed_at?: string;
+    run_type?: string;
+    simulation_start_date?: string;
+    snapshot_count?: number | string;
+  };
   snapshot_count?: number;
   total_snapshot_count?: number;
   logic_version?: number;
@@ -72,21 +78,33 @@ export async function fetchForecastMeta(anchorDate?: string): Promise<ForecastMe
   );
 }
 
+  const ALL_PERIODS_ZONE_LIMIT = 6000;
+  const ALL_PERIODS_FARM_GRASS_LIMIT = 20000;
+
 export async function fetchForecastSnapshots(params: {
   dateFrom: string;
   dateTo: string;
   anchorDate?: string;
   periodId?: number;
+  /** Merge all periods in range; newest period/run wins per (date, zone_key). */
+  allPeriods?: boolean;
   zoneKey?: string;
   farmId?: number;
   grassId?: number;
 }): Promise<DbSnapshotRow[]> {
+  const hasZoneKey = Boolean(params.zoneKey?.trim());
   const query: Record<string, string | number> = {
     date_from: params.dateFrom,
     date_to: params.dateTo,
-    limit: 100000,
+    limit: params.allPeriods
+      ? hasZoneKey
+        ? ALL_PERIODS_ZONE_LIMIT
+        : ALL_PERIODS_FARM_GRASS_LIMIT
+      : 100000,
   };
-  if (params.periodId != null && params.periodId > 0) {
+  if (params.allPeriods) {
+    query.all_periods = 1;
+  } else if (params.periodId != null && params.periodId > 0) {
     query.period_id = params.periodId;
   }
   // Never pass anchor_date — snapshot rows keep rebuild anchor, not UI anchor.
