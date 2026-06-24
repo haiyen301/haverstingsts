@@ -12,6 +12,9 @@ export const IOS_TESTFLIGHT_TEST_URL =
 export const IOS_TESTFLIGHT_PRODUCTION_URL =
   "https://testflight.apple.com/join/wky3RQAG";
 
+/** Opaque Android APK download path (filename never exposed to the browser). */
+export const ANDROID_APK_DOWNLOAD_PATH = "/api/mobile-app/android-apk/download";
+
 const TEST_DEPLOY_ENV_VALUES = new Set(["test", "staging"]);
 
 function normalizeHostname(host: string): string {
@@ -61,28 +64,14 @@ export function getIosTestFlightUrlForHost(host: string): string {
 
 /**
  * APK filename suffix auto-detected in STSPortal `assets/apk/` for the current host.
- * Production → `*_production.apk`; test / staging / local dev → `*_staging.apk`.
+ * Production → `*_production.apk`; every other host → `*_staging.apk`.
  */
-export function getAndroidApkFilenameSuffixForHost(host: string): string | null {
+export function getAndroidApkFilenameSuffixForHost(host: string): string {
   if (isProductionDeploymentHost(host)) return "_production.apk";
-
-  if (isTestDeploymentHost(host) || isTestDeploymentFromEnv()) {
-    return "_staging.apk";
-  }
-
-  const hostname = normalizeHostname(host);
-  if (
-    hostname === "localhost" ||
-    hostname === "127.0.0.1" ||
-    hostname.endsWith(".local")
-  ) {
-    return "_staging.apk";
-  }
-
-  return null;
+  return "_staging.apk";
 }
 
-/** Footer may query `/api/mobile-app/android-apk` when a suffix applies for this host. */
-export function shouldOfferAndroidApkForHost(host: string): boolean {
-  return getAndroidApkFilenameSuffixForHost(host) != null;
+/** Footer may query `/api/mobile-app/android-apk` for this host. */
+export function shouldOfferAndroidApkForHost(_host: string): boolean {
+  return true;
 }

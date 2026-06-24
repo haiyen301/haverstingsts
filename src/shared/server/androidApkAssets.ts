@@ -3,9 +3,6 @@ import path from "node:path";
 
 const APK_SUFFIXES = ["_production.apk", "_staging.apk"] as const;
 
-/** Opaque download path — real APK filename is never exposed to the browser. */
-export const ANDROID_APK_DOWNLOAD_PATH = "/api/mobile-app/android-apk/download";
-
 export type ResolvedAndroidApk = {
   absolutePath: string;
   /** Generic attachment name (does not reveal the file on disk). */

@@ -1,14 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { MessageCircle, Smartphone } from "lucide-react";
+import { MessageCircle } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import {
+  ANDROID_APK_DOWNLOAD_PATH,
   getIosTestFlightUrlForHost,
+  isProductionDeploymentHost,
   shouldOfferAndroidApkForHost,
 } from "@/shared/config/deploymentEnvironment";
-import { AndroidAppIcon } from "@/widgets/layout/AndroidAppIcon";
+import { AppStoreBadgeButton } from "@/widgets/layout/AppStoreBadgeButton";
 
 type AppFooterSupportProps = {
   variant?: "desktop" | "mobile";
@@ -23,15 +25,21 @@ export function AppFooterSupport({ variant = "desktop", className }: AppFooterSu
   useEffect(() => {
     const host = window.location.hostname;
     setIosTestFlightUrl(getIosTestFlightUrlForHost(host));
-    if (shouldOfferAndroidApkForHost(host)) {
-      void fetch("/api/mobile-app/android-apk")
-        .then((res) => (res.ok ? res.json() : null))
-        .then((body: { data?: { url?: string | null } } | null) => {
-          const url = body?.data?.url?.trim();
-          setAndroidApkUrl(url || null);
-        })
-        .catch(() => setAndroidApkUrl(null));
+
+    if (!shouldOfferAndroidApkForHost(host)) return;
+
+    if (!isProductionDeploymentHost(host)) {
+      setAndroidApkUrl(ANDROID_APK_DOWNLOAD_PATH);
+      return;
     }
+
+    void fetch("/api/mobile-app/android-apk")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body: { data?: { url?: string | null } } | null) => {
+        const url = body?.data?.url?.trim();
+        setAndroidApkUrl(url || null);
+      })
+      .catch(() => setAndroidApkUrl(null));
   }, []);
 
   const supportLinkClass = isMobile
@@ -39,30 +47,14 @@ export function AppFooterSupport({ variant = "desktop", className }: AppFooterSu
     : "transition-colors hover:text-[rgb(31,122,76)]";
 
   const appLinks = (
-    <>
+    <div className="flex flex-wrap items-center gap-2">
       {androidApkUrl ? (
-        <a
-          href={androidApkUrl}
-          className="inline-flex items-center gap-2 text-base font-semibold text-[#3DDC84] transition-opacity hover:opacity-80"
-          aria-label="Download Android app"
-        >
-          <AndroidAppIcon />
-          <span>Android App</span>
-        </a>
+        <AppStoreBadgeButton href={androidApkUrl} store="google-play" />
       ) : null}
       {iosTestFlightUrl ? (
-        <a
-          href={iosTestFlightUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center gap-2 text-base font-semibold text-[#007AFF] transition-opacity hover:opacity-80"
-          aria-label="Download iOS app on TestFlight"
-        >
-          <Smartphone className="h-4 w-4 shrink-0" aria-hidden />
-          <span>iOS App</span>
-        </a>
+        <AppStoreBadgeButton href={iosTestFlightUrl} store="app-store" external />
       ) : null}
-    </>
+    </div>
   );
 
   return (
@@ -70,7 +62,7 @@ export function AppFooterSupport({ variant = "desktop", className }: AppFooterSu
       className={cn(
         isMobile
           ? "space-y-3 text-xs text-sidebar-foreground/70"
-          : "flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs text-muted-foreground",
+          : "flex flex-wrap items-center justify-between gap-x-4 gap-y-3 text-xs text-muted-foreground",
         className,
       )}
     >
@@ -103,16 +95,7 @@ export function AppFooterSupport({ variant = "desktop", className }: AppFooterSu
         </a>
       </div>
 
-      {iosTestFlightUrl || androidApkUrl ? (
-        <div
-          className={cn(
-            "flex flex-wrap gap-x-4 gap-y-2",
-            isMobile ? "items-start" : "items-center justify-end",
-          )}
-        >
-          {appLinks}
-        </div>
-      ) : null}
+      {iosTestFlightUrl || androidApkUrl ? appLinks : null}
     </div>
   );
 }

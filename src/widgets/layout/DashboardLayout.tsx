@@ -1035,7 +1035,7 @@ export function DashboardLayout({
           {children}
         </main>
 
-        <footer className="hidden border-t border-border bg-background/80 px-4 py-3 backdrop-blur-md lg:block lg:px-6">
+        <footer className="hidden border-t border-border bg-background/80 px-4 py-4 backdrop-blur-md lg:block lg:px-6">
           <AppFooterSupport variant="desktop" />
         </footer>
       </div>

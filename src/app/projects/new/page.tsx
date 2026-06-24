@@ -60,6 +60,11 @@ import {
   type GrassRequirementForPaceRecalc,
 } from "@/features/project/lib/buildPaceGrassBatchQuantitiesFromHarvestRecalc";
 import {
+  buildPaceGrassBatchQuantitiesAfterPaceChange,
+  areAllGrassRequirementsFulfilledByActualHarvests,
+  runProjectPaceChangeHarvestRegeneration,
+} from "@/features/project/lib/regenerateEstimateHarvestsOnProjectPaceChange";
+import {
   buildPaceGrassBatchQuantities,
   estimatePaceDurationWeeks,
   estimatePaceHarvestDateSpan,
@@ -82,6 +87,7 @@ import { buildGrassFilterOptionsForFarms } from "@/shared/lib/grassFilterByFarmZ
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 import { AlertRouteCategoryBanner } from "@/features/alerts/AlertRouteCategoryBanner";
 import { dispatchRouteAlert } from "@/features/alerts/dispatchRouteAlert";
+import { toast } from "react-toastify";
 import { CheckBadge } from "@/shared/ui/check-badge";
 import { MultiSelect } from "@/shared/ui/multi-select";
 import { getInternalStsProxyUrl } from "@/shared/api/stsProxyClient";
@@ -292,6 +298,8 @@ export default function ProjectInputPage() {
   /** Planned harvest seeds run only on create — never when updating an existing project row. */
   const canSeedPlannedHarvestsOnCreate =
     !isEdit && canAccessModule(user, "harvests", "create");
+  const canRegeneratePaceHarvestsOnEdit =
+    isEdit && canAccessModule(user, "harvests", "create");
   const canDeleteProject = isEdit && canDeleteProjects;
   const showPrivilegedPaceRecalcSetting = useMemo(
     () =>
@@ -340,7 +348,7 @@ export default function ProjectInputPage() {
     if (!isEdit && savePhase === "planned_harvests") {
       return t("creatingPlannedHarvests");
     }
-    if (isEdit && savePhase === "pace_recalc") {
+    if (savePhase === "pace_recalc") {
       return t("recalculatingPaceHarvests");
     }
     return t("saving");
@@ -355,6 +363,12 @@ export default function ProjectInputPage() {
   const [startDateTouched, setStartDateTouched] = useState(false);
   const [grassValidationError, setGrassValidationError] = useState<string | null>(null);
   const [projectPaceError, setProjectPaceError] = useState<string | null>(null);
+  /** Pace loaded from server — used to detect pace change on edit save. */
+  const [loadedProjectPace, setLoadedProjectPace] = useState("");
+  /** Cached harvest plan rows for edit-mode pace fulfillment checks. */
+  const [editHarvestPlanRows, setEditHarvestPlanRows] = useState<
+    Array<Record<string, unknown>>
+  >([]);
   /** From loaded row / API (`react_get_harvesting_table`); fallback `Harvesting` for delete. */
   const [editTableName, setEditTableName] = useState("");
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
@@ -466,6 +480,9 @@ export default function ProjectInputPage() {
     return !trimmed || trimmed.toLowerCase() === "none";
   };
 
+  const normalizeProjectPaceKey = (pace: string) =>
+    isProjectPaceUnset(pace) ? "" : pace.trim().toLowerCase();
+
   const projectPaceSelectOptions = useMemo(() => {
     const fromCatalog = projectPaceCatalogRows
       .map((row) => {
@@ -560,8 +577,34 @@ export default function ProjectInputPage() {
   }, [fetchAllHarvestingReferenceData]);
 
   useEffect(() => {
-    if (!isEdit) setEditProjectIdForLabel("");
+    if (!isEdit) {
+      setEditProjectIdForLabel("");
+      setLoadedProjectPace("");
+      setEditHarvestPlanRows([]);
+    }
   }, [isEdit]);
+
+  useEffect(() => {
+    if (!isEdit || !editProjectIdForLabel.trim()) {
+      setEditHarvestPlanRows([]);
+      return;
+    }
+    let mounted = true;
+    void (async () => {
+      try {
+        const rows = await fetchAllHarvestPlanRowsForProject(
+          editProjectIdForLabel.trim(),
+          user?.id != null ? Number(user.id) : undefined,
+        );
+        if (mounted) setEditHarvestPlanRows(rows);
+      } catch {
+        if (mounted) setEditHarvestPlanRows([]);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [editProjectIdForLabel, isEdit, user?.id]);
 
   useEffect(() => {
     let mounted = true;
@@ -931,6 +974,58 @@ export default function ProjectInputPage() {
     return null;
   };
 
+  const getGrassReqsForPaceRecalc = useCallback(
+    (): GrassRequirementForPaceRecalc[] =>
+      grassRows
+        .filter(isGrassItemComplete)
+        .map((r) => ({
+          productId: r.grass.trim(),
+          uom: uomForGrassLoadType(r.loadType),
+          loadType: r.loadType,
+          totalRequired: Number.parseFloat(r.required) || 0,
+          farmId: r.farmId.trim() || undefined,
+        })),
+    [grassRows],
+  );
+
+  const maybeToastPaceRequirementFulfilled = useCallback(
+    async (paceValue: string, harvestRows?: Array<Record<string, unknown>>) => {
+      if (!isEdit || isProjectPaceUnset(paceValue)) return;
+      if (!isProjectPaceForHarvestPlan(paceValue, projectPaceCatalogRows)) return;
+      const grassReqs = getGrassReqsForPaceRecalc();
+      if (grassReqs.length === 0) return;
+
+      let rows = harvestRows ?? editHarvestPlanRows;
+      if (rows.length === 0 && editProjectIdForLabel.trim()) {
+        try {
+          rows = await fetchAllHarvestPlanRowsForProject(
+            editProjectIdForLabel.trim(),
+            user?.id != null ? Number(user.id) : undefined,
+          );
+          setEditHarvestPlanRows(rows);
+        } catch {
+          return;
+        }
+      }
+      if (
+        areAllGrassRequirementsFulfilledByActualHarvests(grassReqs, rows)
+      ) {
+        toast.info(t("paceRequirementFulfilledNoEstimates"), {
+          toastId: "pace-requirement-fulfilled",
+        });
+      }
+    },
+    [
+      editHarvestPlanRows,
+      editProjectIdForLabel,
+      getGrassReqsForPaceRecalc,
+      isEdit,
+      projectPaceCatalogRows,
+      t,
+      user?.id,
+    ],
+  );
+
   const getProjectPaceTimelineError = useCallback((): string | null => {
     if (isProjectPaceUnset(formData.projectPace)) return null;
 
@@ -942,10 +1037,12 @@ export default function ProjectInputPage() {
     );
     if (!selectedPace) return null;
 
-    const timelineStartYmd =
-      formData.estimateStartDate.trim() || formData.actualStartDate.trim();
+    const timelineStartYmd = formData.estimateStartDate.trim();
     const endYmd = formData.endDate.trim();
-    if (!timelineStartYmd || !endYmd) return null;
+    if (!timelineStartYmd) {
+      return t("validationEstimateStartDateRequiredForPace");
+    }
+    if (!endYmd) return null;
 
     const span = estimatePaceHarvestDateSpan({
       paceConfig: projectPaceConfigFromRow(selectedPace),
@@ -960,7 +1057,6 @@ export default function ProjectInputPage() {
     }
     return null;
   }, [
-    formData.actualStartDate,
     formData.endDate,
     formData.estimateStartDate,
     formData.projectPace,
@@ -1117,6 +1213,7 @@ export default function ProjectInputPage() {
     if (rowTableId) setEditTableId(rowTableId);
     const paceRaw = String(rec.project_pace ?? "").trim().toLowerCase();
     const projectPace = paceRaw === "none" ? "" : paceRaw;
+    setLoadedProjectPace(projectPace);
     setFormData({
       projectName: projectNameDisplay,
       golfClub: mondayProjectAliasTitleFromRow(rec),
@@ -1318,44 +1415,60 @@ export default function ProjectInputPage() {
           farmId: r.farmId || undefined,
         }));
 
-      let harvestPlanRowsForPrivilegedRecalc: Array<Record<string, unknown>> =
-        [];
+      let harvestPlanRowsForPaceOps: Array<Record<string, unknown>> = [];
+      const projectPaceChangedOnEdit =
+        isEdit &&
+        normalizeProjectPaceKey(formData.projectPace) !==
+          normalizeProjectPaceKey(loadedProjectPace);
+      const shouldRegeneratePaceHarvestsOnEdit =
+        projectPaceChangedOnEdit &&
+        canRegeneratePaceHarvestsOnEdit &&
+        isProjectPaceForHarvestPlan(paceKeyForSave, projectPaceCatalogRows) &&
+        Boolean(selectedPaceForSave) &&
+        grassReqsForPace.length > 0;
       const usePrivilegedPaceHarvestRecalc =
         isEdit &&
         applyPrivilegedPaceHarvestRecalc &&
-        showPrivilegedPaceRecalcSetting;
+        showPrivilegedPaceRecalcSetting &&
+        !shouldRegeneratePaceHarvestsOnEdit;
 
-      if (usePrivilegedPaceHarvestRecalc) {
-        const projectIdForRecalc = editProjectIdForLabel.trim();
-        if (!projectIdForRecalc) {
+      if (shouldRegeneratePaceHarvestsOnEdit || usePrivilegedPaceHarvestRecalc) {
+        const projectIdForPaceOps = editProjectIdForLabel.trim();
+        if (!projectIdForPaceOps) {
           setError(t("privilegedPaceRecalcNoProjectId"));
           return;
         }
         try {
-          harvestPlanRowsForPrivilegedRecalc =
-            await fetchAllHarvestPlanRowsForProject(
-              projectIdForRecalc,
-              user?.id != null ? Number(user.id) : undefined,
-            );
+          harvestPlanRowsForPaceOps = await fetchAllHarvestPlanRowsForProject(
+            projectIdForPaceOps,
+            user?.id != null ? Number(user.id) : undefined,
+          );
         } catch {
           setError(t("privilegedPaceRecalcFetchFailed"));
           return;
         }
       }
 
-      const paceGrassBatchQuantities = usePrivilegedPaceHarvestRecalc
-        ? buildPaceGrassBatchQuantitiesFromHarvestRecalc({
+      const paceGrassBatchQuantities = shouldRegeneratePaceHarvestsOnEdit &&
+        selectedPaceForSave
+        ? buildPaceGrassBatchQuantitiesAfterPaceChange({
+            paceConfig: projectPaceConfigFromRow(selectedPaceForSave),
             grassRequirements: grassReqsForPrivilegedRecalc,
-            harvestPlanRows: harvestPlanRowsForPrivilegedRecalc,
+            harvestPlanRows: harvestPlanRowsForPaceOps,
           })
-        : isProjectPaceForHarvestPlan(paceKeyForSave, projectPaceCatalogRows) &&
-            selectedPaceForSave &&
-            grassReqsForPace.length > 0
-          ? buildPaceGrassBatchQuantities({
-              paceConfig: projectPaceConfigFromRow(selectedPaceForSave),
-              grassRequirements: grassReqsForPace,
+        : usePrivilegedPaceHarvestRecalc
+          ? buildPaceGrassBatchQuantitiesFromHarvestRecalc({
+              grassRequirements: grassReqsForPrivilegedRecalc,
+              harvestPlanRows: harvestPlanRowsForPaceOps,
             })
-          : [];
+          : isProjectPaceForHarvestPlan(paceKeyForSave, projectPaceCatalogRows) &&
+              selectedPaceForSave &&
+              grassReqsForPace.length > 0
+            ? buildPaceGrassBatchQuantities({
+                paceConfig: projectPaceConfigFromRow(selectedPaceForSave),
+                grassRequirements: grassReqsForPace,
+              })
+            : [];
       const payload: Record<string, unknown> = {
         id: resolvedRowId,
         table_id: resolvedTableId,
@@ -1436,9 +1549,82 @@ export default function ProjectInputPage() {
         | "critical"
         | undefined;
 
-      if (usePrivilegedPaceHarvestRecalc && projectIdStr) {
+      if (shouldRegeneratePaceHarvestsOnEdit && projectIdStr && selectedPaceForSave) {
         setSavePhase("pace_recalc");
-        let harvestPlanRowsForRecalcApi = harvestPlanRowsForPrivilegedRecalc;
+        const anchorYmd = formData.estimateStartDate.trim();
+        const paceSpan = estimatePaceHarvestDateSpan({
+          paceConfig: projectPaceConfigFromRow(selectedPaceForSave),
+          estimatedStartYmd: anchorYmd,
+        });
+        const {
+          deleted,
+          deleteFailed,
+          created,
+          createFailed,
+          firstCreateMessage,
+          allRequirementsFulfilled,
+        } = await runProjectPaceChangeHarvestRegeneration({
+          projectId: projectIdStr,
+          countryId: formData.country,
+          customerId: formData.odooCustomerId,
+          userId: user?.id != null ? String(user.id) : undefined,
+          paceConfig: projectPaceConfigFromRow(selectedPaceForSave),
+          estimatedStartYmd: anchorYmd,
+          grassRequirements: grassReqsForPace,
+          harvestPlanRows: harvestPlanRowsForPaceOps,
+          zoneConfigurations,
+          paceSnapshotSpan: paceSpan,
+          fallbackTableId: resolvedTableId,
+        });
+        if (allRequirementsFulfilled && created === 0) {
+          toast.info(t("paceRequirementFulfilledNoEstimates"), {
+            toastId: "pace-requirement-fulfilled-save",
+          });
+          plannedHarvestAlertSuffix += t("alertPaceRequirementFulfilledSuffix");
+        }
+        if (deleted > 0) {
+          plannedHarvestAlertSuffix += t("alertPaceRegenerateDeletedSuffix", {
+            count: deleted,
+          });
+        }
+        if (deleteFailed > 0) {
+          plannedHarvestAlertSuffix += t("alertPaceRegenerateDeleteFailedSuffix", {
+            count: deleteFailed,
+          });
+          plannedHarvestAlertSeverity = "warning";
+        }
+        if (created > 0) {
+          plannedHarvestAlertSuffix += t("alertPaceRegenerateCreatedSuffix", {
+            count: created,
+          });
+          const url = getInternalStsProxyUrl(
+            STS_API_PATHS.updateHarvestLimitDescriptions,
+          );
+          void fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            keepalive: true,
+            body: JSON.stringify({ project_id: projectIdStr }),
+          }).catch(() => {});
+        }
+        if (createFailed > 0) {
+          plannedHarvestAlertSuffix += t("alertPaceRegenerateCreateFailedSuffix", {
+            count: createFailed,
+            detail: firstCreateMessage
+              ? t("alertPlannedHarvestFailDetail", {
+                  message: firstCreateMessage,
+                })
+              : "",
+          });
+          plannedHarvestAlertSeverity = "warning";
+        }
+        if (deleted > 0 || created > 0 || deleteFailed > 0 || createFailed > 0) {
+          harvestSnapshotPending = true;
+        }
+      } else if (usePrivilegedPaceHarvestRecalc && projectIdStr) {
+        setSavePhase("pace_recalc");
+        let harvestPlanRowsForRecalcApi = harvestPlanRowsForPaceOps;
         try {
           harvestPlanRowsForRecalcApi =
             await fetchAllHarvestPlanRowsForProject(
@@ -1456,11 +1642,11 @@ export default function ProjectInputPage() {
           zoneConfigurations,
         });
         if (ok > 0) {
-          plannedHarvestAlertSuffix += t("alertPaceRecalcSuffix", { count: ok });
+          plannedHarvestAlertSuffix += t("alertPaceRecalcSuffix", { ok });
         }
         if (fail > 0) {
           plannedHarvestAlertSuffix += t("alertPaceRecalcFailedSuffix", {
-            count: fail,
+            fail,
           });
           plannedHarvestAlertSeverity = "warning";
         }
@@ -1925,8 +2111,10 @@ export default function ProjectInputPage() {
                         id="project-pace-select"
                         value={selectedProjectPaceValue}
                         onChange={(e) => {
-                          setFormData({ ...formData, projectPace: e.target.value });
+                          const nextPace = e.target.value;
+                          setFormData({ ...formData, projectPace: nextPace });
                           setProjectPaceError(null);
+                          void maybeToastPaceRequirementFulfilled(nextPace);
                         }}
                         disabled={projectPaceSelectOptions.length === 0}
                         className={`w-full rounded-md border bg-card px-3 text-sm text-foreground shadow-sm ${projectPaceError ? "border-destructive" : "border-input"
@@ -2418,7 +2606,7 @@ export default function ProjectInputPage() {
                       type="submit"
                       disabled={loading || saving}
                       aria-busy={saving}
-                      className={`inline-flex h-11 items-center justify-center rounded-lg bg-primary px-5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60 ${saving && !isEdit && savePhase === "planned_harvests" ? "min-w-[240px]" : "min-w-[140px]"}`}
+                      className={`inline-flex h-11 items-center justify-center rounded-lg bg-primary px-5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60 ${saving && (savePhase === "planned_harvests" || savePhase === "pace_recalc") ? "min-w-[240px]" : "min-w-[140px]"}`}
                     >
                       {submitButtonLabel}
                     </button>

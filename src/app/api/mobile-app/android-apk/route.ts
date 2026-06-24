@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 
-import { getAndroidApkFilenameSuffixForHost } from "@/shared/config/deploymentEnvironment";
 import {
   ANDROID_APK_DOWNLOAD_PATH,
-  hasAndroidApkForSuffix,
-} from "@/shared/server/androidApkAssets";
+  getAndroidApkFilenameSuffixForHost,
+} from "@/shared/config/deploymentEnvironment";
+import { hasAndroidApkForSuffix } from "@/shared/server/androidApkAssets";
 
 /** Whether an Android APK is available for the current portal host (no filename exposed). */
 export async function GET(req: Request) {
@@ -12,7 +12,7 @@ export async function GET(req: Request) {
     req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? "";
 
   const suffix = getAndroidApkFilenameSuffixForHost(host);
-  if (!suffix || !hasAndroidApkForSuffix(suffix)) {
+  if (!hasAndroidApkForSuffix(suffix)) {
     return NextResponse.json({ success: true, data: { url: null } });
   }
 
