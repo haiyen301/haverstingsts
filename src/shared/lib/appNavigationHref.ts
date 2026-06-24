@@ -55,3 +55,39 @@ export function withRefreshQueryParam(target: string, key = "refresh"): string {
   searchParams.set(key, String(Date.now()));
   return buildAppHref(pathname, searchParams, hash);
 }
+
+/** Keep `projectTitle` in sync when returning to project detail after a rename. */
+export function withUpdatedDetailProjectTitle(
+  target: string,
+  projectTitle: string,
+): string {
+  const name = projectTitle.trim();
+  if (!name) return target;
+  const { pathname, searchParams, hash } = parseAppHref(target);
+  if (!pathname.startsWith("/projects/detail")) return target;
+  searchParams.set("projectTitle", name);
+  return buildAppHref(pathname, searchParams, hash);
+}
+
+/** After project save — return to `returnTo` when present, else detail fallback. */
+export function resolvePostProjectSaveReturnHref(opts: {
+  isEdit: boolean;
+  returnToParam: string;
+  returnTarget: string;
+  projectName: string;
+  detailHrefAfterSave: string;
+}): string {
+  if (!opts.isEdit) {
+    return withRefreshQueryParam(opts.detailHrefAfterSave);
+  }
+
+  const target = opts.returnToParam.trim()
+    ? opts.returnTarget
+    : opts.detailHrefAfterSave;
+  const withTitle = withUpdatedDetailProjectTitle(target, opts.projectName);
+  const { pathname } = parseAppHref(withTitle);
+  if (pathname.startsWith("/projects") || pathname.startsWith("/harvest")) {
+    return withRefreshQueryParam(withTitle);
+  }
+  return withTitle;
+}

@@ -216,6 +216,7 @@ function isProjectPaceUnset(pace: string): boolean {
 }
 
 import {
+  resolvePostProjectSaveReturnHref,
   resolveReturnToTarget,
   withRefreshQueryParam,
 } from "@/shared/lib/appNavigationHref";
@@ -312,26 +313,6 @@ export default function ProjectInputPage() {
       user?.role_title?.trim() === TURF_FARM_MANAGER_ROLE,
     [user],
   );
-  const returnTarget = useMemo(
-    () =>
-      resolveReturnToTarget(returnToParam, {
-        allowedPrefixes: ["/projects", "/harvest"],
-        fallback: "/projects",
-      }),
-    [returnToParam],
-  );
-
-  const goBack = useCallback(() => {
-    if (returnToParam) {
-      router.push(returnTarget);
-      return;
-    }
-    if (typeof window !== "undefined" && window.history.length > 1) {
-      router.back();
-      return;
-    }
-    router.push(returnTarget);
-  }, [router, returnTarget, returnToParam]);
 
   const [loading, setLoading] = useState(isEdit);
   type ProjectSavePhase = false | "project" | "planned_harvests" | "pace_recalc";
@@ -573,6 +554,45 @@ export default function ProjectInputPage() {
 
   /** Edit mode: `project_id` for resolving display title once Zustand `projects` loads. */
   const [editProjectIdForLabel, setEditProjectIdForLabel] = useState("");
+
+  const editFallbackDetailHref = useMemo(() => {
+    if (!isEdit) return "/projects";
+    const projectId = editProjectIdForLabel.trim();
+    if (!projectId) return "/projects";
+    const params = new URLSearchParams();
+    params.set("projectId", projectId);
+    if (editRowId) params.set("rowId", editRowId);
+    const tableId = editTableId.trim() || editTableIdFromQuery.trim();
+    if (tableId) params.set("tableId", tableId);
+    return `/projects/detail?${params.toString()}`;
+  }, [
+    editProjectIdForLabel,
+    editRowId,
+    editTableId,
+    editTableIdFromQuery,
+    isEdit,
+  ]);
+
+  const returnTarget = useMemo(
+    () =>
+      resolveReturnToTarget(returnToParam, {
+        allowedPrefixes: ["/projects", "/harvest"],
+        fallback: isEdit ? editFallbackDetailHref : "/projects",
+      }),
+    [editFallbackDetailHref, isEdit, returnToParam],
+  );
+
+  const goBack = useCallback(() => {
+    if (returnToParam) {
+      router.push(returnTarget);
+      return;
+    }
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      router.back();
+      return;
+    }
+    router.push(returnTarget);
+  }, [router, returnTarget, returnToParam]);
 
   useEffect(() => {
     if (!isProjectPaceUnset(formData.projectPace)) {
@@ -1735,6 +1755,7 @@ export default function ProjectInputPage() {
         params.set("projectId", projectIdStr);
         params.set("rowId", resolvedRowId);
         params.set("tableId", resolvedTableId);
+        if (projectName) params.set("projectTitle", projectName);
         return `/projects/detail?${params.toString()}`;
       })();
       const alertHref = detailHrefAfterSave;
@@ -1767,14 +1788,14 @@ export default function ProjectInputPage() {
       ) {
         onHarvestForecastMutation();
       }
-      const nextReturnTarget = returnTarget.startsWith("/projects")
-        ? withRefreshQueryParam(returnTarget)
-        : returnTarget;
-      if (!isEdit && projectIdStr) {
-        router.push(withRefreshQueryParam(detailHrefAfterSave));
-      } else {
-        router.push(nextReturnTarget);
-      }
+      const postSaveHref = resolvePostProjectSaveReturnHref({
+        isEdit,
+        returnToParam,
+        returnTarget,
+        projectName,
+        detailHrefAfterSave,
+      });
+      router.push(postSaveHref);
     } catch (err) {
       setError(err instanceof Error ? err.message : t("saveFailed"));
     } finally {

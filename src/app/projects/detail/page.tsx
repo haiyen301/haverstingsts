@@ -232,15 +232,21 @@ function mergeProjectDetailFromServer(
     ...(catalogRow ?? {}),
     ...(dynamicRow ?? {}),
   };
-  const resolvedTitle = mondayProjectTitleFromRow(mergedRec, {
-    catalogTitle:
+  const dynamicTitle = dynamicRow
+    ? mondayProjectTitleFromRow(dynamicRow, { projectId })
+    : "";
+  const hasDynamicTitle = Boolean(dynamicTitle && dynamicTitle !== projectId);
+  const catalogTitleHint = hasDynamicTitle
+    ? undefined
+    : String(catalogRow?.title ?? catalogRow?.name ?? "").trim() ||
       titleHint?.trim() ||
-      String(catalogRow?.title ?? catalogRow?.name ?? "").trim() ||
-      undefined,
+      undefined;
+  const resolvedTitle = mondayProjectTitleFromRow(mergedRec, {
+    catalogTitle: catalogTitleHint,
     projectId,
   });
   const displayTitle =
-    resolvedTitle && resolvedTitle !== projectId ? resolvedTitle : titleHint?.trim() || resolvedTitle;
+    resolvedTitle && resolvedTitle !== projectId ? resolvedTitle : resolvedTitle || titleHint?.trim();
   return {
     ...mergedRec,
     project_id: projectId,
@@ -834,6 +840,11 @@ export default function ProjectDetailPage() {
     searchParams.get("id")?.trim() ||
     "";
   const projectTitleFromQuery = searchParams.get("projectTitle")?.trim() ?? "";
+  const refreshParam = (searchParams.get("refresh") ?? "").trim();
+  const [detailReloadSeq, setDetailReloadSeq] = useState(() =>
+    refreshParam ? 1 : 0,
+  );
+  const handledRefreshParamRef = useRef(refreshParam);
   const returnTo = useMemo(() => {
     const query = searchParams.toString();
     return normalizeAppNavigationHref(query ? `${pathname}?${query}` : pathname);
@@ -976,6 +987,12 @@ export default function ProjectDetailPage() {
   useEffect(() => {
     void fetchAllHarvestingReferenceData();
   }, [fetchAllHarvestingReferenceData]);
+
+  useEffect(() => {
+    if (!refreshParam || handledRefreshParamRef.current === refreshParam) return;
+    handledRefreshParamRef.current = refreshParam;
+    setDetailReloadSeq((n) => n + 1);
+  }, [refreshParam]);
 
   const projectTitleMap = useMemo(() => {
     const map = new Map<string, string>();
@@ -1142,7 +1159,7 @@ export default function ProjectDetailPage() {
           return;
         }
 
-        await fetchAllHarvestingReferenceData();
+        await fetchAllHarvestingReferenceData(detailReloadSeq > 0);
         if (!mounted) return;
 
         const storeProjects = useHarvestingDataStore.getState();
@@ -1150,11 +1167,6 @@ export default function ProjectDetailPage() {
         const catalogRow =
           findProjectRowBySelectId(scopedCatalog, normalizedProjectId) ??
           findProjectRowBySelectId(storeProjects.projects, normalizedProjectId);
-        const catalogTitleHint =
-          projectTitleFromQuery ||
-          String(catalogRow?.title ?? catalogRow?.name ?? "").trim() ||
-          undefined;
-
         const dynamicRows = await fetchProjectDynamicFieldsByProjectId(normalizedProjectId);
         if (!mounted) return;
 
@@ -1163,7 +1175,7 @@ export default function ProjectDetailPage() {
           normalizedProjectId,
           catalogRow,
           dynamicRow,
-          catalogTitleHint,
+          projectTitleFromQuery || undefined,
         );
 
         if (!catalogRow && !dynamicRow) {
@@ -1253,7 +1265,7 @@ export default function ProjectDetailPage() {
     return () => {
       mounted = false;
     };
-  }, [fetchAllHarvestingReferenceData, harvestHistoryScope, projectIdFromQuery, projectTitleFromQuery, rowId, tableId, t, userId]);
+  }, [detailReloadSeq, fetchAllHarvestingReferenceData, harvestHistoryScope, projectIdFromQuery, projectTitleFromQuery, rowId, tableId, t, userId]);
 
   useEffect(() => {
     if (!expandedHarvestId) {
@@ -1289,20 +1301,19 @@ export default function ProjectDetailPage() {
     const actualStartRaw =
       (rec.start_date as string | undefined) ??
       (rec.actual_start_date as string | undefined);
-    const resolvedProjectName = mondayProjectTitleFromRow(rec, {
-      catalogTitle:
-        projectTitleFromQuery || projectTitleMap.get(projectId) || r.title,
+    const fromRow = mondayProjectTitleFromRow(rec, {
       projectId,
-      fallback: "-",
+      fallback: "",
     });
+    const resolvedProjectName =
+      fromRow && fromRow !== projectId
+        ? fromRow
+        : projectTitleMap.get(projectId) ||
+          projectTitleFromQuery ||
+          String(r.title ?? "").trim() ||
+          "-";
     return {
-      projectName:
-        resolvedProjectName && resolvedProjectName !== projectId
-          ? resolvedProjectName
-          : projectTitleFromQuery ||
-            projectTitleMap.get(projectId) ||
-            String(r.title ?? "").trim() ||
-            "-",
+      projectName: resolvedProjectName,
       golfClub: golfClubFromRow || "-",
       company: companyFromRow || "-",
       odooCustomerRef: String(rec.odoo_customer_id ?? "").trim() || "-",

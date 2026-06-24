@@ -69,12 +69,11 @@ import { effectiveRequiredQuantityForFormUom } from "@/features/project/lib/effe
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 import { AlertRouteCategoryBanner } from "@/features/alerts/AlertRouteCategoryBanner";
 import { dispatchRouteAlert } from "@/features/alerts/dispatchRouteAlert";
+import { fetchZoneConfigurations, type ZoneConfigurationRow } from "@/features/admin/api/adminApi";
 import {
-  fetchZoneAutoConfigurations,
-  fetchZoneConfigurations,
-  type ZoneAutoConfigurationRow,
-  type ZoneConfigurationRow,
-} from "@/features/admin/api/adminApi";
+  findZoneConfigForFarmGrass,
+  harvestAreaM2FromKgAndZoneConfig,
+} from "@/features/project/lib/generatePlannedHarvestsForNewProject";
 import { CheckBadge } from "@/shared/ui/check-badge";
 import { Checkbox } from "@/shared/ui/checkbox";
 import { peelHarvestDuplicateDraftRow } from "@/features/harvesting/lib/harvestDuplicateDraft";
@@ -546,19 +545,9 @@ function formatHarvestedAreaForForm(raw: unknown): string {
   return normalizeNonNegativeInput(String(raw ?? "").replace(/,/g, ""));
 }
 
-function normalizeMatchText(v: unknown): string {
-  return String(v ?? "")
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, " ")
-    .replace(/\s+/g, " ");
-}
-
-function isTruthyFlag(v: unknown): boolean {
-  if (typeof v === "boolean") return v;
-  if (typeof v === "number") return v === 1;
-  const s = String(v ?? "").trim().toLowerCase();
-  return s === "1" || s === "true" || s === "yes" || s === "on";
+function isKgSprigHarvestType(harvestType: HarvestTypeStorageKey | ""): boolean {
+  const key = normalizeHarvestTypeStorageKey(harvestType);
+  return key === "sprig" || key === "sod_to_sprig";
 }
 
 /**
@@ -1136,9 +1125,6 @@ function HarvestInputPageInner() {
     [farmZones, formData.farm],
   );
   const [zoneConfigRows, setZoneConfigRows] = useState<ZoneConfigurationRow[]>([]);
-  const [zoneAutoConfigRows, setZoneAutoConfigRows] = useState<
-    ZoneAutoConfigurationRow[]
-  >([]);
   const [harvestedAreaManual, setHarvestedAreaManual] = useState(false);
   const [photos, setPhotos] = useState<HarvestPhotoFiles>({});
   /** Loaded from API in edit mode — preview URLs + file names for `images_removed`. */
@@ -1181,13 +1167,11 @@ function HarvestInputPageInner() {
   useEffect(() => {
     let mounted = true;
     void (async () => {
-      const [zones, autoRows] = await Promise.all([
-        fetchZoneConfigurations().catch(() => [] as ZoneConfigurationRow[]),
-        fetchZoneAutoConfigurations().catch(() => [] as ZoneAutoConfigurationRow[]),
-      ]);
+      const zones = await fetchZoneConfigurations().catch(
+        () => [] as ZoneConfigurationRow[],
+      );
       if (!mounted) return;
       setZoneConfigRows(zones);
-      setZoneAutoConfigRows(autoRows);
     })();
     return () => {
       mounted = false;
@@ -1203,77 +1187,76 @@ function HarvestInputPageInner() {
     return [[currentZone, zoneIdToLabel(currentZone, farmZones) || currentZone], ...entries];
   }, [filteredFarmZoneRows, formData.zone, farmZones]);
 
-  const selectedFarmLabel = useMemo(
-    () => farmOptions.find((f) => f.id === formData.farm)?.label ?? "",
-    [farmOptions, formData.farm],
-  );
-  const selectedGrassLabel = useMemo(() => {
-    const id = formData.grass.trim();
-    if (!id) return "";
-    return productNameById.get(id) ?? id;
-  }, [formData.grass, productNameById]);
-  const selectedZoneLabel = useMemo(
-    () => filteredZoneEntries.find(([key]) => key === formData.zone)?.[1] ?? "",
-    [filteredZoneEntries, formData.zone],
-  );
-  const matchedZoneConfiguration = useMemo(() => {
-    if (!selectedFarmLabel || !selectedGrassLabel || !formData.zone) return null;
-    const farmNeedle = normalizeMatchText(selectedFarmLabel);
-    const grassNeedle = normalizeMatchText(selectedGrassLabel);
-    const zoneNeedles = new Set([
-      normalizeMatchText(formData.zone),
-      normalizeMatchText(selectedZoneLabel),
-    ]);
-    return (
-      zoneConfigRows.find((row) => {
-        const farm = normalizeMatchText(row.farm_name);
-        const grass = normalizeMatchText(row.turfgrass);
-        const zone = normalizeMatchText(row.zone);
-        return farm === farmNeedle && grass === grassNeedle && zoneNeedles.has(zone);
-      }) ?? null
+  const harvestAreaRefYmd = useMemo(() => {
+    const ymds = [
+      toDateInput(formData.estimatedDate),
+      toDateInput(formData.actualDate),
+    ].filter((s) => /^\d{4}-\d{2}-\d{2}$/.test(s));
+    return ymds[0] ?? todayYmdLocal();
+  }, [formData.actualDate, formData.estimatedDate]);
+
+  const isKgSprigHarvest = useMemo(() => {
+    if (formData.uom.trim().toLowerCase() !== "kg") return false;
+    return isKgSprigHarvestType(normalizeHarvestTypeStorageKey(formData.harvestType));
+  }, [formData.harvestType, formData.uom]);
+
+  const zoneConfigForHarvestArea = useMemo(() => {
+    if (!isKgSprigHarvest) return null;
+    const farmId = formData.farm.trim();
+    const grassId = formData.grass.trim();
+    if (!farmId || !grassId) return null;
+    return findZoneConfigForFarmGrass(
+      zoneConfigRows,
+      farmId,
+      grassId,
+      harvestAreaRefYmd,
     );
   }, [
-    formData.zone,
-    selectedFarmLabel,
-    selectedGrassLabel,
-    selectedZoneLabel,
+    formData.farm,
+    formData.grass,
+    harvestAreaRefYmd,
+    isKgSprigHarvest,
     zoneConfigRows,
   ]);
-  const matchedZoneAutoConfiguration = useMemo(() => {
-    if (!matchedZoneConfiguration) return null;
-    return (
-      zoneAutoConfigRows.find(
-        (row) =>
-          String(row.zone_configuration_id) === String(matchedZoneConfiguration.id),
-      ) ?? null
-    );
-  }, [matchedZoneConfiguration, zoneAutoConfigRows]);
+
   const autoHarvestAreaInfo = useMemo(() => {
-    const isKg = formData.uom.trim().toLowerCase() === "kg";
+    if (!isKgSprigHarvest) return null;
     const qtyKg = parseNum(formData.quantity);
-    if (!isKg || qtyKg <= 0 || !matchedZoneConfiguration || !matchedZoneAutoConfiguration) {
-      return null;
+    if (qtyKg <= 0) return null;
+
+    const farmId = formData.farm.trim();
+    const grassId = formData.grass.trim();
+
+    if (zoneConfigForHarvestArea) {
+      const areaStr = harvestAreaM2FromKgAndZoneConfig(
+        qtyKg,
+        zoneConfigForHarvestArea,
+      );
+      if (!areaStr) return null;
+      const yieldKgPerM2 = parseNum(zoneConfigForHarvestArea.inventory_kg_per_m2);
+      if (yieldKgPerM2 <= 0) return null;
+      return {
+        harvestedAreaM2: parseNum(areaStr),
+        yieldKgPerM2,
+        source: "zone_config" as const,
+      };
     }
-    if (
-      !isTruthyFlag(matchedZoneAutoConfiguration.auto_enabled) ||
-      !isTruthyFlag(matchedZoneAutoConfiguration.allow_auto_fill_harvest_area)
-    ) {
-      return null;
+
+    if (!farmId || !grassId) {
+      return {
+        harvestedAreaM2: qtyKg,
+        yieldKgPerM2: null,
+        source: "quantity_fallback" as const,
+      };
     }
-    const inventoryKgPerM2 =
-      parseNum(matchedZoneAutoConfiguration.last_inventory_kg_per_m2) ||
-      parseNum(matchedZoneConfiguration.inventory_kg_per_m2);
-    if (inventoryKgPerM2 <= 0) return null;
-    return {
-      harvestedAreaM2: qtyKg / inventoryKgPerM2,
-      inventoryKgPerM2,
-      confidencePct: parseNum(matchedZoneAutoConfiguration.last_confidence_pct),
-    };
+
+    return null;
   }, [
+    formData.farm,
+    formData.grass,
     formData.quantity,
-    formData.uom,
-    matchedZoneAutoConfiguration,
-    matchedZoneConfiguration,
+    isKgSprigHarvest,
+    zoneConfigForHarvestArea,
   ]);
 
   const filteredProjectOptions = useMemo(() => {
@@ -1756,10 +1739,11 @@ function HarvestInputPageInner() {
     return selectedProjectRequirements.some((r) => r.productId === productId);
   }, [formData.grass, selectedProjectRequirements]);
 
-  /** Grass has project quantity rows (or edit with saved qty line) — enables harvest type / UoM controls. */
+  /** Grass selected — on non-pace projects, harvest type / UoM can be chosen freely. */
   const quantityUnitsBasisReady = Boolean(
     formData.grass.trim() &&
       (grassHasQuantityRequirements ||
+        !paceProject ||
         (editId &&
           (Boolean(normUomKey(formData.uom)) ||
             Boolean(normalizeHarvestTypeStorageKey(formData.harvestType)) ||
@@ -1771,14 +1755,21 @@ function HarvestInputPageInner() {
   );
 
   useEffect(() => {
-    if (editId || !formData.grass.trim() || grassHasQuantityRequirements) return;
+    if (
+      editId ||
+      !formData.grass.trim() ||
+      grassHasQuantityRequirements ||
+      !paceProject
+    ) {
+      return;
+    }
     setFormData((prev) => clearQuantityUnitsFields(prev));
     setFieldErrors((prev) => ({
       ...prev,
       harvestType: undefined,
       quantity: undefined,
     }));
-  }, [editId, formData.grass, grassHasQuantityRequirements]);
+  }, [editId, formData.grass, grassHasQuantityRequirements, paceProject]);
 
   useEffect(() => {
     if (!paceRequiresActualDate) return;
@@ -1996,18 +1987,11 @@ function HarvestInputPageInner() {
 
   useEffect(() => {
     if (harvestedAreaManual || formData.uom.trim().toLowerCase() !== "kg") return;
+    if (!isKgSprigHarvestType(normalizeHarvestTypeStorageKey(formData.harvestType))) return;
 
     let nextHarvestedArea = "";
-    if (autoHarvestAreaInfo) {
-      nextHarvestedArea =
-        autoHarvestAreaInfo.harvestedAreaM2 > 0
-          ? autoHarvestAreaInfo.harvestedAreaM2.toFixed(2)
-          : "";
-    } else if (normalizeHarvestTypeStorageKey(formData.harvestType) === "sprig") {
-      const qty = parseNum(formData.quantity);
-      nextHarvestedArea = qty > 0 ? String(qty) : "";
-    } else {
-      return;
+    if (autoHarvestAreaInfo && autoHarvestAreaInfo.harvestedAreaM2 > 0) {
+      nextHarvestedArea = autoHarvestAreaInfo.harvestedAreaM2.toFixed(2);
     }
 
     setFormData((prev) => {
@@ -2350,6 +2334,38 @@ function HarvestInputPageInner() {
     ? t("zoneFieldHelpTooltipWhenActual")
     : t("zoneFieldHelpTooltip");
 
+  const harvestedAreaHelpText = (() => {
+    if (!isKgSprigHarvest) return t("harvestedAreaHintKg");
+
+    const farmId = formData.farm.trim();
+    const grassId = formData.grass.trim();
+    const noFarmOrGrass = !farmId || !grassId;
+    const qty = parseNum(formData.quantity);
+
+    if (
+      autoHarvestAreaInfo?.source === "zone_config" &&
+      autoHarvestAreaInfo.yieldKgPerM2 != null &&
+      autoHarvestAreaInfo.yieldKgPerM2 > 0
+    ) {
+      return t("harvestedAreaFormulaTooltip", {
+        quantity: formatHarvestQuantityDisplay(qty),
+        yield: autoHarvestAreaInfo.yieldKgPerM2.toFixed(3),
+        area: autoHarvestAreaInfo.harvestedAreaM2.toFixed(2),
+      });
+    }
+
+    if (noFarmOrGrass || autoHarvestAreaInfo?.source === "quantity_fallback") {
+      if (qty > 0) {
+        return t("harvestedAreaQuantityFallbackTooltipWithValues", {
+          quantity: formatHarvestQuantityDisplay(qty),
+        });
+      }
+      return t("harvestedAreaQuantityFallbackTooltip");
+    }
+
+    return t("harvestedAreaFormulaHint");
+  })();
+
   const activeFieldIssueCount = useMemo(
     () =>
       (Object.keys(fieldErrors) as (keyof HarvestFieldErrors)[]).filter((k) =>
@@ -2542,6 +2558,7 @@ function HarvestInputPageInner() {
                                     uom: "",
                                     harvestType: "",
                                     quantity: "",
+                                    harvestedArea: "",
                                   }
                                 : null),
                             });
@@ -2887,6 +2904,7 @@ function HarvestInputPageInner() {
                         onChange={(e) => {
                           const nextValue = e.target.value;
                           if (nextValue.trim().startsWith("-")) return;
+                          setHarvestedAreaManual(false);
                           setFormData((prev) => ({ ...prev, quantity: nextValue }));
                           setFieldErrors((prev) => ({ ...prev, quantity: undefined }));
                         }}
@@ -2928,14 +2946,33 @@ function HarvestInputPageInner() {
                     </div>
 
                     <div>
-                      <label className={harvestLabelClass} htmlFor="harvest-harvested-area">
-                        {t("harvestedArea")}{" "}
+                      <div className="relative mb-1.5 flex flex-wrap items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                        <label htmlFor="harvest-harvested-area">
+                          {t("harvestedArea")} ({t("harvestedAreaUnitM2")})
+                        </label>
+                        {isKgSprigHarvest ? (
+                          <>
+                            <span
+                              className="peer inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full border border-input text-[10px] font-semibold text-muted-foreground transition-colors hover:border-foreground/30 hover:text-foreground focus:border-foreground/30 focus:text-foreground"
+                              tabIndex={0}
+                              aria-label={harvestedAreaHelpText}
+                            >
+                              ?
+                            </span>
+                            <span
+                              role="tooltip"
+                              className="pointer-events-none absolute left-0 top-full z-20 mt-2 hidden w-full max-w-[320px] rounded-md border border-border bg-card px-3 py-2 text-left text-[11px] font-normal leading-relaxed text-card-foreground shadow-lg peer-hover:block peer-focus:block"
+                            >
+                              {harvestedAreaHelpText}
+                            </span>
+                          </>
+                        ) : null}
                         {formData.actualDate.trim() &&
                         (formData.uom.trim().toLowerCase() === "m2" ||
                           formData.uom.trim().toLowerCase() === "kg") ? (
                           <span className="text-destructive">*</span>
                         ) : null}
-                      </label>
+                      </div>
                       {formData.uom.trim().toLowerCase() === "m2" ? (
                         <>
                           <input
@@ -2991,15 +3028,6 @@ function HarvestInputPageInner() {
                             placeholder={t("harvestedAreaPlaceholderKg")}
                             disabled={formDisabled || paceLocksQuantityWithoutActual}
                           />
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            {autoHarvestAreaInfo && !harvestedAreaManual
-                              ? `Auto: quantity / ${autoHarvestAreaInfo.inventoryKgPerM2.toFixed(3)} kg/m²${
-                                  autoHarvestAreaInfo.confidencePct
-                                    ? `, confidence ${autoHarvestAreaInfo.confidencePct.toFixed(0)}%`
-                                    : ""
-                                }`
-                              : t("harvestedAreaHintKg")}
-                          </p>
                           {fieldErrors.harvestedArea ? (
                             <p className="mt-1.5 text-xs leading-snug text-destructive">
                               {fieldErrors.harvestedArea}
