@@ -210,6 +210,11 @@ function normalizeProjectNameForCompare(v: unknown): string {
     .trim();
 }
 
+function isProjectPaceUnset(pace: string): boolean {
+  const trimmed = pace.trim();
+  return !trimmed || trimmed.toLowerCase() === "none";
+}
+
 import {
   resolveReturnToTarget,
   withRefreshQueryParam,
@@ -301,12 +306,6 @@ export default function ProjectInputPage() {
   const canRegeneratePaceHarvestsOnEdit =
     isEdit && canAccessModule(user, "harvests", "create");
   const canDeleteProject = isEdit && canDeleteProjects;
-  const showPrivilegedPaceRecalcSetting = useMemo(
-    () =>
-      isEdit &&
-      (isSuperAdmin(user) || userIdIsPrivilegedAdmin(user?.id)),
-    [isEdit, user],
-  );
   const showProjectLogisticsTimelineDates = useMemo(
     () =>
       isSuperAdmin(user) ||
@@ -475,13 +474,16 @@ export default function ProjectInputPage() {
     return values;
   }, [architectCatalogValues, formData.architect]);
 
-  const isProjectPaceUnset = (pace: string) => {
-    const trimmed = pace.trim();
-    return !trimmed || trimmed.toLowerCase() === "none";
-  };
-
   const normalizeProjectPaceKey = (pace: string) =>
     isProjectPaceUnset(pace) ? "" : pace.trim().toLowerCase();
+
+  const showPrivilegedPaceRecalcSetting = useMemo(
+    () =>
+      isEdit &&
+      isProjectPaceUnset(formData.projectPace) &&
+      (isSuperAdmin(user) || userIdIsPrivilegedAdmin(user?.id)),
+    [formData.projectPace, isEdit, user],
+  );
 
   const projectPaceSelectOptions = useMemo(() => {
     const fromCatalog = projectPaceCatalogRows
@@ -571,6 +573,12 @@ export default function ProjectInputPage() {
 
   /** Edit mode: `project_id` for resolving display title once Zustand `projects` loads. */
   const [editProjectIdForLabel, setEditProjectIdForLabel] = useState("");
+
+  useEffect(() => {
+    if (!isProjectPaceUnset(formData.projectPace)) {
+      setApplyPrivilegedPaceHarvestRecalc(false);
+    }
+  }, [formData.projectPace]);
 
   useEffect(() => {
     void fetchAllHarvestingReferenceData();
@@ -1428,6 +1436,7 @@ export default function ProjectInputPage() {
         grassReqsForPace.length > 0;
       const usePrivilegedPaceHarvestRecalc =
         isEdit &&
+        isProjectPaceUnset(formData.projectPace) &&
         applyPrivilegedPaceHarvestRecalc &&
         showPrivilegedPaceRecalcSetting &&
         !shouldRegeneratePaceHarvestsOnEdit;
