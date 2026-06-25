@@ -648,7 +648,6 @@ export default function InventoryPage() {
     ],
   );
 
-  const showSnapshotSyncNotice = inventoryDb.isStale;
   const showChartPendingSnapshot = inventoryDb.isStale;
 
   const [balanceBreakdownZoneKey, setBalanceBreakdownZoneKey] = useState<string | null>(null);
@@ -1279,11 +1278,6 @@ export default function InventoryPage() {
           ) : null}
           {inventoryDb.isLoading && inventoryDb.hasData ? (
             <p className="text-xs text-gray-500">{t("loading")}</p>
-          ) : null}
-          {showSnapshotSyncNotice ? (
-            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-              {t("snapshotRebuilding")}
-            </p>
           ) : null}
           {updateOpen ? (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">

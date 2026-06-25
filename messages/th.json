@@ -1933,6 +1933,7 @@
     "subtitle": "ระดับสินค้าคงคลังที่คาดการณ์ในอีก {months} เดือนข้างหน้าจากแผนการเก็บเกี่ยว",
     "loading": "กำลังโหลดข้อมูลพยากรณ์...",
     "snapshotRebuilding": "กำลัง rebuild snapshot — กราฟจะอัปเดตอัตโนมัติเมื่อ worker เสร็จ (โดยทั่วไป 2–20 นาที ขึ้นอยู่กับประเภทงาน)",
+    "noSnapshotInDateRange": "ไม่มี snapshot DB ในช่วงวันที่ที่เลือก ให้รัน <command>php spark forecast:rebuild</command> หรือขยายตัวกรองวันที่",
     "days": "วัน",
     "filters": {
       "allFarms": "ทุกฟาร์ม",
