@@ -1,6 +1,4 @@
 import {
-  applyInventoryAvailableOverrideToZone,
-  pickInventoryOverrideForAsOf,
   pickInventoryOverrideForExactDate,
 } from "@/features/forecasting/inventoryAvailableOverrides";
 import type { ZoneInventoryDaySnapshot } from "@/features/forecasting/forecastDbTypes";
@@ -304,12 +302,6 @@ function resolveZoneMeta(
   };
 }
 
-function parseAsOfYmdLocal(ymd: string): Date {
-  const m = normalizeYmd(ymd).match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!m) return new Date();
-  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
-}
-
 function mapDbSnapshotToInventoryRow(
   row: DbSnapshotRow,
   zoneConfigurations: ZoneConfigurationRow[],
@@ -330,32 +322,26 @@ function mapDbSnapshotToInventoryRow(
 
   const hasDbOverride = Boolean(row.has_manual_override);
   const exactOverride = pickInventoryOverrideForExactDate(overridesByZone, zoneKey, asOfYmd);
-  const overrideEntry = pickInventoryOverrideForAsOf(
-    overridesByZone,
-    zoneKey,
-    parseAsOfYmdLocal(asOfYmd),
-  );
   let pendingSnapshotSync = false;
 
-  if (optimisticClientOverrides && overrideEntry) {
-    const applied = applyInventoryAvailableOverrideToZone({
-      calculatedKg,
-      maxKg,
-      asOf: parseAsOfYmdLocal(asOfYmd),
-      override: overrideEntry,
-      overrideRecoveryDays: 0,
-      applyRecovery: false,
-    });
-    if (applied) {
-      currentKg = Math.round(applied.effectiveKg);
-      pendingSnapshotSync = Math.round(currentKg) !== Math.round(snapshotKg);
-    }
+  // Optimistic only for a manual row saved exactly on asOfYmd (e.g. just saved today).
+  // Do not replay older inventory_balance rows via pickInventoryOverrideForAsOf — that caused
+  // permanent "Syncing snapshot…" when historical overrides never landed in snapshot DB.
+  if (optimisticClientOverrides && exactOverride) {
+    const optimisticKg = Math.round(Math.max(0, exactOverride.availableKg));
+    currentKg = optimisticKg;
+    pendingSnapshotSync = Math.round(optimisticKg) !== Math.round(snapshotKg);
   }
 
   const pct = maxKg > 0 ? Math.round((currentKg / maxKg) * 100) : 0;
-  const isManualOverrideActive = hasDbOverride || !!overrideEntry;
+  const isManualOverrideActive = hasDbOverride || !!exactOverride;
   const manualKg = isManualOverrideActive
-    ? Math.round(Math.max(0, overrideEntry?.availableKg ?? exactOverride?.availableKg ?? currentKg))
+    ? Math.round(
+        Math.max(
+          0,
+          exactOverride?.availableKg ?? (hasDbOverride ? snapshotKg : 0),
+        ),
+      )
     : null;
 
   return {
@@ -375,13 +361,13 @@ function mapDbSnapshotToInventoryRow(
     pct,
     manualOverrideKg: manualKg,
     manualOverrideDate: isManualOverrideActive
-      ? normalizeYmd(overrideEntry?.date ?? exactOverride?.date ?? asOfYmd)
+      ? normalizeYmd(exactOverride?.date ?? asOfYmd)
       : null,
     systemKgAtManualOverride: isManualOverrideActive
       ? Math.round(
           Math.max(
             0,
-            num(overrideEntry?.calculatedKg ?? exactOverride?.calculatedKg ?? row.calculated_kg ?? calculatedKg),
+            num(exactOverride?.calculatedKg ?? row.calculated_kg ?? calculatedKg),
           ),
         )
       : null,

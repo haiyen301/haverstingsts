@@ -637,12 +637,8 @@ export default function InventoryPage() {
     ],
   );
 
-  const hasPendingBalanceSync = useMemo(
-    () => inventory.some((r) => r.pendingSnapshotSync),
-    [inventory],
-  );
-
-  const showSnapshotSyncNotice = inventoryDb.isStale || hasPendingBalanceSync;
+  const showSnapshotSyncNotice = inventoryDb.isStale;
+  const showChartPendingSnapshot = inventoryDb.isStale;
 
   const [balanceBreakdownZoneKey, setBalanceBreakdownZoneKey] = useState<string | null>(null);
   const [forecastMeta, setForecastMeta] = useState<ForecastMetaResponse | null>(null);
@@ -1510,7 +1506,7 @@ export default function InventoryPage() {
                     {t("overlimitTotal", { kg: companyOverlimitKg.toLocaleString() })}
                   </p>
                 ) : null}
-                {showSnapshotSyncNotice ? (
+                {showChartPendingSnapshot ? (
                   <p className="mt-1 text-[11px] text-amber-800">{t("chartPendingSnapshot")}</p>
                 ) : null}
               </div>
