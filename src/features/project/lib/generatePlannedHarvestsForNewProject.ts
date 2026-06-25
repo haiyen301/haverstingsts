@@ -59,6 +59,8 @@ export type PaceGrassBatchQuantity = {
   grass_id: string;
   quantity: string;
   uom: string;
+  /** sprig / sod / sod_to_sprig — required when the same grass has multiple Kg lines. */
+  load_type?: HarvestTypeStorageKey;
   farm_id?: string;
 };
 
@@ -381,6 +383,7 @@ export function buildPaceGrassBatchQuantities(opts: {
       grass_id: req.productId,
       quantity: formatBatchQuantity(qty),
       uom,
+      load_type: req.loadType,
     };
     if (req.farmId) {
       row.farm_id = req.farmId;

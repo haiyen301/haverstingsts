@@ -125,6 +125,7 @@ export interface MondayProjectServerRow {
     grass_id: string;
     quantity: string;
     uom: string;
+    load_type?: string;
     farm_id?: string;
   }>;
   actual_completion_date?: string;

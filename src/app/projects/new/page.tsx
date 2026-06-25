@@ -97,6 +97,10 @@ import {
   normalizeHarvestTypeStorageKey,
   type HarvestTypeStorageKey,
 } from "@/shared/lib/harvestType";
+import {
+  formatDecimalInput,
+  stripDecimalGrouping,
+} from "@/shared/lib/format/number";
 
 interface GrassRow {
   id: string;
@@ -118,6 +122,11 @@ const GRASS_LOAD_TYPE_OPTIONS: readonly {
   { value: "sod", labelKey: "loadTypeSod", uom: "M2", uomLabel: "m2" },
   { value: "sod_to_sprig", labelKey: "loadTypeSodToSprig", uom: "Kg", uomLabel: "kg" },
 ];
+
+function parseGrassQuantityInput(raw: string): number {
+  const n = Number.parseFloat(stripDecimalGrouping(raw).trim());
+  return Number.isFinite(n) ? n : 0;
+}
 
 function uomForGrassLoadType(loadType: HarvestTypeStorageKey): "Kg" | "M2" {
   return loadType === "sod" ? "M2" : "Kg";
@@ -910,14 +919,14 @@ export default function ProjectInputPage() {
   };
 
   const calculateRemaining = (required: string, delivered: string) => {
-    const req = parseFloat(required) || 0;
-    const del = parseFloat(delivered) || 0;
+    const req = parseGrassQuantityInput(required);
+    const del = parseGrassQuantityInput(delivered);
     return req - del;
   };
 
   const calculateComplete = (required: string, delivered: string) => {
-    const req = parseFloat(required) || 0;
-    const del = parseFloat(delivered) || 0;
+    const req = parseGrassQuantityInput(required);
+    const del = parseGrassQuantityInput(delivered);
     if (req === 0) return 0;
     return Math.min(100, Math.round((del / req) * 100));
   };
@@ -933,7 +942,7 @@ export default function ProjectInputPage() {
       g.loadType.trim().length > 0 ||
       g.required.trim().length > 0;
     if (!touched) return false;
-    const requiredQty = Number.parseFloat(g.required);
+    const requiredQty = parseGrassQuantityInput(g.required);
     return (
       !g.grass.trim() ||
       !g.loadType.trim() ||
@@ -1010,7 +1019,7 @@ export default function ProjectInputPage() {
           productId: r.grass.trim(),
           uom: uomForGrassLoadType(r.loadType),
           loadType: r.loadType,
-          totalRequired: Number.parseFloat(r.required) || 0,
+          totalRequired: parseGrassQuantityInput(r.required),
           farmId: r.farmId.trim() || undefined,
         })),
     [grassRows],
@@ -1280,7 +1289,7 @@ export default function ProjectInputPage() {
           grass: String(x.product_id ?? "").trim(),
           keyAreaIds: parseKeyAreaIds(x.key_area_id),
           loadType,
-          required: String(x.quantity ?? "").trim(),
+          required: formatDecimalInput(String(x.quantity ?? "").trim()),
           delivered: "",
           farmId: String(x.farm_id ?? "").trim(),
         };
@@ -1431,7 +1440,7 @@ export default function ProjectInputPage() {
           productId: r.grass.trim(),
           uom: uomForGrassLoadType(r.loadType),
           loadType: r.loadType,
-          amountRequired: Number.parseFloat(r.required) || 0,
+          amountRequired: parseGrassQuantityInput(r.required),
           farmId: r.farmId.trim(),
         }));
       const grassReqsForPrivilegedRecalc: GrassRequirementForPaceRecalc[] =
@@ -1522,7 +1531,7 @@ export default function ProjectInputPage() {
             return {
               id: r.id,
               product_id: r.grass,
-              quantity: r.required,
+              quantity: stripDecimalGrouping(r.required.trim()),
               uom,
               load_type: r.loadType,
               ...(keyAreaId != null ? { key_area_id: keyAreaId } : {}),
@@ -2587,11 +2596,15 @@ export default function ProjectInputPage() {
                           {t("amountRequired")}
                         </label>
                         <input
-                          type="number"
+                          type="text"
+                          inputMode="decimal"
+                          autoComplete="off"
                           value={row.required}
-                          onChange={(e) =>
-                            updateGrassRow(row.id, "required", e.target.value)
-                          }
+                          onChange={(e) => {
+                            const nextValue = formatDecimalInput(e.target.value);
+                            if (nextValue.trim().startsWith("-")) return;
+                            updateGrassRow(row.id, "required", nextValue);
+                          }}
                           className="h-10 w-full rounded-md border border-input bg-card px-3 text-sm text-foreground shadow-sm"
                           placeholder={t("amountPlaceholder")}
                         />

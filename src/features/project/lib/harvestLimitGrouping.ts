@@ -3,6 +3,8 @@ import {
   normalizeRequirementUomForProgress,
   normalizeUomForHarvestMatch,
 } from "@/features/project/lib/subitemDeliveredQuantity";
+import type { PaceRecalcKgLoadTypeContext } from "@/features/project/lib/recalculatePaceQuantitiesAfterActualHarvest";
+import { paceRecalcPlanRowMatchesRequirementLine } from "@/features/project/lib/recalculatePaceQuantitiesAfterActualHarvest";
 import {
   defaultHarvestTypeForUom,
   normalizeHarvestTypeStorageKey,
@@ -86,21 +88,17 @@ export function planRowMatchesRequirementForHarvestLimit(
   productId: string,
   requiredUomNorm: string,
   requiredLoadType: HarvestTypeStorageKey | "",
+  kgLoadTypeContext?: PaceRecalcKgLoadTypeContext,
 ): boolean {
-  if (String(row.product_id ?? "").trim() !== productId.trim()) return false;
-
-  const rowUom = normalizeUomForHarvestMatch(row.uom);
-  const rowLoad = harvestLimitLoadTypeFromPlanRow(row);
-
-  if (requiredLoadType && rowLoad !== requiredLoadType) return false;
-  if (requiredUomNorm && rowUom !== requiredUomNorm) {
-    if (!requiredLoadType) return false;
-    if (requiredLoadType === "sod_to_sprig" && requiredUomNorm === "kg") {
-      return rowLoad === "sod_to_sprig";
-    }
-    return false;
-  }
-  return true;
+  const displayUom =
+    requiredUomNorm === "m2" ? "M2" : requiredUomNorm === "kg" ? "Kg" : "Kg";
+  return paceRecalcPlanRowMatchesRequirementLine(
+    row,
+    productId,
+    displayUom,
+    requiredLoadType,
+    kgLoadTypeContext,
+  );
 }
 
 export function harvestLimitQtyFromPlanRow(

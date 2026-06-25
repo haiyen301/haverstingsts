@@ -19,6 +19,7 @@ import {
   computeQuantityPerRemainingEstimateBatch,
   distributePaceRecalcQuantities,
   paceRecalcHarvestedQtyForRequirementLine,
+  paceRecalcKgLoadTypeContextForProduct,
   paceRecalcPlanRowCountsAsHarvested,
   paceRecalcPlanRowCountsAsRemainingEstimate,
   paceRecalcPlanRowMatchesRequirementLine,
@@ -36,16 +37,48 @@ function formatPaceQuantityStr(qty: number): string {
   return trimmed || "0";
 }
 
+function paceKgContextFromRequirementLines(
+  lines: ReadonlyArray<{
+    productId: string;
+    uom: string;
+    loadType?: HarvestTypeStorageKey | string;
+  }>,
+  productId: string,
+) {
+  return paceRecalcKgLoadTypeContextForProduct(
+    lines.map((r) => ({
+      product_id: r.productId,
+      uom: r.uom,
+      load_type: r.loadType,
+    })),
+    productId,
+  );
+}
+
+function paceKgContextFromGrassRequirements(
+  grassRequirements: GrassRequirementForPaceRecalc[],
+  productId: string,
+) {
+  return paceKgContextFromRequirementLines(grassRequirements, productId);
+}
+
 function countActualHarvestBatchesForGrassLine(
   harvestPlanRows: HarvestPlanRowForPaceRecalc[],
   productId: string,
   uom: "Kg" | "M2",
   loadType: HarvestTypeStorageKey,
+  kgLoadTypeContext?: ReturnType<typeof paceRecalcKgLoadTypeContextForProduct>,
 ): number {
   let count = 0;
   for (const row of harvestPlanRows) {
     if (
-      !paceRecalcPlanRowMatchesRequirementLine(row, productId, uom, loadType)
+      !paceRecalcPlanRowMatchesRequirementLine(
+        row,
+        productId,
+        uom,
+        loadType,
+        kgLoadTypeContext,
+      )
     ) {
       continue;
     }
@@ -62,14 +95,19 @@ export function isGrassRequirementFulfilledByActualHarvests(
   uom: "Kg" | "M2",
   loadType: HarvestTypeStorageKey,
   totalRequired: number,
+  allGrassRequirements?: GrassRequirementForPaceRecalc[],
 ): boolean {
   const required = Math.max(0, totalRequired);
   if (required <= 0 || !productId.trim()) return false;
+  const kgContext = allGrassRequirements
+    ? paceKgContextFromGrassRequirements(allGrassRequirements, productId)
+    : undefined;
   const harvestedSum = harvestedSumForGrassLine(
     harvestPlanRows,
     productId,
     uom,
     loadType,
+    kgContext,
   );
   return harvestedSum >= required;
 }
@@ -89,6 +127,7 @@ export function areAllGrassRequirementsFulfilledByActualHarvests(
       req.uom,
       req.loadType,
       req.totalRequired,
+      grassRequirements,
     ),
   );
 }
@@ -98,11 +137,18 @@ function harvestedSumForGrassLine(
   productId: string,
   uom: "Kg" | "M2",
   loadType: HarvestTypeStorageKey,
+  kgLoadTypeContext?: ReturnType<typeof paceRecalcKgLoadTypeContextForProduct>,
 ): number {
   let sum = 0;
   for (const row of harvestPlanRows) {
     if (
-      !paceRecalcPlanRowMatchesRequirementLine(row, productId, uom, loadType)
+      !paceRecalcPlanRowMatchesRequirementLine(
+        row,
+        productId,
+        uom,
+        loadType,
+        kgLoadTypeContext,
+      )
     ) {
       continue;
     }
@@ -144,11 +190,20 @@ export function buildRegeneratedEstimateSeedsForPaceChange(opts: {
     const totalRequired = Math.max(0, req.amountRequired);
     if (!productId || totalRequired <= 0) continue;
 
+    const kgContext = paceKgContextFromRequirementLines(
+      opts.grassRequirements.map((r) => ({
+        productId: r.productId,
+        uom: r.uom,
+        loadType: r.loadType,
+      })),
+      productId,
+    );
     const actualBatchCount = countActualHarvestBatchesForGrassLine(
       opts.harvestPlanRows,
       productId,
       uom,
       loadType,
+      kgContext,
     );
     const estimateBatchCount = Math.max(0, totalBatches - actualBatchCount);
     if (estimateBatchCount <= 0) continue;
@@ -158,6 +213,7 @@ export function buildRegeneratedEstimateSeedsForPaceChange(opts: {
       productId,
       uom,
       loadType,
+      kgContext,
     );
     const remainingQuantity = Math.max(0, totalRequired - harvestedSum);
     if (remainingQuantity <= 0) continue;
@@ -228,11 +284,16 @@ export function buildPaceGrassBatchQuantitiesAfterPaceChange(opts: {
     const totalRequired = Math.max(0, req.totalRequired);
     if (!productId || totalRequired <= 0) continue;
 
+    const kgContext = paceKgContextFromGrassRequirements(
+      opts.grassRequirements,
+      productId,
+    );
     const actualBatchCount = countActualHarvestBatchesForGrassLine(
       opts.harvestPlanRows,
       productId,
       req.uom,
       req.loadType,
+      kgContext,
     );
     const estimateBatchCount = Math.max(0, totalBatches - actualBatchCount);
     if (estimateBatchCount <= 0) continue;
@@ -242,6 +303,7 @@ export function buildPaceGrassBatchQuantitiesAfterPaceChange(opts: {
       productId,
       req.uom,
       req.loadType,
+      kgContext,
     );
     const remainingQuantity = Math.max(0, totalRequired - harvestedSum);
     if (remainingQuantity <= 0) continue;
@@ -255,6 +317,7 @@ export function buildPaceGrassBatchQuantitiesAfterPaceChange(opts: {
       grass_id: productId,
       quantity: formatPaceQuantityStr(qty),
       uom: req.uom,
+      load_type: req.loadType,
     };
     const farmId = req.farmId?.trim();
     if (farmId) entry.farm_id = farmId;

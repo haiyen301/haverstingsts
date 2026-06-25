@@ -3,7 +3,10 @@ import {
   findZoneConfigForFarmGrass,
   harvestAreaM2FromKgAndZoneConfig,
 } from "@/features/project/lib/generatePlannedHarvestsForNewProject";
-import { normalizeHarvestTypeStorageKey } from "@/shared/lib/harvestType";
+import {
+  normalizeHarvestTypeStorageKey,
+  type HarvestTypeStorageKey,
+} from "@/shared/lib/harvestType";
 import { STS_API_PATHS } from "@/shared/api/stsApiPaths";
 import { stsProxyPostJson } from "@/shared/api/stsProxyClient";
 
@@ -26,6 +29,71 @@ function planRowLoadTypeKey(row: Record<string, unknown>): string {
     normalizeHarvestTypeStorageKey(row.load_type) ||
     (rowUom === "kg" ? "sprig" : rowUom === "m2" ? "sod" : "")
   );
+}
+
+/** Kg requirement lines per product — used to split sprig vs sod_to_sprig pace buckets. */
+export type PaceRecalcKgLoadTypeContext = {
+  hasSprigRequirement: boolean;
+  hasSodToSprigRequirement: boolean;
+};
+
+export function paceRecalcKgLoadTypeContextForProduct(
+  requirements: ReadonlyArray<Record<string, unknown>>,
+  productId: string,
+): PaceRecalcKgLoadTypeContext {
+  const pid = productId.trim();
+  let hasSprigRequirement = false;
+  let hasSodToSprigRequirement = false;
+  for (const req of requirements) {
+    if (String(req.product_id ?? "").trim() !== pid) continue;
+    const loadType = normalizeHarvestTypeStorageKey(
+      req.load_type ?? req.harvest_type ?? "",
+    );
+    const uom = normUomForPaceMatch(req.uom);
+    if (loadType === "sprig") hasSprigRequirement = true;
+    if (loadType === "sod_to_sprig") hasSodToSprigRequirement = true;
+    if (!loadType && uom === "kg") hasSprigRequirement = true;
+  }
+  return { hasSprigRequirement, hasSodToSprigRequirement };
+}
+
+/** Project has separate Sprig and Sod→Sprig Kg requirement lines for this grass. */
+export function paceRecalcHasDistinctKgLoadTypes(
+  kgContext: PaceRecalcKgLoadTypeContext,
+): boolean {
+  return kgContext.hasSprigRequirement && kgContext.hasSodToSprigRequirement;
+}
+
+function paceRecalcRowMatchesReqLoadType(
+  rowLoad: HarvestTypeStorageKey | "",
+  reqLoad: HarvestTypeStorageKey | "",
+  reqUom: string,
+  kgContext: PaceRecalcKgLoadTypeContext,
+): boolean {
+  if (!reqLoad) return true;
+
+  if (paceRecalcHasDistinctKgLoadTypes(kgContext)) {
+    return rowLoad === reqLoad;
+  }
+
+  if (reqLoad === "sod_to_sprig" && reqUom === "kg") {
+    if (rowLoad === "sod_to_sprig") return true;
+    if (rowLoad === "sprig") return true;
+    return false;
+  }
+
+  if (reqLoad === "sprig" && reqUom === "kg") {
+    if (rowLoad === "sprig") return true;
+    if (
+      rowLoad === "sod_to_sprig" &&
+      !kgContext.hasSodToSprigRequirement
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  return rowLoad === reqLoad;
 }
 
 /**
@@ -81,6 +149,7 @@ export function projectGrassHasPaceBatchQuantities(
   projectRow: Record<string, unknown> | undefined,
   grassId: string,
   uom?: string,
+  loadType?: HarvestTypeStorageKey | "",
 ): boolean {
   const normalizedGrass = grassId.trim();
   if (!projectRow || !normalizedGrass) return false;
@@ -88,13 +157,22 @@ export function projectGrassHasPaceBatchQuantities(
     projectRow.pace_grass_batch_quantities,
   );
   const normalizedUom = uom ? normUomForPaceMatch(uom) : "";
+  const normalizedLoadType = loadType
+    ? normalizeHarvestTypeStorageKey(loadType)
+    : "";
   return list.some((item) => {
     if (!item || typeof item !== "object") return false;
     const row = item as Record<string, unknown>;
     if (String(row.grass_id ?? "").trim() !== normalizedGrass) return false;
-    if (!normalizedUom) return true;
-    const itemUom = normUomForPaceMatch(row.uom);
-    return !itemUom || itemUom === normalizedUom;
+    if (normalizedUom) {
+      const itemUom = normUomForPaceMatch(row.uom);
+      if (itemUom && itemUom !== normalizedUom) return false;
+    }
+    if (normalizedLoadType) {
+      const itemLoad = normalizeHarvestTypeStorageKey(row.load_type ?? "");
+      if (itemLoad && itemLoad !== normalizedLoadType) return false;
+    }
+    return true;
   });
 }
 
@@ -117,30 +195,43 @@ export function paceRecalcPlanRowCountsAsHarvested(
 
 /**
  * Match one `quantity_required_sprig_sod` line (product + UOM + load_type).
- * Sod → Sprig **Kg** requirement: Sprig Kg + every Sod→Sprig plan row (any row `uom`;
- * legacy rows may still show M² while `quantity` is kg — same as project progress).
+ * Sod→Sprig Kg: sod_to_sprig rows + legacy sprig Kg rows.
+ * Sprig Kg: sprig rows only; sod_to_sprig rows count when the project has no sod_to_sprig requirement line.
  */
 export function paceRecalcPlanRowMatchesRequirementLine(
   row: Record<string, unknown>,
   productId: string,
   requiredUom: "Kg" | "M2",
   requiredLoadType: string,
+  kgLoadTypeContext?: PaceRecalcKgLoadTypeContext,
 ): boolean {
   if (String(row.product_id ?? "").trim() !== productId.trim()) return false;
 
   const reqUom = normUomForPaceMatch(requiredUom);
   const rowUom = normUomForPaceMatch(row.uom);
   const reqLoad = normalizeHarvestTypeStorageKey(requiredLoadType);
-  const rowLoad = planRowLoadTypeKey(row);
+  const rowLoad = normalizeHarvestTypeStorageKey(planRowLoadTypeKey(row));
+  const kgContext =
+    kgLoadTypeContext ??
+    ({
+      hasSprigRequirement: true,
+      hasSodToSprigRequirement: true,
+    } satisfies PaceRecalcKgLoadTypeContext);
 
-  if (reqLoad === "sod_to_sprig" && reqUom === "kg") {
-    if (rowLoad === "sod_to_sprig") return true;
-    if (rowLoad === "sprig" && rowUom === "kg") return true;
+  if (
+    reqLoad &&
+    !paceRecalcRowMatchesReqLoadType(rowLoad, reqLoad, reqUom, kgContext)
+  ) {
     return false;
   }
 
-  if (reqLoad && rowLoad !== reqLoad) return false;
-  if (reqUom && rowUom !== reqUom) return false;
+  if (reqUom && rowUom !== reqUom) {
+    if (!reqLoad) return false;
+    if (reqLoad === "sod_to_sprig" && reqUom === "kg") {
+      return rowLoad === "sod_to_sprig";
+    }
+    return false;
+  }
   return true;
 }
 
@@ -238,6 +329,8 @@ export type RecalculatePaceAfterActualParams = {
   projectId: string;
   productId: string;
   uom: string;
+  /** sprig / sod / sod_to_sprig — required when the same grass has multiple Kg requirement lines. */
+  loadType?: HarvestTypeStorageKey | "";
   /** Optional — stored on pace_grass_batch_quantities when set. */
   farmId?: string;
   /** Optional — zone config rows for harvested_area = B ÷ Yield (kg/m²) on estimate rows. */
@@ -307,6 +400,7 @@ export async function recalculatePaceQuantitiesAfterActualHarvest(
   const projectId = params.projectId.trim();
   const productId = params.productId.trim();
   const uom = params.uom.trim();
+  const loadType = normalizeHarvestTypeStorageKey(params.loadType ?? "");
   if (!harvestId || !projectId || !productId || !uom) {
     return { skipped: true, reason: "missing_params" };
   }
@@ -326,6 +420,7 @@ export async function recalculatePaceQuantitiesAfterActualHarvest(
     project_id: projectId,
     product_id: productId,
     uom,
+    ...(loadType ? { load_type: loadType } : {}),
     ...(params.farmId?.trim() ? { farm_id: params.farmId.trim() } : {}),
     ...(params.zoneConfigurations?.length
       ? { zone_configurations: params.zoneConfigurations }

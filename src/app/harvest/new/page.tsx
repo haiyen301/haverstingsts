@@ -31,6 +31,8 @@ import {
 import {
   paceRecalcNeedsHarvestedAreaSync,
   paceRecalcNeedsSoftDeleteSync,
+  paceRecalcKgLoadTypeContextForProduct,
+  paceRecalcHasDistinctKgLoadTypes,
   projectRowHasActivePace,
   recalculatePaceQuantitiesAfterActualHarvest,
 } from "@/features/project/lib/recalculatePaceQuantitiesAfterActualHarvest";
@@ -65,7 +67,7 @@ import { DatePicker } from "@/shared/ui/date-picker";
 import { MultiSelect } from "@/shared/ui/multi-select";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
 import { deleteMondayParentOrSubItem } from "@/entities/projects/api/projectsApi";
-import { effectiveRequiredQuantityForFormUom } from "@/features/project/lib/effectiveRequirementQuantity";
+import { effectiveRequiredQuantityForFormUom, effectiveRequiredQuantity } from "@/features/project/lib/effectiveRequirementQuantity";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 import { AlertRouteCategoryBanner } from "@/features/alerts/AlertRouteCategoryBanner";
 import { dispatchRouteAlert } from "@/features/alerts/dispatchRouteAlert";
@@ -85,6 +87,10 @@ import {
   getTruckNoteFromRow,
 } from "@/shared/lib/harvestPlanExtendedFields";
 import { isValidHarvestDateString } from "@/shared/lib/harvestPlanDates";
+import {
+  formatDecimalInput,
+  stripDecimalGrouping,
+} from "@/shared/lib/format/number";
 
 type HarvestSavePhase = false | "saving" | "recalculating";
 
@@ -339,6 +345,7 @@ function deliveredRowMatchesSelection(
   row: HarvestDeliveredRow,
   formUomKey: string,
   formHarvestType: HarvestTypeStorageKey | "",
+  kgLoadTypeContext?: ReturnType<typeof paceRecalcKgLoadTypeContextForProduct>,
 ): boolean {
   if (!formUomKey) return false;
   if (formHarvestType) {
@@ -351,6 +358,7 @@ function deliveredRowMatchesSelection(
       row.productId,
       formUomKey,
       formHarvestType,
+      kgLoadTypeContext,
     );
   }
   const rowType = normalizeHarvestTypeStorageKey(row.loadType);
@@ -392,7 +400,7 @@ function applyRowToFormState(r: Record<string, unknown>): HarvestFormState {
     grass: String(r.product_id ?? ""),
     farm: String(r.farm_id ?? ""),
     zone: String(r.zone ?? ""),
-    quantity: String(r.quantity ?? ""),
+    quantity: formatDecimalInput(String(r.quantity ?? "")),
     uom: uomStr,
     harvestedArea: harvestedStr,
     harvestType,
@@ -420,21 +428,23 @@ type QuantityRequirement = {
   /** Generic `quantity` when API does not split kg/m2. */
   quantity: number | null;
   uom: string | null;
+  loadType: HarvestTypeStorageKey | "";
   farmId: string | null;
   zoneId: string | null;
 };
 
-/** Server / Flutter `getRemainingQuantityForProduct` — branches use form UOM (`uomRaw`). */
+/** Server / Flutter `getRemainingQuantityForProduct` — uses line qty when `load_type` is set. */
 function getRequiredQtyForUom(req: QuantityRequirement, uomRaw: string): number {
-  return effectiveRequiredQuantityForFormUom(
-    {
-      quantity: req.quantity ?? undefined,
-      quantity_m2: req.quantityM2 ?? undefined,
-      quantity_kg: req.quantityKg ?? undefined,
-      uom: req.uom ?? undefined,
-    },
-    uomRaw,
-  );
+  const line = {
+    quantity: req.quantity ?? undefined,
+    quantity_m2: req.quantityM2 ?? undefined,
+    quantity_kg: req.quantityKg ?? undefined,
+    uom: req.uom ?? undefined,
+  };
+  if (req.loadType) {
+    return effectiveRequiredQuantity(line);
+  }
+  return effectiveRequiredQuantityForFormUom(line, uomRaw);
 }
 
 function defaultUomForRequirement(req: QuantityRequirement): "Kg" | "M2" {
@@ -476,13 +486,69 @@ function canAutoQuantityUnits(requirements: QuantityRequirement[]): boolean {
   );
 }
 
+function requirementsForProduct(
+  requirements: QuantityRequirement[],
+  productId: string,
+): QuantityRequirement[] {
+  const pid = productId.trim();
+  if (!pid) return [];
+  return requirements.filter((r) => r.productId.trim() === pid);
+}
+
+function productHasDistinctKgLoadTypeRequirements(
+  requirements: QuantityRequirement[],
+  productId: string,
+): boolean {
+  return paceRecalcHasDistinctKgLoadTypes(
+    paceRecalcKgLoadTypeContextForProduct(
+      requirementsForProduct(requirements, productId).map((r) => ({
+        product_id: r.productId,
+        uom: r.uom,
+        load_type: r.loadType,
+      })),
+      productId,
+    ),
+  );
+}
+
 function findRequirementForProduct(
   requirements: QuantityRequirement[],
   productId: string,
 ): QuantityRequirement | null {
-  const normalized = productId.trim();
-  if (!normalized) return null;
-  return requirements.find((r) => r.productId.trim() === normalized) ?? null;
+  const sameProduct = requirementsForProduct(requirements, productId);
+  if (sameProduct.length === 0) return null;
+  return sameProduct.length === 1 ? sameProduct[0]! : null;
+}
+
+function findRequirementForProductSelection(
+  requirements: QuantityRequirement[],
+  productId: string,
+  formUomRaw: string,
+  formHarvestType: HarvestTypeStorageKey | "",
+): QuantityRequirement | null {
+  const sameProduct = requirementsForProduct(requirements, productId);
+  if (sameProduct.length === 0) return null;
+
+  if (productHasDistinctKgLoadTypeRequirements(requirements, productId)) {
+    if (!formHarvestType || !normUomKey(formUomRaw)) return null;
+    return (
+      sameProduct.find((r) =>
+        requirementMatchesFormSelection(
+          r,
+          formUomRaw,
+          formHarvestType,
+          requirements,
+        ),
+      ) ?? null
+    );
+  }
+
+  if (sameProduct.length > 1 && !normUomKey(formUomRaw)) return null;
+  const matchByUom = sameProduct.find((r) =>
+    requirementMatchesFormUom(r, formUomRaw),
+  );
+  if (matchByUom) return matchByUom;
+  return sameProduct.length === 1 ? sameProduct[0]! : null;
 }
 
 function resolveFarmIdFromRequirement(
@@ -533,7 +599,7 @@ function parseNum(v: unknown): number {
 }
 
 function normalizeNonNegativeInput(raw: string): string {
-  const s = raw.replace(/,/g, "").trim();
+  const s = stripDecimalGrouping(raw).trim();
   if (!s) return "";
   const n = Number.parseFloat(s);
   if (!Number.isFinite(n) || n <= 0) return "";
@@ -542,7 +608,8 @@ function normalizeNonNegativeInput(raw: string): string {
 
 /** Treat `0`, `0.000`, etc. as empty — harvested area has no value until > 0. */
 function formatHarvestedAreaForForm(raw: unknown): string {
-  return normalizeNonNegativeInput(String(raw ?? "").replace(/,/g, ""));
+  const normalized = normalizeNonNegativeInput(String(raw ?? ""));
+  return normalized ? formatDecimalInput(normalized) : "";
 }
 
 function isKgSprigHarvestType(harvestType: HarvestTypeStorageKey | ""): boolean {
@@ -586,11 +653,11 @@ function autoHarvestedAreaStrFromQuantityEdit(
     if (!zoneConfig) return "";
     const areaStr = harvestAreaM2FromKgAndZoneConfig(qtyKg, zoneConfig);
     if (!areaStr || parseNum(zoneConfig.inventory_kg_per_m2) <= 0) return "";
-    return parseNum(areaStr).toFixed(2);
+    return formatDecimalInput(parseNum(areaStr).toFixed(2));
   }
 
   if (!farm || !grass) {
-    return qtyKg.toFixed(2);
+    return formatDecimalInput(qtyKg.toFixed(2));
   }
 
   return "";
@@ -660,6 +727,9 @@ function parseRequirements(raw: unknown, productNameById: Map<string, string>) {
       quantityM2,
       quantity: qRaw !== "" ? genericQty : null,
       uom: uomRaw || null,
+      loadType:
+        normalizeHarvestTypeStorageKey(row.load_type ?? row.harvest_type ?? "") ||
+        "",
       farmId: String(row.farm_id ?? "").trim() || null,
       zoneId: String(row.zone_id ?? row.zone ?? "").trim() || null,
     });
@@ -692,6 +762,59 @@ function filterGrassRowsForProjectRequirements(
     if (!id) return false;
     return requiredIds.has(id) || (pinned !== "" && id === pinned);
   });
+}
+
+function requirementMatchesFormHarvestType(
+  req: QuantityRequirement,
+  formHarvestType: HarvestTypeStorageKey | "",
+  siblingRequirements: QuantityRequirement[],
+): boolean {
+  const siblings = requirementsForProduct(siblingRequirements, req.productId);
+  const hasSodToSprigLine = siblings.some((r) => r.loadType === "sod_to_sprig");
+
+  if (req.loadType) {
+    if (!formHarvestType) return false;
+    if (req.loadType === formHarvestType) return true;
+    if (
+      req.loadType === "sprig" &&
+      formHarvestType === "sod_to_sprig" &&
+      !hasSodToSprigLine
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  if (!formHarvestType) return true;
+
+  const inferred = defaultHarvestTypeForUom(
+    req.uom ?? defaultUomForRequirement(req),
+  );
+  if (formHarvestType === inferred) return true;
+  if (
+    formHarvestType === "sod_to_sprig" &&
+    inferred === "sprig" &&
+    !hasSodToSprigLine
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function requirementMatchesFormSelection(
+  req: QuantityRequirement,
+  formUomRaw: string,
+  formHarvestType: HarvestTypeStorageKey | "",
+  siblingRequirements: QuantityRequirement[],
+): boolean {
+  return (
+    requirementMatchesFormUom(req, formUomRaw) &&
+    requirementMatchesFormHarvestType(
+      req,
+      formHarvestType,
+      siblingRequirements,
+    )
+  );
 }
 
 function requirementMatchesFormUom(req: QuantityRequirement, formUomRaw: string): boolean {
@@ -735,11 +858,19 @@ function sumDeliveredQuantityForSelection(
   formHarvestType: HarvestTypeStorageKey | "",
   excludeEditId: string | null,
   onlyWithActualDate: boolean,
+  kgLoadTypeContext?: ReturnType<typeof paceRecalcKgLoadTypeContextForProduct>,
 ): number {
   return rows.reduce((sum, row) => {
     if (onlyWithActualDate && !row.hasActualDate) return sum;
     if (row.productId !== requirement.productId) return sum;
-    if (!deliveredRowMatchesSelection(row, formUomKey, formHarvestType)) {
+    if (
+      !deliveredRowMatchesSelection(
+        row,
+        formUomKey,
+        formHarvestType,
+        kgLoadTypeContext,
+      )
+    ) {
       return sum;
     }
     if (excludeEditId && row.id === excludeEditId) return sum;
@@ -1410,7 +1541,9 @@ function HarvestInputPageInner() {
         const row = raw as Record<string, unknown>;
         setFormData(applyRowToFormState(row));
         setInitialActualDateAtLoad(toDateInput(row.actual_harvest_date));
-        setInitialQuantityAtLoad(String(row.quantity ?? "").trim());
+        setInitialQuantityAtLoad(
+          stripDecimalGrouping(String(row.quantity ?? "").trim()),
+        );
         setStatusAtLoad(String(row.status ?? "").trim());
         setUseEstimatedDateRange(Boolean(getEstimatedDateEndFromRow(row)));
         setEditTableId(String(row.table_id ?? "").trim());
@@ -1762,21 +1895,39 @@ function HarvestInputPageInner() {
     selectedProjectRequirements,
   ]);
 
-  /** One row per `product_id` in `quantity_required_sprig_sod`, like Flutter `quantityRequiredSprigSod.firstWhereOrNull`. */
+  const selectedHarvestTypeKey = normalizeHarvestTypeStorageKey(
+    formData.harvestType,
+  );
+
+  /** One grass requirement line — product + uom + load_type when the project defines them. */
   const requirementForGrass = useMemo(() => {
     const productId = formData.grass.trim();
     if (!productId) return null;
-    const sameProduct = selectedProjectRequirements.filter(
-      (r) => r.productId === productId,
+    return findRequirementForProductSelection(
+      selectedProjectRequirements,
+      productId,
+      formData.uom,
+      selectedHarvestTypeKey,
     );
-    if (sameProduct.length === 0) return null;
-    if (sameProduct.length > 1 && !normUomKey(formData.uom)) return null;
-    const matchByFormUom = sameProduct.find((r) =>
-      requirementMatchesFormUom(r, formData.uom),
+  }, [
+    formData.grass,
+    formData.uom,
+    selectedHarvestTypeKey,
+    selectedProjectRequirements,
+  ]);
+
+  const kgLoadTypeContextForGrass = useMemo(() => {
+    const productId = formData.grass.trim();
+    if (!productId) return undefined;
+    return paceRecalcKgLoadTypeContextForProduct(
+      selectedProjectRequirements.map((r) => ({
+        product_id: r.productId,
+        uom: r.uom,
+        load_type: r.loadType,
+      })),
+      productId,
     );
-    if (matchByFormUom) return matchByFormUom;
-    return sameProduct.length === 1 ? sameProduct[0]! : null;
-  }, [formData.grass, formData.uom, selectedProjectRequirements]);
+  }, [formData.grass, selectedProjectRequirements]);
 
   const grassHasQuantityRequirements = useMemo(() => {
     const productId = formData.grass.trim();
@@ -1793,10 +1944,6 @@ function HarvestInputPageInner() {
           (Boolean(normUomKey(formData.uom)) ||
             Boolean(normalizeHarvestTypeStorageKey(formData.harvestType)) ||
             Boolean(formData.quantity.trim())))),
-  );
-
-  const selectedHarvestTypeKey = normalizeHarvestTypeStorageKey(
-    formData.harvestType,
   );
 
   useEffect(() => {
@@ -1832,8 +1979,8 @@ function HarvestInputPageInner() {
   useEffect(() => {
     if (!paceLocksQuantityWithoutActual || !editId) return;
     setFormData((prev) => {
-      if (prev.quantity === initialQuantityAtLoad) return prev;
-      return { ...prev, quantity: initialQuantityAtLoad };
+      if (stripDecimalGrouping(prev.quantity) === initialQuantityAtLoad) return prev;
+      return { ...prev, quantity: formatDecimalInput(initialQuantityAtLoad) };
     });
     setFieldErrors((prev) => ({ ...prev, quantity: undefined }));
   }, [editId, initialQuantityAtLoad, paceLocksQuantityWithoutActual]);
@@ -1849,11 +1996,13 @@ function HarvestInputPageInner() {
       selectedHarvestTypeKey,
       editId,
       onlyWithActualDate,
+      kgLoadTypeContextForGrass,
     );
   }, [
     editId,
     formData.actualDate,
     formData.uom,
+    kgLoadTypeContextForGrass,
     projectHarvestRows,
     requirementForGrass,
     selectedHarvestTypeKey,
@@ -1911,10 +2060,10 @@ function HarvestInputPageInner() {
     return u || "M2";
   }, [formData.uom]);
 
-  const quantityLimitExceeded = useMemo(
-    () => quantityExceedsGrassRequirement(formData, maxAllowedQuantity),
-    [formData, maxAllowedQuantity],
-  );
+  const quantityLimitExceeded = useMemo(() => {
+    if (paceLocksQuantityWithoutActual && editId) return false;
+    return quantityExceedsGrassRequirement(formData, maxAllowedQuantity);
+  }, [editId, formData, maxAllowedQuantity, paceLocksQuantityWithoutActual]);
 
   const quantityLimitError = useMemo(() => {
     if (!quantityLimitExceeded || maxAllowedQuantity === null) return null;
@@ -2061,6 +2210,7 @@ function HarvestInputPageInner() {
       paceRequiresActualDate,
     });
     if (
+      !paceLocksQuantityWithoutActual &&
       quantityExceedsGrassRequirement(submitFormData, maxAllowedQuantity) &&
       maxAllowedQuantity !== null
     ) {
@@ -2185,6 +2335,7 @@ function HarvestInputPageInner() {
               projectId: formData.project.trim(),
               productId: formData.grass.trim(),
               uom: formData.uom.trim(),
+              loadType: harvestTypeSubmit,
               farmId: formData.farm.trim() || undefined,
               zoneConfigurations: zoneConfigRows,
             });
@@ -2663,9 +2814,16 @@ function HarvestInputPageInner() {
                               return;
                             }
                             const req =
-                              selectedProjectRequirements.find(
-                                (r) => r.productId === grass,
-                              ) ?? null;
+                              findRequirementForProductSelection(
+                                selectedProjectRequirements,
+                                grass,
+                                formData.uom,
+                                selectedHarvestTypeKey,
+                              ) ??
+                              findRequirementForProduct(
+                                selectedProjectRequirements,
+                                grass,
+                              );
                             const reqFarmId = resolveFarmIdFromRequirement(
                               req,
                               farmOptions,
@@ -2916,11 +3074,12 @@ function HarvestInputPageInner() {
                       </label>
                       <input
                         id="harvest-quantity"
-                        type="number"
-                        min={0}
+                        type="text"
+                        inputMode="decimal"
+                        autoComplete="off"
                         value={formData.quantity}
                         onChange={(e) => {
-                          const nextValue = e.target.value;
+                          const nextValue = formatDecimalInput(e.target.value);
                           if (nextValue.trim().startsWith("-")) return;
                           setFormData((prev) => {
                             const isKgSprigQtyEdit =
@@ -3024,11 +3183,12 @@ function HarvestInputPageInner() {
                         <>
                           <input
                             id="harvest-harvested-area"
-                            type="number"
-                            min={0}
+                            type="text"
+                            inputMode="decimal"
+                            autoComplete="off"
                             value={formData.harvestedArea}
                             onChange={(e) => {
-                              const nextValue = e.target.value;
+                              const nextValue = formatDecimalInput(e.target.value);
                               if (nextValue.trim().startsWith("-")) return;
                               setFormData((prev) => ({
                                 ...prev,
@@ -3055,11 +3215,12 @@ function HarvestInputPageInner() {
                         <>
                           <input
                             id="harvest-harvested-area"
-                            type="number"
-                            min={0}
+                            type="text"
+                            inputMode="decimal"
+                            autoComplete="off"
                             value={formData.harvestedArea}
                             onChange={(e) => {
-                              const nextValue = e.target.value;
+                              const nextValue = formatDecimalInput(e.target.value);
                               if (nextValue.trim().startsWith("-")) return;
                               setFormData((prev) => ({
                                 ...prev,

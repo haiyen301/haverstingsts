@@ -3,6 +3,7 @@ import type { HarvestTypeStorageKey } from "@/shared/lib/harvestType";
 import {
   computeQuantityPerRemainingEstimateBatch,
   paceRecalcHarvestedQtyForRequirementLine,
+  paceRecalcKgLoadTypeContextForProduct,
   paceRecalcPlanRowCountsAsHarvested,
   paceRecalcPlanRowCountsAsRemainingEstimate,
   paceRecalcPlanRowMatchesRequirementLine,
@@ -61,7 +62,18 @@ export function summarizePaceRecalcGrassLine(
   uom: "Kg" | "M2",
   loadType: HarvestTypeStorageKey,
   totalRequired: number,
+  allGrassRequirements?: GrassRequirementForPaceRecalc[],
 ): PaceRecalcGrassLineSummary {
+  const kgLoadTypeContext = allGrassRequirements
+    ? paceRecalcKgLoadTypeContextForProduct(
+        allGrassRequirements.map((r) => ({
+          product_id: r.productId,
+          uom: r.uom,
+          load_type: r.loadType,
+        })),
+        productId,
+      )
+    : undefined;
   let harvestedSum = 0;
   let remainingEstimateCount = 0;
   let harvestIdForApi: string | undefined;
@@ -69,7 +81,13 @@ export function summarizePaceRecalcGrassLine(
 
   for (const row of harvestPlanRows) {
     if (
-      !paceRecalcPlanRowMatchesRequirementLine(row, productId, uom, loadType)
+      !paceRecalcPlanRowMatchesRequirementLine(
+        row,
+        productId,
+        uom,
+        loadType,
+        kgLoadTypeContext,
+      )
     ) {
       continue;
     }
@@ -129,6 +147,7 @@ export function buildPaceGrassBatchQuantitiesFromHarvestRecalc(opts: {
       req.uom,
       req.loadType,
       totalRequired,
+      opts.grassRequirements,
     );
 
     // Doc §2: N = 0 → không chia, không ghi pace B cho dòng đó.
@@ -143,6 +162,7 @@ export function buildPaceGrassBatchQuantitiesFromHarvestRecalc(opts: {
       grass_id: req.productId.trim(),
       quantity: formatPaceQuantityStr(qty),
       uom: req.uom,
+      load_type: req.loadType,
     };
     const farmId = req.farmId?.trim();
     if (farmId) entry.farm_id = farmId;
@@ -215,6 +235,7 @@ export async function runPaceHarvestRecalcForProjectGrassLines(opts: {
       req.uom,
       req.loadType,
       totalRequired,
+      opts.grassRequirements,
     );
     if (summary.remainingEstimateCount <= 0) continue;
     const harvestId = summary.harvestIdForApi?.trim();
@@ -229,6 +250,7 @@ export async function runPaceHarvestRecalcForProjectGrassLines(opts: {
         projectId: opts.projectId.trim(),
         productId: req.productId.trim(),
         uom: req.uom,
+        loadType: req.loadType,
         farmId: req.farmId?.trim() || undefined,
         zoneConfigurations: opts.zoneConfigurations,
       });
