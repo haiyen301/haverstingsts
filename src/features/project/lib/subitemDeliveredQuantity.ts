@@ -89,20 +89,9 @@ export function normalizeRequirementUomForProgress(uom: unknown): string {
   return n;
 }
 
-function countsTowardDeliveredProgress(
-  s: Record<string, unknown>,
-  requiredUomNorm: string,
-): boolean {
-  if (isValidHarvestRelatedDate(s.delivery_harvest_date)) return true;
-  if (
-    requiredUomNorm === "kg" &&
-    isSodToSprigHarvestLine(s) &&
-    sodToSprigDeliveredKgQty(s) > 0 &&
-    isValidActualHarvestDate(s.actual_harvest_date)
-  ) {
-    return true;
-  }
-  return false;
+/** Progress counts only rows with a valid delivery date (PHP `_mondaySubitemHarvestQtyCountedIfDelivered` parity). */
+function countsTowardDeliveredProgress(s: Record<string, unknown>): boolean {
+  return isValidHarvestRelatedDate(s.delivery_harvest_date);
 }
 
 /** Sod → Sprig progress is always in kg even when the plan row UOM is m². */
@@ -123,7 +112,7 @@ export function deliveredQtyForRequirementLine(
   s: Record<string, unknown>,
   requiredUomNorm: string,
 ): number {
-  if (!countsTowardDeliveredProgress(s, requiredUomNorm)) return 0;
+  if (!countsTowardDeliveredProgress(s)) return 0;
 
   if (isSodToSprigHarvestLine(s) && requiredUomNorm === "kg") {
     return sodToSprigDeliveredKgQty(s);
