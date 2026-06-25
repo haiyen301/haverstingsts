@@ -83,6 +83,7 @@ type InventoryRow = {
   /** System-calculated kg when the manual balance was saved (subtitle on manual day). */
   systemKgAtManualOverride: number | null;
   isManualOverrideActive: boolean;
+  pendingSnapshotSync: boolean;
 };
 
 type OverlimitEntry = {
@@ -275,8 +276,10 @@ function buildInventoryRowsAtDate(params: {
   zoneConfigurations: ZoneConfigurationRow[];
   overridesByZone: Record<string, InventoryAvailableOverrideEntry>;
   dbSnapshotRows: DbSnapshotRow[];
+  optimisticClientOverrides?: boolean;
 }): InventoryBuildResult {
-  const { asOf, zoneConfigurations, overridesByZone, dbSnapshotRows } = params;
+  const { asOf, zoneConfigurations, overridesByZone, dbSnapshotRows, optimisticClientOverrides } =
+    params;
   const asOfYmd = ymdFromDate(asOf);
 
   const dbResult = buildInventoryRowsFromDbSnapshots({
@@ -285,6 +288,7 @@ function buildInventoryRowsAtDate(params: {
     zoneConfigurations,
     forecastRows: [],
     overridesByZone,
+    optimisticClientOverrides,
   });
 
   if (!dbResult) {
@@ -457,6 +461,19 @@ export default function InventoryPage() {
       zoneConfigurations,
       overridesByZone,
       dbSnapshotRows: inventoryDb.snapshotRows,
+      optimisticClientOverrides: true,
+    });
+  }, [zoneRowsReady, overridesByZone, zoneConfigurations, inventoryDb.snapshotRows]);
+
+  const { rows: chartSnapshotRows } = useMemo(() => {
+    if (!zoneRowsReady) return { rows: [] as InventoryRow[] };
+    const today = getForecastToday();
+    return buildInventoryRowsAtDate({
+      asOf: today,
+      zoneConfigurations,
+      overridesByZone,
+      dbSnapshotRows: inventoryDb.snapshotRows,
+      optimisticClientOverrides: false,
     });
   }, [zoneRowsReady, overridesByZone, zoneConfigurations, inventoryDb.snapshotRows]);
 
@@ -469,6 +486,7 @@ export default function InventoryPage() {
       zoneConfigurations,
       overridesByZone,
       dbSnapshotRows: source.snapshotRows,
+      optimisticClientOverrides: true,
     });
   }, [
     updateOpen,
@@ -497,6 +515,20 @@ export default function InventoryPage() {
         return farmName && farmName !== row.farmName ? { ...row, farmName } : row;
       }),
     [rows, farmNameById],
+  );
+
+  const chartRowsWithFarmLabels = useMemo(
+    () =>
+      chartSnapshotRows.map((row) => {
+        const farmName = resolveFarmLabel(row);
+        return farmName && farmName !== row.farmName ? { ...row, farmName } : row;
+      }),
+    [chartSnapshotRows, farmNameById],
+  );
+
+  const visibleChartRowsWithFarmLabels = useMemo(
+    () => chartRowsWithFarmLabels.filter((r) => !hiddenGrassIdSet.has(String(r.grassId))),
+    [chartRowsWithFarmLabels, hiddenGrassIdSet],
   );
 
   const visibleRowsWithFarmLabels = useMemo(
@@ -588,6 +620,29 @@ export default function InventoryPage() {
       selectedGrassIdSet,
     ],
   );
+
+  const chartInventory = useMemo(
+    () =>
+      visibleChartRowsWithFarmLabels.filter(
+        (r) =>
+          (selectedFarmIds.length === 0 || selectedFarmIdSet.has(String(r.farmId))) &&
+          (selectedGrassIds.length === 0 || selectedGrassIdSet.has(String(r.grassId))),
+      ),
+    [
+      visibleChartRowsWithFarmLabels,
+      selectedFarmIds,
+      selectedFarmIdSet,
+      selectedGrassIds,
+      selectedGrassIdSet,
+    ],
+  );
+
+  const hasPendingBalanceSync = useMemo(
+    () => inventory.some((r) => r.pendingSnapshotSync),
+    [inventory],
+  );
+
+  const showSnapshotSyncNotice = inventoryDb.isStale || hasPendingBalanceSync;
 
   const [balanceBreakdownZoneKey, setBalanceBreakdownZoneKey] = useState<string | null>(null);
   const [forecastMeta, setForecastMeta] = useState<ForecastMetaResponse | null>(null);
@@ -1045,7 +1100,7 @@ export default function InventoryPage() {
         const row: Record<string, string | number> = { grass, grassId };
         let total = 0;
         for (const farm of chartFarms) {
-          const v = inventory
+          const v = chartInventory
             .filter((z) => String(z.grassId) === grassId && String(z.farmId) === farm.id)
             .reduce((s, z) => s + z.currentKg, 0);
           row[farm.name] = v;
@@ -1080,7 +1135,7 @@ export default function InventoryPage() {
     chartFarms,
     grassIdToTurfgrass,
     grassFilterOptions,
-    inventory,
+    chartInventory,
     inventoryOverlimit,
     selectedFarmIds,
     selectedGrassIds,
@@ -1174,10 +1229,9 @@ export default function InventoryPage() {
           {inventoryDb.isLoading && inventoryDb.hasData ? (
             <p className="text-xs text-gray-500">{t("loading")}</p>
           ) : null}
-          {inventoryDb.isStale ? (
+          {showSnapshotSyncNotice ? (
             <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-              Snapshot đang rebuild — bảng sẽ tự cập nhật khi worker xong (thường 2–20 phút tùy loại
-              job).
+              {t("snapshotRebuilding")}
             </p>
           ) : null}
           {updateOpen ? (
@@ -1456,6 +1510,9 @@ export default function InventoryPage() {
                     {t("overlimitTotal", { kg: companyOverlimitKg.toLocaleString() })}
                   </p>
                 ) : null}
+                {showSnapshotSyncNotice ? (
+                  <p className="mt-1 text-[11px] text-amber-800">{t("chartPendingSnapshot")}</p>
+                ) : null}
               </div>
             </div>
             {stackedByGrass.length === 0 ? (
@@ -1720,6 +1777,9 @@ export default function InventoryPage() {
                           })}
                         </p>
                       ) : null}
+                      {z.pendingSnapshotSync ? (
+                        <p className="mt-1 text-[11px] text-amber-800">{t("balancePendingSnapshotSync")}</p>
+                      ) : null}
                     </div>
                   </div>
 
@@ -1869,6 +1929,9 @@ export default function InventoryPage() {
                             date: formatShortDate(z.manualOverrideDate),
                           })}
                           </p>
+                        ) : null}
+                        {z.pendingSnapshotSync ? (
+                          <p className="mt-1 text-[11px] text-amber-800">{t("balancePendingSnapshotSync")}</p>
                         ) : null}
                       </td>
                       <td className="py-3 px-4">

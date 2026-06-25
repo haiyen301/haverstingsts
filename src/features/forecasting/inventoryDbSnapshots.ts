@@ -1,4 +1,8 @@
-import { pickInventoryOverrideForExactDate } from "@/features/forecasting/inventoryAvailableOverrides";
+import {
+  applyInventoryAvailableOverrideToZone,
+  pickInventoryOverrideForAsOf,
+  pickInventoryOverrideForExactDate,
+} from "@/features/forecasting/inventoryAvailableOverrides";
 import type { ZoneInventoryDaySnapshot } from "@/features/forecasting/forecastDbTypes";
 import {
   AGGREGATE_ZONE_KEY,
@@ -220,6 +224,8 @@ export type InventoryDbZoneRow = {
   manualOverrideDate: string | null;
   systemKgAtManualOverride: number | null;
   isManualOverrideActive: boolean;
+  /** Client override applied; snapshot DB not yet rebuilt for this kg. */
+  pendingSnapshotSync: boolean;
 };
 
 export type InventoryDbBuildResult = {
@@ -298,27 +304,59 @@ function resolveZoneMeta(
   };
 }
 
+function parseAsOfYmdLocal(ymd: string): Date {
+  const m = normalizeYmd(ymd).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return new Date();
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+}
+
 function mapDbSnapshotToInventoryRow(
   row: DbSnapshotRow,
   zoneConfigurations: ZoneConfigurationRow[],
   forecastRows: ForecastHarvestRow[],
   overridesByZone: Record<string, InventoryAvailableOverrideEntry>,
   asOfYmd: string,
+  optimisticClientOverrides: boolean,
 ): InventoryDbZoneRow | null {
   const zoneKey = canonicalForecastZoneKey(String(row.zone_key ?? "").trim());
   if (!zoneKey) return null;
 
   const meta = resolveZoneMeta(zoneKey, row, zoneConfigurations, forecastRows, asOfYmd);
-  // Trust snapshot balances from DB — same source as forecasting aggregate chart.
   const snapshotCapKg = Math.round(num(row.capacity_cap_kg));
   const maxKg = snapshotCapKg > 0 ? snapshotCapKg : meta.maxKg;
+  const snapshotKg = Math.round(Math.max(0, num(row.available_kg)));
   const calculatedKg = Math.round(Math.max(0, num(row.calculated_kg ?? row.available_kg)));
-  const currentKg = Math.round(Math.max(0, num(row.available_kg)));
-  const pct = maxKg > 0 ? Math.round((currentKg / maxKg) * 100) : 0;
+  let currentKg = snapshotKg;
 
   const hasDbOverride = Boolean(row.has_manual_override);
   const exactOverride = pickInventoryOverrideForExactDate(overridesByZone, zoneKey, asOfYmd);
-  const isManualOverrideActive = hasDbOverride || !!exactOverride;
+  const overrideEntry = pickInventoryOverrideForAsOf(
+    overridesByZone,
+    zoneKey,
+    parseAsOfYmdLocal(asOfYmd),
+  );
+  let pendingSnapshotSync = false;
+
+  if (optimisticClientOverrides && overrideEntry) {
+    const applied = applyInventoryAvailableOverrideToZone({
+      calculatedKg,
+      maxKg,
+      asOf: parseAsOfYmdLocal(asOfYmd),
+      override: overrideEntry,
+      overrideRecoveryDays: 0,
+      applyRecovery: false,
+    });
+    if (applied) {
+      currentKg = Math.round(applied.effectiveKg);
+      pendingSnapshotSync = Math.round(currentKg) !== Math.round(snapshotKg);
+    }
+  }
+
+  const pct = maxKg > 0 ? Math.round((currentKg / maxKg) * 100) : 0;
+  const isManualOverrideActive = hasDbOverride || !!overrideEntry;
+  const manualKg = isManualOverrideActive
+    ? Math.round(Math.max(0, overrideEntry?.availableKg ?? exactOverride?.availableKg ?? currentKg))
+    : null;
 
   return {
     key: meta.zoneConfigurationId != null ? String(meta.zoneConfigurationId) : `db:${zoneKey}`,
@@ -335,14 +373,20 @@ function mapDbSnapshotToInventoryRow(
     calculatedKg,
     currentKg,
     pct,
-    manualOverrideKg: isManualOverrideActive
-      ? Math.round(Math.max(0, exactOverride?.availableKg ?? currentKg))
+    manualOverrideKg: manualKg,
+    manualOverrideDate: isManualOverrideActive
+      ? normalizeYmd(overrideEntry?.date ?? exactOverride?.date ?? asOfYmd)
       : null,
-    manualOverrideDate: isManualOverrideActive ? asOfYmd : null,
     systemKgAtManualOverride: isManualOverrideActive
-      ? Math.round(Math.max(0, num(exactOverride?.calculatedKg ?? row.calculated_kg ?? calculatedKg)))
+      ? Math.round(
+          Math.max(
+            0,
+            num(overrideEntry?.calculatedKg ?? exactOverride?.calculatedKg ?? row.calculated_kg ?? calculatedKg),
+          ),
+        )
       : null,
     isManualOverrideActive,
+    pendingSnapshotSync,
   };
 }
 
@@ -353,7 +397,10 @@ export function buildInventoryRowsFromDbSnapshots(params: {
   zoneConfigurations: ZoneConfigurationRow[];
   forecastRows: ForecastHarvestRow[];
   overridesByZone: Record<string, InventoryAvailableOverrideEntry>;
+  /** When true, apply saved manual balances from client store before snapshot rebuild finishes. */
+  optimisticClientOverrides?: boolean;
 }): InventoryDbBuildResult | null {
+  const optimisticClientOverrides = params.optimisticClientOverrides === true;
   const dayByZone = buildZoneSnapshotMapAtDate(params.snapshotRows, params.asOfYmd);
   if (dayByZone.size === 0) return null;
 
@@ -375,6 +422,7 @@ export function buildInventoryRowsFromDbSnapshots(params: {
       forecastRows,
       overridesByZone,
       asOfYmd,
+      optimisticClientOverrides,
     );
     if (mapped) rows.push(mapped);
   }
@@ -389,6 +437,7 @@ export function buildInventoryRowsFromDbSnapshots(params: {
         forecastRows,
         overridesByZone,
         asOfYmd,
+        optimisticClientOverrides,
       );
       if (mapped) rows.push(mapped);
     }
