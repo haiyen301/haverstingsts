@@ -2923,22 +2923,24 @@ function HarvestInputPageInner() {
                           const nextValue = e.target.value;
                           if (nextValue.trim().startsWith("-")) return;
                           setFormData((prev) => {
-                            const nextHarvestedArea =
-                              autoHarvestedAreaStrFromQuantityEdit(
-                                nextValue,
-                                prev.uom,
-                                prev.harvestType,
-                                prev.farm,
-                                prev.grass,
-                                prev.estimatedDate,
-                                prev.actualDate,
-                                zoneConfigRows,
-                              );
                             const isKgSprigQtyEdit =
+                              !prev.actualDate.trim() &&
                               prev.uom.trim().toLowerCase() === "kg" &&
                               isKgSprigHarvestType(
                                 normalizeHarvestTypeStorageKey(prev.harvestType),
                               );
+                            const nextHarvestedArea = isKgSprigQtyEdit
+                              ? autoHarvestedAreaStrFromQuantityEdit(
+                                  nextValue,
+                                  prev.uom,
+                                  prev.harvestType,
+                                  prev.farm,
+                                  prev.grass,
+                                  prev.estimatedDate,
+                                  prev.actualDate,
+                                  zoneConfigRows,
+                                )
+                              : "";
                             return {
                               ...prev,
                               quantity: nextValue,

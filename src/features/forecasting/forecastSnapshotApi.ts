@@ -14,6 +14,7 @@ export type DbSnapshotRow = {
   grass_id?: number | string;
   zone?: string;
   previous_available_kg?: number | string;
+  raw_previous_available_kg?: number | string;
   regrowth_kg?: number | string;
   harvest_kg?: number | string;
   before_harvest_kg?: number | string;
@@ -22,6 +23,7 @@ export type DbSnapshotRow = {
   calculated_kg?: number | string;
   capacity_cap_kg?: number | string;
   overlimit_kg?: number | string;
+  is_cap_applied?: number | boolean | string;
   has_manual_override?: number | boolean | string;
   snapshot_kind?: string;
   source?: string;

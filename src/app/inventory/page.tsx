@@ -77,6 +77,12 @@ type InventoryRow = {
   maxKg: number;
   calculatedKg: number;
   currentKg: number;
+  rawKg: number;
+  overlimitKg: number;
+  isCapAppliedKg: boolean;
+  currentM2: number;
+  rawM2: number;
+  isCapAppliedM2: boolean;
   pct: number;
   manualOverrideKg: number | null;
   manualOverrideDate: string | null;
@@ -118,6 +124,9 @@ const FARM_CHART_PALETTE = [
 ];
 
 const OVERLIMIT_SLICE_COLOR = "hsl(4, 48%, 62%)";
+
+/** Overlimit rows/slices/labels hidden — cap still shown via ? and breakdown raw vs operational. */
+const SHOW_INVENTORY_OVERLIMIT_UI = false;
 
 function farmChartColor(
   farmColorByName: Record<string, string>,
@@ -297,11 +306,13 @@ function buildInventoryRowsAtDate(params: {
 
   return {
     rows: dbResult.rows,
-    overlimitEntries: buildOverlimitEntries(
-      dbResult.overlimitByFarmProduct,
-      zoneConfigurations,
-      dbResult.rows,
-    ),
+    overlimitEntries: SHOW_INVENTORY_OVERLIMIT_UI
+      ? buildOverlimitEntries(
+          dbResult.overlimitByFarmProduct,
+          zoneConfigurations,
+          dbResult.rows,
+        )
+      : [],
   };
 }
 
@@ -984,6 +995,50 @@ export default function InventoryPage() {
     );
   };
 
+  const renderCapAppliedHint = (
+    row: InventoryRow,
+    unit: "kg" | "m2",
+    rawValue: number,
+  ) => {
+    const isCapApplied = unit === "kg" ? row.isCapAppliedKg : row.isCapAppliedM2;
+    if (!isCapApplied) return null;
+    const capValue = unit === "kg" ? row.maxKg : row.sizeM2;
+    return (
+      <span className="group relative inline-flex shrink-0">
+        <HelpCircle
+          className="h-3.5 w-3.5 text-amber-700"
+          aria-label={t("capAppliedTooltipAria")}
+        />
+        <span
+          role="tooltip"
+          className="pointer-events-none absolute bottom-full right-0 z-20 mb-1.5 hidden w-max max-w-[16rem] rounded-md border border-border bg-popover px-2 py-1.5 text-[11px] font-normal normal-case leading-snug text-popover-foreground shadow-md group-hover:block"
+        >
+          {unit === "kg"
+            ? t("capAppliedKgTooltip", {
+                raw: rawValue.toLocaleString(),
+                cap: capValue.toLocaleString(),
+              })
+            : t("capAppliedM2Tooltip", {
+                raw: rawValue.toLocaleString(),
+                cap: capValue.toLocaleString(),
+              })}
+        </span>
+      </span>
+    );
+  };
+
+  const renderBalanceCell = (
+    row: InventoryRow,
+    displayValue: number,
+    rawValue: number,
+    unit: "kg" | "m2",
+  ) => (
+    <span className="inline-flex items-center justify-end gap-1">
+      {renderBalanceBreakdownButton(row, displayValue, unit)}
+      {renderCapAppliedHint(row, unit, rawValue)}
+    </span>
+  );
+
   const renderOverlimitKg = (entry: OverlimitEntry) => (
     <span className="font-semibold tabular-nums text-red-700">
       +{entry.overlimitKg.toLocaleString()} kg
@@ -1479,7 +1534,7 @@ export default function InventoryPage() {
                     <p className="text-[11px] text-muted-foreground mt-1.5">
                       {totalCurrent.toLocaleString()} / {totalMax.toLocaleString()} kg
                     </p>
-                    {farmOverlimit > 0 ? (
+                    {SHOW_INVENTORY_OVERLIMIT_UI && farmOverlimit > 0 ? (
                       <p className="text-[11px] font-medium text-red-700 mt-1">
                         +{farmOverlimit.toLocaleString()} kg {t("overlimitLabel")}
                       </p>
@@ -1501,7 +1556,7 @@ export default function InventoryPage() {
                 <p className="text-xs font-semibold text-foreground">
                   {t("companyTotal", { kg: companyTotalKg.toLocaleString() })}
                 </p>
-                {companyOverlimitKg > 0 ? (
+                {SHOW_INVENTORY_OVERLIMIT_UI && companyOverlimitKg > 0 ? (
                   <p className="mt-1 text-xs font-semibold text-red-700">
                     {t("overlimitTotal", { kg: companyOverlimitKg.toLocaleString() })}
                   </p>
@@ -1521,7 +1576,9 @@ export default function InventoryPage() {
                   const grass = row.grass as string;
                   const totalAvailable = row.total as number;
                   const totalOverlimit = (row.overlimitTotal as number) ?? 0;
-                  const chartTotal = totalAvailable + totalOverlimit;
+                  const chartTotal = SHOW_INVENTORY_OVERLIMIT_UI
+                    ? totalAvailable + totalOverlimit
+                    : totalAvailable;
 
                   const farmSlices: GrassPieSlice[] = chartFarms
                     .map((farm) => ({
@@ -1532,16 +1589,20 @@ export default function InventoryPage() {
                     .filter((s) => s.value > 0);
 
                   const grassId = String(row.grassId ?? "");
-                  const overlimitSlices: GrassPieSlice[] = inventoryOverlimit
-                    .filter((o) => String(o.grassId) === grassId)
-                    .map((o) => ({
-                      name: t("pieOverlimitSlice", { farm: resolveOverlimitFarmLabel(o) }),
-                      value: o.overlimitKg,
-                      kind: "overlimit" as const,
-                    }))
-                    .filter((s) => s.value > 0);
+                  const overlimitSlices: GrassPieSlice[] = SHOW_INVENTORY_OVERLIMIT_UI
+                    ? inventoryOverlimit
+                        .filter((o) => String(o.grassId) === grassId)
+                        .map((o) => ({
+                          name: t("pieOverlimitSlice", { farm: resolveOverlimitFarmLabel(o) }),
+                          value: o.overlimitKg,
+                          kind: "overlimit" as const,
+                        }))
+                        .filter((s) => s.value > 0)
+                    : [];
 
-                  const slices = [...farmSlices, ...overlimitSlices];
+                  const slices = SHOW_INVENTORY_OVERLIMIT_UI
+                    ? [...farmSlices, ...overlimitSlices]
+                    : farmSlices;
                   const singleFarmSlice = farmSlices.length === 1;
 
                   return (
@@ -1552,7 +1613,7 @@ export default function InventoryPage() {
                           <p className="text-[11px] text-muted-foreground">
                             {totalAvailable.toLocaleString()} kg
                           </p>
-                          {totalOverlimit > 0 ? (
+                          {SHOW_INVENTORY_OVERLIMIT_UI && totalOverlimit > 0 ? (
                             <p className="text-[11px] font-medium text-red-700">
                               +{totalOverlimit.toLocaleString()} {t("overlimitLabel")}
                             </p>
@@ -1685,7 +1746,7 @@ export default function InventoryPage() {
                           <td className="py-2 px-3 font-medium">{r.grass}</td>
                           <td className="py-2 px-3 text-right">
                             <div>{r.currentKg.toLocaleString()}</div>
-                            {r.overlimitKg > 0 ? (
+                            {SHOW_INVENTORY_OVERLIMIT_UI && r.overlimitKg > 0 ? (
                               <div className="text-[11px] font-medium text-red-700">
                                 +{r.overlimitKg.toLocaleString()} {t("overlimitLabel")}
                               </div>
@@ -1748,28 +1809,24 @@ export default function InventoryPage() {
                     <div>
                       <p className="text-[11px] text-muted-foreground">{t("balanceM2")}</p>
                       <div className="mt-0.5">
-                        {renderBalanceBreakdownButton(
-                          z,
-                          inventoryBalanceKgToM2(z.currentKg, z.inventoryKgPerM2),
-                          "m2",
-                        )}
+                        {renderBalanceCell(z, z.currentM2, z.rawM2, "m2")}
                       </div>
                     </div>
                     <div>
                       <p className="text-[11px] text-muted-foreground">{t("balanceKg")}</p>
                       <div className="mt-0.5 flex flex-wrap items-center gap-2">
-                        {renderBalanceBreakdownButton(z, z.currentKg, "kg")}
+                        {renderBalanceCell(z, z.currentKg, z.rawKg, "kg")}
                         {z.isManualOverrideActive ? (
                           <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
                             {t("manualBadge")}
                           </span>
                         ) : null}
                       </div>
-                      {z.isManualOverrideActive ? (
+                      {z.isManualOverrideActive || z.isCapAppliedKg ? (
                         <p className="mt-1 text-[11px] text-muted-foreground">
                           {t("systemUpdated", {
-                            calc: (z.systemKgAtManualOverride ?? z.calculatedKg).toLocaleString(),
-                            date: formatShortDate(z.manualOverrideDate),
+                            calc: (z.systemKgAtManualOverride ?? z.rawKg).toLocaleString(),
+                            date: formatShortDate(z.manualOverrideDate ?? inventoryTodayYmd),
                           })}
                         </p>
                       ) : null}
@@ -1782,13 +1839,15 @@ export default function InventoryPage() {
                   <div className="mt-3">
                     <div className="mb-1 flex items-center justify-between gap-2">
                       <span className="text-[11px] text-muted-foreground">{t("level")}</span>
-                      <span className="w-8 text-right text-xs text-muted-foreground">{z.pct}%</span>
+                      <span className="w-8 text-right text-xs text-muted-foreground">
+                        {Math.min(100, z.pct)}%
+                      </span>
                     </div>
                     <div className="h-2 rounded-full bg-muted">
                       <div
                         className="h-2 rounded-full"
                         style={{
-                          width: `${z.pct}%`,
+                          width: `${Math.min(100, z.pct)}%`,
                           backgroundColor:
                             z.pct > 70 ? "hsl(152,55%,36%)" : z.pct > 40 ? "hsl(35,92%,52%)" : "hsl(0,72%,51%)",
                         }}
@@ -1797,7 +1856,8 @@ export default function InventoryPage() {
                   </div>
                 </div>
               ))}
-              {inventoryOverlimit.map((o) => (
+              {SHOW_INVENTORY_OVERLIMIT_UI
+                ? inventoryOverlimit.map((o) => (
                 <div
                   key={o.key}
                   className="rounded-lg border border-red-200 bg-red-50/60 p-3 shadow-sm"
@@ -1816,7 +1876,8 @@ export default function InventoryPage() {
                     </p>
                   </div>
                 </div>
-              ))}
+              ))
+                : null}
               {inventory.length > 0 ? (
                 <div className="rounded-lg border border-border bg-muted/30 p-3">
                   <p className="text-xs font-semibold text-foreground">{t("tableFooterTotal")}</p>
@@ -1903,26 +1964,22 @@ export default function InventoryPage() {
                       <td className="py-3 px-4 text-right">{z.sizeM2.toLocaleString()}</td>
                       <td className="py-3 px-4 text-right">{z.maxKg.toLocaleString()}</td>
                       <td className="py-3 px-4 text-right">
-                        {renderBalanceBreakdownButton(
-                          z,
-                          inventoryBalanceKgToM2(z.currentKg, z.inventoryKgPerM2),
-                          "m2",
-                        )}
+                        {renderBalanceCell(z, z.currentM2, z.rawM2, "m2")}
                       </td>
                       <td className="py-3 px-4 text-right">
                         <div className="flex items-center justify-end gap-2">
-                          {renderBalanceBreakdownButton(z, z.currentKg, "kg")}
+                          {renderBalanceCell(z, z.currentKg, z.rawKg, "kg")}
                           {/* {z.isManualOverrideActive ? (
                             <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
                               {t("manualBadge")}
                             </span>
                           ) : null} */}
                         </div>
-                        {z.isManualOverrideActive ? (
+                        {z.isManualOverrideActive || z.isCapAppliedKg ? (
                           <p className="mt-1 text-[11px] text-muted-foreground">
                             {t("systemUpdated", {
-                            calc: (z.systemKgAtManualOverride ?? z.calculatedKg).toLocaleString(),
-                            date: formatShortDate(z.manualOverrideDate),
+                            calc: (z.systemKgAtManualOverride ?? z.rawKg).toLocaleString(),
+                            date: formatShortDate(z.manualOverrideDate ?? inventoryTodayYmd),
                           })}
                           </p>
                         ) : null}
@@ -1936,18 +1993,21 @@ export default function InventoryPage() {
                             <div
                               className="h-2 rounded-full"
                               style={{
-                                width: `${z.pct}%`,
+                                width: `${Math.min(100, z.pct)}%`,
                                 backgroundColor:
                                   z.pct > 70 ? "hsl(152,55%,36%)" : z.pct > 40 ? "hsl(35,92%,52%)" : "hsl(0,72%,51%)",
                               }}
                             />
                           </div>
-                          <span className="text-xs text-muted-foreground w-8 text-right">{z.pct}%</span>
+                          <span className="text-xs text-muted-foreground w-8 text-right">
+                            {Math.min(100, z.pct)}%
+                          </span>
                         </div>
                       </td>
                     </tr>
                   ))}
-                  {inventoryOverlimit.map((o) => (
+                  {SHOW_INVENTORY_OVERLIMIT_UI
+                    ? inventoryOverlimit.map((o) => (
                     <tr
                       key={o.key}
                       className="border-t border-red-100 bg-red-50/40 hover:bg-red-50/70"
@@ -1963,7 +2023,8 @@ export default function InventoryPage() {
                       </td>
                       <td className="py-3 px-4 text-muted-foreground">—</td>
                     </tr>
-                  ))}
+                  ))
+                    : null}
                 </tbody>
                 {inventory.length > 0 ? (
                   <tfoot>
@@ -2043,6 +2104,19 @@ export default function InventoryPage() {
                     inventory.find((r) => r.forecastZoneKey === balanceBreakdownZoneKey)
                       ?.inventoryKgPerM2 ??
                     0
+                  }
+                  capSummary={
+                    balanceBreakdownData?.row?.isCapAppliedKg
+                      ? {
+                          operationalKg: balanceBreakdownData.row.currentKg,
+                          rawKg: balanceBreakdownData.row.rawKg,
+                          overlimitKg: balanceBreakdownData.row.overlimitKg,
+                          operationalM2: balanceBreakdownData.row.currentM2,
+                          rawM2: balanceBreakdownData.row.rawM2,
+                          sizeM2: balanceBreakdownData.row.sizeM2,
+                          isCapApplied: true,
+                        }
+                      : null
                   }
                   onClose={() => {
                     setBalanceBreakdownZoneKey(null);

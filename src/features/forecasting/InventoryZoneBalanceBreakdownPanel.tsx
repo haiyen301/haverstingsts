@@ -276,6 +276,7 @@ export function InventoryZoneBalanceBreakdownPanel({
   timelineEntries,
   loading = false,
   onClose,
+  capSummary = null,
 }: {
   zoneLabel: string;
   maxKg: number;
@@ -286,6 +287,15 @@ export function InventoryZoneBalanceBreakdownPanel({
   timelineEntries: EnrichedZoneBalanceTimelineEntry[];
   loading?: boolean;
   onClose: () => void;
+  capSummary?: {
+    operationalKg: number;
+    rawKg: number;
+    overlimitKg: number;
+    operationalM2: number;
+    rawM2: number;
+    sizeM2: number;
+    isCapApplied: boolean;
+  } | null;
 }) {
   const t = useTranslations("InventoryBalance");
   const panelTopRef = useRef<HTMLDivElement>(null);
@@ -312,11 +322,14 @@ export function InventoryZoneBalanceBreakdownPanel({
   }, [timelineEntries.length, loading]);
 
   const showM2 = displayUnit === "m2";
-  const currentBalanceKg =
-    todaySnapshot?.calculatedKg ??
-    timelineEntries.find((entry) => entry.dateYmd === todayYmd)?.endKg ??
-    timelineEntries.find((entry) => !entry.isOpeningDay && !entry.isBridgeEntry)?.endKg ??
-    0;
+  const traceBalanceKg =
+    capSummary?.isCapApplied
+      ? capSummary.rawKg
+      : todaySnapshot?.calculatedKg ??
+        timelineEntries.find((entry) => entry.dateYmd === todayYmd)?.endKg ??
+        timelineEntries.find((entry) => !entry.isOpeningDay && !entry.isBridgeEntry)?.endKg ??
+        0;
+  const currentBalanceKg = traceBalanceKg;
   const openingKg = timelineEntries.find((entry) => entry.isOpeningDay)?.endKg ?? maxKg;
   const currentBalanceM2 = balanceKgToM2(currentBalanceKg, inventoryKgPerM2);
   const openingM2 = balanceKgToM2(openingKg, inventoryKgPerM2);
@@ -370,6 +383,27 @@ export function InventoryZoneBalanceBreakdownPanel({
                 rate: formatKgPerM2Rate(inventoryKgPerM2),
               })}
             </p>
+          ) : null}
+          {capSummary?.isCapApplied ? (
+            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50/80 p-3 text-[11px] leading-relaxed text-amber-950">
+              <p className="font-semibold">{t("breakdownCapTitle")}</p>
+              <p className="mt-1">
+                {showM2
+                  ? t("breakdownCapOperationalM2", {
+                      value: formatM2(capSummary.operationalM2),
+                      cap: formatM2(capSummary.sizeM2),
+                    })
+                  : t("breakdownCapOperationalKg", {
+                      value: formatKg(capSummary.operationalKg),
+                      cap: formatKg(maxKg),
+                    })}
+              </p>
+              <p>
+                {showM2
+                  ? t("breakdownCapRawM2", { value: formatM2(capSummary.rawM2) })
+                  : t("breakdownCapRawKg", { value: formatKg(capSummary.rawKg) })}
+              </p>
+            </div>
           ) : null}
         </div>
         <button

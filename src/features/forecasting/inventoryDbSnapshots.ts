@@ -30,25 +30,60 @@ function resolveZoneCappedBalanceKg(
   row: DbSnapshotRow,
   maxKg: number,
   storedKg: number,
-): { currentKg: number; overlimitKg: number } {
+): { currentKg: number; rawKg: number; overlimitKg: number; isCapAppliedKg: boolean } {
   const dbOverlimit = Math.round(Math.max(0, num(row.overlimit_kg)));
   const rawKg = Math.round(Math.max(0, num(row.raw_available_kg ?? storedKg)));
   const uncappedKg = Math.max(rawKg, Math.round(Math.max(0, storedKg)));
+  const dbCapFlag = Boolean(num(row.is_cap_applied));
 
   if (maxKg <= 0) {
-    return { currentKg: uncappedKg, overlimitKg: dbOverlimit };
-  }
-
-  if (dbOverlimit > 0) {
     return {
-      currentKg: Math.min(Math.round(Math.max(0, storedKg)), maxKg),
+      currentKg: uncappedKg,
+      rawKg: uncappedKg,
       overlimitKg: dbOverlimit,
+      isCapAppliedKg: dbCapFlag,
     };
   }
 
+  if (dbOverlimit > 0 || dbCapFlag) {
+    const capped = Math.min(Math.round(Math.max(0, storedKg)), maxKg);
+    return {
+      currentKg: capped,
+      rawKg: Math.max(rawKg, uncappedKg),
+      overlimitKg: dbOverlimit > 0 ? dbOverlimit : Math.max(0, uncappedKg - maxKg),
+      isCapAppliedKg: true,
+    };
+  }
+
+  const overlimitKg = Math.max(0, uncappedKg - maxKg);
   return {
     currentKg: Math.min(uncappedKg, maxKg),
-    overlimitKg: Math.max(0, uncappedKg - maxKg),
+    rawKg: uncappedKg,
+    overlimitKg,
+    isCapAppliedKg: overlimitKg > 0,
+  };
+}
+
+function balanceKgToDisplayM2(kg: number, kgPerM2: number): number {
+  if (kgPerM2 <= 0) return 0;
+  return Math.round(kg / kgPerM2);
+}
+
+function resolveZoneBalanceM2Layers(params: {
+  currentKg: number;
+  rawKg: number;
+  sizeM2: number;
+  inventoryKgPerM2: number;
+  isCapAppliedKg: boolean;
+}): { currentM2: number; rawM2: number; isCapAppliedM2: boolean } {
+  const { currentKg, rawKg, sizeM2, inventoryKgPerM2, isCapAppliedKg } = params;
+  const rawM2 = balanceKgToDisplayM2(rawKg, inventoryKgPerM2);
+  const currentM2 = balanceKgToDisplayM2(currentKg, inventoryKgPerM2);
+  const isCapAppliedM2 = sizeM2 > 0 && rawM2 > sizeM2;
+  return {
+    currentM2: sizeM2 > 0 ? Math.min(currentM2, sizeM2) : currentM2,
+    rawM2,
+    isCapAppliedM2: isCapAppliedKg || isCapAppliedM2,
   };
 }
 
@@ -173,7 +208,10 @@ export function dbSnapshotToZoneInventoryDaySnapshot(
 ): ZoneInventoryDaySnapshot {
   const zoneKey = String(row.zone_key ?? "").trim();
   const maxKg = Math.round(num(row.capacity_cap_kg));
-  const previousKg = Math.round(num(row.previous_available_kg));
+  const rawPreviousKg = Math.round(
+    num(row.raw_previous_available_kg ?? row.previous_available_kg),
+  );
+  const previousKg = rawPreviousKg;
   const regrowthKg = Math.round(num(row.regrowth_kg));
   const harvestKg = Math.round(num(row.harvest_kg));
   const systemRolledKg = Math.max(0, previousKg + regrowthKg - harvestKg);
@@ -246,6 +284,12 @@ export type InventoryDbZoneRow = {
   maxKg: number;
   calculatedKg: number;
   currentKg: number;
+  rawKg: number;
+  overlimitKg: number;
+  isCapAppliedKg: boolean;
+  currentM2: number;
+  rawM2: number;
+  isCapAppliedM2: boolean;
   pct: number;
   manualOverrideKg: number | null;
   manualOverrideDate: string | null;
@@ -362,7 +406,18 @@ function mapDbSnapshotToInventoryRow(
     pendingSnapshotSync = Math.round(optimisticKg) !== Math.round(snapshotKg);
   }
 
-  ({ currentKg } = resolveZoneCappedBalanceKg(row, maxKg, currentKg));
+  const layers = resolveZoneCappedBalanceKg(row, maxKg, currentKg);
+  currentKg = layers.currentKg;
+  const rawKg = layers.rawKg;
+  const overlimitKg = layers.overlimitKg;
+  const isCapAppliedKg = layers.isCapAppliedKg;
+  const m2Layers = resolveZoneBalanceM2Layers({
+    currentKg,
+    rawKg,
+    sizeM2: meta.sizeM2,
+    inventoryKgPerM2: meta.inventoryKgPerM2,
+    isCapAppliedKg,
+  });
 
   const pct = maxKg > 0 ? Math.round((currentKg / maxKg) * 100) : 0;
   const isManualOverrideActive = hasDbOverride || !!exactOverride;
@@ -387,8 +442,14 @@ function mapDbSnapshotToInventoryRow(
     sizeM2: meta.sizeM2,
     inventoryKgPerM2: meta.inventoryKgPerM2,
     maxKg,
-    calculatedKg,
+    calculatedKg: isCapAppliedKg ? rawKg : calculatedKg,
     currentKg,
+    rawKg,
+    overlimitKg,
+    isCapAppliedKg,
+    currentM2: m2Layers.currentM2,
+    rawM2: m2Layers.rawM2,
+    isCapAppliedM2: m2Layers.isCapAppliedM2,
     pct,
     manualOverrideKg: manualKg,
     manualOverrideDate: isManualOverrideActive
@@ -398,10 +459,12 @@ function mapDbSnapshotToInventoryRow(
       ? Math.round(
           Math.max(
             0,
-            num(exactOverride?.calculatedKg ?? row.calculated_kg ?? calculatedKg),
+            num(exactOverride?.calculatedKg ?? row.calculated_kg ?? rawKg ?? calculatedKg),
           ),
         )
-      : null,
+      : isCapAppliedKg
+        ? rawKg
+        : null,
     isManualOverrideActive,
     pendingSnapshotSync,
   };
