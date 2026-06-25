@@ -23,12 +23,37 @@ function parsePaceQty(raw: unknown): number {
   return Number.isFinite(n) && n >= 0 ? n : 0;
 }
 
-function planRowLoadTypeKey(row: Record<string, unknown>): string {
+function planRowLoadTypeKey(
+  row: Record<string, unknown>,
+  kgLoadTypeContext?: PaceRecalcKgLoadTypeContext,
+): string {
+  const fromField = normalizeHarvestTypeStorageKey(row.load_type);
+  if (fromField) return fromField;
+  if (
+    kgLoadTypeContext &&
+    paceRecalcHasDistinctKgLoadTypes(kgLoadTypeContext)
+  ) {
+    return "";
+  }
   const rowUom = normUomForPaceMatch(row.uom);
-  return (
-    normalizeHarvestTypeStorageKey(row.load_type) ||
-    (rowUom === "kg" ? "sprig" : rowUom === "m2" ? "sod" : "")
-  );
+  return rowUom === "kg" ? "sprig" : rowUom === "m2" ? "sod" : "";
+}
+
+/** Map harvest load_type → requirement line for T/H when project is sprig-only. */
+export function paceEffectiveRecalcLoadTypeForRequirement(
+  harvestLoadType: string,
+  kgContext: PaceRecalcKgLoadTypeContext,
+): HarvestTypeStorageKey | "" {
+  const load = normalizeHarvestTypeStorageKey(harvestLoadType);
+  if (!load) return "";
+  if (
+    load === "sod_to_sprig" &&
+    !kgContext.hasSodToSprigRequirement &&
+    kgContext.hasSprigRequirement
+  ) {
+    return "sprig";
+  }
+  return load;
 }
 
 /** Kg requirement lines per product — used to split sprig vs sod_to_sprig pace buckets. */
@@ -210,7 +235,9 @@ export function paceRecalcPlanRowMatchesRequirementLine(
   const reqUom = normUomForPaceMatch(requiredUom);
   const rowUom = normUomForPaceMatch(row.uom);
   const reqLoad = normalizeHarvestTypeStorageKey(requiredLoadType);
-  const rowLoad = normalizeHarvestTypeStorageKey(planRowLoadTypeKey(row));
+  const rowLoad = normalizeHarvestTypeStorageKey(
+    planRowLoadTypeKey(row, kgLoadTypeContext),
+  );
   const kgContext =
     kgLoadTypeContext ??
     ({
