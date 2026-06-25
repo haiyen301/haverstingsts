@@ -25,6 +25,33 @@ function num(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/** Zone balance for /inventory: capped at maxKg; excess kg is overlimit. */
+function resolveZoneCappedBalanceKg(
+  row: DbSnapshotRow,
+  maxKg: number,
+  storedKg: number,
+): { currentKg: number; overlimitKg: number } {
+  const dbOverlimit = Math.round(Math.max(0, num(row.overlimit_kg)));
+  const rawKg = Math.round(Math.max(0, num(row.raw_available_kg ?? storedKg)));
+  const uncappedKg = Math.max(rawKg, Math.round(Math.max(0, storedKg)));
+
+  if (maxKg <= 0) {
+    return { currentKg: uncappedKg, overlimitKg: dbOverlimit };
+  }
+
+  if (dbOverlimit > 0) {
+    return {
+      currentKg: Math.min(Math.round(Math.max(0, storedKg)), maxKg),
+      overlimitKg: dbOverlimit,
+    };
+  }
+
+  return {
+    currentKg: Math.min(uncappedKg, maxKg),
+    overlimitKg: Math.max(0, uncappedKg - maxKg),
+  };
+}
+
 function normalizeYmd(value: string): string {
   return value.trim().slice(0, 10);
 }
@@ -91,13 +118,15 @@ export function buildOverlimitByFarmProductFromDbSnapshots(
 ): Map<string, number> {
   const out = new Map<string, number>();
   for (const row of snapshotsForDate(rows, asOfYmd)) {
-    const overlimit = num(row.overlimit_kg);
-    if (overlimit <= 0) continue;
+    const capKg = Math.round(num(row.capacity_cap_kg));
+    const storedKg = Math.round(num(row.available_kg));
+    const { overlimitKg } = resolveZoneCappedBalanceKg(row, capKg, storedKg);
+    if (overlimitKg <= 0) continue;
     const farmId = num(row.farm_id);
     const grassId = num(row.grass_id);
     if (farmId <= 0 || grassId <= 0) continue;
     const fpKey = `${farmId}|${grassId}`;
-    out.set(fpKey, (out.get(fpKey) ?? 0) + overlimit);
+    out.set(fpKey, (out.get(fpKey) ?? 0) + overlimitKg);
   }
   return out;
 }
@@ -332,6 +361,8 @@ function mapDbSnapshotToInventoryRow(
     currentKg = optimisticKg;
     pendingSnapshotSync = Math.round(optimisticKg) !== Math.round(snapshotKg);
   }
+
+  ({ currentKg } = resolveZoneCappedBalanceKg(row, maxKg, currentKg));
 
   const pct = maxKg > 0 ? Math.round((currentKg / maxKg) * 100) : 0;
   const isManualOverrideActive = hasDbOverride || !!exactOverride;

@@ -550,6 +550,52 @@ function isKgSprigHarvestType(harvestType: HarvestTypeStorageKey | ""): boolean 
   return key === "sprig" || key === "sod_to_sprig";
 }
 
+/** Sprig/Kg only — called from quantity `onChange`, not on load. */
+function autoHarvestedAreaStrFromQuantityEdit(
+  quantity: string,
+  uom: string,
+  harvestType: string,
+  farmId: string,
+  grassId: string,
+  estimatedDate: string,
+  actualDate: string,
+  zoneConfigRows: ZoneConfigurationRow[],
+): string {
+  if (uom.trim().toLowerCase() !== "kg") return "";
+  if (!isKgSprigHarvestType(normalizeHarvestTypeStorageKey(harvestType))) {
+    return "";
+  }
+  const qtyKg = parseNum(quantity);
+  if (qtyKg <= 0) return "";
+
+  const ymds = [toDateInput(estimatedDate), toDateInput(actualDate)].filter(
+    (s) => /^\d{4}-\d{2}-\d{2}$/.test(s),
+  );
+  const harvestAreaRefYmd = ymds[0] ?? todayYmdLocal();
+
+  const farm = farmId.trim();
+  const grass = grassId.trim();
+
+  if (farm && grass) {
+    const zoneConfig = findZoneConfigForFarmGrass(
+      zoneConfigRows,
+      farm,
+      grass,
+      harvestAreaRefYmd,
+    );
+    if (!zoneConfig) return "";
+    const areaStr = harvestAreaM2FromKgAndZoneConfig(qtyKg, zoneConfig);
+    if (!areaStr || parseNum(zoneConfig.inventory_kg_per_m2) <= 0) return "";
+    return parseNum(areaStr).toFixed(2);
+  }
+
+  if (!farm || !grass) {
+    return qtyKg.toFixed(2);
+  }
+
+  return "";
+}
+
 /**
  * API / store may send `quantity_required_sprig_sod` as:
  * - `Array<{ product_id, quantity, uom, ... }>` (typical)
@@ -1125,7 +1171,6 @@ function HarvestInputPageInner() {
     [farmZones, formData.farm],
   );
   const [zoneConfigRows, setZoneConfigRows] = useState<ZoneConfigurationRow[]>([]);
-  const [harvestedAreaManual, setHarvestedAreaManual] = useState(false);
   const [photos, setPhotos] = useState<HarvestPhotoFiles>({});
   /** Loaded from API in edit mode — preview URLs + file names for `images_removed`. */
   const [existingDocSlots, setExistingDocSlots] = useState<
@@ -1981,36 +2026,6 @@ function HarvestInputPageInner() {
     }
   }, [filteredZoneEntries, formData.zone]);
 
-  useEffect(() => {
-    setHarvestedAreaManual(false);
-  }, [formData.farm, formData.grass, formData.harvestType, formData.uom, formData.zone]);
-
-  useEffect(() => {
-    if (harvestedAreaManual || formData.uom.trim().toLowerCase() !== "kg") return;
-    if (!isKgSprigHarvestType(normalizeHarvestTypeStorageKey(formData.harvestType))) return;
-
-    let nextHarvestedArea = "";
-    if (autoHarvestAreaInfo && autoHarvestAreaInfo.harvestedAreaM2 > 0) {
-      nextHarvestedArea = autoHarvestAreaInfo.harvestedAreaM2.toFixed(2);
-    }
-
-    setFormData((prev) => {
-      if (prev.uom.trim().toLowerCase() !== "kg") return prev;
-      if (prev.harvestedArea === nextHarvestedArea) return prev;
-      return {
-        ...prev,
-        harvestedArea: nextHarvestedArea,
-      };
-    });
-    setFieldErrors((prev) => ({ ...prev, harvestedArea: undefined }));
-  }, [
-    autoHarvestAreaInfo,
-    formData.harvestType,
-    formData.quantity,
-    formData.uom,
-    harvestedAreaManual,
-  ]);
-
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!canSubmitHarvest) {
@@ -2028,11 +2043,15 @@ function HarvestInputPageInner() {
       quantity: normalizeNonNegativeInput(formData.quantity),
       harvestedArea: formatHarvestedAreaForForm(formData.harvestedArea),
     };
-    const harvestedAreaResolved = resolveHarvestedAreaForSubmit(
-      normalizedFormData.harvestedArea,
-      normalizedFormData.quantity,
-      normalizedFormData.harvestType,
-    );
+    const harvestedAreaResolved = normalizedFormData.actualDate.trim()
+      ? {
+          harvestedArea: normalizedFormData.harvestedArea.trim() || undefined,
+        }
+      : resolveHarvestedAreaForSubmit(
+          normalizedFormData.harvestedArea,
+          normalizedFormData.quantity,
+          normalizedFormData.harvestType,
+        );
     const submitFormData: HarvestFormState = {
       ...normalizedFormData,
       harvestedArea: harvestedAreaResolved.harvestedArea ?? "",
@@ -2854,7 +2873,6 @@ function HarvestInputPageInner() {
                               onClick={() => {
                                 if (formDisabled || !quantityUnitsBasisReady) return;
                                 if (formData.uom === u) return;
-                                setHarvestedAreaManual(false);
                                 setFormData((prev) => applyUomConstraint(prev, u));
                                 setFieldErrors((prev) => ({
                                   ...prev,
@@ -2904,9 +2922,36 @@ function HarvestInputPageInner() {
                         onChange={(e) => {
                           const nextValue = e.target.value;
                           if (nextValue.trim().startsWith("-")) return;
-                          setHarvestedAreaManual(false);
-                          setFormData((prev) => ({ ...prev, quantity: nextValue }));
-                          setFieldErrors((prev) => ({ ...prev, quantity: undefined }));
+                          setFormData((prev) => {
+                            const nextHarvestedArea =
+                              autoHarvestedAreaStrFromQuantityEdit(
+                                nextValue,
+                                prev.uom,
+                                prev.harvestType,
+                                prev.farm,
+                                prev.grass,
+                                prev.estimatedDate,
+                                prev.actualDate,
+                                zoneConfigRows,
+                              );
+                            const isKgSprigQtyEdit =
+                              prev.uom.trim().toLowerCase() === "kg" &&
+                              isKgSprigHarvestType(
+                                normalizeHarvestTypeStorageKey(prev.harvestType),
+                              );
+                            return {
+                              ...prev,
+                              quantity: nextValue,
+                              ...(isKgSprigQtyEdit
+                                ? { harvestedArea: nextHarvestedArea }
+                                : null),
+                            };
+                          });
+                          setFieldErrors((prev) => ({
+                            ...prev,
+                            quantity: undefined,
+                            harvestedArea: undefined,
+                          }));
                         }}
                         className={`${harvestFieldClass} ${fieldErrors.quantity || quantityLimitError ? "ring-2 ring-destructive" : ""}`}
                         placeholder={t("quantityPlaceholder")}
@@ -3014,7 +3059,6 @@ function HarvestInputPageInner() {
                             onChange={(e) => {
                               const nextValue = e.target.value;
                               if (nextValue.trim().startsWith("-")) return;
-                              setHarvestedAreaManual(true);
                               setFormData((prev) => ({
                                 ...prev,
                                 harvestedArea: nextValue,
