@@ -6,6 +6,7 @@ import { getForecastToday, ymdFromDate } from "@/features/forecasting/forecastDa
 import {
   fetchForecastMeta,
   fetchForecastSnapshots,
+  fetchZoneBalanceHistorySnapshots,
   AGGREGATE_ZONE_KEY,
   type DbSnapshotRow,
 } from "@/features/forecasting/forecastSnapshotApi";
@@ -24,6 +25,8 @@ type Args = {
   periodId?: number | null;
   /** Read MIN(snapshot_date)..dateTo across all periods (balance breakdown). */
   allPeriods?: boolean;
+  /** Server-side filter: harvest/regrowth/manual/cap activity days only. */
+  impactOnly?: boolean;
   zoneKey?: string | null;
   farmId?: number | null;
   grassId?: number | null;
@@ -54,6 +57,7 @@ export function useInventoryZoneDbSnapshots(args: Args) {
         allPeriods: args.allPeriods ?? false,
         refresh: args.refreshKey ?? 0,
         storeRefresh: dbSeriesRefreshKey,
+        impactOnly: args.impactOnly ?? false,
       }),
     [
       args.dateFrom,
@@ -63,6 +67,7 @@ export function useInventoryZoneDbSnapshots(args: Args) {
       args.grassId,
       args.periodId,
       args.allPeriods,
+      args.impactOnly,
       args.refreshKey,
       dbSeriesRefreshKey,
     ],
@@ -88,14 +93,27 @@ export function useInventoryZoneDbSnapshots(args: Args) {
           args.periodId != null && args.periodId > 0 ? args.periodId : undefined;
         const allPeriods = args.allPeriods === true;
 
-        let rawRows = await fetchForecastSnapshots({
-          dateFrom: args.dateFrom,
-          dateTo: args.dateTo,
-          ...(allPeriods ? { allPeriods: true } : periodId ? { periodId } : {}),
-          ...(zoneKey ? { zoneKey } : {}),
-          ...(farmId ? { farmId } : {}),
-          ...(grassId ? { grassId } : {}),
-        });
+        let rawRows: DbSnapshotRow[];
+        if (allPeriods && zoneKey) {
+          rawRows = await fetchZoneBalanceHistorySnapshots({
+            dateFrom: args.dateFrom,
+            dateTo: args.dateTo,
+            zoneKey,
+            farmId,
+            grassId,
+            impactOnly: args.impactOnly,
+          });
+        } else {
+          rawRows = await fetchForecastSnapshots({
+            dateFrom: args.dateFrom,
+            dateTo: args.dateTo,
+            ...(allPeriods ? { allPeriods: true } : periodId ? { periodId } : {}),
+            ...(args.impactOnly ? { impactOnly: true } : {}),
+            ...(zoneKey ? { zoneKey } : {}),
+            ...(farmId ? { farmId } : {}),
+            ...(grassId ? { grassId } : {}),
+          });
+        }
 
         if (
           zoneKey &&

@@ -17,7 +17,7 @@ import {
 } from "@/features/forecasting/inventoryDbSnapshots";
 import { InventoryZoneBalanceBreakdownPanel } from "@/features/forecasting/InventoryZoneBalanceBreakdownPanel";
 import type { EnrichedZoneBalanceTimelineEntry } from "@/features/forecasting/InventoryZoneBalanceBreakdownPanel";
-import { buildZoneBalanceTimelineFromDbSnapshotRows, reverseZoneBalanceTimelineForDisplay } from "@/features/forecasting/zoneBalanceBreakdown";
+import { prepareZoneBalanceBreakdownTimeline, reverseZoneBalanceTimelineForDisplay } from "@/features/forecasting/zoneBalanceBreakdown";
 import { enrichZoneBalanceTimelineForBreakdown } from "@/features/forecasting/zoneBalanceEventsFromDayDetail";
 import { resolveDbBreakdownHistoryStartYmd } from "@/features/forecasting/resolveDbBreakdownHistoryStart";
 import { getForecastToday } from "@/features/forecasting/forecastDateUtils";
@@ -625,6 +625,7 @@ export default function InventoryPage() {
     dateFrom: breakdownHistoryStartYmd,
     dateTo: inventoryTodayYmd,
     allPeriods: true,
+    impactOnly: true,
     zoneKey: breakdownDbZoneKey ?? balanceBreakdownZoneKey,
     farmId: breakdownTargetRow?.farmId,
     grassId: breakdownTargetRow?.grassId,
@@ -694,46 +695,24 @@ export default function InventoryPage() {
         rawHistoryRows,
         breakdownDbZoneKey ?? zoneKey,
       );
+      const todaySnapshot = lookupZoneSnapshotInDayMap(zoneSnapshotsToday, zoneKey);
 
-      const timeline = buildZoneBalanceTimelineFromDbSnapshotRows(
+      const baseTimeline = prepareZoneBalanceBreakdownTimeline({
         historyRows,
         zoneKey,
-        row.maxKg,
-        historyStartYmd,
+        maxKg: row.maxKg,
+        periodStartYmd: historyStartYmd,
+        todayYmd: inventoryTodayYmd,
         overridesByZone,
-      );
-      const hasToday = timeline.some((entry) => entry.dateYmd === inventoryTodayYmd);
-      const todaySnapshot = lookupZoneSnapshotInDayMap(zoneSnapshotsToday, zoneKey);
-      const baseTimeline = [...timeline];
-      if (!hasToday && todaySnapshot) {
-        baseTimeline.push({
-          dateYmd: inventoryTodayYmd,
-          previousKg: todaySnapshot.previousKg,
-          regrowthKg: todaySnapshot.regrowthKg,
-          harvestKg: todaySnapshot.harvestKg,
-          endKg: todaySnapshot.exactManualSetToday
-            ? (todaySnapshot.manualOverrideKg ?? todaySnapshot.calculatedKg)
-            : todaySnapshot.calculatedKg,
-          manualKg: todaySnapshot.exactManualSetToday ? todaySnapshot.manualOverrideKg : null,
-          isOpeningDay: false,
-          isManualSetToday: todaySnapshot.exactManualSetToday,
-          rollingBeforeManualKg: todaySnapshot.rollingBeforeManualSetKg,
-        });
-      } else if (!hasToday && !todaySnapshot && row.currentKg > 0) {
-        baseTimeline.push({
-          dateYmd: inventoryTodayYmd,
-          previousKg: row.currentKg,
-          regrowthKg: 0,
-          harvestKg: 0,
-          endKg: row.currentKg,
-          manualKg: row.isManualOverrideActive ? row.manualOverrideKg : null,
-          isOpeningDay: false,
-          isManualSetToday: row.isManualOverrideActive,
-          rollingBeforeManualKg: row.isManualOverrideActive
-            ? row.systemKgAtManualOverride ?? row.calculatedKg
-            : null,
-        });
-      }
+        todaySnapshot,
+        fallbackToday: {
+          currentKg: row.currentKg,
+          isManualOverrideActive: row.isManualOverrideActive,
+          manualOverrideKg: row.manualOverrideKg,
+          systemKgAtManualOverride: row.systemKgAtManualOverride,
+          calculatedKg: row.calculatedKg,
+        },
+      });
 
       if (baseTimeline.length === 0 && !todaySnapshot) {
         setBreakdownLoading(false);

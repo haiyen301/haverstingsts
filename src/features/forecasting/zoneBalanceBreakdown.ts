@@ -1,6 +1,11 @@
 import { DEFAULT_FALLBACK_INVENTORY_KG_PER_M2 } from "@/features/forecasting/forecastingInventoryConversion";
 import type { ZoneInventoryDaySnapshot } from "@/features/forecasting/forecastDbTypes";
 import type { DbSnapshotRow } from "@/features/forecasting/forecastSnapshotApi";
+
+function num(v: unknown): number {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
 import {
   dbSnapshotToZoneInventoryDaySnapshot,
   filterSnapshotRowsForZoneKey,
@@ -326,12 +331,17 @@ export function buildZoneBalanceTimelineFromDbSnapshotRows(
 
     const snap = dbSnapshotToZoneInventoryDaySnapshot(row, overridesByZone, dateYmd);
     const entry = snapToTimelineEntry(snap, dateYmd);
+    const systemRolled = Math.max(0, entry.previousKg + entry.regrowthKg - entry.harvestKg);
+    const capApplied =
+      Math.round(num(row.available_kg)) !== Math.round(systemRolled) && systemRolled > 0;
     const hasEventColumns =
       entry.harvestKg > 0 ||
       entry.regrowthKg > 0 ||
       snap.exactManualSetToday ||
       hasManualBalanceOverride(entry) ||
-      Boolean(row.has_manual_override);
+      Boolean(row.has_manual_override) ||
+      capApplied ||
+      num(row.overlimit_kg) > 0;
     const closingKg = entry.endKg;
     const balanceChanged = Math.round(closingKg) !== Math.round(priorClosingKg);
     const dbChainBreak = Math.round(entry.previousKg) !== Math.round(priorClosingKg);
@@ -352,35 +362,118 @@ export function buildZoneBalanceTimelineFromDbSnapshotRows(
  */
 export function insertGapBridgeBeforeToday(
   entries: ZoneBalanceTimelineEntry[],
-  todayYmd: string,
+  _todayYmd?: string,
 ): ZoneBalanceTimelineEntry[] {
-  if (!todayYmd) return entries;
-  const todayIdx = entries.findIndex(
-    (e) => e.dateYmd === todayYmd && !e.isOpeningDay && !e.isBridgeEntry,
-  );
-  if (todayIdx <= 0) return entries;
+  return insertTimelineGapBridges(entries);
+}
 
-  const todayEntry = entries[todayIdx]!;
-  const priorClosing = entries[todayIdx - 1]!.endKg;
+/** Insert bridge rows wherever DB chain breaks (missing impact days in sparse history). */
+export function insertTimelineGapBridges(
+  entries: ZoneBalanceTimelineEntry[],
+): ZoneBalanceTimelineEntry[] {
+  if (entries.length <= 1) return entries;
 
-  if (Math.round(todayEntry.previousKg) === Math.round(priorClosing)) return entries;
+  const result: ZoneBalanceTimelineEntry[] = [];
 
-  const bridge: ZoneBalanceTimelineEntry = {
-    dateYmd: todayYmd,
-    previousKg: priorClosing,
-    regrowthKg: 0,
-    harvestKg: 0,
-    endKg: todayEntry.previousKg,
-    manualKg: null,
-    isOpeningDay: false,
-    isManualSetToday: false,
-    rollingBeforeManualKg: null,
-    isBridgeEntry: true,
-  };
+  for (const entry of entries) {
+    if (result.length > 0 && !entry.isOpeningDay && !entry.isBridgeEntry) {
+      const prev = result[result.length - 1]!;
+      if (Math.round(entry.previousKg) !== Math.round(prev.endKg)) {
+        result.push({
+          dateYmd: entry.dateYmd,
+          previousKg: prev.endKg,
+          regrowthKg: 0,
+          harvestKg: 0,
+          endKg: entry.previousKg,
+          manualKg: null,
+          isOpeningDay: false,
+          isManualSetToday: false,
+          rollingBeforeManualKg: null,
+          isBridgeEntry: true,
+        });
+      }
+    }
+    result.push(entry);
+  }
 
-  const result = [...entries];
-  result.splice(todayIdx, 0, bridge);
   return result;
+}
+
+export type PrepareZoneBalanceBreakdownParams = {
+  historyRows: DbSnapshotRow[];
+  zoneKey: string;
+  maxKg: number;
+  periodStartYmd: string;
+  todayYmd: string;
+  overridesByZone: Record<string, InventoryAvailableOverrideEntry>;
+  todaySnapshot?: ZoneInventoryDaySnapshot;
+  fallbackToday?: {
+    currentKg: number;
+    isManualOverrideActive: boolean;
+    manualOverrideKg: number | null;
+    systemKgAtManualOverride: number | null;
+    calculatedKg: number;
+  };
+};
+
+/** Build display-ready timeline: DB impact days → today → rechain → gap bridges. */
+export function prepareZoneBalanceBreakdownTimeline(
+  params: PrepareZoneBalanceBreakdownParams,
+): ZoneBalanceTimelineEntry[] {
+  const {
+    historyRows,
+    zoneKey,
+    maxKg,
+    periodStartYmd,
+    todayYmd,
+    overridesByZone,
+    todaySnapshot,
+    fallbackToday,
+  } = params;
+
+  const timeline = buildZoneBalanceTimelineFromDbSnapshotRows(
+    historyRows,
+    zoneKey,
+    maxKg,
+    periodStartYmd,
+    overridesByZone,
+  );
+
+  const baseTimeline = [...timeline];
+  const hasToday = baseTimeline.some((entry) => entry.dateYmd === todayYmd);
+
+  if (!hasToday && todaySnapshot) {
+    baseTimeline.push({
+      dateYmd: todayYmd,
+      previousKg: todaySnapshot.previousKg,
+      regrowthKg: todaySnapshot.regrowthKg,
+      harvestKg: todaySnapshot.harvestKg,
+      endKg: todaySnapshot.exactManualSetToday
+        ? (todaySnapshot.manualOverrideKg ?? todaySnapshot.calculatedKg)
+        : todaySnapshot.calculatedKg,
+      manualKg: todaySnapshot.exactManualSetToday ? todaySnapshot.manualOverrideKg : null,
+      isOpeningDay: false,
+      isManualSetToday: todaySnapshot.exactManualSetToday,
+      rollingBeforeManualKg: todaySnapshot.rollingBeforeManualSetKg,
+    });
+  } else if (!hasToday && fallbackToday && fallbackToday.currentKg > 0) {
+    baseTimeline.push({
+      dateYmd: todayYmd,
+      previousKg: fallbackToday.currentKg,
+      regrowthKg: 0,
+      harvestKg: 0,
+      endKg: fallbackToday.currentKg,
+      manualKg: fallbackToday.isManualOverrideActive ? fallbackToday.manualOverrideKg : null,
+      isOpeningDay: false,
+      isManualSetToday: fallbackToday.isManualOverrideActive,
+      rollingBeforeManualKg: fallbackToday.isManualOverrideActive
+        ? (fallbackToday.systemKgAtManualOverride ?? fallbackToday.calculatedKg)
+        : null,
+    });
+  }
+
+  const rechained = rechainZoneBalanceTimelineForDisplay(baseTimeline, { todayYmd });
+  return insertTimelineGapBridges(rechained);
 }
 
 /** Newest day first (today at top, opening at bottom). */

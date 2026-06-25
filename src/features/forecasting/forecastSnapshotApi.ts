@@ -23,6 +23,9 @@ export type DbSnapshotRow = {
   capacity_cap_kg?: number | string;
   overlimit_kg?: number | string;
   has_manual_override?: number | boolean | string;
+  snapshot_kind?: string;
+  source?: string;
+  period_id?: number | string;
 };
 
 export type SnapshotDateBounds = {
@@ -91,6 +94,8 @@ export async function fetchForecastSnapshots(params: {
   zoneKey?: string;
   farmId?: number;
   grassId?: number;
+  /** Only days with harvest, regrowth, manual override, or cap change (balance trace). */
+  impactOnly?: boolean;
 }): Promise<DbSnapshotRow[]> {
   const hasZoneKey = Boolean(params.zoneKey?.trim());
   const query: Record<string, string | number> = {
@@ -107,6 +112,9 @@ export async function fetchForecastSnapshots(params: {
   } else if (params.periodId != null && params.periodId > 0) {
     query.period_id = params.periodId;
   }
+  if (params.impactOnly) {
+    query.impact_only = 1;
+  }
   // Never pass anchor_date — snapshot rows keep rebuild anchor, not UI anchor.
   if (params.zoneKey) query.zone_key = params.zoneKey;
   if (params.farmId) query.farm_id = params.farmId;
@@ -117,6 +125,96 @@ export async function fetchForecastSnapshots(params: {
     query,
   );
   return Array.isArray(res) ? res : [];
+}
+
+function snapshotPeriodId(row: DbSnapshotRow): number {
+  const n = Number(row.period_id ?? 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Newest period wins per (snapshot_date, zone_key) — parity PHP all_periods. */
+export function mergeSnapshotRowsByDate(rows: DbSnapshotRow[]): DbSnapshotRow[] {
+  const byKey = new Map<string, DbSnapshotRow>();
+  for (const row of rows) {
+    const dateYmd = String(row.snapshot_date ?? "").trim().slice(0, 10);
+    const zoneKey = String(row.zone_key ?? "").trim();
+    const key = `${dateYmd}|${zoneKey}`;
+    const existing = byKey.get(key);
+    if (!existing || snapshotPeriodId(row) >= snapshotPeriodId(existing)) {
+      byKey.set(key, row);
+    }
+  }
+  return Array.from(byKey.values()).sort((a, b) =>
+    String(a.snapshot_date ?? "").localeCompare(String(b.snapshot_date ?? "")),
+  );
+}
+
+/**
+ * Balance breakdown history: all_periods merge, with fallback when API errors or
+ * only the forward period is returned (e.g. period 6 without full_history period 1).
+ */
+export async function fetchZoneBalanceHistorySnapshots(params: {
+  dateFrom: string;
+  dateTo: string;
+  zoneKey: string;
+  farmId?: number;
+  grassId?: number;
+  impactOnly?: boolean;
+  anchorDate?: string;
+}): Promise<DbSnapshotRow[]> {
+  const base = {
+    dateFrom: params.dateFrom,
+    dateTo: params.dateTo,
+    zoneKey: params.zoneKey,
+    farmId: params.farmId,
+    grassId: params.grassId,
+    impactOnly: params.impactOnly,
+  };
+
+  try {
+    const allPeriodRows = await fetchForecastSnapshots({ ...base, allPeriods: true });
+    if (allPeriodRows.length > 0) {
+      const spanDays = countYmdSpanDays(params.dateFrom, params.dateTo);
+      // Forward-only period returns a handful of rows; full history has hundreds+ impact days.
+      if (spanDays <= 400 || allPeriodRows.length >= 30 || params.impactOnly) {
+        return allPeriodRows;
+      }
+    }
+  } catch {
+    // fall through to period merge
+  }
+
+  const meta = await fetchForecastMeta(params.anchorDate);
+  const activePeriodId = Number(meta?.period?.id ?? 0);
+  const historyPeriodId = resolveFullHistoryPeriodId(meta);
+
+  const fetches: Promise<DbSnapshotRow[]>[] = [
+    fetchForecastSnapshots({ ...base, periodId: historyPeriodId }),
+  ];
+  if (activePeriodId > 0 && activePeriodId !== historyPeriodId) {
+    fetches.push(fetchForecastSnapshots({ ...base, periodId: activePeriodId }));
+  }
+
+  const parts = await Promise.all(fetches);
+  return mergeSnapshotRowsByDate(parts.flat());
+}
+
+function countYmdSpanDays(fromYmd: string, toYmd: string): number {
+  const from = Date.parse(`${fromYmd.slice(0, 10)}T00:00:00`);
+  const to = Date.parse(`${toYmd.slice(0, 10)}T00:00:00`);
+  if (!Number.isFinite(from) || !Number.isFinite(to) || to < from) return 0;
+  return Math.round((to - from) / 86_400_000);
+}
+
+/** Period that stores simulate-from-2019 rows (fallback: 1). */
+function resolveFullHistoryPeriodId(meta: ForecastMetaResponse | null): number {
+  const lastRunType = String(meta?.last_run?.run_type ?? "").trim();
+  const simStart = String(meta?.last_run?.simulation_start_date ?? "").slice(0, 10);
+  if (lastRunType === "full_history" || simStart === "2019-01-01") {
+    const periodId = Number(meta?.period?.id ?? 0);
+    if (periodId > 0) return periodId;
+  }
+  return 1;
 }
 
 export async function fetchRegrowthStats(params: {

@@ -419,6 +419,9 @@ export function InventoryZoneBalanceBreakdownPanel({
           <p className="text-xs text-muted-foreground">
             {showM2 ? t("breakdownHistoryHintM2") : t("breakdownHistoryHint")}
           </p>
+          {hasBridgeEntry ? (
+            <p className="text-[11px] text-amber-800/90">{t("breakdownBridgeNote")}</p>
+          ) : null}
           {timelineEntries.length === 0 ? (
             <p className="text-sm text-muted-foreground">{t("breakdownNoHistory")}</p>
           ) : (
