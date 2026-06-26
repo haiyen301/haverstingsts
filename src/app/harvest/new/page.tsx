@@ -543,6 +543,18 @@ function findRequirementForProductSelection(
     );
   }
 
+  if (formHarvestType && normUomKey(formUomRaw)) {
+    const matchBySelection = sameProduct.find((r) =>
+      requirementMatchesFormSelection(
+        r,
+        formUomRaw,
+        formHarvestType,
+        requirements,
+      ),
+    );
+    if (matchBySelection) return matchBySelection;
+  }
+
   if (sameProduct.length > 1 && !normUomKey(formUomRaw)) return null;
   const matchByUom = sameProduct.find((r) =>
     requirementMatchesFormUom(r, formUomRaw),
@@ -585,6 +597,7 @@ type HarvestDeliveredRow = {
   loadType: string;
   quantity: number;
   hasActualDate: boolean;
+  hasEstimatedDate: boolean;
 };
 
 type DynamicProjectRow = {
@@ -833,7 +846,7 @@ function requirementMatchesFormUom(req: QuantityRequirement, formUomRaw: string)
 function parseHarvestDeliveredRow(raw: unknown): HarvestDeliveredRow | null {
   if (!raw || typeof raw !== "object") return null;
   const row = raw as Record<string, unknown>;
-  const id = String(row.id ?? "").trim();
+  const id = String(row.id ?? row.id_row ?? "").trim();
   const projectId = String(row.project_id ?? "").trim();
   const productId = String(row.product_id ?? "").trim();
   const uom = String(row.uom ?? "").trim();
@@ -848,6 +861,7 @@ function parseHarvestDeliveredRow(raw: unknown): HarvestDeliveredRow | null {
     loadType,
     quantity,
     hasActualDate: isValidHarvestDateString(row.actual_harvest_date),
+    hasEstimatedDate: isValidHarvestDateString(row.estimated_harvest_date),
   };
 }
 
@@ -862,6 +876,13 @@ function sumDeliveredQuantityForSelection(
 ): number {
   return rows.reduce((sum, row) => {
     if (onlyWithActualDate && !row.hasActualDate) return sum;
+    if (
+      !onlyWithActualDate &&
+      !row.hasActualDate &&
+      !row.hasEstimatedDate
+    ) {
+      return sum;
+    }
     if (row.productId !== requirement.productId) return sum;
     if (
       !deliveredRowMatchesSelection(
@@ -1899,6 +1920,11 @@ function HarvestInputPageInner() {
     formData.harvestType,
   );
 
+  /** Remaining qty / limit only after the user picks harvest type and UoM (matches Flutter form). */
+  const harvestQuantitySelectionReady = Boolean(
+    selectedHarvestTypeKey && normUomKey(formData.uom),
+  );
+
   /** One grass requirement line — product + uom + load_type when the project defines them. */
   const requirementForGrass = useMemo(() => {
     const productId = formData.grass.trim();
@@ -1989,11 +2015,27 @@ function HarvestInputPageInner() {
     if (!requirementForGrass) return 0;
     const formUomKey = normUomKey(formData.uom);
     const onlyWithActualDate = Boolean(formData.actualDate.trim());
+    const harvestTypeForLimit =
+      selectedHarvestTypeKey || requirementForGrass.loadType || "";
+    const totalDelivered = sumDeliveredQuantityForSelection(
+      projectHarvestRows,
+      requirementForGrass,
+      formUomKey,
+      harvestTypeForLimit,
+      null,
+      onlyWithActualDate,
+      kgLoadTypeContextForGrass,
+    );
+    if (!editId) return totalDelivered;
+    const savedQty = parseNum(initialQuantityAtLoad);
+    if (savedQty > 0) {
+      return Math.max(0, totalDelivered - savedQty);
+    }
     return sumDeliveredQuantityForSelection(
       projectHarvestRows,
       requirementForGrass,
       formUomKey,
-      selectedHarvestTypeKey,
+      harvestTypeForLimit,
       editId,
       onlyWithActualDate,
       kgLoadTypeContextForGrass,
@@ -2002,6 +2044,7 @@ function HarvestInputPageInner() {
     editId,
     formData.actualDate,
     formData.uom,
+    initialQuantityAtLoad,
     kgLoadTypeContextForGrass,
     projectHarvestRows,
     requirementForGrass,
@@ -2009,10 +2052,15 @@ function HarvestInputPageInner() {
   ]);
 
   const maxAllowedQuantity = useMemo(() => {
-    if (!requirementForGrass) return null;
+    if (!harvestQuantitySelectionReady || !requirementForGrass) return null;
     const required = getRequiredQtyForUom(requirementForGrass, formData.uom);
     return Math.max(0, required - deliveredQuantityForSelection);
-  }, [deliveredQuantityForSelection, formData.uom, requirementForGrass]);
+  }, [
+    deliveredQuantityForSelection,
+    formData.uom,
+    harvestQuantitySelectionReady,
+    requirementForGrass,
+  ]);
 
   const currentHarvestFormReturnTo = useMemo(() => {
     const params = new URLSearchParams();
@@ -3123,7 +3171,9 @@ function HarvestInputPageInner() {
                           {t("paceQuantityRequiresActualHint")}
                         </p>
                       ) : null}
-                      {requirementForGrass && remainingAfterEntered !== null ? (
+                      {harvestQuantitySelectionReady &&
+                      requirementForGrass &&
+                      remainingAfterEntered !== null ? (
                         <p className="mt-1 text-xs text-muted-foreground">
                           {t("remainingQuantityFmt", {
                             grass: requirementForGrass.grassName,
