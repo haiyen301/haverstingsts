@@ -843,6 +843,103 @@ function requirementMatchesFormUom(req: QuantityRequirement, formUomRaw: string)
   return false;
 }
 
+function requirementHasKg(req: QuantityRequirement): boolean {
+  if (req.quantityKg != null) return true;
+  return normUomKey(req.uom ?? "") === "kg";
+}
+
+function requirementHasM2(req: QuantityRequirement): boolean {
+  if (req.quantityM2 != null) return true;
+  return normUomKey(req.uom ?? "") === "m2";
+}
+
+const ALL_HARVEST_TYPE_OPTIONS: HarvestTypeStorageKey[] = [
+  "sprig",
+  "sod",
+  "sod_to_sprig",
+];
+const ALL_UOM_OPTIONS = ["Kg", "M2"] as const;
+
+/** UoM buttons for selected grass — from project `quantity_required_sprig_sod` lines only. */
+function allowedUomsForProduct(
+  requirements: QuantityRequirement[],
+  productId: string,
+): readonly ("Kg" | "M2")[] {
+  const rows = requirementsForProduct(requirements, productId);
+  if (rows.length === 0) return ALL_UOM_OPTIONS;
+  const out: ("Kg" | "M2")[] = [];
+  if (rows.some(requirementHasKg)) out.push("Kg");
+  if (rows.some(requirementHasM2)) out.push("M2");
+  return out.length > 0 ? out : ALL_UOM_OPTIONS;
+}
+
+function resolveAutoUomForProduct(
+  requirements: QuantityRequirement[],
+  productId: string,
+  req: QuantityRequirement,
+): "Kg" | "M2" | null {
+  const allowed = allowedUomsForProduct(requirements, productId);
+  const preferred = defaultUomForRequirement(req);
+  if (allowed.includes(preferred)) return preferred;
+  return allowed[0] ?? null;
+}
+
+/**
+ * Harvest-type buttons for selected grass — only load types present on requirement lines.
+ * Legacy lines without `load_type`: Kg → Sprig (+ Sod→Sprig when no sod_to_sprig line), M2 → Sod.
+ */
+function allowedHarvestTypesForProduct(
+  requirements: QuantityRequirement[],
+  productId: string,
+): HarvestTypeStorageKey[] {
+  const rows = requirementsForProduct(requirements, productId);
+  if (rows.length === 0) return [...ALL_HARVEST_TYPE_OPTIONS];
+
+  const types = new Set<HarvestTypeStorageKey>();
+  const hasSodToSprigLine = rows.some((r) => r.loadType === "sod_to_sprig");
+
+  for (const req of rows) {
+    if (req.loadType) {
+      types.add(req.loadType);
+      if (req.loadType === "sprig" && !hasSodToSprigLine) {
+        types.add("sod_to_sprig");
+      }
+    } else {
+      if (requirementHasKg(req)) {
+        types.add("sprig");
+        if (!hasSodToSprigLine) types.add("sod_to_sprig");
+      }
+      if (requirementHasM2(req)) {
+        types.add("sod");
+      }
+    }
+  }
+  return types.size > 0 ? [...types] : [...ALL_HARVEST_TYPE_OPTIONS];
+}
+
+/**
+ * Limit / delivered matching load type — Sod→Sprig counts as Sprig when the project
+ * has no dedicated sod_to_sprig requirement line (legacy Kg-only rows).
+ */
+function effectiveHarvestTypeForRequirementLimit(
+  formHarvestType: HarvestTypeStorageKey | "",
+  requirement: QuantityRequirement,
+  allRequirements: QuantityRequirement[],
+): HarvestTypeStorageKey | "" {
+  if (formHarvestType) {
+    const siblings = requirementsForProduct(allRequirements, requirement.productId);
+    const hasSodToSprigLine = siblings.some((r) => r.loadType === "sod_to_sprig");
+    if (formHarvestType === "sod_to_sprig" && !hasSodToSprigLine) {
+      return "sprig";
+    }
+    return formHarvestType;
+  }
+  if (requirement.loadType) return requirement.loadType;
+  return defaultHarvestTypeForUom(
+    requirement.uom ?? defaultUomForRequirement(requirement),
+  );
+}
+
 function parseHarvestDeliveredRow(raw: unknown): HarvestDeliveredRow | null {
   if (!raw || typeof raw !== "object") return null;
   const row = raw as Record<string, unknown>;
@@ -1875,7 +1972,14 @@ function HarvestInputPageInner() {
         canAutoQuantityUnits(selectedProjectRequirements) &&
         (grassEmpty || uomEmpty)
       ) {
-        next = applyUomConstraint(next, defaultUomForRequirement(req));
+        const autoUom = resolveAutoUomForProduct(
+          selectedProjectRequirements,
+          grassId,
+          req,
+        );
+        if (autoUom) {
+          next = applyUomConstraint(next, autoUom);
+        }
       } else if (grassEmpty || uomEmpty) {
         next = clearQuantityUnitsFields(next);
       }
@@ -1920,11 +2024,6 @@ function HarvestInputPageInner() {
     formData.harvestType,
   );
 
-  /** Remaining qty / limit only after the user picks harvest type and UoM (matches Flutter form). */
-  const harvestQuantitySelectionReady = Boolean(
-    selectedHarvestTypeKey && normUomKey(formData.uom),
-  );
-
   /** One grass requirement line — product + uom + load_type when the project defines them. */
   const requirementForGrass = useMemo(() => {
     const productId = formData.grass.trim();
@@ -1960,6 +2059,58 @@ function HarvestInputPageInner() {
     if (!productId) return false;
     return selectedProjectRequirements.some((r) => r.productId === productId);
   }, [formData.grass, selectedProjectRequirements]);
+
+  const allowedHarvestTypesForGrass = useMemo(() => {
+    const grassId = formData.grass.trim();
+    if (!grassId) return [] as HarvestTypeStorageKey[];
+    return allowedHarvestTypesForProduct(selectedProjectRequirements, grassId);
+  }, [formData.grass, selectedProjectRequirements]);
+
+  const allowedUomsForGrass = useMemo(() => {
+    const grassId = formData.grass.trim();
+    if (!grassId) return [] as ("Kg" | "M2")[];
+    return [...allowedUomsForProduct(selectedProjectRequirements, grassId)];
+  }, [formData.grass, selectedProjectRequirements]);
+
+  useEffect(() => {
+    const grassId = formData.grass.trim();
+    if (!grassId) return;
+
+    setFormData((prev) => {
+      const currentType = normalizeHarvestTypeStorageKey(prev.harvestType);
+      const currentUomKey = normUomKey(prev.uom);
+      const currentUom =
+        currentUomKey === "kg" ? "Kg" : currentUomKey === "m2" ? "M2" : null;
+
+      const typeInvalid =
+        currentType !== "" &&
+        !allowedHarvestTypesForGrass.includes(currentType);
+      const uomInvalid =
+        currentUom !== null && !allowedUomsForGrass.includes(currentUom);
+
+      if (!typeInvalid && !uomInvalid) return prev;
+
+      if (uomInvalid) {
+        return clearQuantityUnitsFields(prev);
+      }
+      return { ...prev, harvestType: "", quantity: "" };
+    });
+  }, [allowedHarvestTypesForGrass, allowedUomsForGrass, formData.grass]);
+
+  const selectedUomLabel = useMemo((): "Kg" | "M2" | null => {
+    const key = normUomKey(formData.uom);
+    if (key === "kg") return "Kg";
+    if (key === "m2") return "M2";
+    return null;
+  }, [formData.uom]);
+
+  /** Remaining qty / limit only after valid harvest type + UoM for this grass's requirements. */
+  const harvestQuantitySelectionReady = Boolean(
+    selectedHarvestTypeKey &&
+      selectedUomLabel &&
+      allowedHarvestTypesForGrass.includes(selectedHarvestTypeKey) &&
+      allowedUomsForGrass.includes(selectedUomLabel),
+  );
 
   /** Grass selected — on non-pace projects, harvest type / UoM can be chosen freely. */
   const quantityUnitsBasisReady = Boolean(
@@ -2015,8 +2166,11 @@ function HarvestInputPageInner() {
     if (!requirementForGrass) return 0;
     const formUomKey = normUomKey(formData.uom);
     const onlyWithActualDate = Boolean(formData.actualDate.trim());
-    const harvestTypeForLimit =
-      selectedHarvestTypeKey || requirementForGrass.loadType || "";
+    const harvestTypeForLimit = effectiveHarvestTypeForRequirementLimit(
+      selectedHarvestTypeKey,
+      requirementForGrass,
+      selectedProjectRequirements,
+    );
     const totalDelivered = sumDeliveredQuantityForSelection(
       projectHarvestRows,
       requirementForGrass,
@@ -2049,6 +2203,7 @@ function HarvestInputPageInner() {
     projectHarvestRows,
     requirementForGrass,
     selectedHarvestTypeKey,
+    selectedProjectRequirements,
   ]);
 
   const maxAllowedQuantity = useMemo(() => {
@@ -2885,10 +3040,14 @@ function HarvestInputPageInner() {
                                 req &&
                                 canAutoQuantityUnits(selectedProjectRequirements)
                               ) {
-                                next = applyUomConstraint(
-                                  next,
-                                  defaultUomForRequirement(req),
+                                const autoUom = resolveAutoUomForProduct(
+                                  selectedProjectRequirements,
+                                  grass,
+                                  req,
                                 );
+                                if (autoUom) {
+                                  next = applyUomConstraint(next, autoUom);
+                                }
                               } else {
                                 next = clearQuantityUnitsFields(next);
                               }
@@ -2991,7 +3150,7 @@ function HarvestInputPageInner() {
                       >
                         <label className={harvestLabelClass}>{t("harvestType")}</label>
                         <div
-                          className={`inline-grid w-auto shrink-0 grid-cols-[auto_auto_auto] gap-2 bg-surface-filter-filled ${
+                          className={`inline-grid w-auto shrink-0 grid-cols-[auto_auto_auto] gap-2 ${
                             fieldErrors.harvestType ? "rounded-md ring-2 ring-destructive" : ""
                           }`}
                         >
@@ -3001,7 +3160,11 @@ function HarvestInputPageInner() {
                               ["sod", "Sod"],
                               ["sod_to_sprig", "Sod -> Sprig"],
                             ] as const
-                          ).map(([value, label]) => (
+                          )
+                            .filter(([value]) =>
+                              allowedHarvestTypesForGrass.includes(value),
+                            )
+                            .map(([value, label]) => (
                             <button
                               key={`harvest-type-${value}`}
                               type="button"
@@ -3070,8 +3233,10 @@ function HarvestInputPageInner() {
 
                       <div className="w-fit shrink-0 space-y-2">
                         <label className={harvestLabelClass}>{t("unit")}</label>
-                        <div className="inline-grid w-auto shrink-0 grid-cols-[auto_auto] gap-2 bg-surface-filter-filled">
-                          {(["Kg", "M2"] as const).map((u) => (
+                        <div className="inline-grid w-auto shrink-0 grid-cols-[auto_auto] gap-2 ">
+                          {(["Kg", "M2"] as const)
+                            .filter((u) => allowedUomsForGrass.includes(u))
+                            .map((u) => (
                             <button
                               key={`harvest-uom-${u}`}
                               type="button"
