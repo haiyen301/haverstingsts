@@ -1,7 +1,7 @@
+import { filterActiveRegrowthRules, filterActiveZoneConfigurations } from "@/features/forecasting/forecastActiveRecords";
 import {
-  filterActiveRegrowthRules,
-  filterActiveZoneConfigurations,
-} from "@/features/forecasting/forecastActiveRecords";
+  fetchZoneConfigurations,
+} from "@/features/admin/api/adminApi";
 import {
   buildForecastRowsFromHarvestRaw,
   fetchHarvestRowsForForecasting,
@@ -46,9 +46,7 @@ async function loadReference(_force: boolean): Promise<void> {
 }
 
 async function loadZones(token: number): Promise<void> {
-  const rows = filterActiveZoneConfigurations(
-    useHarvestingDataStore.getState().zoneConfigurations,
-  );
+  const rows = filterActiveZoneConfigurations(await fetchZoneConfigurations({ scopeModule: "forecasting" }));
   if (token !== loadToken) return;
   const store = useForecastDataStore.getState();
   store.setZoneConfigs(rows);

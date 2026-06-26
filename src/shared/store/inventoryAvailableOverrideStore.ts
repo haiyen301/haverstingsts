@@ -108,7 +108,7 @@ export const useInventoryAvailableOverrideStore = create<InventoryAvailableOverr
   fetchOverrides: async () => {
     set({ loading: true, error: null });
     try {
-      const rows = await fetchInventoryBalanceRows();
+      const rows = await fetchInventoryBalanceRows({ scopeModule: "inventory" });
       set({
         overridesByZone: mapRowsToState(rows),
         loading: false,

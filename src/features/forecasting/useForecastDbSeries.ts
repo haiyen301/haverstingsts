@@ -33,6 +33,9 @@ type Args = {
   dateTo: string;
   farmIds: string[];
   grassIds: string[];
+  scopeModule?: "forecasting" | "inventory";
+  /** farm_user_id scope — chart must not use global aggregate row when set. */
+  permissionScopeFarmIds?: string[];
   enabled?: boolean;
 };
 
@@ -51,9 +54,11 @@ export function useForecastDbSeries(args: Args) {
         to: args.dateTo,
         farms: args.farmIds,
         grasses: args.grassIds,
+        scopeModule: args.scopeModule ?? "forecasting",
+        permissionScope: args.permissionScopeFarmIds ?? [],
         refresh: dbSeriesRefreshKey,
       }),
-    [args.dateFrom, args.dateTo, args.farmIds, args.grassIds, dbSeriesRefreshKey],
+    [args.dateFrom, args.dateTo, args.farmIds, args.grassIds, args.scopeModule, args.permissionScopeFarmIds, dbSeriesRefreshKey],
   );
 
   useEffect(() => {
@@ -75,10 +80,20 @@ export function useForecastDbSeries(args: Args) {
           dateFrom: args.dateFrom,
           dateTo: args.dateTo,
           anchorDate: anchor,
+          scopeModule: args.scopeModule ?? "forecasting",
         });
 
         let snapshots: DbSnapshotRow[];
         let regrowthStats: Awaited<typeof regrowthPromise>;
+
+        const scopedFarmIds = args.farmIds
+          .map((x) => String(x).trim())
+          .filter(Boolean);
+        const scopeModule = args.scopeModule ?? "forecasting";
+        const snapshotFarmParams = {
+          scopeModule,
+          ...(scopedFarmIds.length > 0 ? { farmIds: scopedFarmIds } : {}),
+        };
 
         if (useAggregateOnly) {
           const [aggregateRows, scopedRows, stats] = await Promise.all([
@@ -86,10 +101,12 @@ export function useForecastDbSeries(args: Args) {
               dateFrom: args.dateFrom,
               dateTo: args.dateTo,
               zoneKey: AGGREGATE_ZONE_KEY,
+              ...snapshotFarmParams,
             }),
             fetchForecastSnapshots({
               dateFrom: args.dateFrom,
               dateTo: args.dateTo,
+              ...snapshotFarmParams,
             }),
             regrowthPromise,
           ]);
@@ -101,6 +118,7 @@ export function useForecastDbSeries(args: Args) {
             fetchForecastSnapshots({
               dateFrom: args.dateFrom,
               dateTo: args.dateTo,
+              ...snapshotFarmParams,
             }),
             regrowthPromise,
           ]);
@@ -115,7 +133,13 @@ export function useForecastDbSeries(args: Args) {
         }
 
         setDbResult(
-          buildDbDailySeriesResult(snapshots, regrowthStats, args.farmIds, args.grassIds),
+          buildDbDailySeriesResult(
+            snapshots,
+            regrowthStats,
+            args.farmIds,
+            args.grassIds,
+            args.permissionScopeFarmIds ?? [],
+          ),
         );
       } catch (e) {
         if (!cancelled) {

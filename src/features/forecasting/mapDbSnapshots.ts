@@ -28,24 +28,69 @@ export function mapDbSnapshotToRollingDay(row: DbSnapshotRow): RollingDailyAvail
   };
 }
 
+function mergeRollingDay(
+  byDate: Map<string, RollingDailyAvailableDay>,
+  date: string,
+  mapped: RollingDailyAvailableDay,
+): void {
+  const existing = byDate.get(date);
+  if (!existing) {
+    byDate.set(date, { ...mapped });
+    return;
+  }
+  existing.previousAvailableKg += mapped.previousAvailableKg;
+  existing.regrowthKg += mapped.regrowthKg;
+  existing.harvestKg += mapped.harvestKg;
+  existing.beforeHarvestKg += mapped.beforeHarvestKg;
+  existing.availableKg += mapped.availableKg;
+  existing.rawAvailableKg += mapped.rawAvailableKg;
+  existing.capacityCapKg += mapped.capacityCapKg;
+  existing.overlimitKg += mapped.overlimitKg;
+}
+
+function sumZoneSnapshotsByDate(
+  rows: DbSnapshotRow[],
+  permissionScopeFarmIds: Set<string>,
+): Map<string, RollingDailyAvailableDay> {
+  const byDate = new Map<string, RollingDailyAvailableDay>();
+  for (const row of rows) {
+    const zoneKey = String(row.zone_key ?? "");
+    if (zoneKey === AGGREGATE_ZONE_KEY) continue;
+    const farmId = String(row.farm_id ?? "").trim();
+    if (permissionScopeFarmIds.size > 0 && !permissionScopeFarmIds.has(farmId)) continue;
+    const date = String(row.snapshot_date ?? "").slice(0, 10);
+    if (!date) continue;
+    mergeRollingDay(byDate, date, mapDbSnapshotToRollingDay(row));
+  }
+  return byDate;
+}
+
 export function aggregateSnapshotsByDate(
   rows: DbSnapshotRow[],
   farmIdSet: Set<string>,
   grassIdSet: Set<string>,
+  permissionScopeFarmIds: Set<string> = new Set(),
 ): Map<string, RollingDailyAvailableDay> {
   const byDate = new Map<string, RollingDailyAvailableDay>();
   const useChartAggregateOnly = farmIdSet.size === 0 && grassIdSet.size === 0;
+  const hasPermissionFarmScope = permissionScopeFarmIds.size > 0;
+
+  if (useChartAggregateOnly) {
+    if (!hasPermissionFarmScope) {
+      for (const row of rows) {
+        const zoneKey = String(row.zone_key ?? "");
+        if (zoneKey !== AGGREGATE_ZONE_KEY) continue;
+        const day = mapDbSnapshotToRollingDay(row);
+        byDate.set(day.date, day);
+      }
+      if (byDate.size > 0) return byDate;
+    }
+    // farm_user_id scope: parity forecast_audit filtered calendar (sum zone rows).
+    return sumZoneSnapshotsByDate(rows, permissionScopeFarmIds);
+  }
 
   for (const row of rows) {
     const zoneKey = String(row.zone_key ?? "");
-
-    if (useChartAggregateOnly) {
-      // Chart metric = single row per day (0|__aggregate__|0). Never sum zone rows.
-      if (zoneKey !== AGGREGATE_ZONE_KEY) continue;
-      const day = mapDbSnapshotToRollingDay(row);
-      byDate.set(day.date, day);
-      continue;
-    }
 
     if (zoneKey === AGGREGATE_ZONE_KEY) continue;
 
@@ -53,21 +98,7 @@ export function aggregateSnapshotsByDate(
     if (grassIdSet.size > 0 && !grassIdSet.has(String(row.grass_id ?? ""))) continue;
 
     const date = String(row.snapshot_date ?? "").slice(0, 10);
-    const mapped = mapDbSnapshotToRollingDay(row);
-    const existing = byDate.get(date);
-    if (!existing) {
-      byDate.set(date, { ...mapped });
-      continue;
-    }
-
-    existing.previousAvailableKg += mapped.previousAvailableKg;
-    existing.regrowthKg += mapped.regrowthKg;
-    existing.harvestKg += mapped.harvestKg;
-    existing.beforeHarvestKg += mapped.beforeHarvestKg;
-    existing.availableKg += mapped.availableKg;
-    existing.rawAvailableKg += mapped.rawAvailableKg;
-    existing.capacityCapKg += mapped.capacityCapKg;
-    existing.overlimitKg += mapped.overlimitKg;
+    mergeRollingDay(byDate, date, mapDbSnapshotToRollingDay(row));
   }
 
   return byDate;
@@ -125,12 +156,27 @@ export function buildDbDailySeriesResult(
   regrowthStats: Record<string, RegrowthDayStats>,
   farmIds: string[],
   grassIds: string[],
+  permissionScopeFarmIds: string[] = [],
 ): DbDailySeriesResult {
   const farmIdSet = new Set(farmIds);
   const grassIdSet = new Set(grassIds);
-  const byDate = aggregateSnapshotsByDate(snapshotRows, farmIdSet, grassIdSet);
+  const permissionScope = new Set(
+    permissionScopeFarmIds.map((x) => String(x).trim()).filter(Boolean),
+  );
+  const byDate = aggregateSnapshotsByDate(
+    snapshotRows,
+    farmIdSet,
+    grassIdSet,
+    permissionScope,
+  );
   const aggregate = Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date));
-  const byFarmProduct = buildFarmProductMapFromSnapshots(snapshotRows, farmIdSet, grassIdSet);
+  const effectiveFarmScope =
+    farmIds.length > 0 ? farmIdSet : permissionScope;
+  const byFarmProduct = buildFarmProductMapFromSnapshots(
+    snapshotRows,
+    effectiveFarmScope,
+    grassIdSet,
+  );
   const regrowthStatsByDate = new Map(Object.entries(regrowthStats));
 
   return { aggregate, byFarmProduct, regrowthStatsByDate };

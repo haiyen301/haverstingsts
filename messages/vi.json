@@ -1929,7 +1929,7 @@
     "subtitle": "Mức tồn kho dự kiến trong {months} tháng tới từ kế hoạch thu hoạch.",
     "loading": "Đang tải dữ liệu dự báo...",
     "snapshotRebuilding": "Snapshot đang rebuild — chart sẽ tự cập nhật khi worker xong (thường 2–20 phút tùy loại job).",
-    "noSnapshotInDateRange": "Không có snapshot DB trong khoảng ngày đã chọn. Chạy <command>php spark forecast:rebuild</command> hoặc mở rộng filter ngày.",
+    "noSnapshotInDateRange": "Không có snapshot tồn kho trong khoảng ngày và bộ lọc đã chọn. Mở rộng khoảng ngày, xóa lọc farm, hoặc chạy <command>php spark forecast:rebuild</command> nếu chưa từng build snapshot.",
     "days": "ngày",
     "filters": {
       "allFarms": "Tất cả nông trại",

@@ -73,51 +73,33 @@ export function buildScopedFarmSelectOptions(
   return mapRowsToSelectOptions(filterFarmCatalogByScope(farms, scopeIds), "name");
 }
 
-export function useFarmUserScope(module: AppPermissionModule = "harvests") {
-  const user = useAuthUserStore((s) => s.user);
-  const aclReady = useAuthUserStore((s) => s.aclReady);
+export type ResolvedFarmUserScope = {
+  scopeIds: string[] | null;
+  scopeKey: string;
+  farmUserMeta: string | undefined;
+  canViewAllModule: boolean;
+};
 
-  return useMemo(() => {
-    if (!user) {
-      return {
-        scopeIds: null as string[] | null,
-        scopeKey: "",
-        farmUserMeta: undefined as string | undefined,
-        canViewAllModule: false,
-      };
-    }
+/** Pure resolver — parity Flutter `FarmUserScope.resolve`. */
+export function resolveFarmUserScopeForUser(
+  user: SessionUser | null | undefined,
+  module: AppPermissionModule = "harvests",
+  aclReady = true,
+): ResolvedFarmUserScope {
+  if (!user) {
+    return {
+      scopeIds: null,
+      scopeKey: "",
+      farmUserMeta: undefined,
+      canViewAllModule: false,
+    };
+  }
 
-    const farmUserMeta = farmUserMetaFromSessionUser(user);
-    const scopeIdsFromMeta = parseFarmIdsFromMeta(farmUserMeta);
+  const farmUserMeta = farmUserMetaFromSessionUser(user);
+  const scopeIdsFromMeta = parseFarmIdsFromMeta(farmUserMeta);
 
-    if (scopeIdsFromMeta.length > 0) {
-      /** farm_user_id always limits farm filters; only super admin bypasses. */
-      if (aclReady && isSuperAdmin(user)) {
-        return {
-          scopeIds: null,
-          scopeKey: "",
-          farmUserMeta: undefined,
-          canViewAllModule: true,
-        };
-      }
-      return {
-        scopeIds: scopeIdsFromMeta,
-        scopeKey: scopeIdsFromMeta.join(","),
-        farmUserMeta,
-        canViewAllModule: false,
-      };
-    }
-
-    if (!aclReady) {
-      return {
-        scopeIds: null,
-        scopeKey: "",
-        farmUserMeta: undefined,
-        canViewAllModule: false,
-      };
-    }
-
-    if (isSuperAdmin(user) || canViewAllModuleData(user, module)) {
+  if (scopeIdsFromMeta.length > 0) {
+    if (aclReady && isSuperAdmin(user)) {
       return {
         scopeIds: null,
         scopeKey: "",
@@ -125,14 +107,59 @@ export function useFarmUserScope(module: AppPermissionModule = "harvests") {
         canViewAllModule: true,
       };
     }
+    return {
+      scopeIds: scopeIdsFromMeta,
+      scopeKey: scopeIdsFromMeta.join(","),
+      farmUserMeta,
+      canViewAllModule: false,
+    };
+  }
 
+  if (!aclReady) {
     return {
       scopeIds: null,
       scopeKey: "",
       farmUserMeta: undefined,
       canViewAllModule: false,
     };
-  }, [aclReady, module, user]);
+  }
+
+  if (isSuperAdmin(user) || canViewAllModuleData(user, module)) {
+    return {
+      scopeIds: null,
+      scopeKey: "",
+      farmUserMeta: undefined,
+      canViewAllModule: true,
+    };
+  }
+
+  return {
+    scopeIds: null,
+    scopeKey: "",
+    farmUserMeta: undefined,
+    canViewAllModule: false,
+  };
+}
+
+/** `farm_user_id` pass-through for harvest index API when server should enforce farm scope. */
+export function resolveFarmUserMetaForApi(
+  user: SessionUser | null | undefined,
+  module: AppPermissionModule = "harvests",
+  aclReady = true,
+): string | undefined {
+  const scope = resolveFarmUserScopeForUser(user, module, aclReady);
+  if (scope.canViewAllModule) return undefined;
+  return scope.farmUserMeta;
+}
+
+export function useFarmUserScope(module: AppPermissionModule = "harvests") {
+  const user = useAuthUserStore((s) => s.user);
+  const aclReady = useAuthUserStore((s) => s.aclReady);
+
+  return useMemo(
+    () => resolveFarmUserScopeForUser(user, module, aclReady),
+    [aclReady, module, user],
+  );
 }
 
 /** Zustand-backed scoped farm catalog for filter dropdowns. */

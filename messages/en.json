@@ -1930,7 +1930,7 @@
     "subtitle": "Projected inventory levels over the next {months} months from harvesting plan.",
     "loading": "Loading forecasting data...",
     "snapshotRebuilding": "Snapshot is rebuilding — the chart will update automatically when the worker finishes (typically 2–20 minutes depending on job type).",
-    "noSnapshotInDateRange": "No DB snapshots in the selected date range. Run <command>php spark forecast:rebuild</command> or widen the date filter.",
+    "noSnapshotInDateRange": "No inventory snapshots for the selected date range and filters. Widen the date range, clear the farm filter, or run <command>php spark forecast:rebuild</command> if snapshots were never built.",
     "days": "days",
     "filters": {
       "allFarms": "All farms",

@@ -42,6 +42,10 @@ import RequireAuth from "@/features/auth/RequireAuth";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { useSyncedFarmMultiSelect } from "@/shared/hooks/useSyncedFarmMultiSelect";
+import {
+  filterFarmCatalogByScope,
+  useFarmUserScope,
+} from "@/shared/store/farmUserScope";
 import { fetchMondayProjectRowsFromServer, type MondayProjectServerRow } from "@/entities/projects";
 import { sortMondayProjectRows } from "@/features/project";
 import { stsProxyGetHarvestingIndex } from "@/shared/api/stsProxyClient";
@@ -695,7 +699,12 @@ export default function DashboardPage() {
   const t = useAppTranslations();
   const [countryFilterIds, setCountryFilterIds] = useState<string[]>([]);
   const [grassFilterIds, setGrassFilterIds] = useState<string[]>([]);
-  const { selectedFarmIds, setSelectedFarmIds } = useSyncedFarmMultiSelect();
+  const { selectedFarmIds, setSelectedFarmIds } = useSyncedFarmMultiSelect("dashboard");
+  const { scopeIds, farmUserMeta, canViewAllModule } = useFarmUserScope("dashboard");
+  const harvestFarmMeta = useMemo(
+    () => (canViewAllModule ? undefined : farmUserMeta),
+    [canViewAllModule, farmUserMeta],
+  );
   const selectedFarmIdSet = useMemo(() => new Set(selectedFarmIds), [selectedFarmIds]);
   const hasFarmSelection = selectedFarmIds.length > 0;
   /** Default view: omit projects with no `farm_id` on any subitem until a filter is applied. */
@@ -723,6 +732,10 @@ export default function DashboardPage() {
     "desc",
   );
   const farmsRef = useHarvestingDataStore((s) => s.farms);
+  const scopedFarms = useMemo(
+    () => filterFarmCatalogByScope(farmsRef, scopeIds),
+    [farmsRef, scopeIds],
+  );
   const countriesRef = useHarvestingDataStore((s) => s.countries);
   const activeCountriesRef = useHarvestingDataStore((s) => s.activeCountries);
   const productsRef = useHarvestingDataStore((s) => s.products);
@@ -762,6 +775,7 @@ export default function DashboardPage() {
           const harvestRes = await stsProxyGetHarvestingIndex({
             page,
             per_page: 200,
+            ...(harvestFarmMeta ? { farm_user_id: harvestFarmMeta } : {}),
           });
           allHarvestRows.push(
             ...harvestRes.rows.filter(
@@ -783,7 +797,7 @@ export default function DashboardPage() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [harvestFarmMeta]);
 
   const farmFilters = useMemo(() => {
     const countriesById = new Map<string, { countryName: string; countryCode: string }>();
@@ -807,7 +821,7 @@ export default function DashboardPage() {
       flag: string;
     }> = [];
 
-    for (const row of farmsRef) {
+    for (const row of scopedFarms) {
       if (!row || typeof row !== "object") continue;
       const farm = row as Record<string, unknown>;
       if (String(farm.deleted ?? "0") === "1") continue;
@@ -842,7 +856,7 @@ export default function DashboardPage() {
       if (countryCmp !== 0) return countryCmp;
       return a.farmName.localeCompare(b.farmName, undefined, { sensitivity: "base" });
     });
-  }, [farmsRef, activeCountriesRef]);
+  }, [scopedFarms, activeCountriesRef]);
 
   const normalizeStatus = (v: unknown): string => {
     const s = String(v ?? "").toLowerCase().trim();
@@ -1999,7 +2013,7 @@ export default function DashboardPage() {
   }, [activeCountriesRef]);
 
   const farmOptions = useMemo(() => {
-    const list = toRecArray(farmsRef)
+    const list = toRecArray(scopedFarms)
       .map((r) => ({
         id: String(r.id ?? "").trim(),
         name: String(r.name ?? r.title ?? "").trim(),
@@ -2007,7 +2021,7 @@ export default function DashboardPage() {
       .filter((x) => x.id && x.name);
     list.sort((a, b) => a.name.localeCompare(b.name));
     return list;
-  }, [farmsRef]);
+  }, [scopedFarms]);
 
   const grassOptions = useMemo(
     () =>

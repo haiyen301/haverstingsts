@@ -20,10 +20,16 @@ const CALENDAR_FETCH_PER_PAGE = 200;
 
 type UseHarvestScheduleMonthDataOptions = {
   enabled?: boolean;
+  /** Raw `farm_user_id` meta for server-side farm scope (omit when view-all). */
+  farmUserMeta?: string;
+  /** Cache partition when farm scope changes. */
+  farmScopeKey?: string;
 };
 
 export function useHarvestScheduleMonthData({
   enabled = true,
+  farmUserMeta,
+  farmScopeKey = "",
 }: UseHarvestScheduleMonthDataOptions = {}) {
   const t = useTranslations("HarvestSchedule");
   const loadErrorMessage = t("loadError");
@@ -47,6 +53,7 @@ export function useHarvestScheduleMonthData({
   const activeMonthCacheKey = scheduleMonthCacheKey(
     scheduleDateRange.start,
     scheduleDateRange.end,
+    farmScopeKey || farmUserMeta || "",
   );
   const monthDataReady = rowsForCacheKey === activeMonthCacheKey;
 
@@ -69,7 +76,11 @@ export function useHarvestScheduleMonthData({
 
   useEffect(() => {
     if (!enabled) return;
-    const cacheKey = scheduleMonthCacheKey(scheduleDateRange.start, scheduleDateRange.end);
+    const cacheKey = scheduleMonthCacheKey(
+      scheduleDateRange.start,
+      scheduleDateRange.end,
+      farmScopeKey || farmUserMeta || "",
+    );
     const cached = scheduleCacheRef.current.get(cacheKey);
     if (cached) {
       setScheduleRows(cached);
@@ -102,6 +113,7 @@ export function useHarvestScheduleMonthData({
             per_page: CALENDAR_FETCH_PER_PAGE,
             actual_harvest_date_from: scheduleDateRange.start,
             actual_harvest_date_to: scheduleDateRange.end,
+            ...(farmUserMeta ? { farm_user_id: farmUserMeta } : {}),
           });
 
           rows.push(
@@ -141,7 +153,14 @@ export function useHarvestScheduleMonthData({
     return () => {
       alive = false;
     };
-  }, [enabled, scheduleDateRange.start, scheduleDateRange.end, loadErrorMessage]);
+  }, [
+    enabled,
+    farmScopeKey,
+    farmUserMeta,
+    scheduleDateRange.start,
+    scheduleDateRange.end,
+    loadErrorMessage,
+  ]);
 
   const monthEntries = useMemo(
     () => (monthDataReady ? scheduleRows : []),

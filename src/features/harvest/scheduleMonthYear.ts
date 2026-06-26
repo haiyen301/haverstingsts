@@ -16,6 +16,12 @@ export function scheduleDefaultMonthYear(): { month: number; year: number } {
   return { month: now.getMonth(), year: now.getFullYear() };
 }
 
-export function scheduleMonthCacheKey(startYmd: string, endYmd: string): string {
-  return `${startYmd.trim().slice(0, 10)}|${endYmd.trim().slice(0, 10)}`;
+export function scheduleMonthCacheKey(
+  startYmd: string,
+  endYmd: string,
+  farmScopeKey = "",
+): string {
+  const base = `${startYmd.trim().slice(0, 10)}|${endYmd.trim().slice(0, 10)}`;
+  const scope = farmScopeKey.trim();
+  return scope ? `${base}|${scope}` : base;
 }

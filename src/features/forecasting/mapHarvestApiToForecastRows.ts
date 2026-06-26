@@ -183,6 +183,7 @@ async function fetchHarvestPage(
     actual_harvest_date_to: params.actual_harvest_date_to,
     exclude_empty_zone: 0,
     forecast_farm_scope: 1,
+    view_all_data_module: "forecasting",
   };
   if (params.country_id) q.country_id = params.country_id;
 

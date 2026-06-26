@@ -55,6 +55,8 @@ import {
   toCsvList,
   useSyncedFarmMultiSelect,
 } from "@/shared/hooks/useSyncedFarmMultiSelect";
+import { useFarmUserScope } from "@/shared/store/farmUserScope";
+import { fetchZoneConfigurations } from "@/features/admin/api/adminApi";
 import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
 import { MultiSelect } from "@/shared/ui/multi-select";
 import { cn } from "@/lib/utils";
@@ -320,15 +322,11 @@ export default function InventoryPage() {
   const t = useTranslations("InventoryBalance");
   const tForecast = useTranslations("ForecastInventory");
   const referenceHydrated = useHarvestingReferenceHydrated();
-  const zoneConfigurationsRaw = useHarvestingDataStore((s) => s.zoneConfigurations);
-  const zoneConfigurations = useMemo(
-    () => filterActiveZoneConfigurations(zoneConfigurationsRaw),
-    [zoneConfigurationsRaw],
-  );
+  const [zoneConfigurations, setZoneConfigurations] = useState<ZoneConfigurationRow[]>([]);
+  const [zoneConfigurationsLoading, setZoneConfigurationsLoading] = useState(true);
   const overridesByZone = useInventoryAvailableOverrideStore((s) => s.overridesByZone);
   const overridesLoading = useInventoryAvailableOverrideStore((s) => s.loading);
   const referenceError = useHarvestingDataStore((s) => s.error);
-  const referenceBootstrapDone = useHarvestingDataStore((s) => s.bootstrapDone);
   const [drillFarm, setDrillFarm] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [updateOpen, setUpdateOpen] = useState(false);
@@ -348,7 +346,9 @@ export default function InventoryPage() {
     selectedFarmIdSet,
     setSelectedFarmIds,
     farmNameById,
-  } = useSyncedFarmMultiSelect();
+  } = useSyncedFarmMultiSelect("inventory");
+  const { scopeIds } = useFarmUserScope("inventory");
+  const permissionScopeFarmIds = scopeIds ?? [];
 
   const selectedGrassIds = useMemo(
     () => parseCsvList(harvestListGrassFilter),
@@ -378,6 +378,9 @@ export default function InventoryPage() {
     dateTo: inventoryTodayYmd,
     enabled: referenceHydrated,
     refreshKey: dbSeriesRefreshKey,
+    scopeModule: "inventory",
+    permissionScopeFarmIds,
+    farmIds: selectedFarmIds.length > 0 ? selectedFarmIds : undefined,
   });
 
   const updateInventoryDb = useInventoryZoneDbSnapshots({
@@ -385,6 +388,9 @@ export default function InventoryPage() {
     dateTo: inventoryDbDateTo,
     enabled: referenceHydrated && updateOpen,
     refreshKey: dbSeriesRefreshKey,
+    scopeModule: "inventory",
+    permissionScopeFarmIds,
+    farmIds: selectedFarmIds.length > 0 ? selectedFarmIds : undefined,
   });
 
   const activeGrasses = useMemo(() => filterActiveGrassRows(grasses), [grasses]);
@@ -426,9 +432,26 @@ export default function InventoryPage() {
 
   useEffect(() => {
     if (!referenceHydrated) return;
+    let cancelled = false;
+    setZoneConfigurationsLoading(true);
+    void fetchZoneConfigurations({ scopeModule: "inventory" })
+      .then((rows) => {
+        if (cancelled) return;
+        setZoneConfigurations(filterActiveZoneConfigurations(rows));
+      })
+      .finally(() => {
+        if (!cancelled) setZoneConfigurationsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [referenceHydrated]);
+
+  useEffect(() => {
+    if (!referenceHydrated) return;
     void useInventoryAvailableOverrideStore.getState().fetchOverrides();
     const store = useHarvestingDataStore.getState();
-    if (!store.bootstrapDone || store.zoneConfigurations.length === 0) {
+    if (!store.bootstrapDone) {
       void store.fetchAllHarvestingReferenceData();
     }
   }, [referenceHydrated]);
@@ -461,7 +484,7 @@ export default function InventoryPage() {
     selectedFarmIds.length === 0 && selectedGrassIds.length === 0;
   const pageLoading =
     !referenceHydrated ||
-    (!referenceBootstrapDone && zoneConfigurations.length === 0) ||
+    zoneConfigurationsLoading ||
     (inventoryDb.isLoading && !inventoryDb.hasData);
 
   const { rows, overlimitEntries } = useMemo(() => {

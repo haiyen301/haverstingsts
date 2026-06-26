@@ -96,6 +96,9 @@ export async function fetchForecastSnapshots(params: {
   zoneKey?: string;
   farmId?: number;
   grassId?: number;
+  /** Comma-separated farm ids — optional UI filter; server applies permission scope via scope_module. */
+  farmIds?: string[];
+  scopeModule?: "forecasting" | "inventory";
   /** Only days with harvest, regrowth, manual override, or cap change (balance trace). */
   impactOnly?: boolean;
 }): Promise<DbSnapshotRow[]> {
@@ -121,6 +124,12 @@ export async function fetchForecastSnapshots(params: {
   if (params.zoneKey) query.zone_key = params.zoneKey;
   if (params.farmId) query.farm_id = params.farmId;
   if (params.grassId) query.grass_id = params.grassId;
+  const farmIdsCsv = (params.farmIds ?? [])
+    .map((x) => String(x).trim())
+    .filter(Boolean)
+    .join(",");
+  if (farmIdsCsv) query.farm_ids = farmIdsCsv;
+  if (params.scopeModule) query.scope_module = params.scopeModule;
 
   const res = await stsProxyGetWithParamsOptional<DbSnapshotRow[]>(
     STS_API_PATHS.forecastSnapshots,
@@ -161,6 +170,8 @@ export async function fetchZoneBalanceHistorySnapshots(params: {
   zoneKey: string;
   farmId?: number;
   grassId?: number;
+  farmIds?: string[];
+  scopeModule?: "forecasting" | "inventory";
   impactOnly?: boolean;
   anchorDate?: string;
 }): Promise<DbSnapshotRow[]> {
@@ -170,6 +181,8 @@ export async function fetchZoneBalanceHistorySnapshots(params: {
     zoneKey: params.zoneKey,
     farmId: params.farmId,
     grassId: params.grassId,
+    farmIds: params.farmIds,
+    scopeModule: params.scopeModule,
     impactOnly: params.impactOnly,
   };
 
@@ -223,12 +236,14 @@ export async function fetchRegrowthStats(params: {
   dateFrom: string;
   dateTo: string;
   anchorDate?: string;
+  scopeModule?: "forecasting" | "inventory";
 }): Promise<Record<string, RegrowthDayStats>> {
   const query: Record<string, string> = {
     date_from: params.dateFrom,
     date_to: params.dateTo,
   };
   if (params.anchorDate) query.anchor = params.anchorDate;
+  if (params.scopeModule) query.scope_module = params.scopeModule;
 
   const res = await stsProxyGetWithParamsOptional<{
     stats?: Record<string, RegrowthDayStats>;

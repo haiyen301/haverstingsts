@@ -129,13 +129,33 @@ function snapshotForZoneKey(
 }
 
 /** Chart metric per day — `0|__aggregate__|0` (parity forecasting chart). */
-export function buildAggregateAvailableByDate(rows: DbSnapshotRow[]): Map<string, number> {
+export function buildAggregateAvailableByDate(
+  rows: DbSnapshotRow[],
+  permissionScopeFarmIds: string[] = [],
+): Map<string, number> {
+  const scopeSet = new Set(
+    permissionScopeFarmIds.map((x) => String(x).trim()).filter(Boolean),
+  );
+  const hasPermissionFarmScope = scopeSet.size > 0;
   const out = new Map<string, number>();
+
+  if (!hasPermissionFarmScope) {
+    for (const row of rows) {
+      if (String(row.zone_key ?? "") !== AGGREGATE_ZONE_KEY) continue;
+      const date = normalizeYmd(String(row.snapshot_date ?? ""));
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+      out.set(date, Math.round(num(row.available_kg)));
+    }
+    if (out.size > 0) return out;
+  }
+
   for (const row of rows) {
-    if (String(row.zone_key ?? "") !== AGGREGATE_ZONE_KEY) continue;
+    if (String(row.zone_key ?? "") === AGGREGATE_ZONE_KEY) continue;
+    const farmId = String(row.farm_id ?? "").trim();
+    if (hasPermissionFarmScope && !scopeSet.has(farmId)) continue;
     const date = normalizeYmd(String(row.snapshot_date ?? ""));
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
-    out.set(date, Math.round(num(row.available_kg)));
+    out.set(date, (out.get(date) ?? 0) + Math.round(num(row.available_kg)));
   }
   return out;
 }

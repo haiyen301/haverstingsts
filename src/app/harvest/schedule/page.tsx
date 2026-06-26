@@ -10,8 +10,8 @@ import { HarvestScheduleCalendar } from "@/features/harvest/HarvestScheduleCalen
 import { useHarvestScheduleMonthData } from "@/features/harvest/useHarvestScheduleMonthData";
 import { useSyncedFarmMultiSelect } from "@/shared/hooks/useSyncedFarmMultiSelect";
 import { useGrassFilterByFarm } from "@/shared/hooks/useGrassFilterByFarm";
-import { mapRowsToSelectOptions } from "@/shared/lib/harvestReferenceData";
 import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
+import { useFarmUserScope } from "@/shared/store/farmUserScope";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { MultiSelect } from "@/shared/ui/multi-select";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
@@ -28,8 +28,13 @@ export default function HarvestSchedulePage() {
       `/harvest/detail?id=${encodeURIComponent(id)}&returnTo=${encodeURIComponent(SCHEDULE_RETURN_TO)}`,
     [],
   );
-  const { selectedFarmIds, setSelectedFarmIds } = useSyncedFarmMultiSelect();
-  const farms = useHarvestingDataStore((s) => s.farms);
+  const { selectedFarmIds, setSelectedFarmIds, farmOptions } =
+    useSyncedFarmMultiSelect("harvests");
+  const { farmUserMeta, canViewAllModule, scopeKey } = useFarmUserScope("harvests");
+  const harvestFarmMeta = useMemo(
+    () => (canViewAllModule ? undefined : farmUserMeta),
+    [canViewAllModule, farmUserMeta],
+  );
   const grasses = useHarvestingDataStore((s) => s.grasses);
   const zoneConfigurations = useHarvestingDataStore((s) => s.zoneConfigurations);
   const fetchAllHarvestingReferenceData = useHarvestingDataStore(
@@ -60,16 +65,14 @@ export default function HarvestSchedulePage() {
     statusMessage,
     statusIsError,
     isLoading,
-  } = useHarvestScheduleMonthData();
+  } = useHarvestScheduleMonthData({
+    farmUserMeta: harvestFarmMeta,
+    farmScopeKey: scopeKey || harvestFarmMeta || "all",
+  });
 
   useEffect(() => {
     void fetchAllHarvestingReferenceData();
   }, [fetchAllHarvestingReferenceData]);
-
-  const farmOptions = useMemo(
-    () => mapRowsToSelectOptions(farms as unknown[], "name"),
-    [farms],
-  );
 
   const selectedFarmNames = useMemo(() => {
     if (selectedFarmIds.length === 0) return null;

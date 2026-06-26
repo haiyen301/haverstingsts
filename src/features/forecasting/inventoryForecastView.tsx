@@ -104,6 +104,7 @@ import {
   toCsvList,
   useSyncedFarmMultiSelect,
 } from "@/shared/hooks/useSyncedFarmMultiSelect";
+import { useFarmUserScope } from "@/shared/store/farmUserScope";
 import { ForecastHorizonStrip } from "@/features/forecasting/ForecastHorizonStrip";
 import {
   DashboardKpiDateFilter,
@@ -1352,7 +1353,8 @@ export function InventoryForecast({
     selectedFarmIdSet,
     setSelectedFarmIds,
     farmOptions,
-  } = useSyncedFarmMultiSelect();
+  } = useSyncedFarmMultiSelect("forecasting");
+  const { scopeIds } = useFarmUserScope("forecasting");
   const [internalForecastDateFilter, setInternalForecastDateFilter] =
     useState<KpiDeliveryDateFilter>(DEFAULT_FORECAST_DATE_FILTER);
   const forecastDateFilter = controlledForecastDateFilter ?? internalForecastDateFilter;
@@ -1484,6 +1486,7 @@ export function InventoryForecast({
       hiddenGrassIdSet,
       grassCatalogById,
       debouncedFarmIds,
+      debouncedFarmIds,
       debouncedFarmIdSet,
       debouncedGrassIds,
       debouncedGrassIdSet,
@@ -1493,11 +1496,12 @@ export function InventoryForecast({
   const farmProductFilter = useCallback(
     (farmId: number, productId: number) => {
       if (hiddenGrassIdSet.has(String(productId))) return false;
+      if (scopeIds?.length && !scopeIds.includes(String(farmId))) return false;
       if (debouncedFarmIds.length > 0 && !debouncedFarmIdSet.has(String(farmId))) return false;
       if (debouncedGrassIds.length > 0 && !debouncedGrassIdSet.has(String(productId))) return false;
       return true;
     },
-    [hiddenGrassIdSet, debouncedFarmIds, debouncedFarmIdSet, debouncedGrassIds, debouncedGrassIdSet],
+    [hiddenGrassIdSet, scopeIds, debouncedFarmIds, debouncedFarmIdSet, debouncedGrassIds, debouncedGrassIdSet],
   );
 
   const forecastHorizonEnd = useMemo(() => {
@@ -1511,6 +1515,8 @@ export function InventoryForecast({
     dateTo: forecastDateRange.end,
     farmIds: debouncedFarmIds,
     grassIds: debouncedGrassIds,
+    scopeModule: "forecasting",
+    permissionScopeFarmIds: scopeIds ?? [],
     enabled: hasSnapshot,
   });
 
@@ -1631,7 +1637,7 @@ export function InventoryForecast({
     }
     for (const entry of Object.values(overridesByZone)) {
       if (hiddenGrassIdSet.has(String(entry.grassId))) continue;
-      if (selectedFarmIds.length > 0 && !selectedFarmIdSet.has(String(entry.farmId))) continue;
+      if (debouncedFarmIds.length > 0 && !debouncedFarmIdSet.has(String(entry.farmId))) continue;
       if (selectedGrassIds.length > 0 && !selectedGrassIdSet.has(String(entry.grassId))) continue;
       if (!entry.zoneKey || !entry.turfgrass) continue;
       if (!out.has(entry.zoneKey)) out.set(entry.zoneKey, entry.turfgrass);
@@ -1647,7 +1653,7 @@ export function InventoryForecast({
     }
     for (const entry of Object.values(overridesByZone)) {
       if (hiddenGrassIdSet.has(String(entry.grassId))) continue;
-      if (selectedFarmIds.length > 0 && !selectedFarmIdSet.has(String(entry.farmId))) continue;
+      if (debouncedFarmIds.length > 0 && !debouncedFarmIdSet.has(String(entry.farmId))) continue;
       if (selectedGrassIds.length > 0 && !selectedGrassIdSet.has(String(entry.grassId))) continue;
       if (!entry.zoneKey || !entry.farmName) continue;
       if (!out.has(entry.zoneKey)) out.set(entry.zoneKey, entry.farmName);
@@ -1900,7 +1906,7 @@ export function InventoryForecast({
       }
       for (const entry of Object.values(overridesByZone)) {
         if (hiddenGrassIdSet.has(String(entry.grassId))) continue;
-        if (selectedFarmIds.length > 0 && !selectedFarmIdSet.has(String(entry.farmId))) continue;
+        if (debouncedFarmIds.length > 0 && !debouncedFarmIdSet.has(String(entry.farmId))) continue;
         if (selectedGrassIds.length > 0 && !selectedGrassIdSet.has(String(entry.grassId))) continue;
         const label =
           String(entry.farmName ?? "").trim() || farmNameById.get(entry.farmId) || "";
@@ -1914,7 +1920,7 @@ export function InventoryForecast({
     }
     for (const entry of Object.values(overridesByZone)) {
       if (hiddenGrassIdSet.has(String(entry.grassId))) continue;
-      if (selectedFarmIds.length > 0 && !selectedFarmIdSet.has(String(entry.farmId))) continue;
+      if (debouncedFarmIds.length > 0 && !debouncedFarmIdSet.has(String(entry.farmId))) continue;
       if (selectedGrassIds.length > 0 && !selectedGrassIdSet.has(String(entry.grassId))) continue;
       set.add(resolveGrassSeriesLabel(entry.grassId, productGrassMeta, grassNameById));
     }
@@ -1988,7 +1994,7 @@ export function InventoryForecast({
 
       for (const entry of Object.values(overridesByZone)) {
         if (hiddenGrassIdSet.has(String(entry.grassId))) continue;
-        if (selectedFarmIds.length > 0 && !selectedFarmIdSet.has(String(entry.farmId))) continue;
+        if (debouncedFarmIds.length > 0 && !debouncedFarmIdSet.has(String(entry.farmId))) continue;
         if (selectedGrassIds.length > 0 && !selectedGrassIdSet.has(String(entry.grassId))) continue;
         if (normalizeInventoryBalanceDateYmd(entry.date) !== overrideYmd) continue;
         const fpKey = `${entry.farmId}|${entry.grassId}`;

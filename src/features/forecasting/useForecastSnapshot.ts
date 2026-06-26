@@ -45,7 +45,6 @@ export function useForecastSnapshot(options?: { enabled?: boolean }) {
 
   const overridesByZone = useInventoryAvailableOverrideStore((s) => s.overridesByZone);
   const farmZones = useHarvestingDataStore((s) => s.farmZones);
-  const zoneConfigurationsRef = useHarvestingDataStore((s) => s.zoneConfigurations);
   const regrowthRulesRef = useHarvestingDataStore((s) => s.regrowthRules);
   const referenceBootstrapDone = useHarvestingDataStore((s) => s.bootstrapDone);
   const referenceHydrated = useHarvestingReferenceHydrated();
@@ -60,11 +59,6 @@ export function useForecastSnapshot(options?: { enabled?: boolean }) {
     if (referenceBootstrapDone || farmZones.length > 0) {
       useForecastDataStore.getState().markValid("reference");
     }
-    if (referenceBootstrapDone || zoneConfigurationsRef.length > 0) {
-      const active = filterActiveZoneConfigurations(zoneConfigurationsRef);
-      useForecastDataStore.getState().setZoneConfigs(active);
-      useForecastDataStore.getState().markValid("zones");
-    }
     if (referenceBootstrapDone || regrowthRulesRef.length > 0) {
       useForecastDataStore
         .getState()
@@ -78,7 +72,6 @@ export function useForecastSnapshot(options?: { enabled?: boolean }) {
   }, [
     enabled,
     farmZones,
-    zoneConfigurationsRef,
     regrowthRulesRef,
     referenceBootstrapDone,
   ]);

@@ -1,7 +1,12 @@
 "use client";
 
 import { STS_API_PATHS } from "@/shared/api/stsApiPaths";
-import { stsProxyGet, stsProxyGetWithParams, stsProxyPostJson } from "@/shared/api/stsProxyClient";
+import {
+  stsProxyGet,
+  stsProxyGetWithParams,
+  stsProxyGetWithParamsOptional,
+  stsProxyPostJson,
+} from "@/shared/api/stsProxyClient";
 
 /**
  * Row from `project_form_catalog` (STSPortal). Shared catalog for project-type entries
@@ -341,8 +346,16 @@ export async function removeZone(id: number): Promise<{ id: number }> {
   return stsProxyPostJson<{ id: number }>(STS_API_PATHS.zonesRemove, { id });
 }
 
-export async function fetchZoneConfigurations(): Promise<ZoneConfigurationRow[]> {
-  const data = await stsProxyGet<unknown[]>(STS_API_PATHS.zoneConfigurations);
+export type ApiScopeModule = "forecasting" | "inventory" | "harvests";
+
+export async function fetchZoneConfigurations(opts?: {
+  scopeModule?: ApiScopeModule;
+}): Promise<ZoneConfigurationRow[]> {
+  const params = opts?.scopeModule ? { scope_module: opts.scopeModule } : undefined;
+  const data = await stsProxyGetWithParamsOptional<unknown[]>(
+    STS_API_PATHS.zoneConfigurations,
+    params,
+  );
   return Array.isArray(data) ? (data as ZoneConfigurationRow[]) : [];
 }
 
@@ -361,8 +374,14 @@ export async function removeZoneConfiguration(id: number): Promise<{ id: number 
   });
 }
 
-export async function fetchInventoryBalanceRows(): Promise<InventoryBalanceRow[]> {
-  const data = await stsProxyGet<unknown[]>(STS_API_PATHS.inventoryBalance);
+export async function fetchInventoryBalanceRows(opts?: {
+  scopeModule?: "forecasting" | "inventory";
+}): Promise<InventoryBalanceRow[]> {
+  const params = opts?.scopeModule ? { scope_module: opts.scopeModule } : undefined;
+  const data = await stsProxyGetWithParamsOptional<unknown[]>(
+    STS_API_PATHS.inventoryBalance,
+    params,
+  );
   return Array.isArray(data) ? (data as InventoryBalanceRow[]) : [];
 }
 

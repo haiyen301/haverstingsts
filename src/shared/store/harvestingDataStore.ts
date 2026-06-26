@@ -345,7 +345,7 @@ export const useHarvestingDataStore = create<HarvestingDataState>()(
       const canViewAllProjects = canViewAllModuleData(sessionUser, "projects");
       const entries = [
         ["farmZones", STS_API_PATHS.farmZones, undefined],
-        ["zoneConfigurations", STS_API_PATHS.zoneConfigurations, undefined],
+        ["zoneConfigurations", STS_API_PATHS.zoneConfigurations, { scope_module: "harvests" }],
         ["keyAreas", STS_API_PATHS.keyareas, undefined],
         ["staffs", STS_API_PATHS.staffs, undefined],
         ["farms", STS_API_PATHS.farms, undefined],
