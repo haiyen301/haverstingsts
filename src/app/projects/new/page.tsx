@@ -18,7 +18,6 @@ import {
   rowDataAffectsHarvest,
 } from "@/features/forecasting/forecastDataSync";
 import { canAccessModule, isSuperAdmin } from "@/shared/auth/permissions";
-import { userIdIsPrivilegedAdmin } from "@/shared/auth/privilegedAdminAccess";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { useAuthUserStore } from "@/shared/store/authUserStore";
 import {
@@ -54,8 +53,10 @@ import {
   projectTypeMessageKey,
 } from "@/features/project/lib/projectTypeDisplay";
 import {
-  buildPaceGrassBatchQuantitiesFromHarvestRecalc,
+  buildPaceGrassBatchQuantitiesForPrivilegedRecalc,
   fetchAllHarvestPlanRowsForProject,
+  grassRequirementsToHarvestPlanFormat,
+  partitionGrassRequirementsByHarvestPlanPresence,
   runPaceHarvestRecalcForProjectGrassLines,
   type GrassRequirementForPaceRecalc,
 } from "@/features/project/lib/buildPaceGrassBatchQuantitiesFromHarvestRecalc";
@@ -468,11 +469,8 @@ export default function ProjectInputPage() {
     isProjectPaceUnset(pace) ? "" : pace.trim().toLowerCase();
 
   const showPrivilegedPaceRecalcSetting = useMemo(
-    () =>
-      isEdit &&
-      isProjectPaceUnset(formData.projectPace) &&
-      (isSuperAdmin(user) || userIdIsPrivilegedAdmin(user?.id)),
-    [formData.projectPace, isEdit, user],
+    () => isEdit && isSuperAdmin(user),
+    [isEdit, user],
   );
 
   const projectPaceSelectOptions = useMemo(() => {
@@ -1465,7 +1463,6 @@ export default function ProjectInputPage() {
         grassReqsForPace.length > 0;
       const usePrivilegedPaceHarvestRecalc =
         isEdit &&
-        isProjectPaceUnset(formData.projectPace) &&
         applyPrivilegedPaceHarvestRecalc &&
         showPrivilegedPaceRecalcSetting &&
         !shouldRegeneratePaceHarvestsOnEdit;
@@ -1495,9 +1492,15 @@ export default function ProjectInputPage() {
             harvestPlanRows: harvestPlanRowsForPaceOps,
           })
         : usePrivilegedPaceHarvestRecalc
-          ? buildPaceGrassBatchQuantitiesFromHarvestRecalc({
+          ? buildPaceGrassBatchQuantitiesForPrivilegedRecalc({
               grassRequirements: grassReqsForPrivilegedRecalc,
               harvestPlanRows: harvestPlanRowsForPaceOps,
+              ...(selectedPaceForSave &&
+              isProjectPaceForHarvestPlan(paceKeyForSave, projectPaceCatalogRows)
+                ? {
+                    paceConfig: projectPaceConfigFromRow(selectedPaceForSave),
+                  }
+                : {}),
             })
           : isProjectPaceForHarvestPlan(paceKeyForSave, projectPaceCatalogRows) &&
               selectedPaceForSave &&
@@ -1673,6 +1676,11 @@ export default function ProjectInputPage() {
           setError(t("privilegedPaceRecalcFetchFailed"));
           return;
         }
+        const { withoutPlanRows } =
+          partitionGrassRequirementsByHarvestPlanPresence({
+            grassRequirements: grassReqsForPrivilegedRecalc,
+            harvestPlanRows: harvestPlanRowsForRecalcApi,
+          });
         const { ok, fail } = await runPaceHarvestRecalcForProjectGrassLines({
           projectId: projectIdStr,
           grassRequirements: grassReqsForPrivilegedRecalc,
@@ -1690,6 +1698,72 @@ export default function ProjectInputPage() {
         }
         if (ok > 0 || fail > 0) {
           harvestSnapshotPending = true;
+        }
+
+        const canSeedNewGrassLinesOnPrivilegedRecalc =
+          canRegeneratePaceHarvestsOnEdit &&
+          isProjectPaceForHarvestPlan(paceKeyForSave, projectPaceCatalogRows) &&
+          Boolean(selectedPaceForSave) &&
+          withoutPlanRows.length > 0;
+        if (canSeedNewGrassLinesOnPrivilegedRecalc && selectedPaceForSave) {
+          const anchorYmd =
+            formData.estimateStartDate.trim() ||
+            formData.actualStartDate.trim();
+          const paceSpan = estimatePaceHarvestDateSpan({
+            paceConfig: projectPaceConfigFromRow(selectedPaceForSave),
+            estimatedStartYmd: anchorYmd,
+          });
+          const seeds = generatePlannedHarvestsForNewProject({
+            paceConfig: projectPaceConfigFromRow(selectedPaceForSave),
+            estimatedStartYmd: anchorYmd,
+            grassRequirements: grassRequirementsToHarvestPlanFormat(
+              withoutPlanRows,
+            ),
+            zoneConfigurations,
+          });
+          if (seeds.length > 0) {
+            setSavePhase("planned_harvests");
+            const { ok: created, fail: createFailed, firstMessage } =
+              await persistPlannedHarvestSeedsForProject({
+                projectId: projectIdStr,
+                countryId: formData.country,
+                customerId: formData.odooCustomerId,
+                userId: user?.id != null ? String(user.id) : undefined,
+                seeds,
+                paceSnapshotSpan: paceSpan,
+              });
+            if (created > 0) {
+              harvestSnapshotPending = true;
+              plannedHarvestAlertSuffix += t(
+                "alertPlannedHarvestsSavedSuffix",
+                { count: created },
+              );
+              const url = getInternalStsProxyUrl(
+                STS_API_PATHS.updateHarvestLimitDescriptions,
+              );
+              void fetch(url, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "same-origin",
+                keepalive: true,
+                body: JSON.stringify({ project_id: projectIdStr }),
+              }).catch(() => {});
+            }
+            if (createFailed > 0) {
+              plannedHarvestAlertSuffix += t(
+                "alertPlannedHarvestsFailedSuffix",
+                {
+                  count: createFailed,
+                  detail: firstMessage
+                    ? t("alertPlannedHarvestFailDetail", {
+                        message: firstMessage,
+                      })
+                    : "",
+                },
+              );
+              plannedHarvestAlertSeverity = "warning";
+            }
+          }
         }
       }
 

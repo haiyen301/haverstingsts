@@ -1,4 +1,9 @@
-import type { PaceGrassBatchQuantity } from "@/features/project/lib/generatePlannedHarvestsForNewProject";
+import {
+  buildPaceGrassBatchQuantities,
+  type GrassRequirementForHarvestPlan,
+  type PaceGrassBatchQuantity,
+  type ProjectPaceConfig,
+} from "@/features/project/lib/generatePlannedHarvestsForNewProject";
 import type { HarvestTypeStorageKey } from "@/shared/lib/harvestType";
 import {
   computeQuantityPerRemainingEstimateBatch,
@@ -53,6 +58,140 @@ function formatPaceQuantityStr(qty: number): string {
   const fixed = qty.toFixed(3);
   const trimmed = fixed.replace(/\.?0+$/, "");
   return trimmed || "0";
+}
+
+function paceGrassBatchQuantityKey(entry: PaceGrassBatchQuantity): string {
+  const loadType = String(entry.load_type ?? "").trim().toLowerCase();
+  return `${String(entry.grass_id ?? "").trim()}|${String(entry.uom ?? "").trim().toLowerCase()}|${loadType}`;
+}
+
+function kgLoadTypeContextForGrassRequirements(
+  grassRequirements: GrassRequirementForPaceRecalc[],
+  productId: string,
+) {
+  return paceRecalcKgLoadTypeContextForProduct(
+    grassRequirements.map((r) => ({
+      product_id: r.productId,
+      uom: r.uom,
+      load_type: r.loadType,
+    })),
+    productId,
+  );
+}
+
+/** True when at least one harvest plan row matches the grass requirement line. */
+export function grassRequirementHasHarvestPlanRows(
+  harvestPlanRows: HarvestPlanRowForPaceRecalc[],
+  req: GrassRequirementForPaceRecalc,
+  allGrassRequirements?: GrassRequirementForPaceRecalc[],
+): boolean {
+  const productId = req.productId.trim();
+  if (!productId) return false;
+  const kgContext = allGrassRequirements
+    ? kgLoadTypeContextForGrassRequirements(allGrassRequirements, productId)
+    : undefined;
+  for (const row of harvestPlanRows) {
+    if (
+      paceRecalcPlanRowMatchesRequirementLine(
+        row,
+        productId,
+        req.uom,
+        req.loadType,
+        kgContext,
+      )
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Split grass lines into those already on the harvest plan vs newly added on edit. */
+export function partitionGrassRequirementsByHarvestPlanPresence(opts: {
+  grassRequirements: GrassRequirementForPaceRecalc[];
+  harvestPlanRows: HarvestPlanRowForPaceRecalc[];
+}): {
+  withPlanRows: GrassRequirementForPaceRecalc[];
+  withoutPlanRows: GrassRequirementForPaceRecalc[];
+} {
+  const withPlanRows: GrassRequirementForPaceRecalc[] = [];
+  const withoutPlanRows: GrassRequirementForPaceRecalc[] = [];
+
+  for (const req of opts.grassRequirements) {
+    const totalRequired = Math.max(0, req.totalRequired);
+    if (totalRequired <= 0 || !req.productId.trim()) continue;
+    if (
+      grassRequirementHasHarvestPlanRows(
+        opts.harvestPlanRows,
+        req,
+        opts.grassRequirements,
+      )
+    ) {
+      withPlanRows.push(req);
+    } else {
+      withoutPlanRows.push(req);
+    }
+  }
+
+  return { withPlanRows, withoutPlanRows };
+}
+
+export function grassRequirementsToHarvestPlanFormat(
+  grassRequirements: GrassRequirementForPaceRecalc[],
+): GrassRequirementForHarvestPlan[] {
+  return grassRequirements.map((req) => ({
+    productId: req.productId.trim(),
+    uom: req.uom,
+    loadType: req.loadType,
+    amountRequired: Math.max(0, req.totalRequired),
+    ...(req.farmId?.trim() ? { farmId: req.farmId.trim() } : {}),
+  }));
+}
+
+function mergePaceGrassBatchQuantities(
+  ...groups: PaceGrassBatchQuantity[][]
+): PaceGrassBatchQuantity[] {
+  const merged = new Map<string, PaceGrassBatchQuantity>();
+  for (const group of groups) {
+    for (const entry of group) {
+      merged.set(paceGrassBatchQuantityKey(entry), entry);
+    }
+  }
+  return Array.from(merged.values());
+}
+
+/**
+ * Privileged balance recalc on project edit:
+ * - existing plan lines → A÷N from current harvest state
+ * - new lines (when pace config provided) → initial T÷total_batches split
+ */
+export function buildPaceGrassBatchQuantitiesForPrivilegedRecalc(opts: {
+  grassRequirements: GrassRequirementForPaceRecalc[];
+  harvestPlanRows: HarvestPlanRowForPaceRecalc[];
+  paceConfig?: ProjectPaceConfig;
+}): PaceGrassBatchQuantity[] {
+  const { withPlanRows, withoutPlanRows } =
+    partitionGrassRequirementsByHarvestPlanPresence({
+      grassRequirements: opts.grassRequirements,
+      harvestPlanRows: opts.harvestPlanRows,
+    });
+
+  const fromRecalc = buildPaceGrassBatchQuantitiesFromHarvestRecalc({
+    grassRequirements: withPlanRows,
+    harvestPlanRows: opts.harvestPlanRows,
+  });
+
+  const fromNew =
+    opts.paceConfig && withoutPlanRows.length > 0
+      ? buildPaceGrassBatchQuantities({
+          paceConfig: opts.paceConfig,
+          grassRequirements: grassRequirementsToHarvestPlanFormat(
+            withoutPlanRows,
+          ),
+        })
+      : [];
+
+  return mergePaceGrassBatchQuantities(fromRecalc, fromNew);
 }
 
 /** T, H, N, A, B for one grass requirement line — mirrors doc §2. */
