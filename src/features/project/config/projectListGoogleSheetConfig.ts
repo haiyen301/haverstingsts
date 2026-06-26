@@ -54,7 +54,7 @@ export type ProjectListGoogleSheetConfig = {
 };
 
 export const GOOGLE_SHEETS_EXPORT_OAUTH_SCOPES = [
-  "https://www.googleapis.com/auth/spreadsheets",
+  // "https://www.googleapis.com/auth/spreadsheets",
   "https://www.googleapis.com/auth/drive.file",
 ] as const;
 
