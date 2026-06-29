@@ -1,16 +1,16 @@
 import { NextResponse } from "next/server";
 
-import { ANDROID_APK_DOWNLOAD_PATH } from "@/shared/config/deploymentEnvironment";
-import { hasAndroidApkForEnv } from "@/shared/server/androidApkAssets";
+import { resolveAndroidApkPublicUrl } from "@/shared/server/androidApkAssets";
 
-/** Whether an Android APK is available for this deploy (no filename exposed). */
+/** Public STSPortal APK download URL for the footer (tier from `NEXT_PUBLIC_STS_API_BASE_URLS`). */
 export async function GET() {
-  if (!hasAndroidApkForEnv()) {
+  const url = resolveAndroidApkPublicUrl();
+  if (!url) {
     return NextResponse.json({ success: true, data: { url: null } });
   }
 
   return NextResponse.json({
     success: true,
-    data: { url: ANDROID_APK_DOWNLOAD_PATH },
+    data: { url },
   });
 }

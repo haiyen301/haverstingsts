@@ -1,12 +1,15 @@
 import Image from "next/image";
 
 import { cn } from "@/lib/utils";
+import type { AndroidApkDeployTier } from "@/shared/config/deploymentEnvironment";
 
 type AppStoreBadgeButtonProps = {
   href: string;
   store: "google-play" | "app-store";
   className?: string;
   external?: boolean;
+  /** APK tier — adjusts Android badge copy (production vs staging/dev). */
+  androidApkTier?: AndroidApkDeployTier;
 };
 
 const storeConfig = {
@@ -24,13 +27,25 @@ const storeConfig = {
   },
 } as const;
 
+function getGooglePlayBadgeCopy(tier?: AndroidApkDeployTier) {
+  if (tier === "production") {
+    return { eyebrow: "GET IT ON", title: "Google Play" };
+  }
+  return { eyebrow: "Download", title: "Android APK" };
+}
+
 export function AppStoreBadgeButton({
   href,
   store,
   className,
   external = false,
+  androidApkTier,
 }: AppStoreBadgeButtonProps) {
   const config = storeConfig[store];
+  const androidCopy =
+    store === "google-play" ? getGooglePlayBadgeCopy(androidApkTier) : null;
+  const eyebrow = androidCopy?.eyebrow ?? config.eyebrow;
+  const title = androidCopy?.title ?? config.title;
 
   const content = (
     <>
@@ -46,9 +61,9 @@ export function AppStoreBadgeButton({
       />
       <span className="flex min-w-0 flex-col items-start leading-none">
         <span className="text-[10px] font-normal uppercase tracking-wide text-white/90">
-          {config.eyebrow}
+          {eyebrow}
         </span>
-        <span className="mt-0.5 text-sm font-semibold text-white">{config.title}</span>
+        <span className="mt-0.5 text-sm font-semibold text-white">{title}</span>
       </span>
     </>
   );
@@ -64,7 +79,7 @@ export function AppStoreBadgeButton({
       target={external ? "_blank" : undefined}
       rel={external ? "noreferrer" : undefined}
       className={buttonClass}
-      aria-label={`${config.eyebrow} ${config.title}`}
+      aria-label={`${eyebrow} ${title}`}
     >
       {content}
     </a>

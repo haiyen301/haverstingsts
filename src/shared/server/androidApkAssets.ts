@@ -1,7 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { getAndroidApkFilenameSuffixesFromEnv } from "@/shared/config/deploymentEnvironment";
+import {
+  getAndroidApkFilenameSuffixesFromEnv,
+  getAndroidApkPublicBaseUrl,
+} from "@/shared/config/deploymentEnvironment";
 
 const APK_SUFFIXES = ["_production.apk", "_staging.apk"] as const;
 
@@ -94,9 +97,32 @@ export function resolveAndroidApkFile(
   return resolveAndroidApkFileForSuffixes(suffixes);
 }
 
+/** Direct browser download URL on STSPortal `assets/apk/` for the current deploy env. */
+export function resolveAndroidApkFilename(): string | null {
+  const resolved = resolveAndroidApkFile(getAndroidApkFilenameSuffixesFromEnv());
+  if (resolved) return path.basename(resolved.absolutePath);
+
+  const fromEnv = process.env.STS_ANDROID_APK_FILENAME?.trim();
+  const suffix = getAndroidApkFilenameSuffixesFromEnv()[0];
+  if (fromEnv && suffix && fromEnv.endsWith(suffix)) return fromEnv;
+
+  return null;
+}
+
+/** Direct browser download URL on STSPortal `assets/apk/` for the current deploy env. */
+export function resolveAndroidApkPublicUrl(): string | null {
+  const filename = resolveAndroidApkFilename();
+  if (!filename) return null;
+
+  const base = getAndroidApkPublicBaseUrl();
+  if (!base) return null;
+
+  return `${base.replace(/\/$/, "")}/${filename}`;
+}
+
 /** Whether an APK exists for the current deploy env (`NEXT_PUBLIC_STS_API_BASE_URLS`). */
 export function hasAndroidApkForEnv(): boolean {
-  return resolveAndroidApkFile(getAndroidApkFilenameSuffixesFromEnv()) != null;
+  return resolveAndroidApkPublicUrl() != null;
 }
 
 /** @deprecated Prefer {@link hasAndroidApkForEnv}. */

@@ -1,4 +1,4 @@
-import { getStsApiBaseUrl } from "@/shared/api/stsLogin";
+import { getStsApiBaseUrl, getStsSiteRootUrl } from "@/shared/api/stsLogin";
 
 /** Production STS Portal (Next) — https://stsportal.sportsturfsolutions.com/ */
 export const STS_PORTAL_PRODUCTION_HOST = "stsportal.sportsturfsolutions.com";
@@ -14,8 +14,10 @@ export const IOS_TESTFLIGHT_TEST_URL =
 export const IOS_TESTFLIGHT_PRODUCTION_URL =
   "https://testflight.apple.com/join/wky3RQAG";
 
-/** Opaque Android APK download path (filename never exposed to the browser). */
+/** @deprecated Prefer direct STSPortal URL from {@link getAndroidApkPublicBaseUrl}. */
 export const ANDROID_APK_DOWNLOAD_PATH = "/api/mobile-app/android-apk/download";
+
+const ANDROID_APK_ASSETS_PATH = "/assets/apk";
 
 const TEST_DEPLOY_ENV_VALUES = new Set(["test", "staging"]);
 
@@ -139,6 +141,27 @@ export function getAndroidApkFilenameSuffixFromEnv(): string {
 
 export function getAndroidApkFilenameSuffixesFromEnv(): readonly string[] {
   return [getAndroidApkFilenameSuffixFromEnv()];
+}
+
+/**
+ * Public STSPortal folder for APK downloads (browser hits this URL directly).
+ * - production API base → `{siteRoot}/assets/apk` e.g. `https://staging.sportsturfsolutions.com/stsportal/assets/apk`
+ * - staging-test or local dev → `{staging-test origin}/assets/apk` e.g. `https://staging-test.sportsturfsolutions.com/assets/apk`
+ */
+export function getAndroidApkPublicBaseUrl(): string {
+  const tier = getAndroidApkDeployTierFromEnv();
+
+  if (tier === "production") {
+    const root = getStsSiteRootUrl();
+    return root ? `${root}${ANDROID_APK_ASSETS_PATH}` : "";
+  }
+
+  try {
+    const origin = new URL(STS_APK_STAGING_API_BASE_URL).origin;
+    return `${origin}${ANDROID_APK_ASSETS_PATH}`;
+  } catch {
+    return "";
+  }
 }
 
 /**

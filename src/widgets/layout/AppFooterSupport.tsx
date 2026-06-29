@@ -5,6 +5,7 @@ import { MessageCircle } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import {
+  getAndroidApkDeployTierFromEnv,
   getIosTestFlightUrlForHost,
   shouldOfferAndroidApkForHost,
 } from "@/shared/config/deploymentEnvironment";
@@ -18,6 +19,7 @@ type AppFooterSupportProps = {
 export function AppFooterSupport({ variant = "desktop", className }: AppFooterSupportProps) {
   const [iosTestFlightUrl, setIosTestFlightUrl] = useState("");
   const [androidApkUrl, setAndroidApkUrl] = useState<string | null>(null);
+  const androidApkTier = getAndroidApkDeployTierFromEnv();
   const isMobile = variant === "mobile";
 
   useEffect(() => {
@@ -42,7 +44,12 @@ export function AppFooterSupport({ variant = "desktop", className }: AppFooterSu
   const appLinks = (
     <div className="flex flex-wrap items-center gap-2">
       {androidApkUrl ? (
-        <AppStoreBadgeButton href={androidApkUrl} store="google-play" />
+        <AppStoreBadgeButton
+          href={androidApkUrl}
+          store="google-play"
+          androidApkTier={androidApkTier}
+          external={/^https?:\/\//i.test(androidApkUrl)}
+        />
       ) : null}
       {iosTestFlightUrl ? (
         <AppStoreBadgeButton href={iosTestFlightUrl} store="app-store" external />
