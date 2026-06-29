@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { CloudRain, Droplets, CalendarDays, HelpCircle, Plus, Trash2, Pencil } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { toast } from "react-toastify";
@@ -22,6 +23,10 @@ import {
   type RainfallDashboardData,
   type RainfallRecentEntry,
 } from "@/features/dashboard/api/rainfallApi";
+import {
+  RAINFALL_RECENT_PAGE_SIZE,
+  sortRainfallRecentEntries,
+} from "@/features/dashboard/lib/sortRainfallRecentEntries";
 import { TOAST_CONTAINER_TOP_RIGHT } from "@/shared/ui/AppToasts";
 
 type FarmFilter = {
@@ -67,6 +72,28 @@ function formatDisplayDate(date: string): string {
   return d.toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" });
 }
 
+type HintTooltipPosition = {
+  left: number;
+  top: number;
+  maxWidth: number;
+};
+
+function computeHintTooltipPosition(rect: DOMRect, maxWidth: number): HintTooltipPosition {
+  const margin = 8;
+  const width = Math.min(maxWidth, window.innerWidth - margin * 2);
+  let left = rect.right - width;
+  if (left + width > window.innerWidth - margin) {
+    left = window.innerWidth - width - margin;
+  }
+  left = Math.max(margin, left);
+
+  return {
+    left,
+    top: rect.top - 6,
+    maxWidth: width,
+  };
+}
+
 function RainfallSourceHint({
   entry,
   manualLabel,
@@ -80,6 +107,8 @@ function RainfallSourceHint({
   manualWithAutoLabel: (values: { mm: string }) => string;
   ariaLabel: string;
 }) {
+  const anchorRef = useRef<HTMLButtonElement>(null);
+  const [tooltip, setTooltip] = useState<HintTooltipPosition | null>(null);
   const isManual = entry.source === "manual";
   const tooltipText =
     isManual && entry.open_meteo_mm != null
@@ -88,16 +117,54 @@ function RainfallSourceHint({
         ? manualLabel
         : autoLabel;
 
+  const showTooltip = useCallback(() => {
+    const el = anchorRef.current;
+    if (!el) return;
+    setTooltip(computeHintTooltipPosition(el.getBoundingClientRect(), 224));
+  }, []);
+
+  const hideTooltip = useCallback(() => {
+    setTooltip(null);
+  }, []);
+
+  useEffect(() => {
+    if (!tooltip) return;
+    const hide = () => setTooltip(null);
+    window.addEventListener("scroll", hide, true);
+    return () => window.removeEventListener("scroll", hide, true);
+  }, [tooltip]);
+
   return (
-    <span className="group relative inline-flex shrink-0">
-      <HelpCircle className="h-3.5 w-3.5 text-muted-foreground" aria-label={ariaLabel} />
-      <span
-        role="tooltip"
-        className="pointer-events-none absolute bottom-full right-0 z-20 mb-1.5 hidden w-max max-w-[14rem] rounded-md border border-border bg-popover px-2 py-1.5 text-[11px] font-normal normal-case leading-snug text-popover-foreground shadow-md group-hover:block"
+    <>
+      <button
+        ref={anchorRef}
+        type="button"
+        className="inline-flex shrink-0 text-muted-foreground hover:text-foreground"
+        aria-label={ariaLabel}
+        onMouseEnter={showTooltip}
+        onMouseLeave={hideTooltip}
+        onFocus={showTooltip}
+        onBlur={hideTooltip}
       >
-        {tooltipText}
-      </span>
-    </span>
+        <HelpCircle className="h-3.5 w-3.5" />
+      </button>
+      {tooltip && typeof document !== "undefined"
+        ? createPortal(
+            <div
+              role="tooltip"
+              className="pointer-events-none fixed z-200 -translate-y-full rounded-md border border-border bg-popover px-2 py-1.5 text-[11px] font-normal normal-case leading-snug text-popover-foreground shadow-md"
+              style={{
+                left: tooltip.left,
+                top: tooltip.top,
+                maxWidth: tooltip.maxWidth,
+              }}
+            >
+              {tooltipText}
+            </div>,
+            document.body,
+          )
+        : null}
+    </>
   );
 }
 
@@ -116,6 +183,8 @@ export function RainfallSection({ farmFilters, selectedFarmIds, scopeFarmIds }: 
   const [mm, setMm] = useState("");
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editMm, setEditMm] = useState("");
+  const [recentVisibleCount, setRecentVisibleCount] = useState(RAINFALL_RECENT_PAGE_SIZE);
+  const recentListRef = useRef<HTMLDivElement>(null);
 
   const entryKey = (entry: RainfallRecentEntry) => `${entry.farm_id}|${entry.date}`;
 
@@ -199,6 +268,28 @@ export function RainfallSection({ farmFilters, selectedFarmIds, scopeFarmIds }: 
     void load();
   }, [load]);
 
+  const sortedRecent = useMemo(
+    () => sortRainfallRecentEntries(data?.recent ?? [], today),
+    [data?.recent, today],
+  );
+  const recentTotal = data?.recent_total ?? sortedRecent.length;
+  const visibleRecent = sortedRecent.slice(0, recentVisibleCount);
+  const hasMoreRecent = recentVisibleCount < recentTotal;
+
+  useEffect(() => {
+    setRecentVisibleCount(RAINFALL_RECENT_PAGE_SIZE);
+  }, [queryFarmIds, year, data?.recent]);
+
+  const handleRecentScroll = useCallback(() => {
+    const el = recentListRef.current;
+    if (!el || !hasMoreRecent) return;
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 24) {
+      setRecentVisibleCount((count) =>
+        Math.min(count + RAINFALL_RECENT_PAGE_SIZE, recentTotal),
+      );
+    }
+  }, [hasMoreRecent, recentTotal]);
+
   const perms = data?.permissions ?? { can_create: false, can_edit: false, can_delete: false };
 
   const canEditEntry = (entry: RainfallRecentEntry) =>
@@ -276,7 +367,6 @@ export function RainfallSection({ farmFilters, selectedFarmIds, scopeFarmIds }: 
 
   const summary = data?.summary ?? { today_mm: 0, month_mm: 0, year_mm: 0, rain_days: 0 };
   const monthlyData = data?.monthly ?? [];
-  const recent = data?.recent ?? [];
 
   return (
     <div className="space-y-4">
@@ -373,11 +463,15 @@ export function RainfallSection({ farmFilters, selectedFarmIds, scopeFarmIds }: 
 
             <div className="glass-card rounded-xl p-5">
               <h4 className="mb-3 font-heading text-sm font-semibold text-foreground">{t("recent")}</h4>
-              <div className="space-y-1.5">
-                {recent.length === 0 && (
+              <div
+                ref={recentListRef}
+                onScroll={handleRecentScroll}
+                className="max-h-80 space-y-1.5 overflow-y-auto pr-1"
+              >
+                {sortedRecent.length === 0 && (
                   <p className="py-4 text-center text-sm text-muted-foreground">{t("noReadings")}</p>
                 )}
-                {recent.map((entry) => (
+                {visibleRecent.map((entry) => (
                   <div
                     key={`${entry.farm_id}-${entry.date}-${entry.source}`}
                     className="flex items-center gap-2 rounded-lg bg-muted/30 p-2 text-sm"

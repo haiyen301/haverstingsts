@@ -23,6 +23,7 @@ export type RainfallDashboardData = {
   };
   monthly: Array<{ month: string; mm: number }>;
   recent: RainfallRecentEntry[];
+  recent_total?: number;
   permissions: {
     can_create: boolean;
     can_edit: boolean;
