@@ -285,8 +285,11 @@ export function WeatherLocationsSettingsTab() {
             <div className="flex flex-wrap items-center gap-3">
               <ActiveStatusSwitch
                 checked={Boolean(form.is_active)}
-                onCheckedChange={(checked) => setForm({ ...form, is_active: checked ? 1 : 0 })}
-                label={t("active")}
+                onCheckedChange={() =>
+                  setForm({ ...form, is_active: form.is_active ? 0 : 1 })
+                }
+                activeLabel={t("active")}
+                inactiveLabel={t("active")}
               />
             </div>
 

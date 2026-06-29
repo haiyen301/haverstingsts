@@ -253,26 +253,29 @@ export function MachineryTypesTab() {
       <ConfirmDeleteDialog
         open={deleteTarget != null}
         title={t("deleteTitle")}
-        description={t("deleteDescription", { name: deleteTarget?.label ?? "" })}
-        confirmLabel={tCommon("delete")}
+        message={t("deleteDescription", { name: deleteTarget?.label ?? "" })}
         cancelLabel={tCommon("cancel")}
-        loading={deleting}
-        onOpenChange={(open) => {
-          if (!open) setDeleteTarget(null);
+        confirmLabel={tCommon("delete")}
+        deleting={deleting}
+        deletingLabel={tCommon("deleting")}
+        onCancel={() => {
+          if (!deleting) setDeleteTarget(null);
         }}
-        onConfirm={async () => {
-          if (!deleteTarget) return;
-          setDeleting(true);
-          try {
-            await removeMachineryType(deleteTarget.id);
-            clearMachineryTypesCache();
-            setDeleteTarget(null);
-            await load();
-          } catch (e) {
-            setError(e instanceof Error ? e.message : t("requestFailed"));
-          } finally {
-            setDeleting(false);
-          }
+        onConfirm={() => {
+          if (!deleteTarget || deleting) return;
+          void (async () => {
+            try {
+              setDeleting(true);
+              await removeMachineryType(deleteTarget.id);
+              clearMachineryTypesCache();
+              setDeleteTarget(null);
+              await load();
+            } catch (e) {
+              setError(e instanceof Error ? e.message : t("requestFailed"));
+            } finally {
+              setDeleting(false);
+            }
+          })();
         }}
       />
     </div>

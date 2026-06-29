@@ -188,7 +188,9 @@ export async function removeEquipmentServiceLog(
 }
 
 export function formatEquipmentCost(value: unknown): string {
-  return `$${formatNumber(value, { maximumFractionDigits: 2 })}`;
+  const numeric =
+    typeof value === "number" || typeof value === "string" ? value : null;
+  return `$${formatNumber(numeric, { maximumFractionDigits: 2 })}`;
 }
 
 export async function fetchEquipmentCategoryConfig(): Promise<EquipmentCategoryConfig> {
