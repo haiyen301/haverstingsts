@@ -1,4 +1,4 @@
-import { getStsApiBaseUrl, getStsSiteRootUrl } from "@/shared/api/stsLogin";
+import { getStsApiBaseUrl, getStsApiUrl } from "@/shared/api/stsLogin";
 
 /** Production STS Portal (Next) — https://stsportal.sportsturfsolutions.com/ */
 export const STS_PORTAL_PRODUCTION_HOST = "stsportal.sportsturfsolutions.com";
@@ -14,18 +14,51 @@ export const IOS_TESTFLIGHT_TEST_URL =
 export const IOS_TESTFLIGHT_PRODUCTION_URL =
   "https://testflight.apple.com/join/wky3RQAG";
 
-/** @deprecated Prefer direct STSPortal URL from {@link getAndroidApkPublicBaseUrl}. */
-export const ANDROID_APK_DOWNLOAD_PATH = "/api/mobile-app/android-apk/download";
-
-const ANDROID_APK_ASSETS_PATH = "/assets/apk";
-
 const TEST_DEPLOY_ENV_VALUES = new Set(["test", "staging"]);
+
+/**
+ * `NEXT_PUBLIC_STS_API_BASE_URLS` when this Next.js deploy serves production APK (`*_production.apk`).
+ */
+export const STS_APK_PRODUCTION_API_BASE_URL =
+  "https://staging.sportsturfsolutions.com/stsportal";
+
+/**
+ * `NEXT_PUBLIC_STS_API_BASE_URLS` when this Next.js deploy serves staging APK (`*_staging.apk`).
+ */
+export const STS_APK_STAGING_API_BASE_URL =
+  "https://staging-test.sportsturfsolutions.com/stsportal";
+
+export type AndroidApkDeployTier = "production" | "staging" | "dev";
 
 function normalizeHostname(host: string): string {
   const trimmed = host.trim().toLowerCase();
   if (!trimmed) return "";
   const withoutPort = trimmed.split(":")[0] ?? trimmed;
   return withoutPort;
+}
+
+function normalizeApiBaseUrl(url: string): string {
+  const trimmed = url.trim();
+  if (!trimmed) return "";
+  try {
+    const parsed = new URL(trimmed);
+    let pathname = parsed.pathname.replace(/\/$/, "") || "";
+    pathname = pathname.replace(/\/(signin|login)$/, "");
+    return `${parsed.origin}${pathname}`.toLowerCase();
+  } catch {
+    return trimmed
+      .toLowerCase()
+      .replace(/\/$/, "")
+      .replace(/\/(signin|login)$/, "");
+  }
+}
+
+function apiBaseHostname(url: string): string {
+  try {
+    return new URL(url.trim()).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
 }
 
 /** `NEXT_PUBLIC_STS_DEPLOY_ENV=test` on the test server (optional; hostname also works). */
@@ -67,50 +100,8 @@ export function getIosTestFlightUrlForHost(host: string): string {
 }
 
 /**
- * `NEXT_PUBLIC_STS_API_BASE_URLS` when this Next.js deploy serves production APK (`*_production.apk`).
- * APK files live on that STSPortal host under `assets/apk/`.
- */
-export const STS_APK_PRODUCTION_API_BASE_URL =
-  "https://staging.sportsturfsolutions.com/stsportal";
-
-/**
- * `NEXT_PUBLIC_STS_API_BASE_URLS` when this Next.js deploy serves staging APK (`*_staging.apk`).
- * Example portal: https://staging-test.sportsturfsolutions.com/signin
- */
-export const STS_APK_STAGING_API_BASE_URL =
-  "https://staging-test.sportsturfsolutions.com/stsportal";
-
-export type AndroidApkDeployTier = "production" | "staging" | "dev";
-
-function normalizeApiBaseUrl(url: string): string {
-  const trimmed = url.trim();
-  if (!trimmed) return "";
-  try {
-    const parsed = new URL(trimmed);
-    let pathname = parsed.pathname.replace(/\/$/, "") || "";
-    pathname = pathname.replace(/\/(signin|login)$/, "");
-    return `${parsed.origin}${pathname}`.toLowerCase();
-  } catch {
-    return trimmed
-      .toLowerCase()
-      .replace(/\/$/, "")
-      .replace(/\/(signin|login)$/, "");
-  }
-}
-
-function apiBaseHostname(url: string): string {
-  try {
-    return new URL(url.trim()).hostname.toLowerCase();
-  } catch {
-    return "";
-  }
-}
-
-/**
- * APK tier from `NEXT_PUBLIC_STS_API_BASE_URLS` (first entry):
- * - production base → `*_production.apk`
- * - staging-test base → `*_staging.apk`
- * - anything else (local IP, localhost) → dev (`*_staging.apk`)
+ * APK tier from `NEXT_PUBLIC_STS_API_BASE_URLS` — used only for footer badge copy.
+ * File discovery runs on STSPortal: GET /api/mobile_app/android_apk_download
  */
 export function getAndroidApkDeployTierFromEnv(): AndroidApkDeployTier {
   const configured = getStsApiBaseUrl();
@@ -133,51 +124,15 @@ export function getAndroidApkDeployTierFromEnv(): AndroidApkDeployTier {
   return "dev";
 }
 
-/** APK filename suffix for the current deploy (`NEXT_PUBLIC_STS_API_BASE_URLS`). */
-export function getAndroidApkFilenameSuffixFromEnv(): string {
-  if (getAndroidApkDeployTierFromEnv() === "production") return "_production.apk";
-  return "_staging.apk";
-}
-
-export function getAndroidApkFilenameSuffixesFromEnv(): readonly string[] {
-  return [getAndroidApkFilenameSuffixFromEnv()];
-}
-
 /**
- * Public STSPortal folder for APK downloads (browser hits this URL directly).
- * - production API base → `{siteRoot}/assets/apk` e.g. `https://staging.sportsturfsolutions.com/stsportal/assets/apk`
- * - staging-test or local dev → `{staging-test origin}/assets/apk` e.g. `https://staging-test.sportsturfsolutions.com/assets/apk`
+ * Footer Android button — STSPortal backend scans `assets/apk/` and redirects to the newest APK.
+ * Driven by `NEXT_PUBLIC_STS_API_BASE_URL(S)` (which STSPortal host holds the APK files).
  */
-export function getAndroidApkPublicBaseUrl(): string {
-  const tier = getAndroidApkDeployTierFromEnv();
-
-  if (tier === "production") {
-    const root = getStsSiteRootUrl();
-    return root ? `${root}${ANDROID_APK_ASSETS_PATH}` : "";
-  }
-
-  try {
-    const origin = new URL(STS_APK_STAGING_API_BASE_URL).origin;
-    return `${origin}${ANDROID_APK_ASSETS_PATH}`;
-  } catch {
-    return "";
-  }
+export function getAndroidApkDownloadUrl(): string {
+  return getStsApiUrl("/api/mobile_app/android_apk_download");
 }
 
-/**
- * APK filename suffixes on STSPortal `assets/apk/` for the current deploy env.
- * @deprecated Prefer {@link getAndroidApkFilenameSuffixesFromEnv}.
- */
-export function getAndroidApkFilenameSuffixesForHost(_host: string): readonly string[] {
-  return getAndroidApkFilenameSuffixesFromEnv();
-}
-
-/** @deprecated Prefer {@link getAndroidApkFilenameSuffixFromEnv}. */
-export function getAndroidApkFilenameSuffixForHost(_host: string): string {
-  return getAndroidApkFilenameSuffixFromEnv();
-}
-
-/** Footer may query `/api/mobile-app/android-apk` for this host. */
+/** Footer always offers Android APK when an API base URL is configured. */
 export function shouldOfferAndroidApkForHost(_host: string): boolean {
-  return true;
+  return Boolean(getStsApiBaseUrl());
 }

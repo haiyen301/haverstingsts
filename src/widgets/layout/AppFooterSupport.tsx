@@ -6,6 +6,7 @@ import { MessageCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   getAndroidApkDeployTierFromEnv,
+  getAndroidApkDownloadUrl,
   getIosTestFlightUrlForHost,
   shouldOfferAndroidApkForHost,
 } from "@/shared/config/deploymentEnvironment";
@@ -18,23 +19,15 @@ type AppFooterSupportProps = {
 
 export function AppFooterSupport({ variant = "desktop", className }: AppFooterSupportProps) {
   const [iosTestFlightUrl, setIosTestFlightUrl] = useState("");
-  const [androidApkUrl, setAndroidApkUrl] = useState<string | null>(null);
+  const [showAndroidApk, setShowAndroidApk] = useState(false);
   const androidApkTier = getAndroidApkDeployTierFromEnv();
+  const androidDownloadHref = getAndroidApkDownloadUrl();
   const isMobile = variant === "mobile";
 
   useEffect(() => {
     const host = window.location.hostname;
     setIosTestFlightUrl(getIosTestFlightUrlForHost(host));
-
-    if (!shouldOfferAndroidApkForHost(host)) return;
-
-    void fetch("/api/mobile-app/android-apk")
-      .then((res) => (res.ok ? res.json() : null))
-      .then((body: { data?: { url?: string | null } } | null) => {
-        const url = body?.data?.url?.trim();
-        setAndroidApkUrl(url || null);
-      })
-      .catch(() => setAndroidApkUrl(null));
+    setShowAndroidApk(shouldOfferAndroidApkForHost(host));
   }, []);
 
   const supportLinkClass = isMobile
@@ -43,12 +36,12 @@ export function AppFooterSupport({ variant = "desktop", className }: AppFooterSu
 
   const appLinks = (
     <div className="flex flex-wrap items-center gap-2">
-      {androidApkUrl ? (
+      {showAndroidApk && androidDownloadHref ? (
         <AppStoreBadgeButton
-          href={androidApkUrl}
+          href={androidDownloadHref}
           store="google-play"
           androidApkTier={androidApkTier}
-          external={/^https?:\/\//i.test(androidApkUrl)}
+          external
         />
       ) : null}
       {iosTestFlightUrl ? (
@@ -95,7 +88,7 @@ export function AppFooterSupport({ variant = "desktop", className }: AppFooterSu
         </a>
       </div>
 
-      {iosTestFlightUrl || androidApkUrl ? appLinks : null}
+      {iosTestFlightUrl || (showAndroidApk && androidDownloadHref) ? appLinks : null}
     </div>
   );
 }
