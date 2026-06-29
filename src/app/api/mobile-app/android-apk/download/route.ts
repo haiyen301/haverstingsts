@@ -4,22 +4,19 @@ import { Readable } from "node:stream";
 
 import { NextResponse } from "next/server";
 
-import { getAndroidApkFilenameSuffixForHost } from "@/shared/config/deploymentEnvironment";
+import { getAndroidApkFilenameSuffixesFromEnv } from "@/shared/config/deploymentEnvironment";
 import { resolveAndroidApkFile } from "@/shared/server/androidApkAssets";
 
 export const runtime = "nodejs";
 
-/** Stream the environment-matched APK without revealing the on-disk filename. */
-export async function GET(req: Request) {
-  const host =
-    req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? "";
-
-  const suffix = getAndroidApkFilenameSuffixForHost(host);
-  if (!suffix) {
+/** Stream the env-matched APK without revealing the on-disk filename. */
+export async function GET() {
+  const suffixes = getAndroidApkFilenameSuffixesFromEnv();
+  if (!suffixes.length) {
     return NextResponse.json({ success: false, message: "Not found." }, { status: 404 });
   }
 
-  const apk = resolveAndroidApkFile(suffix);
+  const apk = resolveAndroidApkFile(suffixes);
   if (!apk) {
     return NextResponse.json({ success: false, message: "Not found." }, { status: 404 });
   }

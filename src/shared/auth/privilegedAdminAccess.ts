@@ -1,5 +1,6 @@
 /**
- * STS `users.id` allowed for privileged admin screens (maintenance, activity log, alert settings, …).
+ * STS `users.id` allowed for privileged admin screens (maintenance, activity log,
+ * alert settings, weather locations, …).
  * Change this list in one place only.
  */
 export const PRIVILEGED_ADMIN_USER_IDS = [409] as const;

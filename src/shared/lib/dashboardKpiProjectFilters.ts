@@ -1,7 +1,7 @@
 import type { MondayProjectServerRow } from "@/entities/projects";
 import { parseSubitems } from "@/shared/lib/parseJsonMaybe";
 
-export type KpiDeliveryPeriod = "week" | "month" | "quarter";
+export type KpiDeliveryPeriod = "week" | "month" | "quarter" | "year";
 
 export type KpiDatePreset =
   | "all"
@@ -10,6 +10,7 @@ export type KpiDatePreset =
   | "lastWeek"
   | "lastMonth"
   | "lastQuarter"
+  | "lastYear"
   | "thisWeek"
   | "nextWeek"
   | "nextMonth"
@@ -51,6 +52,25 @@ export const KPI_DATE_PRESET_SCHEDULE: readonly KpiDatePreset[] = [
   "custom",
 ] as const;
 
+/** Fertilizer usage — historical windows + all time + custom. */
+export const KPI_DATE_PRESET_FERTILIZER: readonly KpiDatePreset[] = [
+  "all",
+  "lastMonth",
+  "lastQuarter",
+  "lastYear",
+  "custom",
+] as const;
+
+/** Fleet fuel usage — all time + rolling today/week/month/quarter + custom range. */
+export const KPI_DATE_PRESET_FUEL: readonly KpiDatePreset[] = [
+  "all",
+  "today",
+  "lastWeek",
+  "lastMonth",
+  "lastQuarter",
+  "custom",
+] as const;
+
 /** Forecasting — forward-looking horizon from today. */
 export const KPI_DATE_PRESET_FORECAST: readonly KpiDatePreset[] = [
   "next1Month",
@@ -85,7 +105,8 @@ export function periodStartYmd(period: KpiDeliveryPeriod): string {
   const start = new Date(anchor);
   if (period === "week") start.setDate(start.getDate() - 7);
   else if (period === "month") start.setMonth(start.getMonth() - 1);
-  else start.setMonth(start.getMonth() - 3);
+  else if (period === "quarter") start.setMonth(start.getMonth() - 3);
+  else start.setFullYear(start.getFullYear() - 1);
   return `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, "0")}-${String(start.getDate()).padStart(2, "0")}`;
 }
 
@@ -209,6 +230,8 @@ export function kpiDateRangeFromFilter(filter: KpiDeliveryDateFilter): {
       return { start: periodStartYmd("month"), end: today };
     case "lastQuarter":
       return { start: periodStartYmd("quarter"), end: today };
+    case "lastYear":
+      return { start: periodStartYmd("year"), end: today };
     case "thisWeek":
       return calendarWeekRangeYmd(0);
     case "nextWeek":
@@ -260,6 +283,7 @@ export function kpiPresetToLegacyPeriod(preset: KpiDatePreset): KpiDeliveryPerio
   if (preset === "lastWeek") return "week";
   if (preset === "lastMonth") return "month";
   if (preset === "lastQuarter") return "quarter";
+  if (preset === "lastYear") return "year";
   return null;
 }
 

@@ -24,7 +24,9 @@ import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
 
 export {
   KPI_DATE_PRESET_DASHBOARD,
+  KPI_DATE_PRESET_FERTILIZER,
   KPI_DATE_PRESET_FORECAST,
+  KPI_DATE_PRESET_FUEL,
   KPI_DATE_PRESET_HARVEST,
   KPI_DATE_PRESET_SCHEDULE,
 } from "@/shared/lib/dashboardKpiProjectFilters";
@@ -48,6 +50,8 @@ type DashboardKpiDateFilterProps = {
   presets?: readonly KpiDatePreset[];
   /** Preset treated as “no filter” for trigger highlight; defaults to `lastMonth` on dashboard presets. */
   baselinePreset?: KpiDatePreset;
+  /** Optional per-preset label overrides (e.g. fleet fuel “This week” for `lastWeek`). */
+  presetLabelMap?: Partial<Record<KpiDatePreset, string>>;
   className?: string;
 };
 
@@ -56,6 +60,7 @@ export function DashboardKpiDateFilter({
   onChange,
   presets = KPI_DATE_PRESET_DASHBOARD,
   baselinePreset,
+  presetLabelMap,
   className,
 }: DashboardKpiDateFilterProps) {
   const t = useAppTranslations();
@@ -87,7 +92,10 @@ export function DashboardKpiDateFilter({
     return nonCustom[nonCustom.length - 1] ?? "lastMonth";
   }, [baselinePreset, presetOptions]);
 
-  const presetLabel = (preset: KpiDatePreset): string => {
+  const resolvePresetLabel = (preset: KpiDatePreset): string => {
+    const override = presetLabelMap?.[preset];
+    if (override) return override;
+
     switch (preset) {
       case "all":
         return t("Dashboard.dateRangeLabel");
@@ -101,6 +109,8 @@ export function DashboardKpiDateFilter({
         return t("Dashboard.periodMonth");
       case "lastQuarter":
         return t("Dashboard.periodQuarter");
+      case "lastYear":
+        return t("Dashboard.periodYear");
       case "thisWeek":
         return t("Dashboard.periodThisWeek");
       case "nextWeek":
@@ -127,8 +137,8 @@ export function DashboardKpiDateFilter({
   const committedRange = useMemo(() => kpiDateRangeFromFilter(value), [value]);
 
   const triggerPrimaryLabel = presetOptions.includes(value.preset)
-    ? presetLabel(value.preset)
-    : presetLabel(resolvedBaselinePreset);
+    ? resolvePresetLabel(value.preset)
+    : resolvePresetLabel(resolvedBaselinePreset);
 
   const popupRangeLabel = useMemo(() => {
     if (customPickerActive && (customDraft.from || customDraft.to)) {
@@ -283,7 +293,7 @@ export function DashboardKpiDateFilter({
               )}
               aria-hidden
             />
-            {presetLabel(preset)}
+            {resolvePresetLabel(preset)}
           </button>
         );
       })}

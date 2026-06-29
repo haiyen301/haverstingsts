@@ -14,8 +14,10 @@ import {
   Calendar,
   ChevronDown,
   ClipboardList,
+  CloudRain,
   Cog,
   FileSpreadsheet,
+  FlaskConical,
   FolderKanban,
   Fuel,
   Gauge,
@@ -302,43 +304,61 @@ export function DashboardLayout({
             isActive: (p) => p === "/harvest/schedule" || p.startsWith("/harvest/schedule/"),
           },
           {
+            key: "fertilizer-usage",
+            path: "/harvest/fertilizer-usage",
+            icon: FlaskConical,
+            label: tn("fertilizerUsage"),
+            module: "harvests",
+            isActive: (p) =>
+              p === "/harvest/fertilizer-usage" || p.startsWith("/harvest/fertilizer-usage/"),
+          },
+          {
             key: "harvests",
             path: "/harvest",
             icon: Leaf,
             label: t("Nav.harvests"),
             module: "harvests",
             isActive: (p) =>
-              (p === "/harvest" || p.startsWith("/harvest/")) && !p.startsWith("/harvest/schedule"),
+              (p === "/harvest" || p.startsWith("/harvest/")) &&
+              !p.startsWith("/harvest/schedule") &&
+              !p.startsWith("/harvest/fertilizer-usage"),
           },
         ],
       },
-      // {
-      //   id: "fleet",
-      //   title: tn("fleetMechanical"),
-      //   items: [
-      //     {
-      //       key: "vehicle-inspections",
-      //       path: "",
-      //       icon: Truck,
-      //       label: tn("vehicleInspections"),
-      //       disabled: true,
-      //     },
-      //     {
-      //       key: "fuel",
-      //       path: "",
-      //       icon: Fuel,
-      //       label: tn("fuelUsage"),
-      //       disabled: true,
-      //     },
-      //     {
-      //       key: "equipment",
-      //       path: "",
-      //       icon: Cog,
-      //       label: tn("equipment"),
-      //       disabled: true,
-      //     },
-      //   ],
-      // },
+      {
+        id: "fleet",
+        title: tn("fleetMechanical"),
+        items: [
+          {
+            key: "vehicle-inspections",
+            path: "/fleet/vehicle-inspections",
+            icon: Truck,
+            label: tn("vehicleInspections"),
+            module: "harvests",
+            isActive: (p) =>
+              p === "/fleet/vehicle-inspections" ||
+              p.startsWith("/fleet/vehicle-inspections/"),
+          },
+          {
+            key: "fuel",
+            path: "/fleet/fuel-usage",
+            icon: Fuel,
+            label: tn("fuelUsage"),
+            module: "harvests",
+            isActive: (p) =>
+              p === "/fleet/fuel-usage" || p.startsWith("/fleet/fuel-usage/"),
+          },
+          {
+            key: "equipment",
+            path: "/fleet/equipment",
+            icon: Cog,
+            label: tn("equipment"),
+            module: "harvests",
+            isActive: (p) =>
+              p === "/fleet/equipment" || p.startsWith("/fleet/equipment/"),
+          },
+        ],
+      },
       {
         id: "admin",
         title: tn("administration"),
@@ -413,6 +433,35 @@ export function DashboardLayout({
                 isActive: (p) =>
                   p === "/admin/settings/activity-log" ||
                   p.startsWith("/admin/settings/activity-log/"),
+              },
+              {
+                value: "weather-locations",
+                label: tn("adminWeatherLocations"),
+                icon: CloudRain,
+                path: "/admin/settings/weather-locations",
+                restrictToUserIds: [...PRIVILEGED_ADMIN_USER_IDS],
+                isActive: (p) =>
+                  p === "/admin/settings/weather-locations" ||
+                  p.startsWith("/admin/settings/weather-locations/"),
+              },
+              {
+                value: "items",
+                label: tn("adminItems"),
+                icon: Layers,
+                path: "/admin/settings/items",
+                restrictToUserIds: [...PRIVILEGED_ADMIN_USER_IDS],
+                isActive: (p) =>
+                  p === "/admin/settings/items" || p.startsWith("/admin/settings/items/"),
+              },
+              {
+                value: "item-categories",
+                label: tn("adminItemCategories"),
+                icon: Layers,
+                path: "/admin/settings/item-categories",
+                restrictToUserIds: [...PRIVILEGED_ADMIN_USER_IDS],
+                isActive: (p) =>
+                  p === "/admin/settings/item-categories" ||
+                  p.startsWith("/admin/settings/item-categories/"),
               },
             ],
           },
@@ -506,13 +555,44 @@ export function DashboardLayout({
             ],
             // disabled: true,
           },
-          // {
-          //   key: "fleet-admin",
-          //   path: "",
-          //   icon: Tractor,
-          //   label: tn("fleetMechanicalAdmin"),
-          //   disabled: true,
-          // },
+          {
+            key: "fleet-admin",
+            path: "/admin/fleet/machinery",
+            icon: Tractor,
+            label: tn("fleetMechanicalAdmin"),
+            isActive: (p) => p.startsWith("/admin/fleet"),
+            tabs: [
+              {
+                value: "machinery",
+                label: tn("adminMachinery"),
+                icon: Tractor,
+                path: "/admin/fleet/machinery",
+                module: "admin_farms",
+                isActive: (p) =>
+                  p === "/admin/fleet/machinery" || p.startsWith("/admin/fleet/machinery/"),
+              },
+              {
+                value: "machinery-types",
+                label: tn("adminMachineryTypes"),
+                icon: Tractor,
+                path: "/admin/fleet/machinery-types",
+                module: "admin_farms",
+                isActive: (p) =>
+                  p === "/admin/fleet/machinery-types" || p.startsWith("/admin/fleet/machinery-types/"),
+              },
+              {
+                value: "equipment-category",
+                label: tn("adminEquipmentCategory"),
+                icon: Tractor,
+                path: "/admin/fleet/equipment-category",
+                module: "admin_farms",
+                restrictToUserIds: [...PRIVILEGED_ADMIN_USER_IDS],
+                isActive: (p) =>
+                  p === "/admin/fleet/equipment-category" ||
+                  p.startsWith("/admin/fleet/equipment-category/"),
+              },
+            ],
+          },
         ],
       },
     ],

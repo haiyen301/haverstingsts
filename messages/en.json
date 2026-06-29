@@ -49,6 +49,7 @@
     "administration": "ADMINISTRATION",
     "myAlerts": "My Alerts",
     "harvestSchedule": "Harvest Schedule",
+    "fertilizerUsage": "Fertilizer Usage",
     "inventory": "Inventory",
     "comingSoon": "Coming soon",
     "vehicleInspections": "Vehicle Inspections",
@@ -57,6 +58,9 @@
     "userManagement": "User Management",
     "turfOperations": "Turf Operations",
     "fleetMechanicalAdmin": "Fleet & Mechanical",
+    "adminMachinery": "Machinery",
+    "adminMachineryTypes": "Machinery Types",
+    "adminEquipmentCategory": "Equipment Category",
     "adminPeople": "People",
     "alertSettings": "Alert settings",
     "adminProjects": "Projects",
@@ -71,7 +75,10 @@
     "settings": "Settings",
     "adminCountries": "Countries",
     "adminMaintenance": "Maintenance mode",
-    "adminActivityLog": "Activity log"
+    "adminActivityLog": "Activity log",
+    "adminWeatherLocations": "Weather locations",
+    "adminItems": "Items",
+    "adminItemCategories": "Item categories"
   },
   "Maintenance": {
     "badge": "Scheduled maintenance",
@@ -116,6 +123,39 @@
     "errors": {
       "load": "Could not load maintenance settings.",
       "save": "Could not save maintenance settings."
+    }
+  },
+  "AdminWeatherLocations": {
+    "title": "Weather locations (Open-Meteo)",
+    "description": "Configure Open-Meteo forecast points and link each location to a farm. Dashboard rainfall uses only farms set up here.",
+    "loading": "Loading locations…",
+    "locationsTitle": "Locations",
+    "forecastPoint": "Open-Meteo forecast point",
+    "farm": "Farm",
+    "farmPlaceholder": "— Select farm —",
+    "farmTaken": "linked elsewhere",
+    "noFarmLinked": "No farm linked",
+    "geocodePlaceholder": "City name for geocode",
+    "add": "Add location",
+    "save": "Save",
+    "verify": "Verify Open-Meteo",
+    "geocode": "Resolve from name",
+    "locationId": "Location ID",
+    "label": "Label",
+    "countryCode": "Country code",
+    "latitude": "Latitude",
+    "longitude": "Longitude",
+    "timezone": "Timezone",
+    "active": "Active",
+    "saved": "Location saved.",
+    "verified": "Open-Meteo verified.",
+    "errors": {
+      "load": "Could not load weather locations.",
+      "save": "Could not save location.",
+      "verify": "Verify failed.",
+      "geocode": "Geocoding failed.",
+      "requiredFields": "Location ID and label are required.",
+      "coordinatesRequired": "Enter valid latitude and longitude (use Geocode or Verify)."
     }
   },
   "AdminActivityLog": {
@@ -427,6 +467,7 @@
     "periodWeek": "Last week",
     "periodMonth": "Last month",
     "periodQuarter": "Last quarter",
+    "periodYear": "Last year",
     "periodThisWeek": "This week",
     "periodNextWeek": "Next week",
     "periodNextMonth": "Next month",
@@ -463,7 +504,40 @@
     "recentDeliveriesFooterLabel": "Total",
     "recentDeliveriesFooterDeliveries": "{count} deliveries",
     "recentDeliveriesFooterProjects": "{count} projects",
-    "recentDeliveriesFooterGrassTypes": "{count} grass types"
+    "recentDeliveriesFooterGrassTypes": "{count} grass types",
+    "rainfall": {
+      "title": "Rainfall ({farms})",
+      "allFarms": "All Farms",
+      "today": "Today",
+      "thisMonth": "This month",
+      "thisYear": "This year",
+      "rainDays": "Rain days",
+      "rainDaysSub": "days with rain in {year}",
+      "date": "Date",
+      "farm": "Farm",
+      "rainfallMm": "Rainfall (mm)",
+      "logRainfall": "Log rainfall",
+      "monthlyChart": "Monthly rainfall — {year}",
+      "recent": "Recent readings",
+      "noReadings": "No readings yet.",
+      "noConfiguredFarms": "No farms linked to weather locations. Configure them in Admin → Settings → Weather locations.",
+      "manual": "Manual",
+      "auto": "Auto",
+      "sourceTooltipAria": "Data source",
+      "sourceTooltipManual": "Manual entry — overrides the Open-Meteo value for this day.",
+      "sourceTooltipAuto": "Automatic — from Open-Meteo (rain + showers).",
+      "sourceTooltipManualWithAuto": "Manual entry. Open-Meteo was {mm} mm.",
+      "loading": "Loading rainfall…",
+      "saved": "Rainfall saved.",
+      "deleted": "Manual rainfall removed.",
+      "deleteConfirm": "Remove this manual rainfall entry? Open-Meteo value will be used again.",
+      "errors": {
+        "load": "Could not load rainfall data.",
+        "save": "Could not save rainfall.",
+        "delete": "Could not delete rainfall.",
+        "invalid": "Enter a valid date and rainfall amount."
+      }
+    }
   },
   "ActiveProjects": {
     "backToDashboard": "Back to dashboard",
@@ -2401,5 +2475,507 @@
     "refreshAria": "Refresh page data",
     "updateData": "Update data",
     "updateDataAria": "Run next forecast queue job"
+  },
+  "FertilizerUsage": {
+    "title": "Fertilizer Usage",
+    "subtitle": "Track product applications across farms, grass types, and zones",
+    "logApplication": "Log Application",
+    "loading": "Loading…",
+    "saved": "Usage logged",
+    "deleted": "Entry removed",
+    "deleteConfirm": "Remove this application log?",
+    "kpi": {
+      "totalApplied": "Total Applied",
+      "productsUsed": "Products Used",
+      "zonesTreated": "Zones Treated",
+      "applications": "Applications"
+    },
+    "filters": {
+      "allFarms": "All Farms",
+      "allTime": "All Time",
+      "lastMonth": "Last Month",
+      "lastQuarter": "Last Quarter",
+      "lastYear": "Last Year"
+    },
+    "tabs": {
+      "product": "By Product",
+      "month": "By Month",
+      "grass": "By Grass Type",
+      "zone": "By Zone"
+    },
+    "charts": {
+      "byProduct": "Usage by Product",
+      "byMonth": "Usage by Month — {year}",
+      "byGrass": "Usage by Grass Type",
+      "byZone": "Usage by Zone",
+      "amount": "Amount",
+      "empty": "No usage in this period"
+    },
+    "table": {
+      "date": "Date",
+      "farm": "Farm",
+      "grass": "Grass",
+      "zone": "Zone",
+      "product": "Product",
+      "amount": "Amount",
+      "rate": "Rate",
+      "rateUom": "Rate unit",
+      "operator": "Operator",
+      "actions": "Actions",
+      "empty": "No applications logged."
+    },
+    "dialog": {
+      "title": "Log Fertilizer Application",
+      "editTitle": "Edit Fertilizer Application",
+      "date": "Date",
+      "datePlaceholder": "dd/M/yyyy",
+      "farm": "Farm",
+      "grass": "Grass Type",
+      "zone": "Zone",
+      "product": "Product",
+      "amount": "Amount Used",
+      "rate": "Rate",
+      "rateUom": "Rate unit",
+      "ratePlaceholder": "e.g. 30",
+      "rateUomPlaceholder": "e.g. kg/ha",
+      "operator": "Operator",
+      "notes": "Notes",
+      "selectFarm": "Select farm",
+      "selectGrass": "Select grass",
+      "selectZone": "Select zone",
+      "selectProduct": "Select product",
+      "selectOperator": "Select operator",
+      "noProductsHint": "Add products in Admin → Settings → Items.",
+      "cancel": "Cancel",
+      "save": "Save"
+    },
+    "errors": {
+      "load": "Failed to load fertilizer usage.",
+      "save": "Failed to save application.",
+      "delete": "Failed to remove entry.",
+      "requiredFields": "Date, farm, grass, zone, product and amount are required."
+    }
+  },
+  "FuelUsage": {
+    "title": "Fuel Usage",
+    "subtitle": "Track fuel consumption, costs, and efficiency across all vehicles",
+    "logFuel": "Log Fuel",
+    "loading": "Loading…",
+    "saved": "Fuel logged",
+    "deleted": "Entry removed",
+    "deleteConfirm": "Remove this fuel entry?",
+    "kpi": {
+      "totalLitres": "Total Litres",
+      "totalCost": "Total Cost",
+      "avgPerFill": "Avg per Fill",
+      "entries": "Entries"
+    },
+    "filters": {
+      "allFarms": "All Farms",
+      "allTime": "All Time",
+      "today": "Today",
+      "thisWeek": "This Week",
+      "thisMonth": "This Month",
+      "thisQuarter": "This Quarter"
+    },
+    "table": {
+      "date": "Date",
+      "vehicle": "Vehicle",
+      "farm": "Farm",
+      "litres": "Litres",
+      "cost": "Cost",
+      "odometer": "Odometer",
+      "operator": "Operator",
+      "purpose": "Purpose",
+      "actions": "Actions",
+      "empty": "No fuel entries logged."
+    },
+    "dialog": {
+      "title": "Log Fuel",
+      "editTitle": "Edit Fuel Entry",
+      "date": "Date",
+      "farm": "Farm",
+      "vehicle": "Vehicle",
+      "vehicleType": "Vehicle Type",
+      "litres": "Litres",
+      "costPerLitre": "Cost / Litre ($)",
+      "odometer": "Odometer (km)",
+      "operator": "Operator",
+      "purpose": "Purpose",
+      "selectFarm": "Select farm",
+      "selectVehicle": "Select vehicle",
+      "selectOperator": "Select operator",
+      "vehiclePlaceholder": "e.g. Harvester HV-01",
+      "purposePlaceholder": "e.g. Harvest Zone 1",
+      "cancel": "Cancel",
+      "save": "Save Entry"
+    },
+    "errors": {
+      "load": "Failed to load fuel usage.",
+      "loadVehicles": "Failed to load vehicles.",
+      "save": "Failed to save fuel entry.",
+      "delete": "Failed to remove entry.",
+      "requiredFields": "Date, farm, vehicle and litres are required."
+    }
+  },
+  "AdminItems": {
+    "title": "Items",
+    "subtitle": "Manage STS product catalog used for fertilizer and inventory.",
+    "loading": "Loading…",
+    "search": "Search items…",
+    "filters": {
+      "allCategories": "All categories"
+    },
+    "add": "Add item",
+    "createTitle": "New item",
+    "editTitle": "Edit item",
+    "save": "Save",
+    "cancel": "Cancel",
+    "saved": "Item saved",
+    "deleted": "Item deleted",
+    "deleteConfirm": "Delete this item?",
+    "table": {
+      "sku": "SKU (STS)",
+      "name": "Name",
+      "brand": "Brand",
+      "category": "Category",
+      "unit": "Unit",
+      "rate": "Rate",
+      "actions": "Actions",
+      "empty": "No items found."
+    },
+    "form": {
+      "skuSts": "SKU (STS)",
+      "oldSku": "Old SKU",
+      "commodityName": "Commodity name",
+      "commodityCode": "Commodity code",
+      "brand": "Brand",
+      "category": "Category",
+      "unit": "Unit",
+      "rate": "Rate",
+      "rateUom": "Rate unit",
+      "rateUomPlaceholder": "e.g. kg/ha",
+      "thaiCode": "Thai code",
+      "myanmarCode": "Myanmar code",
+      "malaysiaCode": "Malaysia code",
+      "singaporeCode": "Singapore code",
+      "vietnameseName": "Vietnamese name",
+      "thaiName": "Thai name",
+      "description": "Description",
+      "select": "Select…"
+    },
+    "errors": {
+      "load": "Failed to load items.",
+      "save": "Failed to save item.",
+      "delete": "Failed to delete item.",
+      "nameRequired": "Commodity name is required.",
+      "brandRequired": "Brand is required.",
+      "categoryRequired": "Category is required.",
+      "unitRequired": "Unit is required."
+    }
+  },
+  "AdminItemCategories": {
+    "title": "Item categories",
+    "subtitle": "Organize items into categories (supports parent categories).",
+    "loading": "Loading…",
+    "search": "Search categories…",
+    "add": "Add category",
+    "createTitle": "New category",
+    "editTitle": "Edit category",
+    "save": "Save",
+    "cancel": "Cancel",
+    "saved": "Category saved",
+    "deleted": "Category deleted",
+    "deleteConfirm": "Delete this category?",
+    "table": {
+      "id": "ID",
+      "title": "Title",
+      "parent": "Parent category",
+      "actions": "Actions",
+      "empty": "No categories found."
+    },
+    "form": {
+      "title": "Title",
+      "parent": "Parent category",
+      "noParent": "— No parent —"
+    },
+    "errors": {
+      "load": "Failed to load categories.",
+      "save": "Failed to save category.",
+      "delete": "Failed to delete category.",
+      "titleRequired": "Title is required."
+    }
+  },
+  "VehicleInspections": {
+    "title": "Vehicle Inspections",
+    "subtitle": "Pre-use checklists, defect tracking, and maintenance scheduling",
+    "newInspection": "New Inspection",
+    "loading": "Loading…",
+    "search": "Search vehicles…",
+    "saved": "Inspection saved",
+    "savedMultiple": "{count} inspections saved",
+    "deleted": "Inspection removed",
+    "deleteConfirm": "Remove this vehicle inspection record?",
+    "kpi": {
+      "total": "Total Vehicles",
+      "passed": "Passed",
+      "attention": "Attention Needed",
+      "defects": "Open Defects"
+    },
+    "filters": {
+      "allFarms": "All Farms",
+      "allStatuses": "All Statuses"
+    },
+    "status": {
+      "pass": "Passed",
+      "fail": "Failed",
+      "due": "Due Soon",
+      "overdue": "Overdue"
+    },
+    "table": {
+      "vehicle": "Vehicle",
+      "aliasName": "Alias name",
+      "type": "Type",
+      "farm": "Farm",
+      "lastInspection": "Last Inspection",
+      "nextDue": "Next Due",
+      "defects": "Defects",
+      "status": "Status",
+      "actions": "Actions",
+      "none": "None",
+      "empty": "No vehicles match your filters."
+    },
+    "dialog": {
+      "title": "New Inspection",
+      "editTitle": "Edit Inspection",
+      "vehicleName": "Vehicle name",
+      "aliasName": "Alias name",
+      "aliasNamePlaceholder": "Harvester HV-01",
+      "selectVehicle": "Select vehicle from catalog",
+      "vehiclesSelected": "{count} vehicles selected",
+      "type": "Type",
+      "farm": "Farm",
+      "registration": "Registration",
+      "lastInspection": "Last inspection",
+      "nextDue": "Next due",
+      "datePlaceholder": "dd/mm/yyyy",
+      "status": "Status",
+      "defects": "Defects",
+      "defectsPlaceholder": "Describe defects, damage, or issues found during inspection…",
+      "selectFarm": "Select farm",
+      "cancel": "Cancel",
+      "save": "Save"
+    },
+    "errors": {
+      "load": "Failed to load vehicle inspections.",
+      "loadOptions": "Failed to load inspection form options.",
+      "save": "Failed to save inspection.",
+      "delete": "Failed to remove inspection.",
+      "requiredFields": "Vehicle, type and farm are required."
+    }
+  },
+  "Equipment": {
+    "title": "Equipment & Mechanical",
+    "subtitle": "Track equipment hours, maintenance schedules, and availability",
+    "register": "Register Equipment",
+    "registerSubmit": "Register Equipment",
+    "createTitle": "Register New Equipment",
+    "cancel": "Cancel",
+    "saved": "Equipment registered",
+    "loading": "Loading…",
+    "search": "Search equipment…",
+    "empty": "No equipment matches your filters.",
+    "kpi": {
+      "total": "Total Equipment",
+      "operational": "Operational",
+      "attention": "Needs Attention",
+      "farms": "Farms Covered"
+    },
+    "filters": {
+      "allFarms": "All Farms",
+      "allTypes": "All Types",
+      "allStatuses": "All Statuses"
+    },
+    "status": {
+      "operational": "Operational",
+      "maintenance": "In Maintenance",
+      "outOfService": "Out of Service"
+    },
+    "card": {
+      "serviceIn": "Service in {hours} hrs",
+      "hrsTotal": "hrs total",
+      "last": "Last",
+      "next": "Next"
+    },
+    "form": {
+      "equipment": "Equipment",
+      "brand": "Brand",
+      "type": "Type",
+      "model": "Model",
+      "engineCode": "Engine Code",
+      "engineCodePlaceholder": "e.g. KR-2000-A",
+      "hoursBetweenService": "Hours Between Service",
+      "hoursBetweenServicePlaceholder": "e.g. 250",
+      "farm": "Location",
+      "pic": "STS PIC",
+      "selectEquipment": "Search equipment…",
+      "selectType": "Select type",
+      "selectFarm": "Select farm",
+      "selectPic": "Select person in charge",
+      "loadingProducts": "Loading equipment catalog…",
+      "noProducts": "No items in configured categories. Set categories in Admin → Fleet → Equipment Category."
+    },
+    "errors": {
+      "load": "Failed to load equipment.",
+      "save": "Failed to register equipment.",
+      "requiredFields": "Equipment, type and location are required."
+    }
+  },
+  "EquipmentDetail": {
+    "back": "Back",
+    "notFound": "Equipment not found.",
+    "engineCode": "Engine Code",
+    "location": "Location",
+    "pic": "STS PIC",
+    "hoursUsed": "Hours Used",
+    "hrs": "hrs",
+    "serviceInterval": "Service Interval",
+    "everyHours": "Every {hours} hours",
+    "hoursUntil": "{hours} hrs until next service",
+    "serviceHistory": "Service History",
+    "addService": "Add Service",
+    "addServiceTitle": "Add Service Record",
+    "editServiceTitle": "Edit Service Record",
+    "serviceRecord": "Service Record",
+    "editService": "Edit",
+    "deleteService": "Delete",
+    "deleteServiceConfirm": "Delete this service record?",
+    "serviceSaved": "Service record saved",
+    "serviceDeleted": "Service record deleted",
+    "saveService": "Save",
+    "noServiceRecords": "No service records yet.",
+    "selectPic": "Select person in charge",
+    "table": {
+      "date": "Date",
+      "type": "Type",
+      "description": "Description",
+      "hours": "Hours",
+      "cost": "Cost",
+      "performedBy": "Performed By"
+    },
+    "errors": {
+      "load": "Failed to load equipment detail.",
+      "save": "Failed to save service record.",
+      "delete": "Failed to delete service record.",
+      "requiredFields": "Service date is required.",
+      "invalidNumber": "Enter a valid number (e.g. 1,234.56)."
+    }
+  },
+  "AdminEquipmentCategory": {
+    "title": "Equipment Category",
+    "subtitle": "Choose which sts_items categories supply brand and model options on the Equipment page. Stored in sts_settings (fleet_equipment_category).",
+    "loading": "Loading…",
+    "fieldLabel": "Product catalog categories",
+    "fieldHint": "Categories are shown as full paths (e.g. PRODUCTS/MACHINERY/MACHINE). Selecting a parent or child includes all nested subcategories and their sts_items on the Equipment page.",
+    "selectPlaceholder": "Search categories…",
+    "selectedCount": "{count} selected",
+    "currentLabel": "Current selection",
+    "current": "Current: {name}",
+    "saved": "Categories saved",
+    "loadError": "Failed to load category settings.",
+    "requestFailed": "Request failed.",
+    "errors": {
+      "required": "Select at least one category."
+    }
+  },
+  "AdminMachinery": {
+    "title": "Machinery",
+    "subtitle": "Register and track turf farm machinery. Product catalog from MACHINE and MACHINERY categories; fleet records are stored in sts_machinery.",
+    "register": "Register Machinery",
+    "loading": "Loading…",
+    "search": "Search brand, model, serial…",
+    "createTitle": "Register New Machinery",
+    "editTitle": "Edit Machinery",
+    "save": "Save",
+    "cancel": "Cancel",
+    "saved": "Machinery saved",
+    "deleted": "Machinery removed",
+    "deleteConfirm": "Delete this machinery record?",
+    "kpi": {
+      "total": "Total Units",
+      "active": "Active",
+      "maintenance": "Maintenance",
+      "outRetired": "Out / Retired"
+    },
+    "filters": {
+      "allFarms": "All Farms",
+      "allTypes": "All Types",
+      "allStatuses": "All Statuses"
+    },
+    "status": {
+      "active": "Active",
+      "maintenance": "Under Maintenance",
+      "outOfService": "Out of Service",
+      "retired": "Retired"
+    },
+    "table": {
+      "machine": "Machine",
+      "type": "Type",
+      "location": "Location",
+      "year": "Year",
+      "hours": "Hours",
+      "status": "Status",
+      "actions": "Actions",
+      "empty": "No machinery registered."
+    },
+    "form": {
+      "brand": "Brand",
+      "model": "Model",
+      "product": "Machine product",
+      "selectProduct": "Select machine from product catalog…",
+      "loadingProducts": "Loading products…",
+      "brandPlaceholder": "e.g. John Deere",
+      "modelPlaceholder": "e.g. 5075E",
+      "type": "Type",
+      "farm": "Location (Farm)",
+      "serial": "Serial number",
+      "registration": "Registration number",
+      "year": "Year of manufacture",
+      "ownership": "Ownership",
+      "status": "Status",
+      "assignedTo": "Assigned to",
+      "hoursUsed": "Hours used",
+      "hoursBetweenService": "Hours between service",
+      "lastService": "Last service date",
+      "nextService": "Next service due",
+      "fuelType": "Fuel type",
+      "odooId": "Odoo ID",
+      "notes": "Notes",
+      "select": "Select…",
+      "unassigned": "Unassigned"
+    },
+    "errors": {
+      "load": "Failed to load machinery.",
+      "save": "Failed to save machinery.",
+      "delete": "Failed to delete machinery.",
+      "requiredFields": "Select a machine product, then fill type and farm. Brand and model are filled from the product catalog.",
+      "loadProducts": "Failed to load machine products."
+    }
+  },
+  "AdminMachineryTypes": {
+    "title": "Machinery Types",
+    "subtitle": "Manage equipment type options for machinery registration. Values are stored in sts_settings (fleet_machinery_types).",
+    "loading": "Loading…",
+    "newPlaceholder": "New type name…",
+    "add": "Add type",
+    "colLabel": "Label",
+    "colSlug": "Slug",
+    "colActive": "Active",
+    "colActions": "Actions",
+    "empty": "No machinery types yet. Run the seeder or add one above.",
+    "loadError": "Failed to load machinery types.",
+    "requestFailed": "Request failed.",
+    "deleteTitle": "Delete machinery type",
+    "deleteDescription": "Remove “{name}” from the catalog? Existing machinery records keep their current type value."
   }
 }

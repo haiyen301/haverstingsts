@@ -5,9 +5,7 @@ import { MessageCircle } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import {
-  ANDROID_APK_DOWNLOAD_PATH,
   getIosTestFlightUrlForHost,
-  isProductionDeploymentHost,
   shouldOfferAndroidApkForHost,
 } from "@/shared/config/deploymentEnvironment";
 import { AppStoreBadgeButton } from "@/widgets/layout/AppStoreBadgeButton";
@@ -27,11 +25,6 @@ export function AppFooterSupport({ variant = "desktop", className }: AppFooterSu
     setIosTestFlightUrl(getIosTestFlightUrlForHost(host));
 
     if (!shouldOfferAndroidApkForHost(host)) return;
-
-    if (!isProductionDeploymentHost(host)) {
-      setAndroidApkUrl(ANDROID_APK_DOWNLOAD_PATH);
-      return;
-    }
 
     void fetch("/api/mobile-app/android-apk")
       .then((res) => (res.ok ? res.json() : null))

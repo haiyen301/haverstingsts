@@ -2403,5 +2403,67 @@
     "refreshAria": "Làm mới dữ liệu trang",
     "updateData": "Cập nhật dữ liệu",
     "updateDataAria": "Chạy job queue forecast tiếp theo"
+  },
+  "FuelUsage": {
+    "title": "Tiêu hao nhiên liệu",
+    "subtitle": "Theo dõi mức tiêu thụ, chi phí và hiệu suất nhiên liệu của toàn bộ phương tiện",
+    "logFuel": "Ghi nhận nhiên liệu",
+    "loading": "Đang tải…",
+    "saved": "Đã ghi nhận nhiên liệu",
+    "deleted": "Đã xóa bản ghi",
+    "deleteConfirm": "Xóa bản ghi nhiên liệu này?",
+    "kpi": {
+      "totalLitres": "Tổng lít",
+      "totalCost": "Tổng chi phí",
+      "avgPerFill": "TB mỗi lần đổ",
+      "entries": "Bản ghi"
+    },
+    "filters": {
+      "allFarms": "Tất cả trang trại",
+      "allTime": "Mọi thời gian",
+      "today": "Hôm nay",
+      "thisWeek": "Tuần này",
+      "thisMonth": "Tháng này",
+      "thisQuarter": "Quý này"
+    },
+    "table": {
+      "date": "Ngày",
+      "vehicle": "Phương tiện",
+      "farm": "Trang trại",
+      "litres": "Lít",
+      "cost": "Chi phí",
+      "odometer": "Công tơ mét",
+      "operator": "Người vận hành",
+      "purpose": "Mục đích",
+      "actions": "Thao tác",
+      "empty": "Chưa có bản ghi nhiên liệu."
+    },
+    "dialog": {
+      "title": "Ghi nhận nhiên liệu",
+      "editTitle": "Sửa bản ghi nhiên liệu",
+      "date": "Ngày",
+      "farm": "Trang trại",
+      "vehicle": "Phương tiện",
+      "vehicleType": "Loại phương tiện",
+      "litres": "Lít",
+      "costPerLitre": "Giá / lít ($)",
+      "odometer": "Công tơ mét (km)",
+      "operator": "Người vận hành",
+      "purpose": "Mục đích",
+      "selectFarm": "Chọn trang trại",
+      "selectVehicle": "Chọn phương tiện",
+      "selectOperator": "Chọn người vận hành",
+      "vehiclePlaceholder": "vd. Harvester HV-01",
+      "purposePlaceholder": "vd. Thu hoạch Zone 1",
+      "cancel": "Hủy",
+      "save": "Lưu bản ghi"
+    },
+    "errors": {
+      "load": "Không tải được dữ liệu nhiên liệu.",
+      "loadVehicles": "Không tải được danh sách phương tiện.",
+      "save": "Không lưu được bản ghi.",
+      "delete": "Không xóa được bản ghi.",
+      "requiredFields": "Ngày, trang trại, phương tiện và số lít là bắt buộc."
+    }
   }
 }

@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { getAndroidApkFilenameSuffixesFromEnv } from "@/shared/config/deploymentEnvironment";
+
 const APK_SUFFIXES = ["_production.apk", "_staging.apk"] as const;
 
 export type ResolvedAndroidApk = {
@@ -9,20 +11,30 @@ export type ResolvedAndroidApk = {
   attachmentName: string;
 };
 
-function resolveApkAssetsDir(): string | null {
+function getApkAssetsDirCandidates(): string[] {
   const explicit = process.env.STS_APK_ASSETS_DIR?.trim();
-  if (explicit && fs.existsSync(explicit)) return explicit;
+  const stsPortalDir = process.env.STSPORTAL_DIR?.trim();
 
-  const candidates = [
+  const candidates: string[] = [];
+  if (explicit) candidates.push(explicit);
+  if (stsPortalDir) candidates.push(path.join(stsPortalDir, "assets", "apk"));
+
+  candidates.push(
+    // Production VPS — STSPortal docroot (see scripts/cron_open_meteo_scan.sh).
+    "/var/www/STSPortal/assets/apk",
+    // Local dev — stsrenew and STSPortal are sibling folders under phpzone/src.
     path.resolve(process.cwd(), "../STSPortal/assets/apk"),
     path.resolve(process.cwd(), "../../STSPortal/assets/apk"),
-  ];
+  );
 
-  for (const dir of candidates) {
+  return [...new Set(candidates)];
+}
+
+function resolveApkAssetsDir(): string | null {
+  for (const dir of getApkAssetsDirCandidates()) {
     if (fs.existsSync(dir)) return dir;
   }
-
-  return explicit || null;
+  return null;
 }
 
 function isApkAssetFile(name: string): boolean {
@@ -30,12 +42,8 @@ function isApkAssetFile(name: string): boolean {
   return APK_SUFFIXES.some((suffix) => name.endsWith(suffix));
 }
 
-/**
- * Auto-detect the newest APK in STSPortal `assets/apk/` whose name ends with
- * `filenameSuffix` (e.g. `_production.apk` or `_staging.apk`).
- */
-export function resolveAndroidApkFile(
-  filenameSuffix: string,
+function resolveAndroidApkFileForSuffixes(
+  filenameSuffixes: readonly string[],
 ): ResolvedAndroidApk | null {
   const apkDir = resolveApkAssetsDir();
   if (!apkDir) return null;
@@ -47,8 +55,13 @@ export function resolveAndroidApkFile(
     return null;
   }
 
+  const suffixSet = new Set(filenameSuffixes);
   const matches = entries
-    .filter((entry) => entry.isFile() && entry.name.endsWith(filenameSuffix))
+    .filter(
+      (entry) =>
+        entry.isFile() &&
+        [...suffixSet].some((suffix) => entry.name.endsWith(suffix)),
+    )
     .map((entry) => {
       const fullPath = path.join(apkDir, entry.name);
       const stat = fs.statSync(fullPath);
@@ -68,7 +81,32 @@ export function resolveAndroidApkFile(
   };
 }
 
-/** Whether an APK exists for this host's environment suffix. */
-export function hasAndroidApkForSuffix(filenameSuffix: string): boolean {
-  return resolveAndroidApkFile(filenameSuffix) != null;
+/**
+ * Auto-detect the newest APK in STSPortal `assets/apk/` whose name ends with
+ * one of `filenameSuffixes` (e.g. `_production.apk`, `-production-release.apk`).
+ */
+export function resolveAndroidApkFile(
+  filenameSuffixOrSuffixes: string | readonly string[],
+): ResolvedAndroidApk | null {
+  const suffixes = Array.isArray(filenameSuffixOrSuffixes)
+    ? filenameSuffixOrSuffixes
+    : [filenameSuffixOrSuffixes];
+  return resolveAndroidApkFileForSuffixes(suffixes);
+}
+
+/** Whether an APK exists for the current deploy env (`NEXT_PUBLIC_STS_API_BASE_URLS`). */
+export function hasAndroidApkForEnv(): boolean {
+  return resolveAndroidApkFile(getAndroidApkFilenameSuffixesFromEnv()) != null;
+}
+
+/** @deprecated Prefer {@link hasAndroidApkForEnv}. */
+export function hasAndroidApkForHost(_host: string): boolean {
+  return hasAndroidApkForEnv();
+}
+
+/** Whether an APK exists for the given filename suffix(es). */
+export function hasAndroidApkForSuffix(
+  filenameSuffixOrSuffixes: string | readonly string[],
+): boolean {
+  return resolveAndroidApkFile(filenameSuffixOrSuffixes) != null;
 }

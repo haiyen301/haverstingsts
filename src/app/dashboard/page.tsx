@@ -39,6 +39,7 @@ import {
 } from "lucide-react";
 
 import RequireAuth from "@/features/auth/RequireAuth";
+import { RainfallSection } from "@/features/dashboard/ui/RainfallSection";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { useSyncedFarmMultiSelect } from "@/shared/hooks/useSyncedFarmMultiSelect";
@@ -2526,6 +2527,12 @@ export default function DashboardPage() {
                 </div>
               )}
             </div>
+
+            <RainfallSection
+              farmFilters={farmFilters}
+              selectedFarmIds={selectedFarmIds}
+              scopeFarmIds={scopeIds}
+            />
 
             {deliveryGrassTypePeriodBreakdown.length > 0 ? (
               <div className="glass-card rounded-xl p-5">

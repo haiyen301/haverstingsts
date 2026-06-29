@@ -39,6 +39,21 @@ export function formatDecimalInput(raw: string): string {
 }
 
 /**
+ * Format a stored numeric value for decimal inputs.
+ * Whole numbers omit a fractional part (e.g. `3000` → `3,000`, not `3,000.000`).
+ */
+export function formatDecimalInputFromValue(
+  value: number | string | null | undefined,
+): string {
+  const raw = stripDecimalGrouping(String(value ?? "").trim());
+  if (!raw) return "";
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return formatDecimalInput(raw);
+  if (Number.isInteger(n)) return formatDecimalInput(String(Math.trunc(n)));
+  return formatDecimalInput(parseFloat(n.toFixed(10)).toString());
+}
+
+/**
  * Format numeric values with thousands separators for UI display.
  * Invalid or empty values are rendered as `0`.
  */
@@ -59,4 +74,10 @@ export function formatNumber(
     minimumFractionDigits: options?.minimumFractionDigits ?? 0,
     maximumFractionDigits: options?.maximumFractionDigits ?? 2,
   });
+}
+
+/** Parse formatted decimal input (`1,234.56`) back to a number. */
+export function parseDecimalField(raw: string): number {
+  const n = Number(stripDecimalGrouping(raw.trim()));
+  return Number.isFinite(n) ? n : NaN;
 }

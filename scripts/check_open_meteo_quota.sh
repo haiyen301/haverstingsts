@@ -5,7 +5,7 @@ CRON_TZ_REGION="${CRON_TZ_REGION:-Asia/Ho_Chi_Minh}"
 LOG_DIR="${LOG_DIR:-/var/log/stsweather}"
 LOG_PREFIX="${LOG_PREFIX:-cron_open_meteo_}"
 
-# Default assumes each run calls 5 locations.
+# Default assumes each run calls every active catalog location (override when you add locations).
 LOCATION_COUNT_PER_RUN="${LOCATION_COUNT_PER_RUN:-5}"
 
 DAILY_LIMIT="${DAILY_LIMIT:-10000}"

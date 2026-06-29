@@ -274,6 +274,9 @@ export type FarmRow = {
   country_name?: string | null;
   hotline?: string | null;
   address?: string | null;
+  weather_location_id?: string | null;
+  latitude?: number | string | null;
+  longitude?: number | string | null;
 };
 
 export type FarmSavePayload = {
@@ -282,6 +285,9 @@ export type FarmSavePayload = {
   country_id: number;
   hotline?: string | null;
   address?: string | null;
+  weather_location_id?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
 };
 
 /** POST body for `/api/regrowth_rules/save` */
