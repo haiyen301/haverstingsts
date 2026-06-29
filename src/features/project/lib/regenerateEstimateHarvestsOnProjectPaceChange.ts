@@ -2,6 +2,7 @@ import type { ZoneConfigurationRow } from "@/features/admin/api/adminApi";
 import { deleteMondayParentOrSubItem } from "@/entities/projects";
 import type { HarvestPlanRowForPaceRecalc } from "@/features/project/lib/buildPaceGrassBatchQuantitiesFromHarvestRecalc";
 import type { GrassRequirementForPaceRecalc } from "@/features/project/lib/buildPaceGrassBatchQuantitiesFromHarvestRecalc";
+import { grassRequirementsToHarvestPlanFormat } from "@/features/project/lib/buildPaceGrassBatchQuantitiesFromHarvestRecalc";
 import {
   estimateTotalHarvestBatches,
   findZoneConfigForFarmGrass,
@@ -166,6 +167,200 @@ function collectEstimateHarvestRowsToDelete(
   );
 }
 
+function collectEstimateHarvestRowsToDeleteForFulfilledGrassRequirements(opts: {
+  grassRequirements: GrassRequirementForPaceRecalc[];
+  harvestPlanRows: HarvestPlanRowForPaceRecalc[];
+}): HarvestPlanRowForPaceRecalc[] {
+  const out: HarvestPlanRowForPaceRecalc[] = [];
+  const seenIds = new Set<string>();
+
+  for (const req of opts.grassRequirements) {
+    if (
+      !isGrassRequirementFulfilledByActualHarvests(
+        opts.harvestPlanRows,
+        req.productId,
+        req.uom,
+        req.loadType,
+        req.totalRequired,
+        opts.grassRequirements,
+      )
+    ) {
+      continue;
+    }
+
+    const kgContext = paceKgContextFromGrassRequirements(
+      opts.grassRequirements,
+      req.productId,
+    );
+
+    for (const row of opts.harvestPlanRows) {
+      if (
+        !paceRecalcPlanRowMatchesRequirementLine(
+          row,
+          req.productId,
+          req.uom,
+          req.loadType,
+          kgContext,
+        )
+      ) {
+        continue;
+      }
+      if (!paceRecalcPlanRowCountsAsRemainingEstimate(row)) continue;
+
+      const rowId = String(row.id ?? "").trim();
+      if (!rowId || seenIds.has(rowId)) continue;
+      seenIds.add(rowId);
+      out.push(row);
+    }
+  }
+
+  return out;
+}
+
+function countExistingEstimateBatchesForGrassLine(
+  harvestPlanRows: HarvestPlanRowForPaceRecalc[],
+  productId: string,
+  uom: "Kg" | "M2",
+  loadType: HarvestTypeStorageKey,
+  kgLoadTypeContext?: ReturnType<typeof paceRecalcKgLoadTypeContextForProduct>,
+): number {
+  let count = 0;
+  for (const row of harvestPlanRows) {
+    if (
+      !paceRecalcPlanRowMatchesRequirementLine(
+        row,
+        productId,
+        uom,
+        loadType,
+        kgLoadTypeContext,
+      )
+    ) {
+      continue;
+    }
+    if (paceRecalcPlanRowCountsAsRemainingEstimate(row)) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+/** Grass line on harvest plan but fewer estimate batches than pace requires after actuals. */
+export function grassRequirementNeedsPrivilegedRecalcSupplementalSeeds(opts: {
+  paceConfig: ProjectPaceConfig;
+  req: GrassRequirementForPaceRecalc;
+  harvestPlanRows: HarvestPlanRowForPaceRecalc[];
+  allGrassRequirements?: GrassRequirementForPaceRecalc[];
+}): boolean {
+  const productId = opts.req.productId.trim();
+  const totalRequired = Math.max(0, opts.req.totalRequired);
+  if (!productId || totalRequired <= 0) return false;
+
+  if (
+    isGrassRequirementFulfilledByActualHarvests(
+      opts.harvestPlanRows,
+      opts.req.productId,
+      opts.req.uom,
+      opts.req.loadType,
+      opts.req.totalRequired,
+      opts.allGrassRequirements,
+    )
+  ) {
+    return false;
+  }
+
+  const kgContext = opts.allGrassRequirements
+    ? paceKgContextFromGrassRequirements(opts.allGrassRequirements, productId)
+    : undefined;
+  const totalBatches = estimateTotalHarvestBatches(opts.paceConfig);
+  const actualBatchCount = countActualHarvestBatchesForGrassLine(
+    opts.harvestPlanRows,
+    productId,
+    opts.req.uom,
+    opts.req.loadType,
+    kgContext,
+  );
+  const existingEstimateCount = countExistingEstimateBatchesForGrassLine(
+    opts.harvestPlanRows,
+    productId,
+    opts.req.uom,
+    opts.req.loadType,
+    kgContext,
+  );
+  const neededEstimateSlots = Math.max(0, totalBatches - actualBatchCount);
+  return neededEstimateSlots > existingEstimateCount;
+}
+
+/** Privileged balance recalc: only the missing estimate rows for existing plan lines. */
+export function buildPrivilegedRecalcSupplementalEstimateSeeds(opts: {
+  paceConfig: ProjectPaceConfig;
+  estimatedStartYmd: string;
+  grassRequirements: GrassRequirementForPaceRecalc[];
+  harvestPlanRows: HarvestPlanRowForPaceRecalc[];
+  zoneConfigurations?: ZoneConfigurationRow[];
+}): PlannedHarvestSeed[] {
+  const totalBatches = estimateTotalHarvestBatches(opts.paceConfig);
+  const out: PlannedHarvestSeed[] = [];
+
+  for (const req of opts.grassRequirements) {
+    const productId = req.productId.trim();
+    const totalRequired = Math.max(0, req.totalRequired);
+    if (!productId || totalRequired <= 0) continue;
+
+    if (
+      isGrassRequirementFulfilledByActualHarvests(
+        opts.harvestPlanRows,
+        req.productId,
+        req.uom,
+        req.loadType,
+        req.totalRequired,
+        opts.grassRequirements,
+      )
+    ) {
+      continue;
+    }
+
+    const harvestPlanReq = grassRequirementsToHarvestPlanFormat([req])[0];
+    if (!harvestPlanReq) continue;
+
+    const kgContext = paceKgContextFromGrassRequirements(
+      opts.grassRequirements,
+      productId,
+    );
+    const actualBatchCount = countActualHarvestBatchesForGrassLine(
+      opts.harvestPlanRows,
+      productId,
+      req.uom,
+      req.loadType,
+      kgContext,
+    );
+    const existingEstimateCount = countExistingEstimateBatchesForGrassLine(
+      opts.harvestPlanRows,
+      productId,
+      req.uom,
+      req.loadType,
+      kgContext,
+    );
+    const neededEstimateSlots = Math.max(0, totalBatches - actualBatchCount);
+    const missingCount = Math.max(0, neededEstimateSlots - existingEstimateCount);
+    if (missingCount <= 0) continue;
+
+    const targetSeeds = buildRegeneratedEstimateSeedsForPaceChange({
+      paceConfig: opts.paceConfig,
+      estimatedStartYmd: opts.estimatedStartYmd,
+      grassRequirements: [harvestPlanReq],
+      harvestPlanRows: opts.harvestPlanRows,
+      zoneConfigurations: opts.zoneConfigurations,
+    });
+    if (targetSeeds.length <= existingEstimateCount) continue;
+
+    const supplemental = targetSeeds.slice(existingEstimateCount);
+    const toAdd = supplemental.slice(0, missingCount);
+    out.push(...toAdd);
+  }
+
+  return out;
+}
+
 /**
  * Planned estimate seeds for a new pace — skips the first `actualBatchCount` schedule
  * slots (already consumed by actual harvests) and spreads remaining quantity across
@@ -327,15 +522,14 @@ export function buildPaceGrassBatchQuantitiesAfterPaceChange(opts: {
   return out;
 }
 
-export async function deleteEstimateHarvestRowsForPaceChange(opts: {
-  harvestPlanRows: HarvestPlanRowForPaceRecalc[];
+async function deleteHarvestPlanRows(opts: {
+  rows: HarvestPlanRowForPaceRecalc[];
   fallbackTableId?: string;
 }): Promise<{ deleted: number; failed: number }> {
-  const rows = collectEstimateHarvestRowsToDelete(opts.harvestPlanRows);
   let deleted = 0;
   let failed = 0;
 
-  for (const row of rows) {
+  for (const row of opts.rows) {
     const rowId = String(row.id ?? "").trim();
     const tableId =
       String(row.table_id ?? "").trim() ||
@@ -358,6 +552,50 @@ export async function deleteEstimateHarvestRowsForPaceChange(opts: {
   }
 
   return { deleted, failed };
+}
+
+/** Privileged balance recalc: remove estimate rows for fulfilled grass lines. */
+export async function deleteFulfilledGrassEstimateHarvestRows(opts: {
+  grassRequirements: GrassRequirementForPaceRecalc[];
+  harvestPlanRows: HarvestPlanRowForPaceRecalc[];
+  fallbackTableId?: string;
+}): Promise<{
+  deleted: number;
+  failed: number;
+  allRequirementsFulfilled: boolean;
+}> {
+  const allRequirementsFulfilled = areAllGrassRequirementsFulfilledByActualHarvests(
+    opts.grassRequirements,
+    opts.harvestPlanRows,
+  );
+  const rows = collectEstimateHarvestRowsToDeleteForFulfilledGrassRequirements({
+    grassRequirements: opts.grassRequirements,
+    harvestPlanRows: opts.harvestPlanRows,
+  });
+  if (rows.length === 0) {
+    return { deleted: 0, failed: 0, allRequirementsFulfilled };
+  }
+
+  const deleteResult = await deleteHarvestPlanRows({
+    rows,
+    fallbackTableId: opts.fallbackTableId,
+  });
+
+  return {
+    deleted: deleteResult.deleted,
+    failed: deleteResult.failed,
+    allRequirementsFulfilled,
+  };
+}
+
+export async function deleteEstimateHarvestRowsForPaceChange(opts: {
+  harvestPlanRows: HarvestPlanRowForPaceRecalc[];
+  fallbackTableId?: string;
+}): Promise<{ deleted: number; failed: number }> {
+  return deleteHarvestPlanRows({
+    rows: collectEstimateHarvestRowsToDelete(opts.harvestPlanRows),
+    fallbackTableId: opts.fallbackTableId,
+  });
 }
 
 export async function runProjectPaceChangeHarvestRegeneration(opts: {

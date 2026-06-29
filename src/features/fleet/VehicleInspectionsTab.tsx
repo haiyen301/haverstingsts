@@ -195,6 +195,28 @@ export function VehicleInspectionsTab() {
     [vehicles],
   );
 
+  const farmOptions = useMemo(
+    () =>
+      farms.map((farm) => {
+        const id = String((farm as { id?: unknown }).id ?? "");
+        return {
+          value: id,
+          label: String((farm as { name?: unknown }).name ?? id),
+        };
+      }),
+    [farms],
+  );
+
+  const machineryTypeOptions = useMemo(
+    () => machineryTypes.map((type) => ({ value: type, label: type })),
+    [machineryTypes],
+  );
+
+  const statusOptions = useMemo(
+    () => statuses.map((status) => ({ value: status.value, label: status.label })),
+    [statuses],
+  );
+
   const vehicleOptionsForForm = useMemo(() => {
     if (!editingId || form.item_ids.length === 0) return vehicleOptions;
     const selectedId = form.item_ids[0];
@@ -288,20 +310,14 @@ export function VehicleInspectionsTab() {
         });
         toast.success(t("updated"), { containerId: TOAST_CONTAINER_TOP_RIGHT });
       } else {
-        await Promise.all(
-          itemIds.map((itemId) => {
-            const vehicle = vehicles.find((v) => v.id === itemId);
-            return saveVehicleInspection({
-              item_id: itemId,
-              vehicle_name: vehicle?.name ?? "",
-              ...shared,
-            });
-          }),
-        );
-        toast.success(
-          itemIds.length > 1 ? t("savedMultiple", { count: itemIds.length }) : t("saved"),
-          { containerId: TOAST_CONTAINER_TOP_RIGHT },
-        );
+        const itemId = itemIds[0];
+        const vehicle = vehicles.find((v) => v.id === itemId);
+        await saveVehicleInspection({
+          item_id: itemId,
+          vehicle_name: vehicle?.name ?? "",
+          ...shared,
+        });
+        toast.success(t("saved"), { containerId: TOAST_CONTAINER_TOP_RIGHT });
       }
       closeDialog();
       await load();
@@ -355,19 +371,34 @@ export function VehicleInspectionsTab() {
           <Search className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input className={cn(inputClass, "pl-9")} placeholder={t("search")} value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
-        <select className={cn(inputClass, "w-[160px]")} value={farmFilter} onChange={(e) => setFarmFilter(e.target.value)}>
-          <option value="all">{t("filters.allFarms")}</option>
-          {farms.map((farm) => {
-            const id = String((farm as { id?: unknown }).id ?? "");
-            return <option key={id} value={id}>{String((farm as { name?: unknown }).name ?? id)}</option>;
-          })}
-        </select>
-        <select className={cn(inputClass, "w-[160px]")} value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-          <option value="all">{t("filters.allStatuses")}</option>
-          {statuses.map((status) => (
-            <option key={status.value} value={status.value}>{status.label}</option>
-          ))}
-        </select>
+        <div className="w-[160px]">
+          <MultiSelect
+            options={farmOptions}
+            values={farmFilter !== "all" ? [farmFilter] : []}
+            onChange={(next) => setFarmFilter(next[0] ?? "all")}
+            multi={false}
+            showAllOption
+            allOptionLabel={t("filters.allFarms")}
+            placeholder={t("filters.allFarms")}
+            className={selectClass}
+            rightIcon={selectChevron}
+            showSelectedChipsInPopover={false}
+          />
+        </div>
+        <div className="w-[160px]">
+          <MultiSelect
+            options={statusOptions}
+            values={statusFilter !== "all" ? [statusFilter] : []}
+            onChange={(next) => setStatusFilter(next[0] ?? "all")}
+            multi={false}
+            showAllOption
+            allOptionLabel={t("filters.allStatuses")}
+            placeholder={t("filters.allStatuses")}
+            className={selectClass}
+            rightIcon={selectChevron}
+            showSelectedChipsInPopover={false}
+          />
+        </div>
       </div>
 
       <Card>
@@ -466,9 +497,8 @@ export function VehicleInspectionsTab() {
                   className={selectClass}
                   rightIcon={selectChevron}
                   selectionSummary="compact"
-                  multi={!editingId}
-                  maxSelections={editingId ? 1 : undefined}
-                  formatSelectedCount={(count) => t("dialog.vehiclesSelected", { count })}
+                  multi={false}
+                  showSelectedChipsInPopover={false}
                   disabled={saving}
                 />
               </div>
@@ -483,19 +513,31 @@ export function VehicleInspectionsTab() {
               </div>
               <div className={fieldClass}>
                 <span className={labelClass}>{t("dialog.type")} *</span>
-                <select className={inputClass} value={form.vehicle_type} onChange={(e) => setForm((f) => ({ ...f, vehicle_type: e.target.value }))}>
-                  {machineryTypes.map((type) => <option key={type} value={type}>{type}</option>)}
-                </select>
+                <MultiSelect
+                  options={machineryTypeOptions}
+                  values={form.vehicle_type ? [form.vehicle_type] : []}
+                  onChange={(next) => setForm((f) => ({ ...f, vehicle_type: next[0] ?? "" }))}
+                  multi={false}
+                  placeholder={t("dialog.type")}
+                  className={selectClass}
+                  rightIcon={selectChevron}
+                  showSelectedChipsInPopover={false}
+                  disabled={saving}
+                />
               </div>
               <div className={fieldClass}>
                 <span className={labelClass}>{t("dialog.farm")} *</span>
-                <select className={inputClass} value={form.farm_id} onChange={(e) => setForm((f) => ({ ...f, farm_id: e.target.value }))}>
-                  <option value="">{t("dialog.selectFarm")}</option>
-                  {farms.map((farm) => {
-                    const id = String((farm as { id?: unknown }).id ?? "");
-                    return <option key={id} value={id}>{String((farm as { name?: unknown }).name ?? id)}</option>;
-                  })}
-                </select>
+                <MultiSelect
+                  options={farmOptions}
+                  values={form.farm_id ? [form.farm_id] : []}
+                  onChange={(next) => setForm((f) => ({ ...f, farm_id: next[0] ?? "" }))}
+                  multi={false}
+                  placeholder={t("dialog.selectFarm")}
+                  className={selectClass}
+                  rightIcon={selectChevron}
+                  showSelectedChipsInPopover={false}
+                  disabled={saving}
+                />
               </div>
               <div className={cn(fieldClass, "sm:col-span-2")}>
                 <span className={labelClass}>{t("dialog.registration")}</span>
@@ -523,11 +565,17 @@ export function VehicleInspectionsTab() {
               </div>
               <div className={fieldClass}>
                 <span className={labelClass}>{t("dialog.status")}</span>
-                <select className={inputClass} value={form.status} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value }))}>
-                  {statuses.map((status) => (
-                    <option key={status.value} value={status.value}>{status.label}</option>
-                  ))}
-                </select>
+                <MultiSelect
+                  options={statusOptions}
+                  values={form.status ? [form.status] : []}
+                  onChange={(next) => setForm((f) => ({ ...f, status: next[0] ?? "" }))}
+                  multi={false}
+                  placeholder={t("dialog.status")}
+                  className={selectClass}
+                  rightIcon={selectChevron}
+                  showSelectedChipsInPopover={false}
+                  disabled={saving}
+                />
               </div>
               <div className={cn(fieldClass, "sm:col-span-2")}>
                 <span className={labelClass}>{t("dialog.defects")}</span>

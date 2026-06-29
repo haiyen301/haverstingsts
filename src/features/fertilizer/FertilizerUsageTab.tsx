@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlignLeft, ArrowDown, FlaskConical, Layers, MapPin, Pencil, Plus, Sprout, Trash2 } from "lucide-react";
+import { AlignLeft, ArrowDown, ChevronDown, FlaskConical, Layers, MapPin, Pencil, Plus, Sprout, Trash2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { toast } from "react-toastify";
 import {
@@ -57,6 +57,9 @@ const CHART_FILL = "hsl(152,55%,36%)";
 
 const inputClass =
   "flex h-9 w-full min-w-0 rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground shadow-sm outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/35";
+const selectClass =
+  "h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm";
+const selectChevron = <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />;
 const btnPrimary =
   "inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50";
 const btnOutline =
@@ -713,33 +716,36 @@ export function FertilizerUsageTab() {
               </label>
               <label className="space-y-1">
                 <span className="text-xs font-medium">{t("dialog.grass")} *</span>
-                <select
-                  className={inputClass}
-                  value={form.grass_id}
-                  onChange={(e) => setForm((f) => ({ ...f, grass_id: e.target.value, zone_id: "" }))}
-                >
-                  <option value="">{t("dialog.selectGrass")}</option>
-                  {grassOptionsForForm.map((g) => (
-                    <option key={g.id} value={g.id}>
-                      {g.title}
-                    </option>
-                  ))}
-                </select>
+                <MultiSelect
+                  options={grassOptionsForForm.map((g) => ({ value: g.id, label: g.title }))}
+                  values={form.grass_id ? [form.grass_id] : []}
+                  onChange={(next) =>
+                    setForm((f) => ({ ...f, grass_id: next[0] ?? "", zone_id: "" }))
+                  }
+                  multi={false}
+                  placeholder={t("dialog.selectGrass")}
+                  className={selectClass}
+                  rightIcon={selectChevron}
+                  showSelectedChipsInPopover={false}
+                  disabled={saving}
+                />
               </label>
               <label className="space-y-1">
                 <span className="text-xs font-medium">{t("dialog.zone")} *</span>
-                <select
-                  className={inputClass}
-                  value={form.zone_id}
-                  onChange={(e) => setForm((f) => ({ ...f, zone_id: e.target.value }))}
-                >
-                  <option value="">{t("dialog.selectZone")}</option>
-                  {zoneOptions.map(([zoneId, zoneLabel]) => (
-                    <option key={zoneId} value={zoneId}>
-                      {zoneLabel}
-                    </option>
-                  ))}
-                </select>
+                <MultiSelect
+                  options={zoneOptions.map(([zoneId, zoneLabel]) => ({
+                    value: zoneId,
+                    label: zoneLabel,
+                  }))}
+                  values={form.zone_id ? [form.zone_id] : []}
+                  onChange={(next) => setForm((f) => ({ ...f, zone_id: next[0] ?? "" }))}
+                  multi={false}
+                  placeholder={t("dialog.selectZone")}
+                  className={selectClass}
+                  rightIcon={selectChevron}
+                  showSelectedChipsInPopover={false}
+                  disabled={saving || !form.farm_id}
+                />
               </label>
               <label className="col-span-2 space-y-1">
                 <span className="text-xs font-medium">{t("dialog.product")} *</span>

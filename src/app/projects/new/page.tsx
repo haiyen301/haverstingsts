@@ -63,6 +63,10 @@ import {
 import {
   buildPaceGrassBatchQuantitiesAfterPaceChange,
   areAllGrassRequirementsFulfilledByActualHarvests,
+  buildPrivilegedRecalcSupplementalEstimateSeeds,
+  deleteFulfilledGrassEstimateHarvestRows,
+  grassRequirementNeedsPrivilegedRecalcSupplementalSeeds,
+  isGrassRequirementFulfilledByActualHarvests,
   runProjectPaceChangeHarvestRegeneration,
 } from "@/features/project/lib/regenerateEstimateHarvestsOnProjectPaceChange";
 import {
@@ -1676,17 +1680,217 @@ export default function ProjectInputPage() {
           setError(t("privilegedPaceRecalcFetchFailed"));
           return;
         }
-        const { withoutPlanRows } =
+
+        const fulfilledCleanup = await deleteFulfilledGrassEstimateHarvestRows({
+          grassRequirements: grassReqsForPrivilegedRecalc,
+          harvestPlanRows: harvestPlanRowsForRecalcApi,
+          fallbackTableId: resolvedTableId,
+        });
+        if (fulfilledCleanup.deleted > 0) {
+          harvestSnapshotPending = true;
+          plannedHarvestAlertSuffix += t("alertPaceRegenerateDeletedSuffix", {
+            count: fulfilledCleanup.deleted,
+          });
+          try {
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            harvestPlanRowsForRecalcApi =
+              await fetchAllHarvestPlanRowsForProject(
+                projectIdStr,
+                user?.id != null ? Number(user.id) : undefined,
+              );
+          } catch {
+            setError(t("privilegedPaceRecalcFetchFailed"));
+            return;
+          }
+        }
+        if (fulfilledCleanup.failed > 0) {
+          plannedHarvestAlertSuffix += t(
+            "alertPaceRegenerateDeleteFailedSuffix",
+            { count: fulfilledCleanup.failed },
+          );
+          plannedHarvestAlertSeverity = "warning";
+        }
+
+        const grassReqsNeedingEstimates = grassReqsForPrivilegedRecalc.filter(
+          (req) =>
+            !isGrassRequirementFulfilledByActualHarvests(
+              harvestPlanRowsForRecalcApi,
+              req.productId,
+              req.uom,
+              req.loadType,
+              req.totalRequired,
+              grassReqsForPrivilegedRecalc,
+            ),
+        );
+        const partitionedNeedingEstimates =
           partitionGrassRequirementsByHarvestPlanPresence({
-            grassRequirements: grassReqsForPrivilegedRecalc,
+            grassRequirements: grassReqsNeedingEstimates,
             harvestPlanRows: harvestPlanRowsForRecalcApi,
           });
+
+        const canSeedOnPrivilegedRecalc =
+          canRegeneratePaceHarvestsOnEdit &&
+          isProjectPaceForHarvestPlan(paceKeyForSave, projectPaceCatalogRows) &&
+          Boolean(selectedPaceForSave);
+
+        const anchorYmd =
+          formData.estimateStartDate.trim() ||
+          formData.actualStartDate.trim();
+        let anySeedsPersisted = false;
+
+        if (canSeedOnPrivilegedRecalc && selectedPaceForSave && anchorYmd) {
+          const paceConfig = projectPaceConfigFromRow(selectedPaceForSave);
+          const paceSpan = estimatePaceHarvestDateSpan({
+            paceConfig,
+            estimatedStartYmd: anchorYmd,
+          });
+          const withPlanRowsNeedingSupplemental =
+            partitionedNeedingEstimates.withPlanRows.filter((req) =>
+              grassRequirementNeedsPrivilegedRecalcSupplementalSeeds({
+                paceConfig,
+                req,
+                harvestPlanRows: harvestPlanRowsForRecalcApi,
+                allGrassRequirements: grassReqsForPrivilegedRecalc,
+              }),
+            );
+
+          if (withPlanRowsNeedingSupplemental.length > 0) {
+            const supplementalSeeds =
+              buildPrivilegedRecalcSupplementalEstimateSeeds({
+                paceConfig,
+                estimatedStartYmd: anchorYmd,
+                grassRequirements: withPlanRowsNeedingSupplemental,
+                harvestPlanRows: harvestPlanRowsForRecalcApi,
+                zoneConfigurations,
+              });
+            if (supplementalSeeds.length > 0) {
+              setSavePhase("planned_harvests");
+              const { ok: created, fail: createFailed, firstMessage } =
+                await persistPlannedHarvestSeedsForProject({
+                  projectId: projectIdStr,
+                  countryId: formData.country,
+                  customerId: formData.odooCustomerId,
+                  userId: user?.id != null ? String(user.id) : undefined,
+                  seeds: supplementalSeeds,
+                  paceSnapshotSpan: paceSpan,
+                });
+              if (created > 0) {
+                anySeedsPersisted = true;
+                harvestSnapshotPending = true;
+                plannedHarvestAlertSuffix += t(
+                  "alertPlannedHarvestsSavedSuffix",
+                  { count: created },
+                );
+                const url = getInternalStsProxyUrl(
+                  STS_API_PATHS.updateHarvestLimitDescriptions,
+                );
+                void fetch(url, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  credentials: "same-origin",
+                  keepalive: true,
+                  body: JSON.stringify({ project_id: projectIdStr }),
+                }).catch(() => {});
+              }
+              if (createFailed > 0) {
+                plannedHarvestAlertSuffix += t(
+                  "alertPlannedHarvestsFailedSuffix",
+                  {
+                    count: createFailed,
+                    detail: firstMessage
+                      ? t("alertPlannedHarvestFailDetail", {
+                          message: firstMessage,
+                        })
+                      : "",
+                  },
+                );
+                plannedHarvestAlertSeverity = "warning";
+              }
+            }
+          }
+
+          if (partitionedNeedingEstimates.withoutPlanRows.length > 0) {
+            const seeds = generatePlannedHarvestsForNewProject({
+              paceConfig,
+              estimatedStartYmd: anchorYmd,
+              grassRequirements: grassRequirementsToHarvestPlanFormat(
+                partitionedNeedingEstimates.withoutPlanRows,
+              ),
+              zoneConfigurations,
+            });
+            if (seeds.length > 0) {
+              setSavePhase("planned_harvests");
+              const { ok: created, fail: createFailed, firstMessage } =
+                await persistPlannedHarvestSeedsForProject({
+                  projectId: projectIdStr,
+                  countryId: formData.country,
+                  customerId: formData.odooCustomerId,
+                  userId: user?.id != null ? String(user.id) : undefined,
+                  seeds,
+                  paceSnapshotSpan: paceSpan,
+                });
+              if (created > 0) {
+                anySeedsPersisted = true;
+                harvestSnapshotPending = true;
+                plannedHarvestAlertSuffix += t(
+                  "alertPlannedHarvestsSavedSuffix",
+                  { count: created },
+                );
+                const url = getInternalStsProxyUrl(
+                  STS_API_PATHS.updateHarvestLimitDescriptions,
+                );
+                void fetch(url, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  credentials: "same-origin",
+                  keepalive: true,
+                  body: JSON.stringify({ project_id: projectIdStr }),
+                }).catch(() => {});
+              }
+              if (createFailed > 0) {
+                plannedHarvestAlertSuffix += t(
+                  "alertPlannedHarvestsFailedSuffix",
+                  {
+                    count: createFailed,
+                    detail: firstMessage
+                      ? t("alertPlannedHarvestFailDetail", {
+                          message: firstMessage,
+                        })
+                      : "",
+                  },
+                );
+                plannedHarvestAlertSeverity = "warning";
+              }
+            }
+          }
+        }
+
+        if (anySeedsPersisted) {
+          try {
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            harvestPlanRowsForRecalcApi =
+              await fetchAllHarvestPlanRowsForProject(
+                projectIdStr,
+                user?.id != null ? Number(user.id) : undefined,
+              );
+          } catch {
+            setError(t("privilegedPaceRecalcFetchFailed"));
+            return;
+          }
+        }
+
         const { ok, fail } = await runPaceHarvestRecalcForProjectGrassLines({
           projectId: projectIdStr,
-          grassRequirements: grassReqsForPrivilegedRecalc,
+          grassRequirements: grassReqsNeedingEstimates,
           harvestPlanRows: harvestPlanRowsForRecalcApi,
           zoneConfigurations,
         });
+        if (fulfilledCleanup.allRequirementsFulfilled && !anySeedsPersisted) {
+          toast.info(t("paceRequirementFulfilledNoEstimates"), {
+            toastId: "pace-requirement-fulfilled-privileged-recalc",
+          });
+          plannedHarvestAlertSuffix += t("alertPaceRequirementFulfilledSuffix");
+        }
         if (ok > 0) {
           plannedHarvestAlertSuffix += t("alertPaceRecalcSuffix", { ok });
         }
@@ -1698,72 +1902,6 @@ export default function ProjectInputPage() {
         }
         if (ok > 0 || fail > 0) {
           harvestSnapshotPending = true;
-        }
-
-        const canSeedNewGrassLinesOnPrivilegedRecalc =
-          canRegeneratePaceHarvestsOnEdit &&
-          isProjectPaceForHarvestPlan(paceKeyForSave, projectPaceCatalogRows) &&
-          Boolean(selectedPaceForSave) &&
-          withoutPlanRows.length > 0;
-        if (canSeedNewGrassLinesOnPrivilegedRecalc && selectedPaceForSave) {
-          const anchorYmd =
-            formData.estimateStartDate.trim() ||
-            formData.actualStartDate.trim();
-          const paceSpan = estimatePaceHarvestDateSpan({
-            paceConfig: projectPaceConfigFromRow(selectedPaceForSave),
-            estimatedStartYmd: anchorYmd,
-          });
-          const seeds = generatePlannedHarvestsForNewProject({
-            paceConfig: projectPaceConfigFromRow(selectedPaceForSave),
-            estimatedStartYmd: anchorYmd,
-            grassRequirements: grassRequirementsToHarvestPlanFormat(
-              withoutPlanRows,
-            ),
-            zoneConfigurations,
-          });
-          if (seeds.length > 0) {
-            setSavePhase("planned_harvests");
-            const { ok: created, fail: createFailed, firstMessage } =
-              await persistPlannedHarvestSeedsForProject({
-                projectId: projectIdStr,
-                countryId: formData.country,
-                customerId: formData.odooCustomerId,
-                userId: user?.id != null ? String(user.id) : undefined,
-                seeds,
-                paceSnapshotSpan: paceSpan,
-              });
-            if (created > 0) {
-              harvestSnapshotPending = true;
-              plannedHarvestAlertSuffix += t(
-                "alertPlannedHarvestsSavedSuffix",
-                { count: created },
-              );
-              const url = getInternalStsProxyUrl(
-                STS_API_PATHS.updateHarvestLimitDescriptions,
-              );
-              void fetch(url, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                credentials: "same-origin",
-                keepalive: true,
-                body: JSON.stringify({ project_id: projectIdStr }),
-              }).catch(() => {});
-            }
-            if (createFailed > 0) {
-              plannedHarvestAlertSuffix += t(
-                "alertPlannedHarvestsFailedSuffix",
-                {
-                  count: createFailed,
-                  detail: firstMessage
-                    ? t("alertPlannedHarvestFailDetail", {
-                        message: firstMessage,
-                      })
-                    : "",
-                },
-              );
-              plannedHarvestAlertSeverity = "warning";
-            }
-          }
         }
       }
 
