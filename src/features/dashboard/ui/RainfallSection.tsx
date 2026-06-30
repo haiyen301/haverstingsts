@@ -29,6 +29,64 @@ import {
 } from "@/features/dashboard/lib/sortRainfallRecentEntries";
 import { TOAST_CONTAINER_TOP_RIGHT } from "@/shared/ui/AppToasts";
 
+/** Temporary: hide Open Meteo auto rainfall; manual entry only. */
+const RAINFALL_MANUAL_ONLY = true;
+/** Temporary: hide source tooltip (?) on recent entries. */
+const RAINFALL_SOURCE_HINT_VISIBLE = false;
+
+const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function applyManualRainfallOnly(
+  data: RainfallDashboardData,
+  year: number,
+  today: string,
+): RainfallDashboardData {
+  const recent = data.recent.filter((entry) => entry.source === "manual");
+  const monthPrefix = today.slice(0, 7);
+
+  let todayMm = 0;
+  let monthMm = 0;
+  let yearMm = 0;
+  let rainDays = 0;
+  const monthlyTotals = Array.from({ length: 12 }, () => 0);
+
+  for (const entry of recent) {
+    const value = entry.rainfall_mm;
+    if (entry.date.startsWith(String(year))) {
+      yearMm += value;
+      if (value > 0) rainDays += 1;
+      const monthIndex = Number(entry.date.slice(5, 7)) - 1;
+      if (monthIndex >= 0 && monthIndex < 12) {
+        monthlyTotals[monthIndex] += value;
+      }
+    }
+    if (entry.date.startsWith(monthPrefix)) {
+      monthMm += value;
+    }
+    if (entry.date === today) {
+      todayMm += value;
+    }
+  }
+
+  const round = (n: number) => Math.round(n * 100) / 100;
+
+  return {
+    ...data,
+    summary: {
+      today_mm: round(todayMm),
+      month_mm: round(monthMm),
+      year_mm: round(yearMm),
+      rain_days: rainDays,
+    },
+    monthly: MONTH_LABELS.map((month, index) => ({
+      month,
+      mm: round(monthlyTotals[index] ?? 0),
+    })),
+    recent,
+    recent_total: recent.length,
+  };
+}
+
 type FarmFilter = {
   farmId: string;
   farmName: string;
@@ -251,7 +309,7 @@ export function RainfallSection({ farmFilters, selectedFarmIds, scopeFarmIds }: 
         year,
         farmIds: queryFarmIds,
       });
-      setData(payload);
+      setData(RAINFALL_MANUAL_ONLY ? applyManualRainfallOnly(payload, year, today) : payload);
       if (!formFarmId && payload.farms.length > 0) {
         setFormFarmId(String(payload.farms[0]?.farm_id ?? ""));
       }
@@ -262,7 +320,7 @@ export function RainfallSection({ farmFilters, selectedFarmIds, scopeFarmIds }: 
     } finally {
       setLoading(false);
     }
-  }, [formFarmId, queryFarmIds, t, year]);
+  }, [formFarmId, queryFarmIds, t, today, year]);
 
   useEffect(() => {
     void load();
@@ -492,13 +550,15 @@ export function RainfallSection({ farmFilters, selectedFarmIds, scopeFarmIds }: 
                     ) : (
                       <span className="ml-auto font-semibold">{entry.rainfall_mm} mm</span>
                     )}
-                    <RainfallSourceHint
-                      entry={entry}
-                      manualLabel={t("sourceTooltipManual")}
-                      autoLabel={t("sourceTooltipAuto")}
-                      manualWithAutoLabel={(v) => t("sourceTooltipManualWithAuto", v)}
-                      ariaLabel={t("sourceTooltipAria")}
-                    />
+                    {RAINFALL_SOURCE_HINT_VISIBLE && (
+                      <RainfallSourceHint
+                        entry={entry}
+                        manualLabel={t("sourceTooltipManual")}
+                        autoLabel={t("sourceTooltipAuto")}
+                        manualWithAutoLabel={(v) => t("sourceTooltipManualWithAuto", v)}
+                        ariaLabel={t("sourceTooltipAria")}
+                      />
+                    )}
                     {canEditEntry(entry) && (
                       <button
                         type="button"

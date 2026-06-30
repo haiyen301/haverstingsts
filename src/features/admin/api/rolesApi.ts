@@ -20,6 +20,8 @@ export const QUICK_ROLE_MODULES = [
   "admin_key_areas",
   "admin_project_paces",
   "admin_countries",
+  "admin_items",
+  "admin_item_categories",
   "dashboard",
 ] as const;
 
@@ -61,6 +63,8 @@ export const MODULE_ALLOWED_ACTIONS: Record<RoleModule, RoleAction[]> = {
   admin_key_areas: FULL_MODULE_ACTIONS,
   admin_project_paces: FULL_MODULE_ACTIONS,
   admin_countries: FULL_MODULE_ACTIONS,
+  admin_items: FULL_MODULE_ACTIONS,
+  admin_item_categories: FULL_MODULE_ACTIONS,
   dashboard: ["can_show","can_export"],
 };
 
@@ -82,6 +86,8 @@ export const MODULE_SUPPORTS_VIEW_ALL: Record<RoleModule, boolean> = {
   admin_key_areas: true,
   admin_project_paces: true,
   admin_countries: true,
+  admin_items: true,
+  admin_item_categories: true,
   dashboard: true,
 };
 

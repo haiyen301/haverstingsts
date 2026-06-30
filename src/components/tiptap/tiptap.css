@@ -1,0 +1,164 @@
+/**
+ * Tiptap editor styles — scoped to `.tiptap` per
+ * https://tiptap.dev/docs/editor/getting-started/style-editor
+ */
+
+.tiptap {
+  min-height: 12rem;
+  outline: none;
+  background: #fff;
+}
+
+.tiptap p {
+  margin: 0.5em 0;
+}
+
+.tiptap p:first-child {
+  margin-top: 0;
+}
+
+.tiptap p:last-child {
+  margin-bottom: 0;
+}
+
+.tiptap h1,
+.tiptap h2,
+.tiptap h3,
+.tiptap h4 {
+  margin: 0.75em 0 0.35em;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+/* ── Tables (editor + published help content) ── */
+
+.tiptap.prose .tableWrapper,
+.help-rich-content.prose .tableWrapper {
+  overflow-x: auto;
+  margin: 1rem 0;
+  border-radius: 0.5rem;
+  border: 1px solid hsl(var(--border));
+  box-shadow: 0 1px 2px hsl(var(--foreground) / 0.04);
+}
+
+.tiptap.prose table,
+.help-rich-content.prose table {
+  border-collapse: collapse;
+  table-layout: fixed;
+  width: 100%;
+  overflow: hidden;
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
+.tiptap.prose th,
+.tiptap.prose td,
+.help-rich-content.prose th,
+.help-rich-content.prose td {
+  border: 1px solid hsl(var(--border));
+  padding: 0.625rem 0.75rem;
+  vertical-align: top;
+  box-sizing: border-box;
+  position: relative;
+  min-width: 2rem;
+}
+
+.tiptap.prose td:not([data-colwidth]):not(.column-resize-dragging),
+.tiptap.prose th:not([data-colwidth]):not(.column-resize-dragging),
+.help-rich-content.prose td:not([data-colwidth]),
+.help-rich-content.prose th:not([data-colwidth]) {
+  min-width: var(--default-cell-min-width, 6rem);
+}
+
+.tiptap.prose th,
+.help-rich-content.prose th {
+  background: hsl(var(--muted));
+  color: hsl(var(--foreground));
+  font-weight: 600;
+  text-align: left;
+}
+
+.tiptap.prose td {
+  background: #fff;
+}
+
+.help-rich-content.prose tbody tr:nth-child(even) td {
+  background: hsl(var(--muted) / 0.35);
+}
+
+/* Column resize handle (prosemirror-tables) */
+.tiptap .column-resize-handle {
+  position: absolute;
+  right: -2px;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  z-index: 20;
+  background-color: hsl(var(--primary) / 0.55);
+  pointer-events: none;
+}
+
+.tiptap.resize-cursor {
+  cursor: col-resize;
+}
+
+/* Selected cell overlay */
+.tiptap .selectedCell::after {
+  z-index: 2;
+  position: absolute;
+  content: "";
+  inset: 0;
+  background: hsl(var(--primary) / 0.12);
+  pointer-events: none;
+}
+
+.tiptap img,
+.tiptap video,
+.help-rich-content img,
+.help-rich-content video {
+  max-width: 100%;
+  height: auto;
+}
+
+.tiptap iframe,
+.help-rich-content iframe {
+  max-width: 100%;
+}
+
+.tiptap hr,
+.help-rich-content hr {
+  border: none;
+  border-top: 1px solid hsl(var(--border));
+  margin: 1rem 0;
+}
+
+.tiptap a,
+.help-rich-content a {
+  color: hsl(var(--primary));
+  text-decoration: underline;
+}
+
+.tiptap ul,
+.tiptap ol,
+.help-rich-content ul,
+.help-rich-content ol {
+  padding-left: 1.25rem;
+  margin: 0.5em 0;
+}
+
+.tiptap blockquote,
+.help-rich-content blockquote {
+  border-left: 3px solid hsl(var(--border));
+  margin: 0.75em 0;
+  padding-left: 0.75rem;
+  color: hsl(var(--muted-foreground));
+}
+
+.tiptap p.is-editor-empty:first-child::before {
+  color: hsl(var(--muted-foreground));
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}

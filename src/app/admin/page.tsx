@@ -29,6 +29,8 @@ export default async function AdminPage() {
     { module: "admin_key_areas", path: "/admin/keyareas" },
     { module: "admin_project_paces", path: "/admin/project-paces" },
     { module: "admin_countries", path: "/admin/settings/countries" },
+    { module: "admin_items", path: "/admin/settings/items" },
+    { module: "admin_item_categories", path: "/admin/settings/item-categories" },
   ];
 
   const firstAllowed = targets.find((target) =>

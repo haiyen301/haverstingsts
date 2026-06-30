@@ -14,6 +14,7 @@ import {
 import { clearAuthSession, useAuthUserStore } from "@/shared/store/authUserStore";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { LOCALES, type AppLocale } from "@/i18n/config";
+import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/widgets/layout/ThemeToggle";
 
 type SidebarProfileProps = {
@@ -261,11 +262,12 @@ export function SidebarProfile({ onNavigate, compact = false }: SidebarProfilePr
 
   return (
     <div
-      className={`shrink-0 border-t border-sidebar-border bg-sidebar text-sidebar-foreground ${
-        compact ? "p-3" : "px-4 pb-4 pt-3"
-      }`}
+      className={cn(
+        "shrink-0 border-t border-sidebar-border bg-sidebar text-sidebar-foreground",
+        compact ? "px-2 py-3" : "px-3 pb-4 pt-3",
+      )}
     >
-      <div className={`space-y-2 pb-3 ${compact ? "flex flex-col items-center" : ""}`}>
+      <div className={cn("space-y-2.5 pb-3", compact ? "flex flex-col items-center" : "")}>
         {!compact ? (
           <div>
             <p
@@ -343,7 +345,10 @@ export function SidebarProfile({ onNavigate, compact = false }: SidebarProfilePr
       </div>
 
       <div
-        className={`flex items-center gap-2 border-t border-sidebar-border pt-3 ${compact ? "justify-center" : "justify-between"}`}
+        className={cn(
+          "flex items-center gap-2 border-t border-sidebar-border pt-3",
+          compact ? "justify-center" : "justify-between",
+        )}
       >
         {!compact ? (
           <p className="text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/45">
@@ -441,9 +446,10 @@ export function SidebarProfile({ onNavigate, compact = false }: SidebarProfilePr
       <button
         type="button"
         onClick={goProfile}
-        className={`flex w-full items-center rounded-lg p-2 transition-colors hover:bg-muted/80 dark:hover:bg-sidebar-accent/50 ${
-          compact ? "justify-center" : "gap-3 text-left -m-2"
-        }`}
+        className={cn(
+          "mt-3 flex w-full items-center rounded-lg p-2 transition-colors hover:bg-muted/80 dark:hover:bg-sidebar-accent/50",
+          compact ? "justify-center" : "gap-3 text-left",
+        )}
         title={compact ? displayName : undefined}
       >
         {avatarSrc ? (

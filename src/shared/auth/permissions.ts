@@ -41,6 +41,8 @@ export const APP_PERMISSION_MODULES = [
   "admin_key_areas",
   "admin_project_paces",
   "admin_countries",
+  "admin_items",
+  "admin_item_categories",
 ] as const;
 
 export type AppPermissionModule = (typeof APP_PERMISSION_MODULES)[number];
@@ -117,6 +119,15 @@ export function canAccessModule(
     return false;
   }
   return hasModulePermission(moduleName, user, action);
+}
+
+export function canManageHelpKnowledgeBase(
+  user: SessionUser | PermissionMap | null | undefined,
+): boolean {
+  if (isSuperAdmin(user)) return true;
+  const permissions = asPermissionMap(user);
+  const value = permissions.help_and_knowledge_base;
+  return value === "all" || value === true || value === 1 || value === "1";
 }
 
 /**

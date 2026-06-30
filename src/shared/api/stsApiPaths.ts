@@ -166,4 +166,19 @@ export const STS_API_PATHS = {
   forecastQueueStatus: "/api/forecast/queue_status",
   /** POST process one forecast queue job immediately. */
   forecastProcessQueue: "/api/forecast/process_queue",
+  /** Help & knowledge base */
+  help: "/api/help",
+  helpCategories: "/api/help/categories",
+  helpCategory: "/api/help/category",
+  helpSaveCategory: "/api/help/save_category",
+  helpRemoveCategory: "/api/help/remove_category",
+  helpArticles: "/api/help/articles",
+  helpArticle: "/api/help/article",
+  helpSaveArticle: "/api/help/save_article",
+  helpRemoveArticle: "/api/help/remove_article",
+  helpSuggestions: "/api/help/suggestions",
+  helpIncrementView: "/api/help/increment_view",
+  helpCanManage: "/api/help/can_manage",
+  /** POST change password for the logged-in user (`Profile::change_password`). */
+  profileChangePassword: "/api/profile/change_password",
 } as const;
