@@ -495,6 +495,7 @@ export function StockLedgerPanel({
   }, []);
 
   useEffect(() => {
+    if (configuringOpening) return;
     if (!selectedFarmId || openingConfigs.length === 0) return;
     const forFarm = openingConfigs.filter((c) => String(c.farm_id) === selectedFarmId);
     if (forFarm.length === 0) return;
@@ -508,7 +509,13 @@ export function StockLedgerPanel({
       setSelectedKind(String(next.stock_key));
       setSelectedOpeningAnchorDate(rowDateYmd(next));
     }
-  }, [selectedFarmId, openingConfigs, selectedKind, selectedOpeningAnchorDate]);
+  }, [
+    configuringOpening,
+    selectedFarmId,
+    openingConfigs,
+    selectedKind,
+    selectedOpeningAnchorDate,
+  ]);
 
   const restoreBalanceSelection = useCallback(() => {
     const saved = balanceSelectionRef.current;
@@ -638,18 +645,29 @@ export function StockLedgerPanel({
     setView("balance");
   };
 
+  const pickFirstAvailableKind = useCallback(
+    (farmOptionId: string, openingDate: string) =>
+      stockKindOptions.find((kind) =>
+        isComboAvailable(farmOptionId, kind, openingDate),
+      ) ?? "",
+    [stockKindOptions, isComboAvailable],
+  );
+
   const startCreateOpening = () => {
     snapshotBalanceSelection();
     setView("configuredOpenings");
     setCreatingOpening(true);
     setEditingOpening(false);
     setEditingOpeningConfigId(null);
-    setOpeningDateDraft(new Date().toISOString().slice(0, 10));
+    const openingDate = new Date().toISOString().slice(0, 10);
+    setOpeningDateDraft(openingDate);
     setOpeningQty("");
+    setSelectedOpeningAnchorDate("");
     const nextFarm = farmOptions[0];
-    const nextKind = stockKindOptions[0] ?? "";
-    if (nextFarm) setSelectedFarmId(nextFarm.id);
-    if (nextKind) setSelectedKind(nextKind);
+    if (nextFarm) {
+      setSelectedFarmId(nextFarm.id);
+      setSelectedKind(pickFirstAvailableKind(nextFarm.id, openingDate));
+    }
   };
 
   const startEditOpening = (config: OpeningConfig) => {
@@ -714,6 +732,10 @@ export function StockLedgerPanel({
   const handleSaveOpening = async () => {
     if (!farmId) {
       toast.error(t("stock.errors.farmRequired"), { containerId: TOAST_CONTAINER_TOP_RIGHT });
+      return;
+    }
+    if (!selectedKind.trim()) {
+      toast.error(t("stock.errors.openingRequired"), { containerId: TOAST_CONTAINER_TOP_RIGHT });
       return;
     }
     const opening = parseQty(openingQty);
@@ -923,8 +945,32 @@ export function StockLedgerPanel({
       openingDateForCombo,
       editingOpening,
       editingConfig,
+      isComboAvailable,
     ],
   );
+
+  useEffect(() => {
+    if (!creatingOpening || editingOpening) return;
+    if (!selectedFarmId || !openingDateForCombo) return;
+    if (
+      selectedKind &&
+      isComboAvailable(selectedFarmId, selectedKind, openingDateForCombo)
+    ) {
+      return;
+    }
+    const nextKind = pickFirstAvailableKind(selectedFarmId, openingDateForCombo);
+    if (nextKind && nextKind !== selectedKind) {
+      setSelectedKind(nextKind);
+    }
+  }, [
+    creatingOpening,
+    editingOpening,
+    selectedFarmId,
+    selectedKind,
+    openingDateForCombo,
+    isComboAvailable,
+    pickFirstAvailableKind,
+  ]);
 
   const visibleOpeningConfigs = useMemo(
     () => openingConfigs.slice(0, openingListVisibleCount),

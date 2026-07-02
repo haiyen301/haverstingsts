@@ -202,6 +202,17 @@ function staffDisplayName(row: Record<string, unknown>): string {
   return fullNameFromParts || String(row.full_name ?? row.name ?? "").trim();
 }
 
+function usageOperatorLabel(
+  row: Pick<FertilizerUsageRow, "operator_id" | "operator_name">,
+  staffNameById: Map<string, string>,
+): string {
+  const joinedName = String(row.operator_name ?? "").trim();
+  if (joinedName) return joinedName;
+  const operatorId = String(row.operator_id ?? "").trim();
+  if (!operatorId) return "—";
+  return staffNameById.get(operatorId) ?? `#${operatorId}`;
+}
+
 export function FertilizerUsageTab() {
   const t = useTranslations("FertilizerUsage");
   const tHarvest = useTranslations("Harvest");
@@ -292,6 +303,14 @@ export function FertilizerUsageTab() {
       .filter((x): x is { id: string; name: string } => x !== null)
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
   }, [staffs]);
+
+  const staffNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const staff of staffOptions) {
+      map.set(staff.id, staff.name);
+    }
+    return map;
+  }, [staffOptions]);
 
   const productStockKeyOptions = useMemo(
     () =>
@@ -968,7 +987,7 @@ export function FertilizerUsageTab() {
                       </td>
                       <td className="px-4 py-3 tabular-nums">{formatUsageRateDisplay(e)}</td>
                       <td className="px-4 py-3 text-muted-foreground">
-                        {e.operator_name?.trim() || "—"}
+                        {usageOperatorLabel(e, staffNameById)}
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-end gap-1">
