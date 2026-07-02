@@ -37,6 +37,9 @@ import { useMachineryTypes } from "@/features/fleet/hooks/useMachineryTypes";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { formatDateDisplayDmy } from "@/shared/lib/format/date";
+import { canAccessModule } from "@/shared/auth/permissions";
+import { useAuthUserStore } from "@/shared/store/authUserStore";
+import { useFarmUserScope, useScopedFarmSelectOptions } from "@/shared/store/farmUserScope";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { TOAST_CONTAINER_TOP_RIGHT } from "@/shared/ui/AppToasts";
 import { DatePicker } from "@/shared/ui/date-picker";
@@ -120,6 +123,11 @@ function statusLabel(
 
 export function VehicleInspectionsTab() {
   const t = useTranslations("VehicleInspections");
+  const user = useAuthUserStore((s) => s.user);
+  const canCreate = canAccessModule(user, "vehicle_inspections", "create");
+  const canEdit = canAccessModule(user, "vehicle_inspections", "edit");
+  const canDelete = canAccessModule(user, "vehicle_inspections", "delete");
+  const canManageRows = canEdit || canDelete;
   const { types: machineryTypes } = useMachineryTypes();
   const { options: fuelTypeOptions } = useFleetOptionCatalog(
     FLEET_OPTION_CATALOG_KEYS.fuelTypes,
@@ -135,7 +143,8 @@ export function VehicleInspectionsTab() {
     () => ({ diesel: t("fuelKind.diesel"), petrol: t("fuelKind.petrol") }),
     [t],
   );
-  const farms = useHarvestingDataStore((s) => s.farms);
+  const scopedFarmOptions = useScopedFarmSelectOptions("vehicle_inspections");
+  const { scopeIds } = useFarmUserScope("vehicle_inspections");
   const fetchAllHarvestingReferenceData = useHarvestingDataStore(
     (s) => s.fetchAllHarvestingReferenceData,
   );
@@ -190,6 +199,11 @@ export function VehicleInspectionsTab() {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    if (!scopeIds?.length || farmFilter === "all") return;
+    if (!scopeIds.includes(farmFilter)) setFarmFilter("all");
+  }, [farmFilter, scopeIds]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return rows;
@@ -224,15 +238,8 @@ export function VehicleInspectionsTab() {
   );
 
   const farmOptions = useMemo(
-    () =>
-      farms.map((farm) => {
-        const id = String((farm as { id?: unknown }).id ?? "");
-        return {
-          value: id,
-          label: String((farm as { name?: unknown }).name ?? id),
-        };
-      }),
-    [farms],
+    () => scopedFarmOptions.map((farm) => ({ value: farm.id, label: farm.label })),
+    [scopedFarmOptions],
   );
 
   const machineryTypeOptions = useMemo(
@@ -283,12 +290,12 @@ export function VehicleInspectionsTab() {
   }, [dialogOpen, form.item_ids, fuelKindForItem]);
 
   const openCreate = () => {
-    const firstFarm = farms[0] as { id?: unknown } | undefined;
+    const firstFarm = scopedFarmOptions[0];
     const defaultStatus = statuses[0]?.value ?? "pass";
     setEditingId(null);
     setForm(
       emptyForm(
-        firstFarm ? String(firstFarm.id ?? "") : "",
+        firstFarm ? firstFarm.id : "",
         defaultStatus,
         machineryTypes[0] ?? "",
       ),
@@ -433,10 +440,12 @@ export function VehicleInspectionsTab() {
           <h1 className="text-2xl font-semibold">{t("title")}</h1>
           <p className="mt-1 text-sm text-muted-foreground">{t("subtitle")}</p>
         </div>
-        <button type="button" className={btnPrimary} onClick={openCreate}>
-          <Plus className="h-4 w-4" />
-          {t("newInspection")}
-        </button>
+        {canCreate ? (
+          <button type="button" className={btnPrimary} onClick={openCreate}>
+            <Plus className="h-4 w-4" />
+            {t("newInspection")}
+          </button>
+        ) : null}
       </div>
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
@@ -499,7 +508,9 @@ export function VehicleInspectionsTab() {
                     <th className="px-4 py-3 text-left font-medium">{t("table.nextDue")}</th>
                     <th className="px-4 py-3 text-left font-medium">{t("table.defects")}</th>
                     <th className="px-4 py-3 text-left font-medium">{t("table.status")}</th>
-                    <th className="px-4 py-3 text-right font-medium">{t("table.actions")}</th>
+                    {canManageRows ? (
+                      <th className="px-4 py-3 text-right font-medium">{t("table.actions")}</th>
+                    ) : null}
                   </tr>
                 </thead>
                 <tbody>
@@ -551,21 +562,27 @@ export function VehicleInspectionsTab() {
                             {statusLabel(statuses, v.status, t)}
                           </span>
                         </td>
-                        <td className="px-4 py-3">
-                          <div className="flex justify-end gap-1">
-                            <button type="button" className={btnGhost} disabled={saving} onClick={() => openEdit(v)}>
-                              <Pencil className="h-3.5 w-3.5" />
-                            </button>
-                            <button type="button" className={cn(btnGhost, "text-destructive hover:bg-destructive/10")} disabled={saving} onClick={() => void handleDelete(v)}>
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
-                        </td>
+                        {canManageRows ? (
+                          <td className="px-4 py-3">
+                            <div className="flex justify-end gap-1">
+                              {canEdit ? (
+                                <button type="button" className={btnGhost} disabled={saving} onClick={() => openEdit(v)}>
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </button>
+                              ) : null}
+                              {canDelete ? (
+                                <button type="button" className={cn(btnGhost, "text-destructive hover:bg-destructive/10")} disabled={saving} onClick={() => void handleDelete(v)}>
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              ) : null}
+                            </div>
+                          </td>
+                        ) : null}
                       </tr>
                     );
                   })}
                   {filtered.length === 0 ? (
-                    <tr><td colSpan={10} className="px-4 py-8 text-center text-muted-foreground">{t("table.empty")}</td></tr>
+                    <tr><td colSpan={canManageRows ? 10 : 9} className="px-4 py-8 text-center text-muted-foreground">{t("table.empty")}</td></tr>
                   ) : null}
                 </tbody>
               </table>

@@ -85,7 +85,7 @@ export const MODULE_ALLOWED_ACTIONS: Record<RoleModule, RoleAction[]> = {
   admin_machinery_types: STANDARD_MODULE_ACTIONS,
   admin_fleet_option_catalogs: STANDARD_MODULE_ACTIONS,
   admin_equipment_category: STANDARD_MODULE_ACTIONS,
-  dashboard: ["can_show", "can_edit", "can_create", "can_delete"],
+  dashboard: ["can_show", "can_edit", "can_create", "can_delete", "can_export"],
 };
 
 /** Modules that expose the "view all data" permission in the roles UI. */

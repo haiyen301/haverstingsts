@@ -218,7 +218,11 @@ export function FertilizerUsageTab() {
   const tHarvest = useTranslations("Harvest");
   const searchParams = useSearchParams();
   const user = useAuthUserStore((s) => s.user);
-  const canExport = canAccessModule(user, "harvests", "export");
+  const canCreate = canAccessModule(user, "fertilizer_usage", "create");
+  const canEdit = canAccessModule(user, "fertilizer_usage", "edit");
+  const canDelete = canAccessModule(user, "fertilizer_usage", "delete");
+  const canExport = canAccessModule(user, "fertilizer_usage", "export");
+  const canManageRows = canEdit || canDelete;
   const farms = useHarvestingDataStore((s) => s.farms);
   const grasses = useHarvestingDataStore((s) => s.grasses);
   const staffs = useHarvestingDataStore((s) => s.staffs);
@@ -234,7 +238,7 @@ export function FertilizerUsageTab() {
     setSelectedFarmIds,
     farmOptions,
     farmNameById: scopedFarmNameById,
-  } = useSyncedFarmMultiSelect("harvests");
+  } = useSyncedFarmMultiSelect("fertilizer_usage");
 
   const [products, setProducts] = useState<ItemCatalogRow[]>([]);
   const [entries, setEntries] = useState<FertilizerUsageRow[]>([]);
@@ -632,9 +636,8 @@ export function FertilizerUsageTab() {
   }, [form.farm_id, grasses, zoneRowsForForm]);
 
   const openCreate = () => {
-    const firstFarm = farms[0] as { id?: unknown } | undefined;
     setEditingId(null);
-    setForm(emptyForm(firstFarm ? String(firstFarm.id ?? "") : ""));
+    setForm(emptyForm(farmOptions[0]?.id ?? ""));
     setDialogOpen(true);
   };
 
@@ -782,10 +785,12 @@ export function FertilizerUsageTab() {
           <p className="mt-1 text-sm text-muted-foreground">{t("subtitle")}</p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
-          <button type="button" className={btnPrimary} onClick={openCreate}>
-            <Plus className="h-4 w-4" />
-            {t("logApplication")}
-          </button>
+          {canCreate ? (
+            <button type="button" className={btnPrimary} onClick={openCreate}>
+              <Plus className="h-4 w-4" />
+              {t("logApplication")}
+            </button>
+          ) : null}
           <button type="button" className={btnOutline} onClick={() => setBalanceOpen(true)}>
             <Package className="h-4 w-4" />
             {t("stock.balanceButton")}
@@ -916,7 +921,9 @@ export function FertilizerUsageTab() {
                     <th className="px-4 py-3 text-right font-medium">{t("table.remaining")}</th>
                     <th className="px-4 py-3 text-left font-medium">{t("table.rate")}</th>
                     <th className="px-4 py-3 text-left font-medium">{t("table.operator")}</th>
-                    <th className="px-4 py-3 text-right font-medium">{t("table.actions")}</th>
+                    {canManageRows ? (
+                      <th className="px-4 py-3 text-right font-medium">{t("table.actions")}</th>
+                    ) : null}
                   </tr>
                 </thead>
                 <tbody>
@@ -989,32 +996,38 @@ export function FertilizerUsageTab() {
                       <td className="px-4 py-3 text-muted-foreground">
                         {usageOperatorLabel(e, staffNameById)}
                       </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center justify-end gap-1">
-                          <button
-                            type="button"
-                            className={btnGhost}
-                            disabled={saving}
-                            onClick={() => openEdit(e)}
-                            aria-label={t("dialog.editTitle")}
-                          >
-                            <Pencil className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            className={cn(btnGhost, "text-destructive hover:bg-destructive/10")}
-                            disabled={saving}
-                            onClick={() => void handleDelete(e)}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      </td>
+                      {canManageRows ? (
+                        <td className="px-4 py-3">
+                          <div className="flex items-center justify-end gap-1">
+                            {canEdit ? (
+                              <button
+                                type="button"
+                                className={btnGhost}
+                                disabled={saving}
+                                onClick={() => openEdit(e)}
+                                aria-label={t("dialog.editTitle")}
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                            ) : null}
+                            {canDelete ? (
+                              <button
+                                type="button"
+                                className={cn(btnGhost, "text-destructive hover:bg-destructive/10")}
+                                disabled={saving}
+                                onClick={() => void handleDelete(e)}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            ) : null}
+                          </div>
+                        </td>
+                      ) : null}
                     </tr>
                   ))}
                   {filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={11} className="px-4 py-8 text-center text-muted-foreground">
+                      <td colSpan={canManageRows ? 11 : 10} className="px-4 py-8 text-center text-muted-foreground">
                         {t("table.empty")}
                       </td>
                     </tr>
@@ -1122,14 +1135,11 @@ export function FertilizerUsageTab() {
                   }
                 >
                   <option value="">{t("dialog.selectFarm")}</option>
-                  {farms.map((farm) => {
-                    const id = String((farm as { id?: unknown }).id ?? "");
-                    return (
-                      <option key={id} value={id}>
-                        {String((farm as { name?: unknown }).name ?? id)}
-                      </option>
-                    );
-                  })}
+                  {farmOptions.map((farm) => (
+                    <option key={farm.id} value={farm.id}>
+                      {farm.label}
+                    </option>
+                  ))}
                 </select>
               </label>
               <label className="space-y-1">
@@ -1220,16 +1230,13 @@ export function FertilizerUsageTab() {
                     }
                   >
                     <option value="">{t("dialog.selectTransferFarm")}</option>
-                    {farms
-                      .filter((farm) => String((farm as { id?: unknown }).id ?? "") !== form.farm_id)
-                      .map((farm) => {
-                        const id = String((farm as { id?: unknown }).id ?? "");
-                        return (
-                          <option key={id} value={id}>
-                            {String((farm as { name?: unknown }).name ?? id)}
-                          </option>
-                        );
-                      })}
+                    {farmOptions
+                      .filter((farm) => farm.id !== form.farm_id)
+                      .map((farm) => (
+                        <option key={farm.id} value={farm.id}>
+                          {farm.label}
+                        </option>
+                      ))}
                   </select>
                 </label>
               ) : null}

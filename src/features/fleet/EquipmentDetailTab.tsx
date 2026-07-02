@@ -13,6 +13,7 @@ import {
   Plus,
   Settings,
   Tag,
+  Trash2,
   User,
   Wrench,
   X,
@@ -24,6 +25,7 @@ import { toast } from "react-toastify";
 import {
   fetchEquipmentDetail,
   formatEquipmentCost,
+  removeEquipment,
   removeEquipmentServiceLog,
   saveEquipmentServiceLog,
   type EquipmentDetail,
@@ -35,6 +37,8 @@ import { FLEET_OPTION_CATALOG_KEYS } from "@/features/fleet/api/fleetOptionCatal
 import { fetchStaffOptions } from "@/features/fleet/api/machineryApi";
 import { useFleetOptionCatalog } from "@/features/fleet/hooks/useFleetOptionCatalog";
 import { equipmentCardModelTitle } from "@/features/fleet/lib/equipmentModelDisplay";
+import { EquipmentFormDialog } from "@/features/fleet/ui/EquipmentFormDialog";
+import { canAccessModule } from "@/shared/auth/permissions";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { formatDateDisplay } from "@/shared/lib/format/date";
@@ -45,6 +49,8 @@ import {
   parseDecimalField,
 } from "@/shared/lib/format/number";
 import { TOAST_CONTAINER_TOP_RIGHT } from "@/shared/ui/AppToasts";
+import { ConfirmDeleteDialog } from "@/shared/ui/ConfirmDeleteDialog";
+import { useAuthUserStore } from "@/shared/store/authUserStore";
 import { DatePicker } from "@/shared/ui/date-picker";
 
 const inputClass =
@@ -113,10 +119,20 @@ type Props = {
   returnTo?: string;
 };
 
+type DeleteConfirmTarget =
+  | { kind: "equipment" }
+  | { kind: "serviceLog"; log: EquipmentServiceLog };
+
 export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" }: Props) {
   const t = useTranslations("EquipmentDetail");
   const tEq = useTranslations("Equipment");
+  const tCommon = useTranslations("Common");
   const router = useRouter();
+  const user = useAuthUserStore((s) => s.user);
+  const canEdit = canAccessModule(user, "equipment", "edit");
+  const canCreate = canAccessModule(user, "equipment", "create");
+  const canDelete = canAccessModule(user, "equipment", "delete");
+  const canManageLogs = canEdit || canDelete;
   const { values: catalogServiceTypes } = useFleetOptionCatalog(
     FLEET_OPTION_CATALOG_KEYS.equipmentServiceTypes,
   );
@@ -128,6 +144,9 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
   const [selectedLog, setSelectedLog] = useState<EquipmentServiceLog | null>(null);
   const [logFormOpen, setLogFormOpen] = useState(false);
   const [logForm, setLogForm] = useState<ServiceLogForm>(emptyServiceLogForm());
+  const [editEquipmentOpen, setEditEquipmentOpen] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState<DeleteConfirmTarget | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -269,8 +288,8 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
   };
 
   const handleRemoveLog = async (log: EquipmentServiceLog) => {
-    if (!window.confirm(t("deleteServiceConfirm"))) return;
     try {
+      setDeleting(true);
       const result = await removeEquipmentServiceLog(log.id, equipmentId);
       setDetail((prev) =>
         prev
@@ -282,13 +301,50 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
           : prev,
       );
       setSelectedLog(null);
+      setLogFormOpen(false);
+      setDeleteConfirm(null);
       toast.success(t("serviceDeleted"), { containerId: TOAST_CONTAINER_TOP_RIGHT });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t("errors.delete"), {
         containerId: TOAST_CONTAINER_TOP_RIGHT,
       });
+    } finally {
+      setDeleting(false);
     }
   };
+
+  const handleDeleteEquipment = async () => {
+    try {
+      setDeleting(true);
+      await removeEquipment(equipmentId);
+      toast.success(t("deleted"), { containerId: TOAST_CONTAINER_TOP_RIGHT });
+      router.push(returnTo);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t("errors.deleteEquipment"), {
+        containerId: TOAST_CONTAINER_TOP_RIGHT,
+      });
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const deleteDialogCopy = useMemo(() => {
+    if (!deleteConfirm) return null;
+    if (deleteConfirm.kind === "equipment") {
+      return {
+        title: t("deleteEquipmentConfirmTitle"),
+        message: t("deleteEquipmentConfirmMessage", {
+          name: eq ? `${eq.brand} ${titleModel}`.trim() : "",
+        }),
+      };
+    }
+    return {
+      title: t("deleteServiceConfirmTitle"),
+      message: t("deleteServiceConfirmMessage", {
+        date: formatDateDisplay(deleteConfirm.log.service_date),
+      }),
+    };
+  }, [deleteConfirm, eq, t, titleModel]);
 
   if (loading) {
     return <p className="p-8 text-sm text-muted-foreground">{tEq("loading")}</p>;
@@ -323,6 +379,32 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
           </div>
           <p className="text-sm text-muted-foreground">{eq.type}</p>
         </div>
+        {canEdit || canDelete ? (
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            {canEdit ? (
+              <button
+                type="button"
+                className={btnOutline}
+                disabled={saving}
+                onClick={() => setEditEquipmentOpen(true)}
+              >
+                <Pencil className="h-4 w-4" />
+                {t("editEquipment")}
+              </button>
+            ) : null}
+            {canDelete ? (
+              <button
+                type="button"
+                className={cn(btnOutline, "text-destructive hover:bg-destructive/10")}
+                disabled={saving || deleting}
+                onClick={() => setDeleteConfirm({ kind: "equipment" })}
+              >
+                <Trash2 className="h-4 w-4" />
+                {t("deleteEquipment")}
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
@@ -415,10 +497,12 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
         <CardContent className="p-5">
           <div className="mb-4 flex items-center justify-between gap-3">
             <p className="text-base font-semibold">{t("serviceHistory")}</p>
-            <button type="button" className={btnPrimary} onClick={openAddLog}>
-              <Plus className="h-4 w-4" />
-              {t("addService")}
-            </button>
+            {canCreate ? (
+              <button type="button" className={btnPrimary} onClick={openAddLog}>
+                <Plus className="h-4 w-4" />
+                {t("addService")}
+              </button>
+            ) : null}
           </div>
 
           {logs.length === 0 ? (
@@ -433,7 +517,10 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
                     <th className="pb-2 pr-3 font-medium">{t("table.description")}</th>
                     <th className="pb-2 pr-3 text-right font-medium">{t("table.hours")}</th>
                     <th className="pb-2 pr-3 text-right font-medium">{t("table.cost")}</th>
-                    <th className="pb-2 font-medium">{t("table.performedBy")}</th>
+                    <th className="pb-2 pr-3 font-medium">{t("table.performedBy")}</th>
+                    {canManageLogs ? (
+                      <th className="pb-2 text-right font-medium">{t("table.actions")}</th>
+                    ) : null}
                   </tr>
                 </thead>
                 <tbody>
@@ -459,7 +546,41 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
                         {formatNumber(log.hours_at_service, { maximumFractionDigits: 2 })}
                       </td>
                       <td className="py-3 pr-3 text-right">{formatEquipmentCost(log.cost)}</td>
-                      <td className="py-3">{log.performed_by_name || "—"}</td>
+                      <td className="py-3 pr-3">{log.performed_by_name || "—"}</td>
+                      {canManageLogs ? (
+                        <td className="py-3">
+                          <div className="flex items-center justify-end gap-1">
+                            {canEdit ? (
+                              <button
+                                type="button"
+                                className={btnGhost}
+                                disabled={saving}
+                                aria-label={t("editService")}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openEditLog(log);
+                                }}
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                            ) : null}
+                            {canDelete ? (
+                              <button
+                                type="button"
+                                className={cn(btnGhost, "text-destructive hover:bg-destructive/10")}
+                                disabled={saving}
+                                aria-label={t("deleteService")}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setDeleteConfirm({ kind: "serviceLog", log });
+                                }}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            ) : null}
+                          </div>
+                        </td>
+                      ) : null}
                     </tr>
                   ))}
                 </tbody>
@@ -557,18 +678,42 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
             </div>
 
             <div className="mt-6 flex justify-end gap-2">
-              <button
-                type="button"
-                className={btnOutline}
-                onClick={() => openEditLog(selectedLog)}
-              >
-                <Pencil className="h-4 w-4" />
-                {t("editService")}
-              </button>
+              {canEdit ? (
+                <button
+                  type="button"
+                  className={btnOutline}
+                  onClick={() => openEditLog(selectedLog)}
+                >
+                  <Pencil className="h-4 w-4" />
+                  {t("editService")}
+                </button>
+              ) : null}
+              {canDelete ? (
+                <button
+                  type="button"
+                  className={cn(btnOutline, "text-destructive hover:bg-destructive/10")}
+                  disabled={saving || deleting}
+                  onClick={() => setDeleteConfirm({ kind: "serviceLog", log: selectedLog })}
+                >
+                  <Trash2 className="h-4 w-4" />
+                  {t("deleteService")}
+                </button>
+              ) : null}
             </div>
           </div>
         </div>
       ) : null}
+
+      <EquipmentFormDialog
+        open={editEquipmentOpen}
+        onClose={() => setEditEquipmentOpen(false)}
+        equipment={eq}
+        onSaved={(row) => {
+          setDetail((prev) =>
+            prev ? { ...prev, equipment: row } : prev,
+          );
+        }}
+      />
 
       {logFormOpen ? (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
@@ -663,14 +808,14 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
               </label>
             </div>
             <div className="mt-6 flex justify-between gap-2">
-              {logForm.id ? (
+              {logForm.id && canDelete ? (
                 <button
                   type="button"
                   className={cn(btnOutline, "text-red-600 hover:bg-red-50")}
                   disabled={saving}
                   onClick={() => {
                     const log = logs.find((l) => l.id === logForm.id);
-                    if (log) void handleRemoveLog(log);
+                    if (log) setDeleteConfirm({ kind: "serviceLog", log });
                   }}
                 >
                   {t("deleteService")}
@@ -695,6 +840,27 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
           </div>
         </div>
       ) : null}
+
+      <ConfirmDeleteDialog
+        open={deleteConfirm != null && deleteDialogCopy != null}
+        title={deleteDialogCopy?.title ?? tCommon("confirmDeleteTitle")}
+        message={deleteDialogCopy?.message ?? tCommon("confirmDeleteMessage")}
+        cancelLabel={tCommon("cancel")}
+        confirmLabel={tCommon("delete")}
+        deleting={deleting}
+        deletingLabel={tCommon("deleting")}
+        onCancel={() => {
+          if (!deleting) setDeleteConfirm(null);
+        }}
+        onConfirm={() => {
+          if (!deleteConfirm || deleting) return;
+          if (deleteConfirm.kind === "equipment") {
+            void handleDeleteEquipment();
+            return;
+          }
+          void handleRemoveLog(deleteConfirm.log);
+        }}
+      />
     </div>
   );
 }

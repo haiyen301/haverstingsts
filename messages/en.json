@@ -3296,8 +3296,16 @@
     "register": "Register Equipment",
     "registerSubmit": "Register Equipment",
     "createTitle": "Register New Equipment",
+    "editTitle": "Edit Equipment",
+    "saveChanges": "Save Changes",
     "cancel": "Cancel",
     "saved": "Equipment registered",
+    "updated": "Equipment updated",
+    "deleted": "Equipment removed",
+    "deleteEquipment": "Delete Equipment",
+    "deleteConfirmTitle": "Delete equipment?",
+    "deleteConfirmMessage": "Remove {name} from the active equipment list? This is a soft delete.",
+    "deleteConfirm": "Delete this equipment record?",
     "loading": "Loading…",
     "search": "Search equipment…",
     "empty": "No equipment matches your filters.",
@@ -3344,11 +3352,20 @@
     "errors": {
       "load": "Failed to load equipment.",
       "save": "Failed to register equipment.",
+      "delete": "Failed to delete equipment.",
       "requiredFields": "Equipment, type and location are required."
     }
   },
   "EquipmentDetail": {
     "back": "Back",
+    "editEquipment": "Edit Equipment",
+    "deleteEquipment": "Delete Equipment",
+    "deleteEquipmentConfirmTitle": "Delete equipment?",
+    "deleteEquipmentConfirmMessage": "Remove {name} from the active equipment list? This is a soft delete.",
+    "deleteServiceConfirmTitle": "Delete service record?",
+    "deleteServiceConfirmMessage": "Remove the service record from {date}? This is a soft delete.",
+    "deleteEquipmentConfirm": "Delete this equipment record?",
+    "deleted": "Equipment removed",
     "notFound": "Equipment not found.",
     "engineCode": "Engine Code",
     "location": "Location",
@@ -3377,12 +3394,14 @@
       "description": "Description",
       "hours": "Hours",
       "cost": "Cost",
-      "performedBy": "Performed By"
+      "performedBy": "Performed By",
+      "actions": "Actions"
     },
     "errors": {
       "load": "Failed to load equipment detail.",
       "save": "Failed to save service record.",
       "delete": "Failed to delete service record.",
+      "deleteEquipment": "Failed to delete equipment.",
       "requiredFields": "Service date is required.",
       "invalidNumber": "Enter a valid number (e.g. 1,234.56)."
     }

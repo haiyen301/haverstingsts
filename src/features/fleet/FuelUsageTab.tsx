@@ -67,7 +67,9 @@ import {
   kpiDateRangeFromFilter,
 } from "@/shared/lib/dashboardKpiProjectFilters";
 import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
+import { canAccessModule } from "@/shared/auth/permissions";
 import { useSyncedFarmMultiSelect } from "@/shared/hooks/useSyncedFarmMultiSelect";
+import { useAuthUserStore } from "@/shared/store/authUserStore";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { TOAST_CONTAINER_TOP_RIGHT } from "@/shared/ui/AppToasts";
 import { MultiSelect } from "@/shared/ui/multi-select";
@@ -156,6 +158,12 @@ function inspectionVehicleLabel(row: VehicleInspectionRow): string {
 
 export function FuelUsageTab() {
   const t = useTranslations("FuelUsage");
+  const user = useAuthUserStore((s) => s.user);
+  const canCreate = canAccessModule(user, "fuel_usage", "create");
+  const canEdit = canAccessModule(user, "fuel_usage", "edit");
+  const canDelete = canAccessModule(user, "fuel_usage", "delete");
+  const canExport = canAccessModule(user, "fuel_usage", "export");
+  const canManageRows = canEdit || canDelete;
   const { types: machineryTypes } = useMachineryTypes();
   const { options: fuelTypeOptions } = useFleetOptionCatalog(
     FLEET_OPTION_CATALOG_KEYS.fuelTypes,
@@ -181,7 +189,7 @@ export function FuelUsageTab() {
     setSelectedFarmIds,
     farmOptions,
     farmNameById: scopedFarmNameById,
-  } = useSyncedFarmMultiSelect("harvests");
+  } = useSyncedFarmMultiSelect("fuel_usage");
 
   const [entries, setEntries] = useState<FuelUsageRow[]>([]);
   const [ledgerRows, setLedgerRows] = useState<FleetStockLedgerRow[]>([]);
@@ -400,9 +408,8 @@ export function FuelUsageTab() {
   const avgPerEntry = filtered.length > 0 ? totalLitres / filtered.length : 0;
 
   const openCreate = () => {
-    const firstFarm = farms[0] as { id?: unknown } | undefined;
     setEditingId(null);
-    setForm(emptyForm(firstFarm ? String(firstFarm.id ?? "") : ""));
+    setForm(emptyForm(farmOptions[0]?.id ?? ""));
     setDialogOpen(true);
   };
 
@@ -554,18 +561,22 @@ export function FuelUsageTab() {
           <p className="mt-1 text-sm text-muted-foreground">{t("subtitle")}</p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2">
-          <button type="button" className={btnPrimary} onClick={openCreate}>
-            <Plus className="h-4 w-4" />
-            {t("logFuel")}
-          </button>
+          {canCreate ? (
+            <button type="button" className={btnPrimary} onClick={openCreate}>
+              <Plus className="h-4 w-4" />
+              {t("logFuel")}
+            </button>
+          ) : null}
           <button type="button" className={btnOutline} onClick={() => setBalanceOpen(true)}>
             <Package className="h-4 w-4" />
             {t("stock.balanceButton")}
           </button>
-          <button type="button" className={btnOutline} onClick={() => setExportOpen(true)}>
-            <Download className="h-4 w-4" />
-            {t("export.button")}
-          </button>
+          {canExport ? (
+            <button type="button" className={btnOutline} onClick={() => setExportOpen(true)}>
+              <Download className="h-4 w-4" />
+              {t("export.button")}
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -653,7 +664,9 @@ export function FuelUsageTab() {
                     <th className="px-4 py-3 text-left font-medium">{t("table.odometer")}</th>
                     <th className="px-4 py-3 text-left font-medium">{t("table.operator")}</th>
                     <th className="px-4 py-3 text-left font-medium">{t("table.purpose")}</th>
-                    <th className="px-4 py-3 text-right font-medium">{t("table.actions")}</th>
+                    {canManageRows ? (
+                      <th className="px-4 py-3 text-right font-medium">{t("table.actions")}</th>
+                    ) : null}
                   </tr>
                 </thead>
                 <tbody>
@@ -726,32 +739,38 @@ export function FuelUsageTab() {
                       <td className="max-w-[200px] truncate px-4 py-3 text-xs text-muted-foreground">
                         {e.purpose?.trim() || "—"}
                       </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center justify-end gap-1">
-                          <button
-                            type="button"
-                            className={btnGhost}
-                            disabled={saving}
-                            onClick={() => openEdit(e)}
-                            aria-label={t("dialog.editTitle")}
-                          >
-                            <Pencil className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            className={cn(btnGhost, "text-destructive hover:bg-destructive/10")}
-                            disabled={saving}
-                            onClick={() => void handleDelete(e)}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      </td>
+                      {canManageRows ? (
+                        <td className="px-4 py-3">
+                          <div className="flex items-center justify-end gap-1">
+                            {canEdit ? (
+                              <button
+                                type="button"
+                                className={btnGhost}
+                                disabled={saving}
+                                onClick={() => openEdit(e)}
+                                aria-label={t("dialog.editTitle")}
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                            ) : null}
+                            {canDelete ? (
+                              <button
+                                type="button"
+                                className={cn(btnGhost, "text-destructive hover:bg-destructive/10")}
+                                disabled={saving}
+                                onClick={() => void handleDelete(e)}
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            ) : null}
+                          </div>
+                        </td>
+                      ) : null}
                     </tr>
                   ))}
                   {filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={11} className="px-4 py-8 text-center text-muted-foreground">
+                      <td colSpan={canManageRows ? 11 : 10} className="px-4 py-8 text-center text-muted-foreground">
                         {t("table.empty")}
                       </td>
                     </tr>
@@ -851,14 +870,11 @@ export function FuelUsageTab() {
                   onChange={(e) => handleFarmChange(e.target.value)}
                 >
                   <option value="">{t("dialog.selectFarm")}</option>
-                  {farms.map((farm) => {
-                    const id = String((farm as { id?: unknown }).id ?? "");
-                    return (
-                      <option key={id} value={id}>
-                        {String((farm as { name?: unknown }).name ?? id)}
-                      </option>
-                    );
-                  })}
+                  {farmOptions.map((farm) => (
+                    <option key={farm.id} value={farm.id}>
+                      {farm.label}
+                    </option>
+                  ))}
                 </select>
               </label>
               <label className="space-y-1">

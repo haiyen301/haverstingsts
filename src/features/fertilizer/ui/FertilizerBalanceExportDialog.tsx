@@ -115,7 +115,7 @@ export function FertilizerBalanceExportDialog({
   const tHarvest = useTranslations("Harvest");
   const tCommon = useTranslations("Common");
   const user = useAuthUserStore((s) => s.user);
-  const canExport = canAccessModule(user, "harvests", "export");
+  const canExport = canAccessModule(user, "fertilizer_usage", "export");
 
   const [selectedFarmIds, setSelectedFarmIds] = useState<string[]>(initialFarmIds);
   const [fromYear, setFromYear] = useState(initialYear);
