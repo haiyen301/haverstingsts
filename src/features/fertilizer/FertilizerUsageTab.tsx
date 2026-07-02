@@ -53,6 +53,7 @@ import {
 import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
 import { farmAliasDisplayLabel } from "@/shared/lib/farmAliasDisplay";
 import { buildItemCatalogSelectOption } from "@/shared/lib/format/itemProductCodes";
+import { useHarvestingReferenceHydrated } from "@/shared/hooks/useHarvestingReferenceHydrated";
 import { useSyncedFarmMultiSelect } from "@/shared/hooks/useSyncedFarmMultiSelect";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { TOAST_CONTAINER_TOP_RIGHT } from "@/shared/ui/AppToasts";
@@ -69,6 +70,7 @@ import {
   usageRowHasBalance,
   usageRowRemainingBalance,
 } from "@/features/fertilizer/lib/fertilizerUsageBalance";
+import { fetchStaffOptions } from "@/features/fleet/api/machineryApi";
 import { fetchFleetStockLedger, type FleetStockLedgerRow } from "@/features/fleet/api/fleetStockLedgerApi";
 import { canAccessModule } from "@/shared/auth/permissions";
 import { useAuthUserStore } from "@/shared/store/authUserStore";
@@ -209,11 +211,13 @@ export function FertilizerUsageTab() {
   const farms = useHarvestingDataStore((s) => s.farms);
   const grasses = useHarvestingDataStore((s) => s.grasses);
   const staffs = useHarvestingDataStore((s) => s.staffs);
+  const setStaffs = useHarvestingDataStore((s) => s.setStaffs);
   const farmZones = useHarvestingDataStore((s) => s.farmZones);
   const zoneConfigurations = useHarvestingDataStore((s) => s.zoneConfigurations);
   const fetchAllHarvestingReferenceData = useHarvestingDataStore(
     (s) => s.fetchAllHarvestingReferenceData,
   );
+  const referenceHydrated = useHarvestingReferenceHydrated();
   const {
     selectedFarmIds,
     setSelectedFarmIds,
@@ -280,9 +284,10 @@ export function FertilizerUsageTab() {
     return (staffs as unknown[])
       .filter((s): s is Record<string, unknown> => !!s && typeof s === "object")
       .map((s) => {
-        const name = staffDisplayName(s);
-        if (!name) return null;
-        return { id: String(s.id ?? "").trim(), name };
+        const id = String(s.id ?? "").trim();
+        if (!id) return null;
+        const name = staffDisplayName(s) || `#${id}`;
+        return { id, name };
       })
       .filter((x): x is { id: string; name: string } => x !== null)
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
@@ -381,8 +386,20 @@ export function FertilizerUsageTab() {
   }, [loadBalanceData]);
 
   useEffect(() => {
+    if (!referenceHydrated) return;
     void fetchAllHarvestingReferenceData(false);
-  }, [fetchAllHarvestingReferenceData]);
+  }, [referenceHydrated, fetchAllHarvestingReferenceData]);
+
+  useEffect(() => {
+    if (!referenceHydrated || staffs.length > 0) return;
+    void fetchStaffOptions()
+      .then((rows) => {
+        if (Array.isArray(rows) && rows.length > 0) {
+          setStaffs(rows as unknown[]);
+        }
+      })
+      .catch(() => {});
+  }, [referenceHydrated, staffs.length, setStaffs]);
 
   useEffect(() => {
     void load();
