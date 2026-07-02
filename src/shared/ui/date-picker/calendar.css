@@ -196,3 +196,43 @@
 .sts-calendar .rdp-disabled.sts-calendar-day-marked .rdp-day_button::after {
   background-color: hsl(var(--success));
 }
+
+/* Fuel stock balance days — lucide fuel icon under the day number */
+.sts-calendar .sts-calendar-day-fuel-balance .rdp-day_button {
+  padding-bottom: 0.625rem;
+}
+
+.sts-calendar .sts-calendar-day-fuel-balance .rdp-day_button::after {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  bottom: 1px;
+  left: 50%;
+  width: 10px;
+  height: 10px;
+  transform: translateX(-50%);
+  border-radius: 0;
+  background-color: hsl(var(--primary));
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='3' x2='15' y1='22' y2='22'/%3E%3Cline x1='4' x2='14' y1='9' y2='9'/%3E%3Cpath d='M14 22V4a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v18'/%3E%3Cpath d='M14 13h2a2 2 0 0 1 2 2v2a2 2 0 0 0 2 2a2 2 0 0 0 2-2V9.83a2 2 0 0 0-.59-1.42L18 5'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cline x1='3' x2='15' y1='22' y2='22'/%3E%3Cline x1='4' x2='14' y1='9' y2='9'/%3E%3Cpath d='M14 22V4a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v18'/%3E%3Cpath d='M14 13h2a2 2 0 0 1 2 2v2a2 2 0 0 0 2 2a2 2 0 0 0 2-2V9.83a2 2 0 0 0-.59-1.42L18 5'/%3E%3C/svg%3E");
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+}
+
+.sts-calendar .rdp-selected.sts-calendar-day-fuel-balance .rdp-day_button::after,
+.sts-calendar .rdp-range_start.sts-calendar-day-fuel-balance .rdp-day_button::after,
+.sts-calendar .rdp-range_end.sts-calendar-day-fuel-balance .rdp-day_button::after {
+  bottom: 2px;
+  width: 11px;
+  height: 11px;
+  background-color: hsl(var(--primary-foreground));
+  filter: drop-shadow(0 0 1px hsl(var(--primary) / 0.65));
+}
+
+.sts-calendar .rdp-disabled.sts-calendar-day-fuel-balance .rdp-day_button::after {
+  background-color: hsl(var(--primary) / 0.45);
+}

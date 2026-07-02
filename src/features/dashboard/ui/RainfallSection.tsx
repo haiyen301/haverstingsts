@@ -2,9 +2,21 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { CloudRain, Droplets, CalendarDays, HelpCircle, Plus, Trash2, Pencil } from "lucide-react";
+import {
+  CloudRain,
+  Droplets,
+  CalendarDays,
+  Download,
+  HelpCircle,
+  Loader2,
+  Plus,
+  Trash2,
+  Pencil,
+} from "lucide-react";
 import { useTranslations } from "next-intl";
 import { toast } from "react-toastify";
+import { canAccessModule } from "@/shared/auth/permissions";
+import { useAuthUserStore } from "@/shared/store/authUserStore";
 import {
   Bar,
   BarChart,
@@ -27,7 +39,9 @@ import {
   RAINFALL_RECENT_PAGE_SIZE,
   sortRainfallRecentEntries,
 } from "@/features/dashboard/lib/sortRainfallRecentEntries";
+import { RainfallExportDialog } from "@/features/dashboard/ui/RainfallExportDialog";
 import { TOAST_CONTAINER_TOP_RIGHT } from "@/shared/ui/AppToasts";
+import { cn } from "@/lib/utils";
 
 /** Temporary: hide Open Meteo auto rainfall; manual entry only. */
 const RAINFALL_MANUAL_ONLY = true;
@@ -228,6 +242,8 @@ function RainfallSourceHint({
 
 export function RainfallSection({ farmFilters, selectedFarmIds, scopeFarmIds }: RainfallSectionProps) {
   const t = useTranslations("Dashboard.rainfall");
+  const user = useAuthUserStore((s) => s.user);
+  const canExportRainfall = canAccessModule(user, "dashboard", "export");
   const year = new Date().getFullYear();
   const today = new Date().toISOString().slice(0, 10);
   const monthLabel = new Date().toLocaleDateString(undefined, { month: "long", year: "numeric" });
@@ -235,6 +251,8 @@ export function RainfallSection({ farmFilters, selectedFarmIds, scopeFarmIds }: 
   const [configuredFarms, setConfiguredFarms] = useState<FarmFilter[]>([]);
   const [data, setData] = useState<RainfallDashboardData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const hasLoadedRef = useRef(false);
   const [saving, setSaving] = useState(false);
   const [date, setDate] = useState(today);
   const [formFarmId, setFormFarmId] = useState("");
@@ -242,6 +260,7 @@ export function RainfallSection({ farmFilters, selectedFarmIds, scopeFarmIds }: 
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editMm, setEditMm] = useState("");
   const [recentVisibleCount, setRecentVisibleCount] = useState(RAINFALL_RECENT_PAGE_SIZE);
+  const [exportOpen, setExportOpen] = useState(false);
   const recentListRef = useRef<HTMLDivElement>(null);
 
   const entryKey = (entry: RainfallRecentEntry) => `${entry.farm_id}|${entry.date}`;
@@ -303,24 +322,35 @@ export function RainfallSection({ farmFilters, selectedFarmIds, scopeFarmIds }: 
   }, []);
 
   const load = useCallback(async () => {
-    setLoading(true);
+    const isRefresh = hasLoadedRef.current;
+    if (isRefresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
     try {
       const payload = await fetchRainfallDashboard({
         year,
         farmIds: queryFarmIds,
       });
-      setData(RAINFALL_MANUAL_ONLY ? applyManualRainfallOnly(payload, year, today) : payload);
-      if (!formFarmId && payload.farms.length > 0) {
-        setFormFarmId(String(payload.farms[0]?.farm_id ?? ""));
-      }
+      const processed = RAINFALL_MANUAL_ONLY
+        ? applyManualRainfallOnly(payload, year, today)
+        : payload;
+      setData(processed);
+      hasLoadedRef.current = true;
+      setFormFarmId((prev) => {
+        if (prev) return prev;
+        return String(processed.farms[0]?.farm_id ?? "");
+      });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t("errors.load"), {
         containerId: TOAST_CONTAINER_TOP_RIGHT,
       });
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
-  }, [formFarmId, queryFarmIds, t, today, year]);
+  }, [queryFarmIds, t, today, year]);
 
   useEffect(() => {
     void load();
@@ -336,7 +366,7 @@ export function RainfallSection({ farmFilters, selectedFarmIds, scopeFarmIds }: 
 
   useEffect(() => {
     setRecentVisibleCount(RAINFALL_RECENT_PAGE_SIZE);
-  }, [queryFarmIds, year, data?.recent]);
+  }, [queryFarmIds, year]);
 
   const handleRecentScroll = useCallback(() => {
     const el = recentListRef.current;
@@ -435,14 +465,29 @@ export function RainfallSection({ farmFilters, selectedFarmIds, scopeFarmIds }: 
         </h3>
       </div>
 
-      {loading ? (
+      {loading && !data ? (
         <p className="text-sm text-muted-foreground">{t("loading")}</p>
       ) : configuredFarms.length === 0 ? (
         <p className="text-sm text-muted-foreground">{t("noConfiguredFarms")}</p>
       ) : visibleFarms.length === 0 ? (
         <p className="text-sm text-muted-foreground">{t("noReadings")}</p>
       ) : (
-        <>
+        <div className={cn("relative space-y-4", (refreshing || saving) && "pointer-events-none")}>
+          {refreshing || saving ? (
+            <div
+              className="pointer-events-none absolute inset-0 z-10 flex items-start justify-center rounded-xl bg-background/35 pt-16"
+              aria-hidden
+            >
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : null}
+          <div
+            className={cn(
+              "space-y-4 transition-opacity duration-150",
+              refreshing && "opacity-60",
+              saving && !refreshing && "opacity-90",
+            )}
+          >
           <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
             <StatBox label={t("today")} value={`${summary.today_mm} mm`} sub={formatDisplayDate(today)} icon={Droplets} />
             <StatBox label={t("thisMonth")} value={`${summary.month_mm} mm`} sub={monthLabel} icon={CalendarDays} />
@@ -450,45 +495,49 @@ export function RainfallSection({ farmFilters, selectedFarmIds, scopeFarmIds }: 
             <StatBox label={t("rainDays")} value={String(summary.rain_days)} sub={t("rainDaysSub", { year })} icon={Droplets} />
           </div>
 
-          {(perms.can_create || perms.can_edit) && (
+          {(perms.can_create || perms.can_edit || canExportRainfall) && (
             <div className="glass-card flex flex-wrap items-end gap-3 rounded-xl p-4">
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">{t("date")}</label>
-                <input
-                  type="date"
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  className="flex h-9 w-[160px] rounded-md border border-input bg-background px-3 text-sm"
-                />
-              </div>
-              {formFarmOptions.length > 1 && (
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-muted-foreground">{t("farm")}</label>
-                  <select
-                    value={formFarmId}
-                    onChange={(e) => setFormFarmId(e.target.value)}
-                    className="flex h-9 min-w-[160px] rounded-md border border-input bg-background px-3 text-sm"
-                  >
-                    {formFarmOptions.map((f) => (
-                      <option key={f.farmId} value={f.farmId}>
-                        {f.farmName}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+              {(perms.can_create || perms.can_edit) && (
+                <>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">{t("date")}</label>
+                    <input
+                      type="date"
+                      value={date}
+                      onChange={(e) => setDate(e.target.value)}
+                      className="flex h-9 w-[160px] rounded-md border border-input bg-background px-3 text-sm"
+                    />
+                  </div>
+                  {formFarmOptions.length > 1 && (
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-muted-foreground">{t("farm")}</label>
+                      <select
+                        value={formFarmId}
+                        onChange={(e) => setFormFarmId(e.target.value)}
+                        className="flex h-9 min-w-[160px] rounded-md border border-input bg-background px-3 text-sm"
+                      >
+                        {formFarmOptions.map((f) => (
+                          <option key={f.farmId} value={f.farmId}>
+                            {f.farmName}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">{t("rainfallMm")}</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.1"
+                      value={mm}
+                      onChange={(e) => setMm(e.target.value)}
+                      placeholder="0"
+                      className="flex h-9 w-[120px] rounded-md border border-input bg-background px-3 text-sm"
+                    />
+                  </div>
+                </>
               )}
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">{t("rainfallMm")}</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.1"
-                  value={mm}
-                  onChange={(e) => setMm(e.target.value)}
-                  placeholder="0"
-                  className="flex h-9 w-[120px] rounded-md border border-input bg-background px-3 text-sm"
-                />
-              </div>
               {perms.can_create && (
                 <button
                   type="button"
@@ -500,6 +549,16 @@ export function RainfallSection({ farmFilters, selectedFarmIds, scopeFarmIds }: 
                   {t("logRainfall")}
                 </button>
               )}
+              {canExportRainfall ? (
+                <button
+                  type="button"
+                  onClick={() => setExportOpen(true)}
+                  className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-card px-4 text-sm font-medium text-foreground transition-colors hover:bg-muted/80"
+                >
+                  <Download className="h-4 w-4" />
+                  {t("export.button")}
+                </button>
+              ) : null}
             </div>
           )}
 
@@ -590,8 +649,27 @@ export function RainfallSection({ farmFilters, selectedFarmIds, scopeFarmIds }: 
               </div>
             </div>
           </div>
-        </>
+          </div>
+        </div>
       )}
+      {canExportRainfall ? (
+        <RainfallExportDialog
+          open={exportOpen}
+          onClose={() => setExportOpen(false)}
+          farmOptions={formFarmOptions.map((f) => ({ id: f.farmId, label: f.farmName }))}
+          initialFarmIds={
+            formFarmId
+              ? [formFarmId]
+              : selectedFarmIds.length > 0
+                ? selectedFarmIds
+                : formFarmOptions[0]?.farmId
+                  ? [formFarmOptions[0].farmId]
+                  : []
+          }
+          initialYear={year}
+          manualOnly={RAINFALL_MANUAL_ONLY}
+        />
+      ) : null}
     </div>
   );
 }

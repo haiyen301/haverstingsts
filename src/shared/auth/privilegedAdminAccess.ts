@@ -1,6 +1,6 @@
 /**
- * STS `users.id` allowed for privileged admin screens (maintenance, activity log,
- * alert settings, weather locations, …).
+ * STS `users.id` allowed for privileged admin screens (maintenance, balance
+ * updating, activity log, alert settings, weather locations, …).
  * Change this list in one place only.
  */
 export const PRIVILEGED_ADMIN_USER_IDS = [409] as const;
@@ -21,4 +21,15 @@ export function userIdIsPrivilegedAdmin(
   const n = parsePrivilegedAdminUserId(userId);
   if (n == null) return false;
   return PRIVILEGED_ADMIN_USER_ID_SET.has(n);
+}
+
+/** Sidebar `restrictToUserIds` — true when user id is in the allowed list. */
+export function userIdInRestrictList(
+  userId: unknown,
+  allowedIds: readonly number[] | undefined,
+): boolean {
+  if (!allowedIds?.length) return true;
+  const uid = parsePrivilegedAdminUserId(userId);
+  if (uid == null) return false;
+  return allowedIds.includes(uid);
 }

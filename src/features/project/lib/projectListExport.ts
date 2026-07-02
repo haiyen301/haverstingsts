@@ -837,6 +837,13 @@ export type ProjectListGoogleSheetExportPayload = {
   rows: string[][];
   imageCells?: ProjectListExportImageCellRef[];
   sheetTabName?: string;
+  spreadsheetTitle?: string;
+  /** When set, creates one tab per entry (ignores single-sheet headers/rows). */
+  tabs?: Array<{
+    sheetTabName: string;
+    headers: string[];
+    rows: string[][];
+  }>;
   mergeRanges?: GoogleSheetMergeRange[];
   cellFills?: GoogleSheetCellFill[];
 };

@@ -1,5 +1,3 @@
-import { promises as fs } from "fs";
-import path from "path";
 import { NextResponse } from "next/server";
 
 import { AUTH_COOKIE_NAME } from "@/shared/lib/authCookie";
@@ -22,9 +20,10 @@ import {
   defaultPushChannelsForRoute,
   mergeAlertFeedConfigWithDefaults,
 } from "@/features/alerts/alertFeedConfigDefaults";
-
-const CONFIG_PATH = path.join(process.cwd(), "data", "alert-feed-config.json");
-const SEED_CONFIG_PATH = path.join(process.cwd(), "seeds", "alert-feed-config.seed.json");
+import {
+  readAlertFeedConfigFile,
+  writeAlertFeedConfigFile,
+} from "@/features/alerts/alertFeedConfigStorage";
 
 function isIconKey(v: string): v is (typeof ALERT_CATEGORY_ICON_KEYS)[number] {
   return (ALERT_CATEGORY_ICON_KEYS as readonly string[]).includes(v);
@@ -173,17 +172,7 @@ async function requireAdminPeopleEdit(req: Request): Promise<Response | null> {
 }
 
 async function readConfigFromDisk(): Promise<AlertFeedConfig | null> {
-  for (const candidate of [CONFIG_PATH, SEED_CONFIG_PATH]) {
-    try {
-      const raw = await fs.readFile(candidate, "utf8");
-      const parsed = JSON.parse(raw) as unknown;
-      const cfg = parseConfig(parsed);
-      if (cfg) return cfg;
-    } catch {
-      /* try next source */
-    }
-  }
-  return null;
+  return readAlertFeedConfigFile(parseConfig);
 }
 
 export async function GET(req: Request) {
@@ -222,8 +211,7 @@ export async function POST(req: Request) {
   const merged = mergeAlertFeedConfigWithDefaults(cfg);
 
   try {
-    await fs.mkdir(path.dirname(CONFIG_PATH), { recursive: true });
-    await fs.writeFile(CONFIG_PATH, JSON.stringify(merged, null, 2), "utf8");
+    await writeAlertFeedConfigFile(merged);
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return NextResponse.json(

@@ -6,22 +6,43 @@ import {
   ArrowDown,
   DollarSign,
   Fuel,
+  Info,
+  Package,
   Pencil,
   Plus,
   Trash2,
   TrendingDown,
   TrendingUp,
+  Download,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { toast } from "react-toastify";
 
 import {
   fetchFuelUsage,
+  fuelUsageFuelKindLabel,
   fuelUsageVehicleLabel,
   removeFuelUsage,
   saveFuelUsage,
   type FuelUsageRow,
 } from "@/features/fleet/api/fuelUsageApi";
+import { FLEET_OPTION_CATALOG_KEYS } from "@/features/fleet/api/fleetOptionCatalogApi";
+import { useFleetOptionCatalog } from "@/features/fleet/hooks/useFleetOptionCatalog";
+import { FuelStockLedgerPanel } from "@/features/fleet/FuelStockLedgerPanel";
+import { FuelDiaryExportDialog } from "@/features/fleet/ui/FuelDiaryExportDialog";
+import { FuelUsageBalanceBreakdownPanel } from "@/features/fleet/ui/FuelUsageBalanceBreakdownPanel";
+import {
+  buildFuelUsageBalanceIndex,
+  farmFuelBalanceKey,
+  fuelRowHasRemaining,
+  fuelRowRemainingLitres,
+  fuelTimelineUpToUsageId,
+  normalizeFuelKind,
+} from "@/features/fleet/lib/fuelUsageBalance";
+import {
+  fetchFleetStockLedger,
+  type FleetStockLedgerRow,
+} from "@/features/fleet/api/fleetStockLedgerApi";
 import {
   fetchVehicleInspections,
   type VehicleInspectionRow,
@@ -63,12 +84,14 @@ const btnGhost =
   "inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50";
 
 const FUEL_DATE_FILTER_BASELINE: KpiDatePreset = "all";
+const USAGE_LIST_PAGE_SIZE = 40;
 
 type EntryForm = {
   fuel_date: string;
   farm_id: string;
   vehicle_inspection_id: string;
   vehicle_type: string;
+  fuel_kind: string;
   litres: string;
   cost_per_litre: string;
   odometer_km: string;
@@ -86,6 +109,7 @@ function emptyForm(farmId = "", vehicleTypeDefault = ""): EntryForm {
     farm_id: farmId,
     vehicle_inspection_id: "",
     vehicle_type: vehicleTypeDefault,
+    fuel_kind: "",
     litres: "",
     cost_per_litre: "",
     odometer_km: "",
@@ -133,6 +157,20 @@ function inspectionVehicleLabel(row: VehicleInspectionRow): string {
 export function FuelUsageTab() {
   const t = useTranslations("FuelUsage");
   const { types: machineryTypes } = useMachineryTypes();
+  const { options: fuelTypeOptions } = useFleetOptionCatalog(
+    FLEET_OPTION_CATALOG_KEYS.fuelTypes,
+  );
+  const fuelKindLabelByValue = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const option of fuelTypeOptions) {
+      map[String(option.value).toLowerCase()] = option.label;
+    }
+    return map;
+  }, [fuelTypeOptions]);
+  const fuelKindFallback = useMemo(
+    () => ({ diesel: t("stock.diesel"), petrol: t("stock.petrol") }),
+    [t],
+  );
   const farms = useHarvestingDataStore((s) => s.farms);
   const staffs = useHarvestingDataStore((s) => s.staffs);
   const fetchAllHarvestingReferenceData = useHarvestingDataStore(
@@ -146,6 +184,9 @@ export function FuelUsageTab() {
   } = useSyncedFarmMultiSelect("harvests");
 
   const [entries, setEntries] = useState<FuelUsageRow[]>([]);
+  const [ledgerRows, setLedgerRows] = useState<FleetStockLedgerRow[]>([]);
+  const [balanceUsageRows, setBalanceUsageRows] = useState<FuelUsageRow[]>([]);
+  const [balanceBreakdownUsageId, setBalanceBreakdownUsageId] = useState<number | null>(null);
   const [vehicles, setVehicles] = useState<VehicleInspectionRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -153,8 +194,12 @@ export function FuelUsageTab() {
     preset: "lastWeek",
   });
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [balanceOpen, setBalanceOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [listVisibleCount, setListVisibleCount] = useState(USAGE_LIST_PAGE_SIZE);
   const [form, setForm] = useState<EntryForm>(() => emptyForm());
+  const [stockReloadToken, setStockReloadToken] = useState(0);
 
   const farmNameById = useMemo(() => {
     const map = new Map(scopedFarmNameById);
@@ -197,6 +242,33 @@ export function FuelUsageTab() {
     return vehicles.filter((v) => String(v.farm_id) === form.farm_id);
   }, [form.farm_id, vehicles]);
 
+  const vehicleTypeOptions = useMemo(() => {
+    const options = [...machineryTypes];
+    const current = form.vehicle_type.trim();
+    if (current && !options.includes(current)) {
+      options.unshift(current);
+    }
+    return options;
+  }, [machineryTypes, form.vehicle_type]);
+
+  const vehicleTypeForInspection = useCallback(
+    (vehicleInspectionId: string): string => {
+      if (!vehicleInspectionId) return "";
+      const selected = vehicles.find((v) => String(v.id) === vehicleInspectionId);
+      return String(selected?.vehicle_type ?? "").trim();
+    },
+    [vehicles],
+  );
+
+  const fuelKindForInspection = useCallback(
+    (vehicleInspectionId: string): string => {
+      if (!vehicleInspectionId) return "";
+      const selected = vehicles.find((v) => String(v.id) === vehicleInspectionId);
+      return String(selected?.fuel_kind ?? "").trim();
+    },
+    [vehicles],
+  );
+
   const loadVehicles = useCallback(async () => {
     try {
       const rows = await fetchVehicleInspections();
@@ -234,6 +306,39 @@ export function FuelUsageTab() {
     }
   }, [selectedFarmIds, hasActiveDateFilter, dateRange.start, dateRange.end, t]);
 
+  const loadBalanceData = useCallback(async () => {
+    try {
+      const params: { farm_ids?: string } = {};
+      if (selectedFarmIds.length > 0) {
+        params.farm_ids = selectedFarmIds.join(",");
+      }
+      const [ledger, usage] = await Promise.all([
+        fetchFleetStockLedger({ module: "fuel", ...params }),
+        fetchFuelUsage(params),
+      ]);
+      setLedgerRows(ledger);
+      setBalanceUsageRows(usage);
+    } catch {
+      setLedgerRows([]);
+      setBalanceUsageRows([]);
+    }
+  }, [selectedFarmIds, stockReloadToken]);
+
+  const balanceIndex = useMemo(
+    () =>
+      buildFuelUsageBalanceIndex({
+        ledgerRows,
+        usageRows: balanceUsageRows,
+        farmNameById,
+        fuelLabelByKind: fuelKindLabelByValue,
+      }),
+    [ledgerRows, balanceUsageRows, farmNameById, fuelKindLabelByValue],
+  );
+
+  useEffect(() => {
+    void loadBalanceData();
+  }, [loadBalanceData]);
+
   useEffect(() => {
     void fetchAllHarvestingReferenceData(false);
     void loadVehicles();
@@ -243,7 +348,53 @@ export function FuelUsageTab() {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    if (!dialogOpen || !form.vehicle_inspection_id) return;
+    const nextType = vehicleTypeForInspection(form.vehicle_inspection_id);
+    const nextFuelKind = fuelKindForInspection(form.vehicle_inspection_id);
+    setForm((f) => {
+      const typeChanged = nextType && f.vehicle_type !== nextType;
+      const fuelChanged = nextFuelKind && f.fuel_kind !== nextFuelKind;
+      if (!typeChanged && !fuelChanged) return f;
+      return {
+        ...f,
+        ...(typeChanged ? { vehicle_type: nextType } : {}),
+        ...(fuelChanged ? { fuel_kind: nextFuelKind } : {}),
+      };
+    });
+  }, [dialogOpen, form.vehicle_inspection_id, vehicleTypeForInspection, fuelKindForInspection]);
+
   const filtered = entries;
+
+  const visibleUsageRows = useMemo(
+    () => filtered.slice(0, listVisibleCount),
+    [filtered, listVisibleCount],
+  );
+
+  const hasMoreUsageRows = filtered.length > listVisibleCount;
+
+  const balanceBreakdownRow = useMemo(
+    () =>
+      balanceBreakdownUsageId != null
+        ? filtered.find((row) => Number(row.id) === balanceBreakdownUsageId) ??
+          balanceUsageRows.find((row) => Number(row.id) === balanceBreakdownUsageId) ??
+          null
+        : null,
+    [balanceBreakdownUsageId, filtered, balanceUsageRows],
+  );
+
+  const balanceBreakdownTimeline = useMemo(() => {
+    if (!balanceBreakdownRow) return [];
+    const fuelKind = normalizeFuelKind(balanceBreakdownRow.fuel_kind);
+    if (!fuelKind) return [];
+    const key = farmFuelBalanceKey(Number(balanceBreakdownRow.farm_id), fuelKind);
+    const timeline = balanceIndex.timelinesByFarmFuel.get(key) ?? [];
+    return fuelTimelineUpToUsageId(timeline, Number(balanceBreakdownRow.id));
+  }, [balanceBreakdownRow, balanceIndex.timelinesByFarmFuel]);
+
+  useEffect(() => {
+    setListVisibleCount(USAGE_LIST_PAGE_SIZE);
+  }, [selectedFarmIds, hasActiveDateFilter, dateRange.start, dateRange.end]);
   const totalLitres = filtered.reduce((s, e) => s + num(e.litres), 0);
   const totalCost = filtered.reduce((s, e) => s + lineCost(e), 0);
   const avgPerEntry = filtered.length > 0 ? totalLitres / filtered.length : 0;
@@ -251,22 +402,20 @@ export function FuelUsageTab() {
   const openCreate = () => {
     const firstFarm = farms[0] as { id?: unknown } | undefined;
     setEditingId(null);
-    setForm(
-      emptyForm(
-        firstFarm ? String(firstFarm.id ?? "") : "",
-        machineryTypes[0] ?? "",
-      ),
-    );
+    setForm(emptyForm(firstFarm ? String(firstFarm.id ?? "") : ""));
     setDialogOpen(true);
   };
 
   const openEdit = (row: FuelUsageRow) => {
+    const vehicleInspectionId = String(row.vehicle_inspection_id);
+    const typeFromVehicle = vehicleTypeForInspection(vehicleInspectionId);
     setEditingId(Number(row.id));
     setForm({
       fuel_date: String(row.fuel_date).slice(0, 10),
       farm_id: String(row.farm_id),
-      vehicle_inspection_id: String(row.vehicle_inspection_id),
-      vehicle_type: String(row.vehicle_type ?? ""),
+      vehicle_inspection_id: vehicleInspectionId,
+      vehicle_type: typeFromVehicle || String(row.vehicle_type ?? ""),
+      fuel_kind: fuelKindForInspection(vehicleInspectionId) || String(row.fuel_kind ?? ""),
       litres: formatDecimalInputFromValue(row.litres),
       cost_per_litre: formatDecimalInputFromValue(row.cost_per_litre),
       odometer_km: formatDecimalInputFromValue(row.odometer_km),
@@ -282,11 +431,11 @@ export function FuelUsageTab() {
   };
 
   const handleVehicleChange = (vehicleInspectionId: string) => {
-    const selected = vehicles.find((v) => String(v.id) === vehicleInspectionId);
     setForm((f) => ({
       ...f,
       vehicle_inspection_id: vehicleInspectionId,
-      vehicle_type: selected?.vehicle_type ?? f.vehicle_type,
+      vehicle_type: vehicleTypeForInspection(vehicleInspectionId),
+      fuel_kind: fuelKindForInspection(vehicleInspectionId),
     }));
   };
 
@@ -301,6 +450,8 @@ export function FuelUsageTab() {
         ...f,
         farm_id: farmId,
         vehicle_inspection_id: stillValid ? f.vehicle_inspection_id : "",
+        vehicle_type: stillValid ? f.vehicle_type : "",
+        fuel_kind: stillValid ? f.fuel_kind : "",
       };
     });
   };
@@ -357,7 +508,8 @@ export function FuelUsageTab() {
       });
       toast.success(t("saved"), { containerId: TOAST_CONTAINER_TOP_RIGHT });
       closeDialog();
-      await load();
+      setStockReloadToken((n) => n + 1);
+      await Promise.all([load(), loadBalanceData()]);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t("errors.save"), {
         containerId: TOAST_CONTAINER_TOP_RIGHT,
@@ -373,7 +525,8 @@ export function FuelUsageTab() {
       setSaving(true);
       await removeFuelUsage(Number(row.id));
       toast.success(t("deleted"), { containerId: TOAST_CONTAINER_TOP_RIGHT });
-      await load();
+      setStockReloadToken((n) => n + 1);
+      await Promise.all([load(), loadBalanceData()]);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t("errors.delete"), {
         containerId: TOAST_CONTAINER_TOP_RIGHT,
@@ -400,10 +553,20 @@ export function FuelUsageTab() {
           <h1 className="text-2xl font-semibold">{t("title")}</h1>
           <p className="mt-1 text-sm text-muted-foreground">{t("subtitle")}</p>
         </div>
-        <button type="button" className={btnPrimary} onClick={openCreate}>
-          <Plus className="h-4 w-4" />
-          {t("logFuel")}
-        </button>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <button type="button" className={btnPrimary} onClick={openCreate}>
+            <Plus className="h-4 w-4" />
+            {t("logFuel")}
+          </button>
+          <button type="button" className={btnOutline} onClick={() => setBalanceOpen(true)}>
+            <Package className="h-4 w-4" />
+            {t("stock.balanceButton")}
+          </button>
+          <button type="button" className={btnOutline} onClick={() => setExportOpen(true)}>
+            <Download className="h-4 w-4" />
+            {t("export.button")}
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
@@ -483,7 +646,9 @@ export function FuelUsageTab() {
                     <th className="px-4 py-3 text-left font-medium">{t("table.date")}</th>
                     <th className="px-4 py-3 text-left font-medium">{t("table.vehicle")}</th>
                     <th className="px-4 py-3 text-left font-medium">{t("table.farm")}</th>
+                    <th className="px-4 py-3 text-left font-medium">{t("table.fuelKind")}</th>
                     <th className="px-4 py-3 text-left font-medium">{t("table.litres")}</th>
+                    <th className="px-4 py-3 text-right font-medium">{t("table.remaining")}</th>
                     <th className="px-4 py-3 text-left font-medium">{t("table.cost")}</th>
                     <th className="px-4 py-3 text-left font-medium">{t("table.odometer")}</th>
                     <th className="px-4 py-3 text-left font-medium">{t("table.operator")}</th>
@@ -492,7 +657,7 @@ export function FuelUsageTab() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((e) => (
+                  {visibleUsageRows.map((e) => (
                     <tr key={e.id} className="border-b border-border last:border-b-0">
                       <td className="whitespace-nowrap px-4 py-3">
                         {formatDateDisplay(e.fuel_date)}
@@ -508,8 +673,44 @@ export function FuelUsageTab() {
                       <td className="px-4 py-3">
                         {e.farm_name ?? farmNameById.get(String(e.farm_id)) ?? e.farm_id}
                       </td>
+                      <td className="px-4 py-3">
+                        <span className="inline-flex rounded-md bg-muted/60 px-2 py-0.5 text-xs font-medium text-foreground">
+                          {fuelUsageFuelKindLabel(e.fuel_kind, fuelKindLabelByValue, fuelKindFallback)}
+                        </span>
+                      </td>
                       <td className="px-4 py-3 font-semibold">
                         {formatNumber(e.litres, { maximumFractionDigits: 3 })} L
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="inline-flex items-center justify-end gap-1">
+                          <span className="font-semibold tabular-nums">
+                            {(() => {
+                              const value = fuelRowRemainingLitres(e, balanceIndex);
+                              return value != null
+                                ? `${formatNumber(value, { maximumFractionDigits: 3 })} L`
+                                : "—";
+                            })()}
+                          </span>
+                          {fuelRowHasRemaining(e, balanceIndex) ? (
+                            <button
+                              type="button"
+                              className={cn(
+                                btnGhost,
+                                "h-7 w-7",
+                                balanceBreakdownUsageId === Number(e.id) && "bg-primary/10 text-primary",
+                              )}
+                              aria-label={t("balanceTimeline.showBreakdown")}
+                              title={t("balanceTimeline.showBreakdown")}
+                              onClick={() =>
+                                setBalanceBreakdownUsageId((current) =>
+                                  current === Number(e.id) ? null : Number(e.id),
+                                )
+                              }
+                            >
+                              <Info className="h-3.5 w-3.5" />
+                            </button>
+                          ) : null}
+                        </div>
                       </td>
                       <td className="px-4 py-3">
                         ${formatNumber(lineCost(e), { maximumFractionDigits: 2 })}
@@ -550,7 +751,7 @@ export function FuelUsageTab() {
                   ))}
                   {filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">
+                      <td colSpan={11} className="px-4 py-8 text-center text-muted-foreground">
                         {t("table.empty")}
                       </td>
                     </tr>
@@ -559,8 +760,72 @@ export function FuelUsageTab() {
               </table>
             </div>
           )}
+          {!loading && hasMoreUsageRows ? (
+            <div className="border-t border-border px-4 py-3">
+              <button
+                type="button"
+                className={btnOutline}
+                onClick={() =>
+                  setListVisibleCount((count) => count + USAGE_LIST_PAGE_SIZE)
+                }
+              >
+                {t("table.loadMore")}
+              </button>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
+
+      {balanceBreakdownRow && balanceBreakdownTimeline.length > 0 ? (
+        <FuelUsageBalanceBreakdownPanel
+          farmName={
+            balanceBreakdownRow.farm_name ??
+            farmNameById.get(String(balanceBreakdownRow.farm_id)) ??
+            String(balanceBreakdownRow.farm_id)
+          }
+          fuelLabel={fuelUsageFuelKindLabel(
+            balanceBreakdownRow.fuel_kind,
+            fuelKindLabelByValue,
+            fuelKindFallback,
+          )}
+          timeline={balanceBreakdownTimeline}
+          highlightUsageId={Number(balanceBreakdownRow.id)}
+          onClose={() => setBalanceBreakdownUsageId(null)}
+        />
+      ) : null}
+
+      {balanceOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-lg border border-border bg-background p-6 shadow-lg">
+            <FuelStockLedgerPanel
+              farmOptions={farmOptions.map((f) => ({ id: f.id, label: f.label }))}
+              initialFarmId={
+                selectedFarmIds.length === 1 ? selectedFarmIds[0] : farmOptions[0]?.id ?? null
+              }
+              reloadToken={stockReloadToken}
+              embedded
+              onClose={() => setBalanceOpen(false)}
+              onDataChanged={() => {
+                setStockReloadToken((token) => token + 1);
+                void Promise.all([load(), loadBalanceData()]);
+              }}
+            />
+          </div>
+        </div>
+      ) : null}
+
+      <FuelDiaryExportDialog
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        farmOptions={farmOptions.map((f) => ({ id: f.id, label: f.label }))}
+        initialFarmIds={
+          selectedFarmIds.length > 0
+            ? selectedFarmIds
+            : farmOptions.map((farm) => farm.id)
+        }
+        initialDateFrom={hasActiveDateFilter ? dateRange.start : undefined}
+        initialDateTo={hasActiveDateFilter ? dateRange.end : undefined}
+      />
 
       {dialogOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -615,15 +880,43 @@ export function FuelUsageTab() {
               <label className="space-y-1">
                 <span className="text-xs font-medium">{t("dialog.vehicleType")}</span>
                 <select
-                  className={inputClass}
+                  className={cn(inputClass, "bg-muted/50")}
                   value={form.vehicle_type}
-                  onChange={(e) => setForm((f) => ({ ...f, vehicle_type: e.target.value }))}
+                  disabled
                 >
-                  {machineryTypes.map((type) => (
+                  <option value="">
+                    {form.vehicle_inspection_id
+                      ? t("dialog.vehicleTypeEmpty")
+                      : t("dialog.selectVehicleFirst")}
+                  </option>
+                  {vehicleTypeOptions.map((type) => (
                     <option key={type} value={type}>
                       {type}
                     </option>
                   ))}
+                </select>
+              </label>
+              <label className="space-y-1">
+                <span className="text-xs font-medium">{t("dialog.fuelType")}</span>
+                <select
+                  className={cn(inputClass, "bg-muted/50")}
+                  value={form.fuel_kind}
+                  disabled
+                >
+                  <option value="">
+                    {form.vehicle_inspection_id
+                      ? t("dialog.fuelTypeEmpty")
+                      : t("dialog.selectVehicleFirst")}
+                  </option>
+                  {form.fuel_kind ? (
+                    <option value={form.fuel_kind}>
+                      {fuelUsageFuelKindLabel(
+                        form.fuel_kind,
+                        fuelKindLabelByValue,
+                        fuelKindFallback,
+                      )}
+                    </option>
+                  ) : null}
                 </select>
               </label>
               <label className="space-y-1">

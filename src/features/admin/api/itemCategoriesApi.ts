@@ -5,6 +5,7 @@ export type ItemCategoryRow = {
   id: number;
   title: string;
   parent_id?: number | null;
+  path?: string | null;
   display?: number | boolean | null;
 };
 

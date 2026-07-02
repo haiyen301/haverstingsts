@@ -1,5 +1,7 @@
 import {
   buildPaceGrassBatchQuantities,
+  paceRemainingEstimateBatchCount,
+  todayLocalYmd,
   type GrassRequirementForHarvestPlan,
   type PaceGrassBatchQuantity,
   type ProjectPaceConfig,
@@ -11,6 +13,7 @@ import {
   paceRecalcKgLoadTypeContextForProduct,
   paceRecalcPlanRowCountsAsHarvested,
   paceRecalcPlanRowCountsAsRemainingEstimate,
+  paceRecalcPlanRowIsPastEstimate,
   paceRecalcPlanRowMatchesRequirementLine,
   recalculatePaceQuantitiesAfterActualHarvest,
 } from "@/features/project/lib/recalculatePaceQuantitiesAfterActualHarvest";
@@ -38,6 +41,12 @@ export type PaceRecalcGrassLineSummary = {
   remainingQuantity: number;
   quantityPerBatch: number;
   harvestIdForApi?: string;
+};
+
+export type PaceRecalcGrassLineContext = {
+  paceConfig: ProjectPaceConfig;
+  estimatedStartYmd: string;
+  referenceYmd?: string;
 };
 
 function normUom(uom: string): string {
@@ -169,6 +178,7 @@ export function buildPaceGrassBatchQuantitiesForPrivilegedRecalc(opts: {
   grassRequirements: GrassRequirementForPaceRecalc[];
   harvestPlanRows: HarvestPlanRowForPaceRecalc[];
   paceConfig?: ProjectPaceConfig;
+  estimatedStartYmd?: string;
 }): PaceGrassBatchQuantity[] {
   const { withPlanRows, withoutPlanRows } =
     partitionGrassRequirementsByHarvestPlanPresence({
@@ -176,9 +186,18 @@ export function buildPaceGrassBatchQuantitiesForPrivilegedRecalc(opts: {
       harvestPlanRows: opts.harvestPlanRows,
     });
 
+  const paceContext =
+    opts.paceConfig && opts.estimatedStartYmd?.trim()
+      ? {
+          paceConfig: opts.paceConfig,
+          estimatedStartYmd: opts.estimatedStartYmd.trim(),
+        }
+      : undefined;
+
   const fromRecalc = buildPaceGrassBatchQuantitiesFromHarvestRecalc({
     grassRequirements: withPlanRows,
     harvestPlanRows: opts.harvestPlanRows,
+    paceContext,
   });
 
   const fromNew =
@@ -202,6 +221,7 @@ export function summarizePaceRecalcGrassLine(
   loadType: HarvestTypeStorageKey,
   totalRequired: number,
   allGrassRequirements?: GrassRequirementForPaceRecalc[],
+  paceContext?: PaceRecalcGrassLineContext,
 ): PaceRecalcGrassLineSummary {
   const kgLoadTypeContext = allGrassRequirements
     ? paceRecalcKgLoadTypeContextForProduct(
@@ -215,8 +235,10 @@ export function summarizePaceRecalcGrassLine(
     : undefined;
   let harvestedSum = 0;
   let remainingEstimateCount = 0;
+  let actualBatchCount = 0;
   let harvestIdForApi: string | undefined;
   let firstRowId: string | undefined;
+  const referenceYmd = paceContext?.referenceYmd ?? todayLocalYmd();
 
   for (const row of harvestPlanRows) {
     if (
@@ -234,6 +256,7 @@ export function summarizePaceRecalcGrassLine(
     if (rowId && !firstRowId) firstRowId = rowId;
 
     if (paceRecalcPlanRowCountsAsHarvested(row)) {
+      actualBatchCount += 1;
       harvestedSum += paceRecalcHarvestedQtyForRequirementLine(
         row,
         uom,
@@ -241,9 +264,24 @@ export function summarizePaceRecalcGrassLine(
       );
       if (rowId) harvestIdForApi = rowId;
     } else if (paceRecalcPlanRowCountsAsRemainingEstimate(row)) {
-      remainingEstimateCount += 1;
+      if (!paceRecalcPlanRowIsPastEstimate(row, referenceYmd)) {
+        remainingEstimateCount += 1;
+      }
       if (!harvestIdForApi && rowId) harvestIdForApi = rowId;
     }
+  }
+
+  if (
+    paceContext &&
+    paceContext.estimatedStartYmd.trim() &&
+    paceContext.paceConfig
+  ) {
+    remainingEstimateCount = paceRemainingEstimateBatchCount({
+      paceConfig: paceContext.paceConfig,
+      estimatedStartYmd: paceContext.estimatedStartYmd,
+      actualBatchCount,
+      referenceYmd,
+    });
   }
 
   if (!harvestIdForApi && firstRowId) harvestIdForApi = firstRowId;
@@ -273,6 +311,7 @@ export function summarizePaceRecalcGrassLine(
 export function buildPaceGrassBatchQuantitiesFromHarvestRecalc(opts: {
   grassRequirements: GrassRequirementForPaceRecalc[];
   harvestPlanRows: HarvestPlanRowForPaceRecalc[];
+  paceContext?: PaceRecalcGrassLineContext;
 }): PaceGrassBatchQuantity[] {
   const out: PaceGrassBatchQuantity[] = [];
 
@@ -287,6 +326,7 @@ export function buildPaceGrassBatchQuantitiesFromHarvestRecalc(opts: {
       req.loadType,
       totalRequired,
       opts.grassRequirements,
+      opts.paceContext,
     );
 
     // Doc §2: N = 0 → không chia, không ghi pace B cho dòng đó.
@@ -360,6 +400,7 @@ export async function runPaceHarvestRecalcForProjectGrassLines(opts: {
   grassRequirements: GrassRequirementForPaceRecalc[];
   harvestPlanRows: HarvestPlanRowForPaceRecalc[];
   zoneConfigurations?: ZoneConfigurationRow[];
+  paceContext?: PaceRecalcGrassLineContext;
 }): Promise<{ ok: number; fail: number }> {
   let ok = 0;
   let fail = 0;
@@ -375,6 +416,7 @@ export async function runPaceHarvestRecalcForProjectGrassLines(opts: {
       req.loadType,
       totalRequired,
       opts.grassRequirements,
+      opts.paceContext,
     );
     if (summary.remainingEstimateCount <= 0) continue;
     const harvestId = summary.harvestIdForApi?.trim();
@@ -392,6 +434,7 @@ export async function runPaceHarvestRecalcForProjectGrassLines(opts: {
         loadType: req.loadType,
         farmId: req.farmId?.trim() || undefined,
         zoneConfigurations: opts.zoneConfigurations,
+        estimatedStartYmd: opts.paceContext?.estimatedStartYmd,
       });
       if (result.skipped) {
         fail += 1;

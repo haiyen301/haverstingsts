@@ -9,6 +9,14 @@ import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
 import { CALENDAR_MARKED_DAY_CLASS, Calendar } from "./calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "./popover";
 
+function parseLocalDateYmd(value: string): Date | undefined {
+  const ymd = value.trim().slice(0, 10);
+  const m = ymd.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return undefined;
+  const parsed = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0, 0);
+  return isValid(parsed) ? parsed : undefined;
+}
+
 type DatePickerProps = {
   value?: string;
   onChange: (value: string) => void;
@@ -47,8 +55,10 @@ export function DatePicker({
 
   const selectedDate = useMemo(() => {
     if (!value) return undefined;
-    const parsed = parseISO(value);
-    return isValid(parsed) ? parsed : undefined;
+    return parseLocalDateYmd(value) ?? (() => {
+      const parsed = parseISO(value);
+      return isValid(parsed) ? parsed : undefined;
+    })();
   }, [value]);
 
   const today = new Date();

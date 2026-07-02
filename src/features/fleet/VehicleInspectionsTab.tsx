@@ -26,6 +26,13 @@ import {
   type VehicleInspectionItemOption,
   type VehicleInspectionRow,
 } from "@/features/fleet/api/vehicleInspectionsApi";
+import {
+  DEFAULT_INSPECTION_STATUSES,
+  FLEET_OPTION_CATALOG_KEYS,
+} from "@/features/fleet/api/fleetOptionCatalogApi";
+import { fuelUsageFuelKindLabel } from "@/features/fleet/api/fuelUsageApi";
+import { buildItemCatalogSelectOption } from "@/shared/lib/format/itemProductCodes";
+import { useFleetOptionCatalog } from "@/features/fleet/hooks/useFleetOptionCatalog";
 import { useMachineryTypes } from "@/features/fleet/hooks/useMachineryTypes";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -59,18 +66,14 @@ const STATUS_STYLE: Record<string, { className: string; icon: typeof CheckCircle
   overdue: { className: "bg-red-100 text-red-800", icon: AlertTriangle },
 };
 
-const DEFAULT_STATUSES: InspectionStatusOption[] = [
-  { value: "pass", label: "Passed" },
-  { value: "fail", label: "Failed" },
-  { value: "due", label: "Due Soon" },
-  { value: "overdue", label: "Overdue" },
-];
+const DEFAULT_STATUSES: InspectionStatusOption[] = DEFAULT_INSPECTION_STATUSES;
 
 type FormState = {
   id?: number;
   item_ids: string[];
   alias_name: string;
   vehicle_type: string;
+  fuel_kind: string;
   farm_id: string;
   registration: string;
   last_inspection_date: string;
@@ -89,6 +92,7 @@ function emptyForm(farmId = "", defaultStatus = "pass", vehicleTypeDefault = "")
     item_ids: [],
     alias_name: "",
     vehicle_type: vehicleTypeDefault,
+    fuel_kind: "",
     farm_id: farmId,
     registration: "",
     last_inspection_date: todayIso(),
@@ -117,6 +121,20 @@ function statusLabel(
 export function VehicleInspectionsTab() {
   const t = useTranslations("VehicleInspections");
   const { types: machineryTypes } = useMachineryTypes();
+  const { options: fuelTypeOptions } = useFleetOptionCatalog(
+    FLEET_OPTION_CATALOG_KEYS.fuelTypes,
+  );
+  const fuelKindLabelByValue = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const option of fuelTypeOptions) {
+      map[String(option.value).toLowerCase()] = option.label;
+    }
+    return map;
+  }, [fuelTypeOptions]);
+  const fuelKindFallback = useMemo(
+    () => ({ diesel: t("fuelKind.diesel"), petrol: t("fuelKind.petrol") }),
+    [t],
+  );
   const farms = useHarvestingDataStore((s) => s.farms);
   const fetchAllHarvestingReferenceData = useHarvestingDataStore(
     (s) => s.fetchAllHarvestingReferenceData,
@@ -186,13 +204,23 @@ export function VehicleInspectionsTab() {
   const overdueCount = rows.filter((v) => v.status === "overdue" || v.status === "fail").length;
   const openDefectsCount = rows.filter((v) => hasDefectsText(v.defects)).length;
 
+  const vehicleOptionLabel = useCallback((vehicle: VehicleInspectionItemOption) => {
+    const brand = String(vehicle.brand ?? "").trim();
+    const primaryName = brand ? `${brand} — ${vehicle.name}` : vehicle.name;
+    return buildItemCatalogSelectOption(primaryName, vehicle);
+  }, []);
+
   const vehicleOptions = useMemo(
     () =>
-      vehicles.map((vehicle) => ({
-        value: String(vehicle.id),
-        label: vehicle.label,
-      })),
-    [vehicles],
+      vehicles.map((vehicle) => {
+        const parts = vehicleOptionLabel(vehicle);
+        return {
+          value: String(vehicle.id),
+          label: parts.label,
+          subLabel: parts.subLabel,
+        };
+      }),
+    [vehicles, vehicleOptionLabel],
   );
 
   const farmOptions = useMemo(
@@ -223,11 +251,36 @@ export function VehicleInspectionsTab() {
     if (vehicleOptions.some((opt) => opt.value === selectedId)) return vehicleOptions;
     const row = rows.find((r) => r.id === editingId);
     if (!row?.item_id) return vehicleOptions;
+    const fallbackVehicle: VehicleInspectionItemOption = {
+      id: Number(row.item_id),
+      name: row.vehicle_name,
+      label: row.vehicle_name,
+    };
     return [
-      { value: String(row.item_id), label: row.vehicle_name },
+      {
+        value: String(row.item_id),
+        label: vehicleOptionLabel(fallbackVehicle).label,
+        subLabel: vehicleOptionLabel(fallbackVehicle).subLabel,
+      },
       ...vehicleOptions,
     ];
-  }, [editingId, form.item_ids, rows, vehicleOptions]);
+  }, [editingId, form.item_ids, rows, vehicleOptions, vehicleOptionLabel]);
+
+  const fuelKindForItem = useCallback(
+    (itemId: string): string => {
+      if (!itemId) return "";
+      const vehicle = vehicles.find((v) => String(v.id) === itemId);
+      return String(vehicle?.machine_fuel_type ?? "").trim();
+    },
+    [vehicles],
+  );
+
+  useEffect(() => {
+    if (!dialogOpen || form.item_ids.length === 0) return;
+    const nextFuelKind = fuelKindForItem(form.item_ids[0]);
+    if (!nextFuelKind) return;
+    setForm((f) => (f.fuel_kind === nextFuelKind ? f : { ...f, fuel_kind: nextFuelKind }));
+  }, [dialogOpen, form.item_ids, fuelKindForItem]);
 
   const openCreate = () => {
     const firstFarm = farms[0] as { id?: unknown } | undefined;
@@ -250,6 +303,7 @@ export function VehicleInspectionsTab() {
       item_ids: row.item_id ? [String(row.item_id)] : [],
       alias_name: String(row.alias_name ?? ""),
       vehicle_type: row.vehicle_type || machineryTypes[0] || "",
+      fuel_kind: String(row.fuel_kind ?? fuelKindForItem(row.item_id ? String(row.item_id) : "")),
       farm_id: String(row.farm_id),
       registration: String(row.registration ?? ""),
       last_inspection_date: String(row.last_inspection_date ?? "").slice(0, 10),
@@ -266,8 +320,34 @@ export function VehicleInspectionsTab() {
     setEditingId(null);
   };
 
+  const handleFarmChange = (nextFarmId: string) => {
+    setForm((f) => {
+      if (f.farm_id === nextFarmId) return f;
+      const defaultStatus = statuses[0]?.value ?? "pass";
+      return {
+        ...f,
+        farm_id: nextFarmId,
+        item_ids: [],
+        alias_name: "",
+        vehicle_type: "",
+        fuel_kind: "",
+        registration: "",
+        last_inspection_date: "",
+        next_due_date: "",
+        status: defaultStatus,
+        defects: "",
+        notes: "",
+      };
+    });
+  };
+
   const handleVehicleIdsChange = (nextIds: string[]) => {
-    setForm((f) => ({ ...f, item_ids: nextIds }));
+    const itemId = nextIds[0] ?? "";
+    setForm((f) => ({
+      ...f,
+      item_ids: nextIds,
+      fuel_kind: fuelKindForItem(itemId),
+    }));
   };
 
   const handleSave = async () => {
@@ -413,6 +493,7 @@ export function VehicleInspectionsTab() {
                     <th className="px-4 py-3 text-left font-medium">{t("table.vehicle")}</th>
                     <th className="px-4 py-3 text-left font-medium">{t("table.aliasName")}</th>
                     <th className="px-4 py-3 text-left font-medium">{t("table.type")}</th>
+                    <th className="px-4 py-3 text-left font-medium">{t("table.fuelType")}</th>
                     <th className="px-4 py-3 text-left font-medium">{t("table.farm")}</th>
                     <th className="px-4 py-3 text-left font-medium">{t("table.lastInspection")}</th>
                     <th className="px-4 py-3 text-left font-medium">{t("table.nextDue")}</th>
@@ -439,6 +520,19 @@ export function VehicleInspectionsTab() {
                         </td>
                         <td className="px-4 py-3">{v.alias_name?.trim() || "—"}</td>
                         <td className="px-4 py-3">{v.vehicle_type}</td>
+                        <td className="px-4 py-3">
+                          {v.fuel_kind ? (
+                            <span className="inline-flex rounded-md bg-muted/60 px-2 py-0.5 text-xs font-medium text-foreground">
+                              {fuelUsageFuelKindLabel(
+                                v.fuel_kind,
+                                fuelKindLabelByValue,
+                                fuelKindFallback,
+                              )}
+                            </span>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
                         <td className="px-4 py-3">{v.farm_name ?? v.farm_id}</td>
                         <td className="px-4 py-3">{formatDateDisplayDmy(v.last_inspection_date)}</td>
                         <td className="px-4 py-3">{formatDateDisplayDmy(v.next_due_date)}</td>
@@ -471,7 +565,7 @@ export function VehicleInspectionsTab() {
                     );
                   })}
                   {filtered.length === 0 ? (
-                    <tr><td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">{t("table.empty")}</td></tr>
+                    <tr><td colSpan={10} className="px-4 py-8 text-center text-muted-foreground">{t("table.empty")}</td></tr>
                   ) : null}
                 </tbody>
               </table>
@@ -488,6 +582,20 @@ export function VehicleInspectionsTab() {
             </h2>
             <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div className={cn(fieldClass, "sm:col-span-2")}>
+                <span className={labelClass}>{t("dialog.farm")} *</span>
+                <MultiSelect
+                  options={farmOptions}
+                  values={form.farm_id ? [form.farm_id] : []}
+                  onChange={(next) => handleFarmChange(next[0] ?? "")}
+                  multi={false}
+                  placeholder={t("dialog.selectFarm")}
+                  className={selectClass}
+                  rightIcon={selectChevron}
+                  showSelectedChipsInPopover={false}
+                  disabled={saving}
+                />
+              </div>
+              <div className={cn(fieldClass, "sm:col-span-2")}>
                 <span className={labelClass}>{t("dialog.vehicleName")} *</span>
                 <MultiSelect
                   options={vehicleOptionsForForm}
@@ -496,10 +604,10 @@ export function VehicleInspectionsTab() {
                   placeholder={t("dialog.selectVehicle")}
                   className={selectClass}
                   rightIcon={selectChevron}
-                  selectionSummary="compact"
+                  selectionSummary="full"
                   multi={false}
                   showSelectedChipsInPopover={false}
-                  disabled={saving}
+                  disabled={saving || !form.farm_id}
                 />
               </div>
               <div className={cn(fieldClass, "sm:col-span-2")}>
@@ -508,6 +616,7 @@ export function VehicleInspectionsTab() {
                   className={inputClass}
                   value={form.alias_name}
                   placeholder={t("dialog.aliasNamePlaceholder")}
+                  disabled={saving || !form.farm_id}
                   onChange={(e) => setForm((f) => ({ ...f, alias_name: e.target.value }))}
                 />
               </div>
@@ -522,26 +631,40 @@ export function VehicleInspectionsTab() {
                   className={selectClass}
                   rightIcon={selectChevron}
                   showSelectedChipsInPopover={false}
-                  disabled={saving}
+                  disabled={saving || !form.farm_id}
                 />
               </div>
               <div className={fieldClass}>
-                <span className={labelClass}>{t("dialog.farm")} *</span>
-                <MultiSelect
-                  options={farmOptions}
-                  values={form.farm_id ? [form.farm_id] : []}
-                  onChange={(next) => setForm((f) => ({ ...f, farm_id: next[0] ?? "" }))}
-                  multi={false}
-                  placeholder={t("dialog.selectFarm")}
-                  className={selectClass}
-                  rightIcon={selectChevron}
-                  showSelectedChipsInPopover={false}
-                  disabled={saving}
-                />
+                <span className={labelClass}>{t("dialog.fuelType")}</span>
+                <select
+                  className={cn(selectClass, "bg-muted/50")}
+                  value={form.fuel_kind}
+                  disabled
+                >
+                  <option value="">
+                    {form.item_ids.length > 0
+                      ? t("dialog.fuelTypeEmpty")
+                      : t("dialog.selectVehicleFirst")}
+                  </option>
+                  {form.fuel_kind ? (
+                    <option value={form.fuel_kind}>
+                      {fuelUsageFuelKindLabel(
+                        form.fuel_kind,
+                        fuelKindLabelByValue,
+                        fuelKindFallback,
+                      )}
+                    </option>
+                  ) : null}
+                </select>
               </div>
               <div className={cn(fieldClass, "sm:col-span-2")}>
                 <span className={labelClass}>{t("dialog.registration")}</span>
-                <input className={inputClass} value={form.registration} onChange={(e) => setForm((f) => ({ ...f, registration: e.target.value }))} />
+                <input
+                  className={inputClass}
+                  value={form.registration}
+                  disabled={saving || !form.farm_id}
+                  onChange={(e) => setForm((f) => ({ ...f, registration: e.target.value }))}
+                />
               </div>
               <div className={fieldClass}>
                 <span className={labelClass}>{t("dialog.lastInspection")}</span>
@@ -549,7 +672,7 @@ export function VehicleInspectionsTab() {
                   value={form.last_inspection_date}
                   onChange={(v) => setForm((f) => ({ ...f, last_inspection_date: v }))}
                   placeholder={t("dialog.datePlaceholder")}
-                  disabled={saving}
+                  disabled={saving || !form.farm_id}
                   className={datePickerClass}
                 />
               </div>
@@ -559,7 +682,7 @@ export function VehicleInspectionsTab() {
                   value={form.next_due_date}
                   onChange={(v) => setForm((f) => ({ ...f, next_due_date: v }))}
                   placeholder={t("dialog.datePlaceholder")}
-                  disabled={saving}
+                  disabled={saving || !form.farm_id}
                   className={datePickerClass}
                 />
               </div>
@@ -574,7 +697,7 @@ export function VehicleInspectionsTab() {
                   className={selectClass}
                   rightIcon={selectChevron}
                   showSelectedChipsInPopover={false}
-                  disabled={saving}
+                  disabled={saving || !form.farm_id}
                 />
               </div>
               <div className={cn(fieldClass, "sm:col-span-2")}>
@@ -584,6 +707,7 @@ export function VehicleInspectionsTab() {
                   rows={4}
                   placeholder={t("dialog.defectsPlaceholder")}
                   value={form.defects}
+                  disabled={saving || !form.farm_id}
                   onChange={(e) => setForm((f) => ({ ...f, defects: e.target.value }))}
                 />
               </div>

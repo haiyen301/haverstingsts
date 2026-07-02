@@ -5,7 +5,7 @@ import {
   stsProxyPostJson,
 } from "@/shared/api/stsProxyClient";
 
-/** Must match `STSApi\Controllers\Items::RATE_CATEGORY_TITLES`. */
+/** Fallback when API does not return rate_category_titles (configured in sts_settings). */
 export const ITEM_RATE_CATEGORY_TITLES = [
   "FOLIAR",
   "SOIL",
@@ -14,6 +14,47 @@ export const ITEM_RATE_CATEGORY_TITLES = [
 ] as const;
 
 export type ItemRateCategoryTitle = (typeof ITEM_RATE_CATEGORY_TITLES)[number];
+
+import { DEFAULT_FUEL_TYPES } from "@/features/fleet/api/fleetOptionCatalogApi";
+
+export type MachineFuelTypeOption = {
+  value: string;
+  label: string;
+};
+
+export function machineFuelTypeSelectOptions(
+  catalog: MachineFuelTypeOption[] | null | undefined,
+): MachineFuelTypeOption[] {
+  return catalog?.length ? catalog : [...DEFAULT_FUEL_TYPES];
+}
+
+/** Map legacy `petro` to `petrol` when the catalog uses petrol. */
+export function normalizeMachineFuelTypeValue(
+  raw: string,
+  catalog: MachineFuelTypeOption[],
+): string {
+  const trimmed = raw.trim();
+  if (trimmed === "") return "";
+  if (trimmed.toLowerCase() === "petro" && catalog.some((row) => row.value === "petrol")) {
+    return "petrol";
+  }
+  const match = catalog.find(
+    (row) => row.value === trimmed || row.value.toLowerCase() === trimmed.toLowerCase(),
+  );
+  return match?.value ?? trimmed;
+}
+
+export function isAllowedMachineFuelType(
+  value: string,
+  catalog: MachineFuelTypeOption[],
+): boolean {
+  const normalized = normalizeMachineFuelTypeValue(value, catalog);
+  return catalog.some((row) => row.value === normalized);
+}
+
+export function itemCategoryIsMachine(title: string | null | undefined): boolean {
+  return String(title ?? "").trim().toUpperCase() === "MACHINE";
+}
 
 export function itemCategorySupportsRate(
   title: string | null | undefined,
@@ -46,6 +87,7 @@ export type ItemRow = {
   purchase_price?: number | string | null;
   rate?: number | string | null;
   rate_uom?: string | null;
+  machine_fuel_type?: string | null;
   show_in_client_portal?: number | boolean | null;
 };
 
@@ -57,14 +99,21 @@ export type ItemCatalogRow = {
   rate_uom?: string | null;
   category_id?: number | null;
   brand_id?: number | null;
-  sku_sts?: string;
+  sku_sts?: string | null;
+  commodity_code?: string | null;
+  thai_code?: string | null;
+  myanmar_code?: string | null;
+  malaysia_code?: string | null;
+  singapore_code?: string | null;
 };
 
 export type ItemFormOptions = {
-  categories: Array<{ id: number; title: string; parent_id?: number | null }>;
+  categories: Array<{ id: number; title: string; parent_id?: number | null; path?: string | null }>;
   brands: Array<{ id: number; name: string }>;
   units: Array<{ unit_type_id: number; unit_name: string }>;
   rate_category_titles?: string[];
+  /** MACHINE category fuel dropdown — from fleet_fuel_types in app settings. */
+  machine_fuel_types?: MachineFuelTypeOption[];
 };
 
 export type ItemSavePayload = {
@@ -87,6 +136,7 @@ export type ItemSavePayload = {
   purchase_price?: number | string;
   rate?: number | string | null;
   rate_uom?: string | null;
+  machine_fuel_type?: string | null;
   show_in_client_portal?: boolean;
 };
 
@@ -106,7 +156,7 @@ export async function fetchItemsCatalog(): Promise<ItemCatalogRow[]> {
   return stsProxyGet<ItemCatalogRow[]>(STS_API_PATHS.itemsCatalog);
 }
 
-/** Fertilizer Usage product dropdown — category filter configured in `Items::catalog`. */
+/** Fertilizer Usage product dropdown — category filter configured in sts_settings (fleet_fertilizer_usage_category). */
 export async function fetchFertilizerItemsCatalog(): Promise<ItemCatalogRow[]> {
   return fetchItemsCatalog();
 }

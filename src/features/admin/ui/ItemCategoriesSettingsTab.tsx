@@ -13,6 +13,10 @@ import {
 } from "@/features/admin/api/itemCategoriesApi";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import {
+  itemCategoryDisplayPath,
+  sortItemCategoriesByPath,
+} from "@/shared/lib/itemCategoryPath";
 import { TOAST_CONTAINER_TOP_RIGHT } from "@/shared/ui/AppToasts";
 import { useModuleAccess } from "@/shared/auth/useModuleAccess";
 
@@ -51,11 +55,7 @@ export function ItemCategoriesSettingsTab() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<FormState>(emptyForm());
 
-  const titleById = useMemo(() => {
-    const map = new Map<number, string>();
-    for (const row of rows) map.set(Number(row.id), String(row.title ?? ""));
-    return map;
-  }, [rows]);
+  const sortedRows = useMemo(() => sortItemCategoriesByPath(rows), [rows]);
 
   const loadRows = useCallback(async () => {
     setLoading(true);
@@ -76,19 +76,25 @@ export function ItemCategoriesSettingsTab() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((row) => {
-      const parent = row.parent_id ? titleById.get(Number(row.parent_id)) ?? "" : "";
-      const hay = [row.id, row.title, parent].map((v) => String(v ?? "").toLowerCase()).join(" ");
+    if (!q) return sortedRows;
+    return sortedRows.filter((row) => {
+      const path = itemCategoryDisplayPath(row, sortedRows);
+      const parentRow = row.parent_id
+        ? sortedRows.find((r) => Number(r.id) === Number(row.parent_id))
+        : undefined;
+      const parentPath = parentRow ? itemCategoryDisplayPath(parentRow, sortedRows) : "";
+      const hay = [row.id, row.title, path, parentPath]
+        .map((v) => String(v ?? "").toLowerCase())
+        .join(" ");
       return hay.includes(q);
     });
-  }, [rows, search, titleById]);
+  }, [sortedRows, search]);
 
   const parentOptions = useMemo(
     () =>
-      rows
-        .filter((row) => !form.id || Number(row.id) !== form.id)
-        .sort((a, b) => String(a.title).localeCompare(String(b.title), undefined, { sensitivity: "base" })),
+      sortItemCategoriesByPath(
+        rows.filter((row) => !form.id || Number(row.id) !== form.id),
+      ),
     [rows, form.id],
   );
 
@@ -124,10 +130,10 @@ export function ItemCategoriesSettingsTab() {
       });
       setRows((prev) => {
         const idx = prev.findIndex((r) => Number(r.id) === Number(saved.id));
-        if (idx < 0) return [...prev, saved].sort((a, b) => Number(a.id) - Number(b.id));
+        if (idx < 0) return sortItemCategoriesByPath([...prev, saved]);
         const next = [...prev];
         next[idx] = saved;
-        return next;
+        return sortItemCategoriesByPath(next);
       });
       setOpen(false);
       setForm(emptyForm());
@@ -200,10 +206,20 @@ export function ItemCategoriesSettingsTab() {
                 {filtered.map((row) => (
                   <tr key={row.id} className="border-b border-border last:border-b-0">
                     <td className="px-4 py-3 text-muted-foreground">{row.id}</td>
-                    <td className="px-4 py-3 font-medium">{cellText(row.title)}</td>
+                    <td className="px-4 py-3 font-medium">
+                      {cellText(itemCategoryDisplayPath(row, sortedRows))}
+                    </td>
                     <td className="px-4 py-3 text-muted-foreground">
                       {row.parent_id
-                        ? cellText(titleById.get(Number(row.parent_id)))
+                        ? cellText(
+                            itemCategoryDisplayPath(
+                              sortedRows.find((r) => Number(r.id) === Number(row.parent_id)) ?? {
+                                id: Number(row.parent_id),
+                                title: "",
+                              },
+                              sortedRows,
+                            ),
+                          )
                         : "—"}
                     </td>
                     <td className="px-4 py-3">
@@ -275,7 +291,7 @@ export function ItemCategoriesSettingsTab() {
                   <option value="">{t("form.noParent")}</option>
                   {parentOptions.map((row) => (
                     <option key={row.id} value={String(row.id)}>
-                      {row.title}
+                      {itemCategoryDisplayPath(row, sortedRows)}
                     </option>
                   ))}
                 </select>

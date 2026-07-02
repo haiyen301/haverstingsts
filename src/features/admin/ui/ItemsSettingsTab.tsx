@@ -8,15 +8,25 @@ import { toast } from "react-toastify";
 import {
   fetchAdminItems,
   fetchItemFormOptions,
+  isAllowedMachineFuelType,
   ITEM_RATE_CATEGORY_TITLES,
+  itemCategoryIsMachine,
   itemCategorySupportsRate,
+  machineFuelTypeSelectOptions,
+  normalizeMachineFuelTypeValue,
   removeAdminItem,
   saveAdminItem,
   type ItemFormOptions,
   type ItemRow,
 } from "@/features/admin/api/itemsApi";
+import { FLEET_OPTION_CATALOG_KEYS } from "@/features/fleet/api/fleetOptionCatalogApi";
+import { useFleetOptionCatalog } from "@/features/fleet/hooks/useFleetOptionCatalog";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import {
+  itemCategoryDisplayPath,
+  sortItemCategoriesByPath,
+} from "@/shared/lib/itemCategoryPath";
 import { TOAST_CONTAINER_TOP_RIGHT } from "@/shared/ui/AppToasts";
 import { MultiSelect } from "@/shared/ui/multi-select";
 import { useModuleAccess } from "@/shared/auth/useModuleAccess";
@@ -52,6 +62,7 @@ type FormState = {
   purchase_price: string;
   rate: string;
   rate_uom: string;
+  machine_fuel_type: string;
 };
 
 function emptyForm(): FormState {
@@ -73,6 +84,7 @@ function emptyForm(): FormState {
     purchase_price: "",
     rate: "",
     rate_uom: "",
+    machine_fuel_type: "",
   };
 }
 
@@ -81,7 +93,7 @@ function cellText(value: string | null | undefined): string {
   return s || "—";
 }
 
-function rowToForm(row: ItemRow): FormState {
+function rowToForm(row: ItemRow, fuelCatalog: ReturnType<typeof machineFuelTypeSelectOptions>): FormState {
   return {
     id: Number(row.id),
     sku_sts: String(row.sku_sts ?? ""),
@@ -101,6 +113,10 @@ function rowToForm(row: ItemRow): FormState {
     purchase_price: row.purchase_price != null ? String(row.purchase_price) : "",
     rate: row.rate != null ? String(row.rate) : "",
     rate_uom: String(row.rate_uom ?? ""),
+    machine_fuel_type: normalizeMachineFuelTypeValue(
+      String(row.machine_fuel_type ?? ""),
+      fuelCatalog,
+    ),
   };
 }
 
@@ -127,6 +143,7 @@ function categoryTitleById(
 export function ItemsSettingsTab() {
   const t = useTranslations("AdminItems");
   const { canCreate, canEdit, canDelete } = useModuleAccess("admin_items");
+  const { options: fallbackFuelTypes } = useFleetOptionCatalog(FLEET_OPTION_CATALOG_KEYS.fuelTypes);
   const [rows, setRows] = useState<ItemRow[]>([]);
   const [options, setOptions] = useState<ItemFormOptions | null>(null);
   const [loading, setLoading] = useState(true);
@@ -167,21 +184,28 @@ export function ItemsSettingsTab() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((row) => {
-      const hay = [
-        row.id,
-        row.sku_sts,
-        row.commodity_name,
-        row.brand_name,
-        row.category_title,
-        row.unit_name,
-      ]
-        .map((v) => String(v ?? "").toLowerCase())
-        .join(" ");
-      return hay.includes(q);
-    });
+    const list = !q
+      ? rows
+      : rows.filter((row) => {
+          const hay = [
+            row.id,
+            row.sku_sts,
+            row.commodity_name,
+            row.brand_name,
+            row.category_title,
+            row.unit_name,
+          ]
+            .map((v) => String(v ?? "").toLowerCase())
+            .join(" ");
+          return hay.includes(q);
+        });
+    return [...list].sort((a, b) => Number(b.id) - Number(a.id));
   }, [rows, search]);
+
+  const machineFuelTypeCatalog = useMemo(
+    () => machineFuelTypeSelectOptions(options?.machine_fuel_types ?? fallbackFuelTypes),
+    [options?.machine_fuel_types, fallbackFuelTypes],
+  );
 
   const openCreate = () => {
     setForm(emptyForm());
@@ -190,7 +214,7 @@ export function ItemsSettingsTab() {
   };
 
   const openEdit = (row: ItemRow) => {
-    setForm(rowToForm(row));
+    setForm(rowToForm(row, machineFuelTypeCatalog));
     setError(null);
     setOpen(true);
   };
@@ -214,6 +238,12 @@ export function ItemsSettingsTab() {
     }
     if (!Number.isFinite(unitId) || unitId <= 0) {
       setError(t("errors.unitRequired"));
+      return;
+    }
+    const selectedCategoryTitle = categoryTitleById(sortedCategoryOptions, form.category_id);
+    const formIsMachineCategory = itemCategoryIsMachine(selectedCategoryTitle);
+    if (formIsMachineCategory && !isAllowedMachineFuelType(form.machine_fuel_type, machineFuelTypeCatalog)) {
+      setError(t("errors.machineFuelTypeRequired"));
       return;
     }
     try {
@@ -245,10 +275,18 @@ export function ItemsSettingsTab() {
               rate: null,
               rate_uom: null,
             }),
+        ...(formIsMachineCategory
+          ? {
+              machine_fuel_type: normalizeMachineFuelTypeValue(
+                form.machine_fuel_type,
+                machineFuelTypeCatalog,
+              ),
+            }
+          : { machine_fuel_type: null }),
       });
       setRows((prev) => {
         const idx = prev.findIndex((r) => Number(r.id) === Number(saved.id));
-        if (idx < 0) return [...prev, saved].sort((a, b) => Number(a.id) - Number(b.id));
+        if (idx < 0) return [...prev, saved].sort((a, b) => Number(b.id) - Number(a.id));
         const next = [...prev];
         next[idx] = saved;
         return next;
@@ -281,6 +319,10 @@ export function ItemsSettingsTab() {
   };
 
   const categoryOptions = options?.categories ?? [];
+  const sortedCategoryOptions = useMemo(
+    () => sortItemCategoriesByPath(categoryOptions),
+    [categoryOptions],
+  );
   const brandOptions = options?.brands ?? [];
   const unitOptions = options?.units ?? [];
   const brandMultiOptions = useMemo(
@@ -288,25 +330,32 @@ export function ItemsSettingsTab() {
     [brandOptions],
   );
   const categoryMultiOptions = useMemo(
-    () => categoryOptions.map((c) => ({ value: String(c.id), label: c.title })),
-    [categoryOptions],
+    () =>
+      sortedCategoryOptions.map((c) => ({
+        value: String(c.id),
+        label: itemCategoryDisplayPath(c, sortedCategoryOptions),
+      })),
+    [sortedCategoryOptions],
   );
   const unitMultiOptions = useMemo(
     () => unitOptions.map((u) => ({ value: String(u.unit_type_id), label: u.unit_name })),
     [unitOptions],
   );
   const rateCategoryTitles = options?.rate_category_titles ?? ITEM_RATE_CATEGORY_TITLES;
-  const selectedCategoryTitle = categoryTitleById(categoryOptions, form.category_id);
+  const selectedCategoryTitle = categoryTitleById(sortedCategoryOptions, form.category_id);
   const formSupportsRate = itemCategorySupportsRate(selectedCategoryTitle, rateCategoryTitles);
+  const formIsMachineCategory = itemCategoryIsMachine(selectedCategoryTitle);
 
   const handleCategoryChange = (categoryId: string) => {
-    const title = categoryTitleById(categoryOptions, categoryId);
+    const title = categoryTitleById(sortedCategoryOptions, categoryId);
     const supportsRate = itemCategorySupportsRate(title, rateCategoryTitles);
+    const isMachineCategory = itemCategoryIsMachine(title);
     setForm((f) => ({
       ...f,
       category_id: categoryId,
       rate: supportsRate ? f.rate : "",
       rate_uom: supportsRate ? f.rate_uom : "",
+      machine_fuel_type: isMachineCategory ? f.machine_fuel_type : "",
     }));
   };
 
@@ -478,6 +527,21 @@ export function ItemsSettingsTab() {
                   showSelectedChipsInPopover={false}
                 />
               </div>
+              {formIsMachineCategory ? (
+                <div className="space-y-1">
+                  <span className="text-xs font-medium">{t("form.machineFuelType")} *</span>
+                  <MultiSelect
+                    options={machineFuelTypeCatalog}
+                    values={form.machine_fuel_type ? [form.machine_fuel_type] : []}
+                    onChange={(next) => setForm((f) => ({ ...f, machine_fuel_type: next[0] ?? "" }))}
+                    multi={false}
+                    placeholder={t("form.select")}
+                    className={selectClass}
+                    rightIcon={selectChevron}
+                    showSelectedChipsInPopover={false}
+                  />
+                </div>
+              ) : null}
               {formSupportsRate ? (
                 <>
                   <label className="space-y-1">

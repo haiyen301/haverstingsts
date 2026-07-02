@@ -51,8 +51,17 @@ export async function writeProjectListToUserGoogleSheet(opts: {
 }): Promise<GoogleSheetExportResult> {
   const { accessToken, config, payload } = opts;
   const tabName = payload.sheetTabName?.trim() || config.sheetTabName;
-  const title = buildSpreadsheetTitle();
-  const values = [payload.headers, ...payload.rows];
+  const tabs =
+    payload.tabs && payload.tabs.length > 0
+      ? payload.tabs
+      : [
+          {
+            sheetTabName: tabName,
+            headers: payload.headers,
+            rows: payload.rows,
+          },
+        ];
+  const title = payload.spreadsheetTitle?.trim() || buildSpreadsheetTitle();
 
   const createRes = await fetch("https://sheets.googleapis.com/v4/spreadsheets", {
     method: "POST",
@@ -62,7 +71,9 @@ export async function writeProjectListToUserGoogleSheet(opts: {
     },
     body: JSON.stringify({
       properties: { title },
-      sheets: [{ properties: { title: tabName } }],
+      sheets: tabs.map((tab) => ({
+        properties: { title: tab.sheetTabName.slice(0, 100) },
+      })),
     }),
     cache: "no-store",
   });
@@ -70,7 +81,7 @@ export async function writeProjectListToUserGoogleSheet(opts: {
   const created = (await createRes.json().catch(() => ({}))) as {
     spreadsheetId?: string;
     spreadsheetUrl?: string;
-    sheets?: Array<{ properties?: { sheetId?: number } }>;
+    sheets?: Array<{ properties?: { sheetId?: number; title?: string } }>;
     error?: { message?: string };
   };
 
@@ -82,30 +93,43 @@ export async function writeProjectListToUserGoogleSheet(opts: {
   }
 
   const spreadsheetId = created.spreadsheetId;
-  const sheetId = created.sheets?.[0]?.properties?.sheetId ?? 0;
-  const range = encodeURIComponent(`${tabName}!A1`);
-  const updateRes = await fetch(
-    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}?valueInputOption=RAW`,
+  const createdSheets = created.sheets ?? [];
+  const batchData = tabs.map((tab, index) => {
+    const sheetTitle =
+      createdSheets[index]?.properties?.title?.trim() || tab.sheetTabName;
+    return {
+      range: `${sheetTitle}!A1`,
+      values: [tab.headers, ...tab.rows],
+    };
+  });
+
+  const batchUpdateRes = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`,
     {
-      method: "PUT",
+      method: "POST",
       headers: {
         Authorization: `Bearer ${accessToken}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ values }),
+      body: JSON.stringify({
+        valueInputOption: "RAW",
+        data: batchData,
+      }),
       cache: "no-store",
     },
   );
 
-  const updated = (await updateRes.json().catch(() => ({}))) as {
+  const batchUpdated = (await batchUpdateRes.json().catch(() => ({}))) as {
     error?: { message?: string };
   };
-  if (!updateRes.ok) {
+  if (!batchUpdateRes.ok) {
     throw new Error(
-      updated.error?.message ??
-        `Could not write spreadsheet data (${updateRes.status}).`,
+      batchUpdated.error?.message ??
+        `Could not write spreadsheet data (${batchUpdateRes.status}).`,
     );
   }
+
+  const sheetId = createdSheets[0]?.properties?.sheetId ?? 0;
 
   const layoutRequests: Array<Record<string, unknown>> = [];
 

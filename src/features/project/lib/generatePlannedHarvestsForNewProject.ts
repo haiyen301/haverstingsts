@@ -197,6 +197,70 @@ export function estimateTotalHarvestBatches(config: ProjectPaceConfig): number {
   return Math.max(1, estimatePaceHarvestCycles(config) * batchesPerCycle);
 }
 
+/** Local calendar date `YYYY-MM-DD` (for pace past-slot checks). */
+export function todayLocalYmd(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * Planned harvest dates for every pace batch slot (same schedule as
+ * `generatePlannedHarvestsForNewProject`).
+ */
+export function buildPaceBatchScheduleDates(opts: {
+  paceConfig: ProjectPaceConfig;
+  estimatedStartYmd: string;
+}): string[] {
+  const startStr = String(opts.estimatedStartYmd ?? "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startStr)) return [];
+
+  const start = new Date(startStr);
+  if (Number.isNaN(start.getTime())) return [];
+
+  const totalWeeks = estimatePaceDurationWeeks(opts.paceConfig);
+  if (totalWeeks <= 0) return [];
+
+  const totalBatches = estimateTotalHarvestBatches(opts.paceConfig);
+  const slots = buildBatchSlots(opts.paceConfig, totalWeeks, totalBatches);
+  return slots.map((slot) =>
+    isoYmd(addDays(start, slot.weekIndex * 7 + slot.dayOffset)),
+  );
+}
+
+/** Pace slots whose scheduled date is strictly before `referenceYmd`. */
+export function countPaceSlotsBeforeDate(opts: {
+  paceConfig: ProjectPaceConfig;
+  estimatedStartYmd: string;
+  referenceYmd: string;
+}): number {
+  const ref = String(opts.referenceYmd ?? "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ref)) return 0;
+  return buildPaceBatchScheduleDates(opts).filter((ymd) => ymd < ref).length;
+}
+
+/**
+ * Remaining estimate batch count (B slots) after passed pace slots and actual harvests.
+ * See `doc/project-page-and-harvest-update.md` §2 improvement.
+ */
+export function paceRemainingEstimateBatchCount(opts: {
+  paceConfig: ProjectPaceConfig;
+  estimatedStartYmd: string;
+  actualBatchCount: number;
+  referenceYmd?: string;
+}): number {
+  const totalBatches = estimateTotalHarvestBatches(opts.paceConfig);
+  const passedBatchCount = countPaceSlotsBeforeDate({
+    paceConfig: opts.paceConfig,
+    estimatedStartYmd: opts.estimatedStartYmd,
+    referenceYmd: opts.referenceYmd ?? todayLocalYmd(),
+  });
+  const actual = Math.max(0, Math.floor(opts.actualBatchCount));
+  return Math.max(0, totalBatches - passedBatchCount - actual);
+}
+
 function dayOffsetsForPace(config: ProjectPaceConfig): number[] {
   const spanDays = 7 * Math.max(1, config.harvestEveryWeeks);
   const batchCount = Math.max(1, config.harvestBatches);

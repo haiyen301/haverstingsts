@@ -40,7 +40,8 @@ import {
   deleteMondayParentOrSubItem,
   fetchProjectDynamicFieldsByProjectId,
 } from "@/entities/projects/api/projectsApi";
-import { stsProxyGetHarvestingIndex } from "@/shared/api/stsProxyClient";
+import { stsProxyGetHarvestingIndex, getInternalStsProxyUrl } from "@/shared/api/stsProxyClient";
+import { STS_API_PATHS } from "@/shared/api/stsApiPaths";
 import { HARVEST_ATTACHMENT_SOURCES } from "@/shared/lib/harvestAttachmentImages";
 import {
   buildHarvestAttachmentSlidesFromRow,
@@ -1184,6 +1185,21 @@ export default function ProjectDetailPage() {
           setError(t("cannotFindDetail"));
           return;
         }
+
+        try {
+          const limitUrl = getInternalStsProxyUrl(
+            STS_API_PATHS.updateHarvestLimitDescriptions,
+          );
+          await fetch(limitUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            body: JSON.stringify({ project_id: normalizedProjectId }),
+          });
+        } catch {
+          // Harvest rows still load if limit recalc fails.
+        }
+        if (!mounted) return;
 
         const [progressHarvest, historyHarvest] = await Promise.all([
           fetchAllHarvestPlanPagesForProjectProgress(normalizedProjectId, {

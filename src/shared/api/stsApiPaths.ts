@@ -63,14 +63,28 @@ export const STS_API_PATHS = {
   itemCategoriesAdminList: "/api/item_categories/admin_list",
   itemCategoriesSave: "/api/item_categories/save",
   itemCategoriesRemove: "/api/item_categories/remove",
+  /** Privileged admin — sts_ware_unit_type CRUD */
+  wareUnitTypesAdminList: "/api/ware_unit_types/admin_list",
+  wareUnitTypesSave: "/api/ware_unit_types/save",
+  wareUnitTypesRemove: "/api/ware_unit_types/remove",
   /** Fertilizer application log */
   fertilizerUsage: "/api/fertilizer_usage",
   fertilizerUsageSave: "/api/fertilizer_usage/save",
   fertilizerUsageRemove: "/api/fertilizer_usage/remove",
+  /** Farm-specific item/vehicle display aliases */
+  farmAliases: "/api/farm_aliases",
+  farmAliasesSave: "/api/farm_aliases/save",
+  farmAliasesRemove: "/api/farm_aliases/remove",
   /** Fuel usage log */
   fuelUsage: "/api/fuel_usage",
   fuelUsageSave: "/api/fuel_usage/save",
   fuelUsageRemove: "/api/fuel_usage/remove",
+  fuelUsageDiaryReport: "/api/fuel_usage/diary_report",
+  /** Fleet consumable stock ledger (fuel diesel/petrol, fertilizer by item) */
+  fleetStockLedger: "/api/fleet_stock_ledger",
+  fleetStockLedgerSave: "/api/fleet_stock_ledger/save",
+  fleetStockLedgerRecalculate: "/api/fleet_stock_ledger/recalculate",
+  fleetStockLedgerRemove: "/api/fleet_stock_ledger/remove",
   machinery: "/api/machinery",
   machineryCatalog: "/api/machinery/catalog",
   machinerySave: "/api/machinery/save",
@@ -80,6 +94,10 @@ export const STS_API_PATHS = {
   machineryTypes: "/api/machinery_types",
   machineryTypesSave: "/api/machinery_types/save",
   machineryTypesRemove: "/api/machinery_types/remove",
+  /** Fleet option catalogs in sts_settings (statuses, service types, fuel types). */
+  fleetOptionCatalogs: "/api/fleet_option_catalogs",
+  fleetOptionCatalogsSave: "/api/fleet_option_catalogs/save",
+  fleetOptionCatalogsRemove: "/api/fleet_option_catalogs/remove",
   /** Fleet equipment registry (sts_equipment + sts_items catalog). */
   equipment: "/api/equipment",
   equipmentCatalog: "/api/equipment/catalog",
@@ -91,6 +109,8 @@ export const STS_API_PATHS = {
   equipmentRemoveServiceLog: "/api/equipment/remove_service_log",
   equipmentCategoryConfig: "/api/equipment/category_config",
   equipmentSaveCategory: "/api/equipment/save_category",
+  fleetItemCategoriesConfig: "/api/fleet_item_categories/category_config",
+  fleetItemCategoriesSave: "/api/fleet_item_categories/save_category",
   vehicleInspections: "/api/vehicle_inspections",
   vehicleInspectionsFormOptions: "/api/vehicle_inspections/form_options",
   vehicleInspectionsSave: "/api/vehicle_inspections/save",

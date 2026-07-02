@@ -20,6 +20,7 @@ export const APP_PERMISSION_ACTIONS = [
   "import",
   "export",
   "view_all_data",
+  "setting",
 ] as const;
 
 export const APP_PERMISSION_MODULES = [
@@ -30,6 +31,10 @@ export const APP_PERMISSION_MODULES = [
   "inventory",
   "harvest_schedule",
   "harvests",
+  "fertilizer_usage",
+  "vehicle_inspections",
+  "fuel_usage",
+  "equipment",
   "admin_people",
   "admin_roles",
   "admin_project_types",
@@ -43,6 +48,10 @@ export const APP_PERMISSION_MODULES = [
   "admin_countries",
   "admin_items",
   "admin_item_categories",
+  "admin_units",
+  "admin_machinery_types",
+  "admin_fleet_option_catalogs",
+  "admin_equipment_category",
 ] as const;
 
 export type AppPermissionModule = (typeof APP_PERMISSION_MODULES)[number];
@@ -115,19 +124,28 @@ export function canAccessModule(
   moduleName: PermissionModule,
   action: PermissionAction = "show",
 ): boolean {
+  if (isSuperAdmin(user)) return true;
   if (typeof window !== "undefined" && !isAclReady()) {
     return false;
   }
   return hasModulePermission(moduleName, user, action);
 }
 
+/**
+ * Privileged settings UI for a module (e.g. project pace recalc).
+ * Super admin always allowed; other users need `can_setting_{module}` on their role.
+ */
+export function canAccessModuleSetting(
+  user: SessionUser | PermissionMap | null | undefined,
+  moduleName: PermissionModule,
+): boolean {
+  return canAccessModule(user, moduleName, "setting");
+}
+
 export function canManageHelpKnowledgeBase(
   user: SessionUser | PermissionMap | null | undefined,
 ): boolean {
-  if (isSuperAdmin(user)) return true;
-  const permissions = asPermissionMap(user);
-  const value = permissions.help_and_knowledge_base;
-  return value === "all" || value === true || value === 1 || value === "1";
+  return isSuperAdmin(user);
 }
 
 /**

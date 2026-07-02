@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlignLeft, ArrowDown, ChevronDown, FlaskConical, Layers, MapPin, Pencil, Plus, Sprout, Trash2 } from "lucide-react";
+import { AlignLeft, ArrowDown, ChevronDown, Download, FlaskConical, Info, Layers, MapPin, Package, Pencil, Plus, Sprout, Trash2 } from "lucide-react";
+import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { toast } from "react-toastify";
 import {
@@ -21,6 +22,11 @@ import {
   saveFertilizerUsage,
   type FertilizerUsageRow,
 } from "@/features/fertilizer/api/fertilizerUsageApi";
+import {
+  FARM_ALIAS_CONTEXT,
+  farmAliasesByRefId,
+  fetchFarmAliases,
+} from "@/features/farm/api/farmAliasesApi";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   DashboardKpiDateFilter,
@@ -45,11 +51,27 @@ import {
   zoneIdToLabel,
 } from "@/shared/lib/harvestReferenceData";
 import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
+import { farmAliasDisplayLabel } from "@/shared/lib/farmAliasDisplay";
+import { buildItemCatalogSelectOption } from "@/shared/lib/format/itemProductCodes";
 import { useSyncedFarmMultiSelect } from "@/shared/hooks/useSyncedFarmMultiSelect";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { TOAST_CONTAINER_TOP_RIGHT } from "@/shared/ui/AppToasts";
 import { MultiSelect } from "@/shared/ui/multi-select";
+import { Checkbox } from "@/shared/ui/checkbox";
 import { DatePicker } from "@/shared/ui/date-picker";
+import { StockLedgerPanel } from "@/features/fleet/FuelStockLedgerPanel";
+import { FertilizerBalanceExportDialog } from "@/features/fertilizer/ui/FertilizerBalanceExportDialog";
+import { FertilizerUsageBalanceBreakdownPanel } from "@/features/fertilizer/ui/FertilizerUsageBalanceBreakdownPanel";
+import {
+  buildFertilizerUsageBalanceIndex,
+  farmItemBalanceKey,
+  timelineUpToUsageId,
+  usageRowHasBalance,
+  usageRowRemainingBalance,
+} from "@/features/fertilizer/lib/fertilizerUsageBalance";
+import { fetchFleetStockLedger, type FleetStockLedgerRow } from "@/features/fleet/api/fleetStockLedgerApi";
+import { canAccessModule } from "@/shared/auth/permissions";
+import { useAuthUserStore } from "@/shared/store/authUserStore";
 import type { ZoneConfigurationRow } from "@/features/admin/api/adminApi";
 
 const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -71,6 +93,7 @@ const tabBtn =
 const tabBtnActive = "bg-muted text-foreground shadow-sm";
 const tabBtnIdle = "text-muted-foreground hover:text-foreground hover:bg-muted/60";
 const FERTILIZER_DATE_FILTER_BASELINE: KpiDatePreset = "all";
+const USAGE_LIST_PAGE_SIZE = 40;
 
 type BreakdownTab = "product" | "month" | "grass" | "zone";
 
@@ -81,11 +104,19 @@ type EntryForm = {
   zone_id: string;
   item_id: string;
   amount: string;
+  is_transfer: boolean;
+  transfer_to_farm_id: string;
   rate: string;
   rate_uom: string;
   operator_id: string;
   notes: string;
+  alias_title: string;
 };
+
+function isTransferUsageRow(row: Pick<FertilizerUsageRow, "is_transfer">): boolean {
+  const v = row.is_transfer;
+  return v === 1 || v === true || String(v) === "1";
+}
 
 function itemRateUom(product: ItemCatalogRow | undefined): string {
   return product?.rate_uom?.trim() || "";
@@ -138,11 +169,23 @@ function emptyForm(farmId = "", grassId = ""): EntryForm {
     zone_id: "",
     item_id: "",
     amount: "",
+    is_transfer: false,
+    transfer_to_farm_id: "",
     rate: "",
     rate_uom: "",
     operator_id: "",
     notes: "",
+    alias_title: "",
   };
+}
+
+function productLabel(
+  row: Pick<FertilizerUsageRow, "item_id" | "product_name" | "alias_name">,
+  productById: Map<number, ItemCatalogRow>,
+): string {
+  const productName =
+    row.product_name ?? productById.get(Number(row.item_id))?.name ?? String(row.item_id);
+  return farmAliasDisplayLabel(row.alias_name, productName, String(row.item_id));
 }
 
 function num(v: unknown): number {
@@ -159,6 +202,10 @@ function staffDisplayName(row: Record<string, unknown>): string {
 
 export function FertilizerUsageTab() {
   const t = useTranslations("FertilizerUsage");
+  const tHarvest = useTranslations("Harvest");
+  const searchParams = useSearchParams();
+  const user = useAuthUserStore((s) => s.user);
+  const canExport = canAccessModule(user, "harvests", "export");
   const farms = useHarvestingDataStore((s) => s.farms);
   const grasses = useHarvestingDataStore((s) => s.grasses);
   const staffs = useHarvestingDataStore((s) => s.staffs);
@@ -176,6 +223,9 @@ export function FertilizerUsageTab() {
 
   const [products, setProducts] = useState<ItemCatalogRow[]>([]);
   const [entries, setEntries] = useState<FertilizerUsageRow[]>([]);
+  const [ledgerRows, setLedgerRows] = useState<FleetStockLedgerRow[]>([]);
+  const [balanceUsageRows, setBalanceUsageRows] = useState<FertilizerUsageRow[]>([]);
+  const [balanceBreakdownUsageId, setBalanceBreakdownUsageId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [kpiDateFilter, setKpiDateFilter] = useState<KpiDeliveryDateFilter>({
@@ -183,8 +233,17 @@ export function FertilizerUsageTab() {
   });
   const [breakdownTab, setBreakdownTab] = useState<BreakdownTab>("product");
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [balanceOpen, setBalanceOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const resumeGoogleSheetExport =
+    (searchParams.get("googleSheetExport") ?? "").trim() === "resume";
+  const [stockReloadToken, setStockReloadToken] = useState(0);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState<EntryForm>(() => emptyForm());
+  const [farmAliasesByItemId, setFarmAliasesByItemId] = useState<Map<number, string>>(
+    () => new Map(),
+  );
+  const [listVisibleCount, setListVisibleCount] = useState(USAGE_LIST_PAGE_SIZE);
 
   const farmNameById = useMemo(() => {
     const map = new Map(scopedFarmNameById);
@@ -229,6 +288,32 @@ export function FertilizerUsageTab() {
       .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
   }, [staffs]);
 
+  const productStockKeyOptions = useMemo(
+    () =>
+      products.map((product) => {
+        const parts = buildItemCatalogSelectOption(product.name, product);
+        return {
+          value: String(product.id),
+          label: parts.label,
+          subLabel: parts.subLabel,
+        };
+      }),
+    [products],
+  );
+
+  const productOptions = useMemo(
+    () =>
+      products.map((product) => {
+        const parts = buildItemCatalogSelectOption(product.name, product);
+        return {
+          value: String(product.id),
+          label: parts.label,
+          subLabel: parts.subLabel,
+        };
+      }),
+    [products],
+  );
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -259,6 +344,42 @@ export function FertilizerUsageTab() {
     }
   }, [selectedFarmIds, hasActiveDateFilter, dateRange.start, dateRange.end, t]);
 
+  const loadBalanceData = useCallback(async () => {
+    try {
+      if (selectedFarmIds.length > 0) {
+        const farmIds = selectedFarmIds.join(",");
+        const [ledger, outbound, ...incomingBatches] = await Promise.all([
+          fetchFleetStockLedger({ farm_ids: farmIds, module: "fertilizer" }),
+          fetchFertilizerUsage({ farm_ids: farmIds }),
+          ...selectedFarmIds.map((farmId) =>
+            fetchFertilizerUsage({ transfer_to_farm_id: Number(farmId) }),
+          ),
+        ]);
+        const usageById = new Map<number, FertilizerUsageRow>();
+        for (const row of [outbound, ...incomingBatches].flat()) {
+          usageById.set(Number(row.id), row);
+        }
+        setLedgerRows(ledger);
+        setBalanceUsageRows([...usageById.values()]);
+        return;
+      }
+
+      const [ledger, usage] = await Promise.all([
+        fetchFleetStockLedger({ module: "fertilizer" }),
+        fetchFertilizerUsage({}),
+      ]);
+      setLedgerRows(ledger);
+      setBalanceUsageRows(usage);
+    } catch {
+      setLedgerRows([]);
+      setBalanceUsageRows([]);
+    }
+  }, [selectedFarmIds, stockReloadToken]);
+
+  useEffect(() => {
+    void loadBalanceData();
+  }, [loadBalanceData]);
+
   useEffect(() => {
     void fetchAllHarvestingReferenceData(false);
   }, [fetchAllHarvestingReferenceData]);
@@ -267,7 +388,108 @@ export function FertilizerUsageTab() {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    if (resumeGoogleSheetExport) setExportOpen(true);
+  }, [resumeGoogleSheetExport]);
+
+  const exportFarmIds = useMemo(() => {
+    if (selectedFarmIds.length > 0) return selectedFarmIds;
+    return farmOptions[0]?.id ? [farmOptions[0].id] : [];
+  }, [selectedFarmIds, farmOptions]);
+
+  const exportNow = new Date();
+
+  const loadFarmAliases = useCallback(async (farmId: string) => {
+    const farmNum = Number(farmId);
+    if (!Number.isFinite(farmNum) || farmNum <= 0) {
+      setFarmAliasesByItemId(new Map());
+      return;
+    }
+    try {
+      const rows = await fetchFarmAliases({
+        farm_id: farmNum,
+        context: FARM_ALIAS_CONTEXT.fertilizerItem,
+      });
+      setFarmAliasesByItemId(farmAliasesByRefId(rows));
+    } catch {
+      setFarmAliasesByItemId(new Map());
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!dialogOpen) return;
+    void loadFarmAliases(form.farm_id);
+  }, [dialogOpen, form.farm_id, loadFarmAliases]);
+
   const filtered = entries;
+
+  const visibleUsageRows = useMemo(
+    () => filtered.slice(0, listVisibleCount),
+    [filtered, listVisibleCount],
+  );
+
+  const hasMoreUsageRows = filtered.length > listVisibleCount;
+
+  useEffect(() => {
+    setListVisibleCount(USAGE_LIST_PAGE_SIZE);
+  }, [selectedFarmIds, hasActiveDateFilter, dateRange.start, dateRange.end]);
+
+  const productLabelByItemId = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const product of products) {
+      map.set(Number(product.id), product.name);
+    }
+    for (const entry of balanceUsageRows) {
+      const itemId = Number(entry.item_id);
+      if (itemId > 0 && !map.has(itemId)) {
+        map.set(itemId, productLabel(entry, productById));
+      }
+    }
+    return map;
+  }, [products, balanceUsageRows, productById]);
+
+  const balanceIndex = useMemo(
+    () =>
+      buildFertilizerUsageBalanceIndex({
+        ledgerRows,
+        usageRows: balanceUsageRows,
+        farmNameById,
+        productLabelByItemId,
+      }),
+    [ledgerRows, balanceUsageRows, farmNameById, productLabelByItemId],
+  );
+
+  const balanceBreakdownRow = useMemo(
+    () =>
+      balanceBreakdownUsageId != null
+        ? filtered.find((row) => Number(row.id) === balanceBreakdownUsageId) ??
+          balanceUsageRows.find((row) => Number(row.id) === balanceBreakdownUsageId) ??
+          null
+        : null,
+    [balanceBreakdownUsageId, filtered, balanceUsageRows],
+  );
+
+  const balanceBreakdownTimeline = useMemo(() => {
+    if (!balanceBreakdownRow) return [];
+    const key = farmItemBalanceKey(Number(balanceBreakdownRow.farm_id), Number(balanceBreakdownRow.item_id));
+    const timeline = balanceIndex.timelinesByFarmItem.get(key) ?? [];
+    return timelineUpToUsageId(timeline, Number(balanceBreakdownRow.id));
+  }, [balanceBreakdownRow, balanceIndex.timelinesByFarmItem]);
+
+  const chartAliasByItemId = useMemo(() => {
+    if (selectedFarmIds.length !== 1) {
+      return new Map<number, string>();
+    }
+    const map = new Map<number, string>();
+    for (const entry of filtered) {
+      const itemId = Number(entry.item_id);
+      const alias = String(entry.alias_name ?? "").trim();
+      if (itemId > 0 && alias && !map.has(itemId)) {
+        map.set(itemId, alias);
+      }
+    }
+    return map;
+  }, [filtered, selectedFarmIds]);
 
   const totalAmount = filtered.reduce((s, e) => s + num(e.amount), 0);
   const productsUsed = new Set(filtered.map((e) => e.item_id)).size;
@@ -279,12 +501,21 @@ export function FertilizerUsageTab() {
       map[e.item_id] = (map[e.item_id] || 0) + num(e.amount);
     });
     return Object.entries(map)
-      .map(([id, amount]) => ({
-        name: productById.get(Number(id))?.name ?? `#${id}`,
-        amount,
-      }))
+      .map(([id, amount]) => {
+        const itemId = Number(id);
+        const product = productById.get(itemId);
+        const alias = chartAliasByItemId.get(itemId);
+        return {
+          name: farmAliasDisplayLabel(
+            alias,
+            product?.name ?? `#${id}`,
+            `#${id}`,
+          ),
+          amount,
+        };
+      })
       .sort((a, b) => b.amount - a.amount);
-  }, [filtered, productById]);
+  }, [filtered, productById, chartAliasByItemId]);
 
   const byMonth = useMemo(() => {
     const year = todayIso().slice(0, 4);
@@ -383,12 +614,15 @@ export function FertilizerUsageTab() {
       zone_id: String(row.zone_id),
       item_id: String(row.item_id),
       amount: formatDecimalInputFromValue(row.amount),
+      is_transfer: isTransferUsageRow(row),
+      transfer_to_farm_id: row.transfer_to_farm_id ? String(row.transfer_to_farm_id) : "",
       rate: storedRate
         ? formatDecimalInputFromValue(storedRate)
         : rateFieldsFromProduct(product).rate,
       rate_uom: storedUom || rateFieldsFromProduct(product).rate_uom,
       operator_id: row.operator_id ? String(row.operator_id) : "",
       notes: String(row.notes ?? ""),
+      alias_title: String(row.alias_name ?? ""),
     });
     setDialogOpen(true);
   };
@@ -400,9 +634,11 @@ export function FertilizerUsageTab() {
 
   const selectProduct = (itemId: string) => {
     const product = productById.get(Number(itemId));
+    const alias = farmAliasesByItemId.get(Number(itemId)) ?? "";
     setForm((f) => ({
       ...f,
       item_id: itemId,
+      alias_title: alias,
       ...rateFieldsFromProduct(product),
     }));
   };
@@ -412,6 +648,7 @@ export function FertilizerUsageTab() {
     const grassId = Number(form.grass_id);
     const itemId = Number(form.item_id);
     const amount = parseDecimalField(form.amount);
+    const transferToFarmId = Number(form.transfer_to_farm_id);
     if (
       !form.applied_date ||
       !Number.isFinite(farmId) ||
@@ -427,6 +664,16 @@ export function FertilizerUsageTab() {
       toast.error(t("errors.requiredFields"), { containerId: TOAST_CONTAINER_TOP_RIGHT });
       return;
     }
+    if (form.is_transfer) {
+      if (!Number.isFinite(transferToFarmId) || transferToFarmId <= 0) {
+        toast.error(t("errors.transferFarmRequired"), { containerId: TOAST_CONTAINER_TOP_RIGHT });
+        return;
+      }
+      if (transferToFarmId === farmId) {
+        toast.error(t("errors.transferFarmDifferent"), { containerId: TOAST_CONTAINER_TOP_RIGHT });
+        return;
+      }
+    }
     try {
       setSaving(true);
       await saveFertilizerUsage({
@@ -437,14 +684,21 @@ export function FertilizerUsageTab() {
         zone_id: Number(form.zone_id),
         item_id: itemId,
         amount,
+        is_transfer: form.is_transfer,
+        transfer_to_farm_id: form.is_transfer ? transferToFarmId : null,
         rate: form.rate.trim() ? parseDecimalField(form.rate) : null,
         rate_uom: form.rate_uom.trim() || null,
         operator_id: form.operator_id ? Number(form.operator_id) : undefined,
         notes: form.notes.trim() || undefined,
+        alias_title: form.alias_title.trim(),
       });
       toast.success(t("saved"), { containerId: TOAST_CONTAINER_TOP_RIGHT });
       closeDialog();
-      await load();
+      setStockReloadToken((n) => n + 1);
+      await Promise.all([load(), loadBalanceData()]);
+      if (form.farm_id) {
+        await loadFarmAliases(form.farm_id);
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t("errors.save"), {
         containerId: TOAST_CONTAINER_TOP_RIGHT,
@@ -460,7 +714,8 @@ export function FertilizerUsageTab() {
       setSaving(true);
       await removeFertilizerUsage(Number(row.id));
       toast.success(t("deleted"), { containerId: TOAST_CONTAINER_TOP_RIGHT });
-      await load();
+      setStockReloadToken((n) => n + 1);
+      await Promise.all([load(), loadBalanceData()]);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t("errors.delete"), {
         containerId: TOAST_CONTAINER_TOP_RIGHT,
@@ -490,10 +745,22 @@ export function FertilizerUsageTab() {
           <h1 className="font-heading text-2xl font-bold text-foreground">{t("title")}</h1>
           <p className="mt-1 text-sm text-muted-foreground">{t("subtitle")}</p>
         </div>
-        <button type="button" className={btnPrimary} onClick={openCreate}>
-          <Plus className="h-4 w-4" />
-          {t("logApplication")}
-        </button>
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
+          <button type="button" className={btnPrimary} onClick={openCreate}>
+            <Plus className="h-4 w-4" />
+            {t("logApplication")}
+          </button>
+          <button type="button" className={btnOutline} onClick={() => setBalanceOpen(true)}>
+            <Package className="h-4 w-4" />
+            {t("stock.balanceButton")}
+          </button>
+          {canExport ? (
+            <button type="button" className={btnOutline} onClick={() => setExportOpen(true)}>
+              <Download className="h-4 w-4" />
+              {tHarvest("exportData")}
+            </button>
+          ) : null}
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
@@ -608,14 +875,16 @@ export function FertilizerUsageTab() {
                     <th className="px-4 py-3 text-left font-medium">{t("table.grass")}</th>
                     <th className="px-4 py-3 text-left font-medium">{t("table.zone")}</th>
                     <th className="px-4 py-3 text-left font-medium">{t("table.product")}</th>
+                    <th className="px-4 py-3 text-left font-medium">{t("table.type")}</th>
                     <th className="px-4 py-3 text-left font-medium">{t("table.amount")}</th>
+                    <th className="px-4 py-3 text-right font-medium">{t("table.remaining")}</th>
                     <th className="px-4 py-3 text-left font-medium">{t("table.rate")}</th>
                     <th className="px-4 py-3 text-left font-medium">{t("table.operator")}</th>
                     <th className="px-4 py-3 text-right font-medium">{t("table.actions")}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((e) => (
+                  {visibleUsageRows.map((e) => (
                     <tr key={e.id} className="border-b border-border last:border-b-0">
                       <td className="whitespace-nowrap px-4 py-3">
                         {formatDateDisplay(e.applied_date)}
@@ -632,10 +901,53 @@ export function FertilizerUsageTab() {
                           e.zone_id}
                       </td>
                       <td className="px-4 py-3 font-medium">
-                        {e.product_name ?? productById.get(Number(e.item_id))?.name ?? e.item_id}
+                        {productLabel(e, productById)}
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {isTransferUsageRow(e)
+                          ? t("table.transferTo", {
+                              farm: String(
+                                e.transfer_to_farm_name ??
+                                  farmNameById.get(String(e.transfer_to_farm_id ?? "")) ??
+                                  e.transfer_to_farm_id ??
+                                  "",
+                              ),
+                            })
+                          : t("table.consumption")}
                       </td>
                       <td className="px-4 py-3 font-semibold tabular-nums">
                         {formatNumber(e.amount, { maximumFractionDigits: 3 })}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <div className="inline-flex items-center justify-end gap-1">
+                          <span className="font-semibold tabular-nums">
+                            {(() => {
+                              const value = usageRowRemainingBalance(e, balanceIndex);
+                              return value != null
+                                ? formatNumber(value, { maximumFractionDigits: 3 })
+                                : "—";
+                            })()}
+                          </span>
+                          {usageRowHasBalance(e, balanceIndex) ? (
+                            <button
+                              type="button"
+                              className={cn(
+                                btnGhost,
+                                "h-7 w-7",
+                                balanceBreakdownUsageId === Number(e.id) && "bg-primary/10 text-primary",
+                              )}
+                              aria-label={t("balanceTimeline.showBreakdown")}
+                              title={t("balanceTimeline.showBreakdown")}
+                              onClick={() =>
+                                setBalanceBreakdownUsageId((current) =>
+                                  current === Number(e.id) ? null : Number(e.id),
+                                )
+                              }
+                            >
+                              <Info className="h-3.5 w-3.5" />
+                            </button>
+                          ) : null}
+                        </div>
                       </td>
                       <td className="px-4 py-3 tabular-nums">{formatUsageRateDisplay(e)}</td>
                       <td className="px-4 py-3 text-muted-foreground">
@@ -666,7 +978,7 @@ export function FertilizerUsageTab() {
                   ))}
                   {filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="px-4 py-8 text-center text-muted-foreground">
+                      <td colSpan={11} className="px-4 py-8 text-center text-muted-foreground">
                         {t("table.empty")}
                       </td>
                     </tr>
@@ -675,8 +987,69 @@ export function FertilizerUsageTab() {
               </table>
             </div>
           )}
+          {!loading && hasMoreUsageRows ? (
+            <div className="border-t border-border px-4 py-3">
+              <button
+                type="button"
+                className={btnOutline}
+                onClick={() =>
+                  setListVisibleCount((count) => count + USAGE_LIST_PAGE_SIZE)
+                }
+              >
+                {t("table.loadMore")}
+              </button>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
+
+      {balanceBreakdownRow && balanceBreakdownTimeline.length > 0 ? (
+        <FertilizerUsageBalanceBreakdownPanel
+          farmName={
+            balanceBreakdownRow.farm_name ??
+            farmNameById.get(String(balanceBreakdownRow.farm_id)) ??
+            String(balanceBreakdownRow.farm_id)
+          }
+          productLabel={productLabel(balanceBreakdownRow, productById)}
+          timeline={balanceBreakdownTimeline}
+          highlightUsageId={Number(balanceBreakdownRow.id)}
+          onClose={() => setBalanceBreakdownUsageId(null)}
+        />
+      ) : null}
+
+      {canExport ? (
+        <FertilizerBalanceExportDialog
+          open={exportOpen}
+          onClose={() => setExportOpen(false)}
+          farmOptions={farmOptions.map((f) => ({ id: f.id, label: f.label }))}
+          initialFarmIds={exportFarmIds}
+          initialYear={exportNow.getFullYear()}
+          initialMonth={exportNow.getMonth() + 1}
+          resumeGoogleSheetExport={resumeGoogleSheetExport}
+        />
+      ) : null}
+
+      {balanceOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-lg border border-border bg-background p-6 shadow-lg">
+            <StockLedgerPanel
+              variant="fertilizer"
+              farmOptions={farmOptions.map((f) => ({ id: f.id, label: f.label }))}
+              stockKeyOptions={productStockKeyOptions}
+              initialFarmId={
+                selectedFarmIds.length === 1 ? selectedFarmIds[0] : farmOptions[0]?.id ?? null
+              }
+              reloadToken={stockReloadToken}
+              embedded
+              onClose={() => setBalanceOpen(false)}
+              onDataChanged={() => {
+                setStockReloadToken((token) => token + 1);
+                void Promise.all([load(), loadBalanceData()]);
+              }}
+            />
+          </div>
+        </div>
+      ) : null}
 
       {dialogOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -700,7 +1073,16 @@ export function FertilizerUsageTab() {
                   className={inputClass}
                   value={form.farm_id}
                   onChange={(e) =>
-                    setForm((f) => ({ ...f, farm_id: e.target.value, grass_id: "", zone_id: "" }))
+                    setForm((f) => ({
+                      ...f,
+                      farm_id: e.target.value,
+                      grass_id: "",
+                      zone_id: "",
+                      item_id: "",
+                      alias_title: "",
+                      transfer_to_farm_id:
+                        f.transfer_to_farm_id === e.target.value ? "" : f.transfer_to_farm_id,
+                    }))
                   }
                 >
                   <option value="">{t("dialog.selectFarm")}</option>
@@ -749,24 +1131,76 @@ export function FertilizerUsageTab() {
               </label>
               <label className="col-span-2 space-y-1">
                 <span className="text-xs font-medium">{t("dialog.product")} *</span>
-                <select
-                  className={inputClass}
-                  value={form.item_id}
-                  onChange={(e) => selectProduct(e.target.value)}
-                >
-                  <option value="">{t("dialog.selectProduct")}</option>
-                  {products.map((p) => (
-                    <option key={p.id} value={String(p.id)}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
+                <MultiSelect
+                  options={productOptions}
+                  values={form.item_id ? [form.item_id] : []}
+                  onChange={(next) => selectProduct(next[0] ?? "")}
+                  multi={false}
+                  placeholder={t("dialog.selectProduct")}
+                  className={selectClass}
+                  rightIcon={selectChevron}
+                  showSelectedChipsInPopover={false}
+                  selectionSummary="full"
+                  disabled={saving}
+                />
                 {products.length === 0 ? (
                   <p className="text-xs text-muted-foreground">{t("dialog.noProductsHint")}</p>
                 ) : null}
               </label>
+              <label className="col-span-2 space-y-1">
+                <span className="text-xs font-medium">{t("dialog.aliasTitle")}</span>
+                <input
+                  type="text"
+                  className={inputClass}
+                  value={form.alias_title}
+                  placeholder={t("dialog.aliasTitlePlaceholder")}
+                  disabled={saving || !form.item_id}
+                  onChange={(e) => setForm((f) => ({ ...f, alias_title: e.target.value }))}
+                />
+              </label>
+              <label className="col-span-2 flex items-center gap-2">
+                <Checkbox
+                  checked={form.is_transfer}
+                  disabled={saving}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      is_transfer: e.target.checked,
+                      transfer_to_farm_id: e.target.checked ? f.transfer_to_farm_id : "",
+                    }))
+                  }
+                />
+                <span className="text-sm font-medium">{t("dialog.isTransfer")}</span>
+              </label>
+              {form.is_transfer ? (
+                <label className="col-span-2 space-y-1">
+                  <span className="text-xs font-medium">{t("dialog.transferToFarm")} *</span>
+                  <select
+                    className={inputClass}
+                    value={form.transfer_to_farm_id}
+                    disabled={saving}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, transfer_to_farm_id: e.target.value }))
+                    }
+                  >
+                    <option value="">{t("dialog.selectTransferFarm")}</option>
+                    {farms
+                      .filter((farm) => String((farm as { id?: unknown }).id ?? "") !== form.farm_id)
+                      .map((farm) => {
+                        const id = String((farm as { id?: unknown }).id ?? "");
+                        return (
+                          <option key={id} value={id}>
+                            {String((farm as { name?: unknown }).name ?? id)}
+                          </option>
+                        );
+                      })}
+                  </select>
+                </label>
+              ) : null}
               <label className="space-y-1">
-                <span className="text-xs font-medium">{t("dialog.amount")} *</span>
+                <span className="text-xs font-medium">
+                  {form.is_transfer ? t("dialog.transferAmount") : t("dialog.amount")} *
+                </span>
                 <input
                   type="text"
                   inputMode="decimal"

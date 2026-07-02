@@ -101,10 +101,9 @@ function paceRecalcRowMatchesReqLoadType(
     return rowLoad === reqLoad;
   }
 
+  // Sod→Sprig requirement: only sod_to_sprig plan rows (never legacy sprig Kg rows).
   if (reqLoad === "sod_to_sprig" && reqUom === "kg") {
-    if (rowLoad === "sod_to_sprig") return true;
-    if (rowLoad === "sprig") return true;
-    return false;
+    return rowLoad === "sod_to_sprig";
   }
 
   if (reqLoad === "sprig" && reqUom === "kg") {
@@ -209,18 +208,21 @@ export function hasRealHarvestScheduleDate(raw: unknown): boolean {
 }
 
 /**
- * Row already harvested — counts toward **H**.
- * Delivery in the app requires actual date (`hasDownstreamHarvestDates` → actual required).
+ * Row already harvested — counts toward **H** (actual or delivery set).
+ * Estimate-only rows (no actual, no delivery) are handled separately as **N**.
  */
 export function paceRecalcPlanRowCountsAsHarvested(
   row: Record<string, unknown>,
 ): boolean {
-  return hasRealHarvestScheduleDate(row.actual_harvest_date);
+  return (
+    hasRealHarvestScheduleDate(row.actual_harvest_date) ||
+    hasRealHarvestScheduleDate(row.delivery_harvest_date)
+  );
 }
 
 /**
  * Match one `quantity_required_sprig_sod` line (product + UOM + load_type).
- * Sod→Sprig Kg: sod_to_sprig rows + legacy sprig Kg rows.
+ * Sod→Sprig Kg: sod_to_sprig plan rows only.
  * Sprig Kg: sprig rows only; sod_to_sprig rows count when the project has no sod_to_sprig requirement line.
  */
 export function paceRecalcPlanRowMatchesRequirementLine(
@@ -294,6 +296,25 @@ export function paceRecalcPlanRowCountsAsRemainingEstimate(
   );
 }
 
+function paceRecalcEstimateDateYmd(raw: unknown): string {
+  const t = String(raw ?? "").trim();
+  if (!t || t.toLowerCase() === "null") return "";
+  if (t.toLowerCase().startsWith("0000-00-00")) return "";
+  return t.slice(0, 10);
+}
+
+/** Estimate-only row whose scheduled date is strictly before `referenceYmd`. */
+export function paceRecalcPlanRowIsPastEstimate(
+  row: Record<string, unknown>,
+  referenceYmd: string,
+): boolean {
+  if (!paceRecalcPlanRowCountsAsRemainingEstimate(row)) return false;
+  const ymd = paceRecalcEstimateDateYmd(row.estimated_harvest_date);
+  const ref = String(referenceYmd ?? "").trim().slice(0, 10);
+  if (!ymd || !/^\d{4}-\d{2}-\d{2}$/.test(ref)) return false;
+  return ymd < ref;
+}
+
 /** Remaining quantity to spread across future estimate-only harvests (A). */
 export function computeRemainingRequiredQuantity(
   totalRequired: number,
@@ -362,6 +383,8 @@ export type RecalculatePaceAfterActualParams = {
   farmId?: string;
   /** Optional — zone config rows for harvested_area = B ÷ Yield (kg/m²) on estimate rows. */
   zoneConfigurations?: ZoneConfigurationRow[];
+  /** Optional — project estimate start for pace-based remaining batch count. */
+  estimatedStartYmd?: string;
 };
 
 function isKgUom(uom: string): boolean {
@@ -451,6 +474,9 @@ export async function recalculatePaceQuantitiesAfterActualHarvest(
     ...(params.farmId?.trim() ? { farm_id: params.farmId.trim() } : {}),
     ...(params.zoneConfigurations?.length
       ? { zone_configurations: params.zoneConfigurations }
+      : {}),
+    ...(params.estimatedStartYmd?.trim()
+      ? { estimated_start_ymd: params.estimatedStartYmd.trim() }
       : {}),
   });
 

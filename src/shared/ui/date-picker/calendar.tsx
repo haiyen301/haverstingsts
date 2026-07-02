@@ -9,6 +9,9 @@ import { cn } from "@/lib/utils";
 /** Modifier class for days with an existing setup / balance marker dot. */
 export const CALENDAR_MARKED_DAY_CLASS = "sts-calendar-day-marked";
 
+/** Modifier class for days with fuel stock balance (fuel pump icon). */
+export const CALENDAR_FUEL_BALANCE_DAY_CLASS = "sts-calendar-day-fuel-balance";
+
 function Calendar({
   className,
   classNames,

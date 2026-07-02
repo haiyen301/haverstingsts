@@ -22,7 +22,7 @@ export default async function AdminPage() {
     { module: "admin_project_types", path: "/admin/projectTypes" },
     { module: "admin_architects", path: "/admin/architects" },
     { module: "admin_farms", path: "/admin/farms" },
-    { module: "admin_farms", path: "/admin/fleet/machinery" },
+    { module: "admin_machinery_types", path: "/admin/fleet/machinery-types" },
     { module: "admin_zones", path: "/admin/zones" },
     { module: "admin_regrowth", path: "/admin/regrowth" },
     { module: "admin_grasses", path: "/admin/grasses" },
@@ -31,6 +31,7 @@ export default async function AdminPage() {
     { module: "admin_countries", path: "/admin/settings/countries" },
     { module: "admin_items", path: "/admin/settings/items" },
     { module: "admin_item_categories", path: "/admin/settings/item-categories" },
+    { module: "admin_units", path: "/admin/settings/unit-types" },
   ];
 
   const firstAllowed = targets.find((target) =>

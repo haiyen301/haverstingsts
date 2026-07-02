@@ -21,7 +21,8 @@
   --secondary-foreground: 0 0% 20%;
 
   --muted: 100 6% 94%;
-  --muted-foreground: 0 0% 20%;
+  --muted-foreground: 0 0% 50%;
+  --placeholder-foreground: 0 0% 69%;
   --btnhover: 0 0% 100%;
   --accent: 28 35% 56%;
   --accent-foreground: 0 0% 100%;
@@ -54,13 +55,13 @@
    * Lọc / chọn có giá trị:
    * - `surface-filter-empty`  → nền trắng (kênh màu --card / 0 0% 100%)
    * - `surface-filter-filled` → nền bề mặt app (kênh --background / tint xanh nhạt)
-   * - `filter-color-empty`    → #222 (chưa chọn)
+   * - `filter-color-empty`    → placeholder gray (chưa chọn)
    * - `filter-color-filled`   → #333 (đã chọn)
    * Dùng helper `bgSurfaceFilter()` (nền + chữ) hoặc Tailwind `bg-surface-filter-*` + `text-filter-*`.
    */
   --surface-filter-empty: var(--card);
   --surface-filter-filled: var(--background);
-  --filter-color-empty: 0 0% 13.3%;
+  --filter-color-empty: var(--placeholder-foreground);
   --filter-color-filled: 0 0% 20%;
 
   /* Legacy aliases used across existing pages */
@@ -94,7 +95,8 @@
   --secondary-foreground: 100 10% 92%;
 
   --muted: 100 6% 94%;
-  --muted-foreground: 0 0% 20%;
+  --muted-foreground: 0 0% 50%;
+  --placeholder-foreground: 0 0% 62%;
 
   --accent: 28 30% 45%;
   --accent-foreground: 0 0% 100%;
@@ -125,7 +127,7 @@
 
   --surface-filter-empty: var(--card);
   --surface-filter-filled: var(--background);
-  --filter-color-empty: 0 0% 13.3%;
+  --filter-color-empty: var(--placeholder-foreground);
   --filter-color-filled: 0 0% 20%;
 }
 
@@ -146,6 +148,7 @@
   --color-secondary-foreground: hsl(var(--secondary-foreground));
   --color-muted: hsl(var(--muted));
   --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-placeholder-foreground: hsl(var(--placeholder-foreground));
   --color-btnhover: hsl(var(--btnhover));
   --color-accent: hsl(var(--accent));
   --color-accent-foreground: hsl(var(--accent-foreground));
@@ -283,7 +286,8 @@ input[type="number"] {
   --secondary: 100 8% 92%;
   --secondary-foreground: 0 0% 20%;
   --muted: 100 6% 94%;
-  --muted-foreground: 0 0% 20%;
+  --muted-foreground: 0 0% 50%;
+  --placeholder-foreground: 0 0% 62%;
   --accent: 28 35% 56%;
   --accent-foreground: 0 0% 100%;
   --destructive: 0 72% 51%;
@@ -300,7 +304,7 @@ input[type="number"] {
 
   --surface-filter-empty: var(--card);
   --surface-filter-filled: var(--background);
-  --filter-color-empty: 0 0% 13.3%;
+  --filter-color-empty: var(--placeholder-foreground);
   --filter-color-filled: 0 0% 20%;
 
   color-scheme: light;
@@ -327,8 +331,10 @@ textarea {
 }
 
 input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="range"]):not([type="file"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="image"]):not([type="color"])::placeholder,
-textarea::placeholder {
-  color: hsl(var(--filter-color-empty));
+textarea::placeholder,
+.placeholder\:text-muted-foreground::placeholder {
+  color: hsl(var(--placeholder-foreground));
+  opacity: 1;
 }
 
 input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="range"]):not([type="file"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="image"]):not([type="color"])[placeholder]:not(:placeholder-shown),
@@ -352,7 +358,7 @@ select {
 
 select:has(> option:checked[value=""]) {
   background-color: hsl(var(--surface-filter-empty));
-  color: hsl(var(--filter-color-empty));
+  color: hsl(var(--placeholder-foreground));
 }
 
 input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="range"]):not([type="file"]):not([type="submit"]):not([type="button"]):not([type="reset"]):not([type="image"]):not([type="color"]):disabled,

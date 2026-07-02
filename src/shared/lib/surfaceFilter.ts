@@ -2,7 +2,7 @@
  * Nền + màu chữ cho control lọc / chọn có trạng thái “trống” vs “đã có giá trị”.
  * Maps tới token trong `globals.css`:
  * - `--surface-filter-empty` (nền trống) / `bg-primary/10` (nền đã chọn)
- * - `--filter-color-empty` (#222) / `--filter-color-filled` (#333) (chữ)
+ * - `--filter-color-empty` (placeholder gray) / `--filter-color-filled` (#333) (chữ)
  *
  * Tailwind: `bg-surface-filter-*` + `text-filter-*`.
  */

@@ -10,7 +10,9 @@ export type FuelUsageRow = {
   farm_id: number;
   vehicle_inspection_id: number;
   vehicle_type: string;
+  fuel_kind?: string | null;
   litres: number | string;
+  remaining_litres?: number | string | null;
   cost_per_litre?: number | string | null;
   odometer_km?: number | null;
   operator_id?: number | string | null;
@@ -66,4 +68,29 @@ export function fuelUsageVehicleLabel(row: Pick<
     return `${alias} (${name})`;
   }
   return alias || name || "—";
+}
+
+export function fuelUsageFuelKindLabel(
+  kind: string | null | undefined,
+  catalogLabels: Record<string, string>,
+  fallback: { diesel: string; petrol: string },
+): string {
+  const raw = String(kind ?? "").trim();
+  if (!raw) return "—";
+  const normalized = raw.toLowerCase();
+  if (catalogLabels[normalized]) return catalogLabels[normalized];
+  if (normalized === "diesel" || normalized === "dau" || normalized === "dầu") {
+    return fallback.diesel;
+  }
+  if (
+    normalized === "petrol" ||
+    normalized === "petro" ||
+    normalized === "gasoline" ||
+    normalized === "gas" ||
+    normalized === "xang" ||
+    normalized === "xăng"
+  ) {
+    return fallback.petrol;
+  }
+  return raw;
 }

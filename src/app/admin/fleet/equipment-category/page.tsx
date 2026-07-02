@@ -1,14 +1,14 @@
 "use client";
 
 import RequireAuth from "@/features/auth/RequireAuth";
-import { EquipmentCategoryTab } from "@/features/admin/ui/EquipmentCategoryTab";
+import { FleetCategorySettingsTab } from "@/features/admin/ui/FleetCategorySettingsTab";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 
 export default function AdminEquipmentCategoryPage() {
   return (
     <RequireAuth>
       <DashboardLayout>
-        <EquipmentCategoryTab />
+        <FleetCategorySettingsTab />
       </DashboardLayout>
     </RequireAuth>
   );

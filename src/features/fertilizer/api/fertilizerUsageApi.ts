@@ -12,6 +12,10 @@ export type FertilizerUsageRow = {
   zone_id: number | string;
   item_id: number;
   amount: number | string;
+  remaining_qty?: number | string | null;
+  is_transfer?: number | boolean | null;
+  transfer_to_farm_id?: number | null;
+  transfer_to_farm_name?: string | null;
   rate?: number | string | null;
   rate_uom?: string | null;
   operator_id?: number | string | null;
@@ -21,6 +25,8 @@ export type FertilizerUsageRow = {
   grass_name?: string | null;
   product_name?: string | null;
   product_unit?: string | null;
+  alias_name?: string | null;
+  alias_title?: string | null;
   zone_name?: string | null;
 };
 
@@ -32,15 +38,20 @@ export type FertilizerUsageSavePayload = {
   zone_id: number | string;
   item_id: number;
   amount: number;
+  is_transfer?: boolean;
+  transfer_to_farm_id?: number | null;
   rate?: number | null;
   rate_uom?: string | null;
   operator_id?: number;
   notes?: string;
+  alias_title?: string;
+  alias_name?: string;
 };
 
 export type FertilizerUsageListParams = {
   farm_id?: number;
   farm_ids?: string;
+  transfer_to_farm_id?: number;
   applied_from?: string;
   applied_to?: string;
   period?: "all" | "month" | "quarter" | "year";

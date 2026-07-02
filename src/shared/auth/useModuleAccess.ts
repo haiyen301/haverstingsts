@@ -1,6 +1,6 @@
 "use client";
 
-import { canAccessModule, type PermissionModule } from "@/shared/auth/permissions";
+import { canAccessModule, canAccessModuleSetting, type PermissionModule } from "@/shared/auth/permissions";
 import { useAuthUserStore } from "@/shared/store/authUserStore";
 
 export function useModuleAccess(moduleName: PermissionModule) {
@@ -11,5 +11,6 @@ export function useModuleAccess(moduleName: PermissionModule) {
     canEdit: canAccessModule(user, moduleName, "edit"),
     canDelete: canAccessModule(user, moduleName, "delete"),
     canImport: canAccessModule(user, moduleName, "import"),
+    canSetting: canAccessModuleSetting(user, moduleName),
   };
 }

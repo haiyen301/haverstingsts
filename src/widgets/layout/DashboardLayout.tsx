@@ -22,14 +22,17 @@ import {
   FlaskConical,
   FolderKanban,
   FolderOpen,
+  FolderTree,
   Fuel,
   Gauge,
   LayoutGrid,
   Layers,
   Leaf,
+  ListChecks,
   MapPin,
   PanelLeftClose,
   PanelLeftOpen,
+  RefreshCw,
   Settings,
   ShieldCheck,
   ShieldAlert,
@@ -49,7 +52,10 @@ import { ALERTS_UPDATED_EVENT } from "@/features/alerts/alertClientEvents";
 import { useSyncedFarmMultiSelect } from "@/shared/hooks/useSyncedFarmMultiSelect";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
 import { INVENTORY_IMPORT_ALLOWED_USER_IDS } from "@/shared/auth/inventoryImportAccess";
-import { PRIVILEGED_ADMIN_USER_IDS } from "@/shared/auth/privilegedAdminAccess";
+import {
+  PRIVILEGED_ADMIN_USER_IDS,
+  userIdInRestrictList,
+} from "@/shared/auth/privilegedAdminAccess";
 import {
   canAccessModule,
   canManageHelpKnowledgeBase,
@@ -312,7 +318,7 @@ export function DashboardLayout({
             path: "/harvest/fertilizer-usage",
             icon: FlaskConical,
             label: tn("fertilizerUsage"),
-            module: "harvests",
+            module: "fertilizer_usage",
             isActive: (p) =>
               p === "/harvest/fertilizer-usage" || p.startsWith("/harvest/fertilizer-usage/"),
           },
@@ -338,7 +344,7 @@ export function DashboardLayout({
             path: "/fleet/vehicle-inspections",
             icon: Truck,
             label: tn("vehicleInspections"),
-            module: "harvests",
+            module: "vehicle_inspections",
             isActive: (p) =>
               p === "/fleet/vehicle-inspections" ||
               p.startsWith("/fleet/vehicle-inspections/"),
@@ -348,7 +354,7 @@ export function DashboardLayout({
             path: "/fleet/fuel-usage",
             icon: Fuel,
             label: tn("fuelUsage"),
-            module: "harvests",
+            module: "fuel_usage",
             isActive: (p) =>
               p === "/fleet/fuel-usage" || p.startsWith("/fleet/fuel-usage/"),
           },
@@ -357,7 +363,7 @@ export function DashboardLayout({
             path: "/fleet/equipment",
             icon: Cog,
             label: tn("equipment"),
-            module: "harvests",
+            module: "equipment",
             isActive: (p) =>
               p === "/fleet/equipment" || p.startsWith("/fleet/equipment/"),
           },
@@ -429,6 +435,16 @@ export function DashboardLayout({
                   p.startsWith("/admin/settings/maintenance/"),
               },
               {
+                value: "updating",
+                label: tn("adminUpdating"),
+                icon: RefreshCw,
+                path: "/admin/settings/updating",
+                restrictToUserIds: [...PRIVILEGED_ADMIN_USER_IDS],
+                isActive: (p) =>
+                  p === "/admin/settings/updating" ||
+                  p.startsWith("/admin/settings/updating/"),
+              },
+              {
                 value: "activity-log",
                 label: tn("adminActivityLog"),
                 icon: ClipboardList,
@@ -466,6 +482,16 @@ export function DashboardLayout({
                 isActive: (p) =>
                   p === "/admin/settings/item-categories" ||
                   p.startsWith("/admin/settings/item-categories/"),
+              },
+              {
+                value: "unit-types",
+                label: tn("adminUnitTypes"),
+                icon: Layers,
+                path: "/admin/settings/unit-types",
+                module: "admin_units",
+                isActive: (p) =>
+                  p === "/admin/settings/unit-types" ||
+                  p.startsWith("/admin/settings/unit-types/"),
               },
             ],
           },
@@ -566,30 +592,40 @@ export function DashboardLayout({
             label: tn("fleetMechanicalAdmin"),
             isActive: (p) => p.startsWith("/admin/fleet"),
             tabs: [
-              {
-                value: "machinery",
-                label: tn("adminMachinery"),
-                icon: Tractor,
-                path: "/admin/fleet/machinery",
-                module: "admin_farms",
-                isActive: (p) =>
-                  p === "/admin/fleet/machinery" || p.startsWith("/admin/fleet/machinery/"),
-              },
+              // {
+              //   value: "machinery",
+              //   label: tn("adminMachinery"),
+              //   icon: Tractor,
+              //   path: "/admin/fleet/machinery",
+              //   module: "admin_farms",
+              //   isActive: (p) =>
+              //     p === "/admin/fleet/machinery" || p.startsWith("/admin/fleet/machinery/"),
+              // },
               {
                 value: "machinery-types",
                 label: tn("adminMachineryTypes"),
                 icon: Tractor,
                 path: "/admin/fleet/machinery-types",
-                module: "admin_farms",
+                module: "admin_machinery_types",
                 isActive: (p) =>
                   p === "/admin/fleet/machinery-types" || p.startsWith("/admin/fleet/machinery-types/"),
               },
               {
+                value: "option-catalogs",
+                label: tn("adminFleetOptionCatalogs"),
+                icon: ListChecks,
+                path: "/admin/fleet/option-catalogs",
+                module: "admin_fleet_option_catalogs",
+                isActive: (p) =>
+                  p === "/admin/fleet/option-catalogs" ||
+                  p.startsWith("/admin/fleet/option-catalogs/"),
+              },
+              {
                 value: "equipment-category",
                 label: tn("adminEquipmentCategory"),
-                icon: Tractor,
+                icon: FolderTree,
                 path: "/admin/fleet/equipment-category",
-                module: "admin_farms",
+                module: "admin_equipment_category",
                 restrictToUserIds: [...PRIVILEGED_ADMIN_USER_IDS],
                 isActive: (p) =>
                   p === "/admin/fleet/equipment-category" ||
@@ -646,18 +682,12 @@ export function DashboardLayout({
 
   const filterSidebarNavItem = useCallback(
     (item: SidebarNavItemModel): SidebarNavItemModel | null => {
-      if (item.restrictToUserIds?.length) {
-        const uid = Number(user?.id);
-        if (!Number.isInteger(uid) || !item.restrictToUserIds.includes(uid)) {
-          return null;
-        }
+      if (!userIdInRestrictList(user?.id, item.restrictToUserIds)) {
+        return null;
       }
       const tabs = (item.tabs ?? []).filter((tab) => {
-        if (tab.restrictToUserIds?.length) {
-          const uid = Number(user?.id);
-          if (!Number.isInteger(uid) || !tab.restrictToUserIds.includes(uid)) {
-            return false;
-          }
+        if (!userIdInRestrictList(user?.id, tab.restrictToUserIds)) {
+          return false;
         }
         return !tab.module || canAccessModule(user, tab.module, "show");
       });

@@ -8,7 +8,6 @@ import { BookOpen, FolderOpen, Pencil, Plus, Search, Trash2 } from "lucide-react
 import { toast } from "react-toastify";
 
 import {
-  fetchCanManageHelp,
   fetchHelpCategories,
   fetchHelpSuggestions,
   type HelpCategoryRow,
@@ -16,6 +15,8 @@ import {
 } from "@/features/help/api/helpApi";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { canManageHelpKnowledgeBase } from "@/shared/auth/permissions";
+import { useAuthUserStore } from "@/shared/store/authUserStore";
 import { TOAST_CONTAINER_TOP_RIGHT } from "@/shared/ui/AppToasts";
 
 const inputClass =
@@ -24,21 +25,18 @@ const inputClass =
 export function HelpBrowseHome() {
   const t = useTranslations("Help");
   const router = useRouter();
+  const user = useAuthUserStore((s) => s.user);
+  const canManage = canManageHelpKnowledgeBase(user);
   const [categories, setCategories] = useState<HelpCategoryRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [canManage, setCanManage] = useState(false);
   const [search, setSearch] = useState("");
   const [suggestions, setSuggestions] = useState<HelpSuggestion[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [cats, manage] = await Promise.all([
-        fetchHelpCategories("help"),
-        fetchCanManageHelp().catch(() => false),
-      ]);
+      const cats = await fetchHelpCategories("help");
       setCategories(cats);
-      setCanManage(manage);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t("errors.load"), { containerId: TOAST_CONTAINER_TOP_RIGHT });
     } finally {
@@ -99,12 +97,12 @@ export function HelpBrowseHome() {
           onChange={(e) => setSearch(e.target.value)}
         />
         {suggestions.length > 0 ? (
-          <div className="absolute z-20 mt-1 w-full rounded-md border border-input bg-popover shadow-md">
+          <div className="absolute z-20 mt-1 w-full rounded-md border border-border bg-card text-card-foreground shadow-md">
             {suggestions.map((s) => (
               <button
                 key={s.value}
                 type="button"
-                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-muted"
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground hover:bg-muted"
                 onClick={() => router.push(`/help/article/${s.value}`)}
               >
                 <BookOpen className="h-4 w-4 shrink-0 text-muted-foreground" />

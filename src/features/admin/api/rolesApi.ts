@@ -10,6 +10,10 @@ export const QUICK_ROLE_MODULES = [
   "inventory",
   "harvest_schedule",
   "harvests",
+  "fertilizer_usage",
+  "vehicle_inspections",
+  "fuel_usage",
+  "equipment",
   "admin_people",
   "admin_project_types",
   "admin_architects",
@@ -22,6 +26,10 @@ export const QUICK_ROLE_MODULES = [
   "admin_countries",
   "admin_items",
   "admin_item_categories",
+  "admin_units",
+  "admin_machinery_types",
+  "admin_fleet_option_catalogs",
+  "admin_equipment_category",
   "dashboard",
 ] as const;
 
@@ -32,6 +40,7 @@ export const ROLE_ACTIONS = [
   "can_delete",
   "can_import",
   "can_export",
+  "can_setting",
 ] as const;
 
 /** Same modules as Quick Toggle — each row can grant full data visibility (requires show). */
@@ -44,28 +53,39 @@ export type RoleModule = (typeof QUICK_ROLE_MODULES)[number];
 export type RolePermissionKey = `${RoleAction}_${RoleModule}`;
 
 const FULL_MODULE_ACTIONS: RoleAction[] = [...ROLE_ACTIONS];
+const STANDARD_MODULE_ACTIONS: RoleAction[] = ROLE_ACTIONS.filter(
+  (action) => action !== "can_setting",
+);
 
 /** Per-module allowed actions in the roles UI (others get the full set). */
 export const MODULE_ALLOWED_ACTIONS: Record<RoleModule, RoleAction[]> = {
   my_alerts: FULL_MODULE_ACTIONS,
   projects: FULL_MODULE_ACTIONS,
-  forecasting: ["can_show","can_export",],
-  inventory: ["can_show", "can_edit", "can_create", "can_delete","can_export"],
-  harvest_schedule: ["can_show","can_export"],
+  forecasting: ["can_show", "can_export"],
+  inventory: ["can_show", "can_edit", "can_create", "can_delete", "can_export", "can_setting"],
+  harvest_schedule: ["can_show", "can_export"],
   harvests: FULL_MODULE_ACTIONS,
-  admin_people: FULL_MODULE_ACTIONS,
-  admin_project_types: FULL_MODULE_ACTIONS,
-  admin_architects: FULL_MODULE_ACTIONS,
-  admin_farms: FULL_MODULE_ACTIONS,
-  admin_zones: FULL_MODULE_ACTIONS,
-  admin_regrowth: FULL_MODULE_ACTIONS,
-  admin_grasses: FULL_MODULE_ACTIONS,
-  admin_key_areas: FULL_MODULE_ACTIONS,
-  admin_project_paces: FULL_MODULE_ACTIONS,
-  admin_countries: FULL_MODULE_ACTIONS,
-  admin_items: FULL_MODULE_ACTIONS,
-  admin_item_categories: FULL_MODULE_ACTIONS,
-  dashboard: ["can_show","can_export"],
+  fertilizer_usage: FULL_MODULE_ACTIONS,
+  vehicle_inspections: FULL_MODULE_ACTIONS,
+  fuel_usage: FULL_MODULE_ACTIONS,
+  equipment: FULL_MODULE_ACTIONS,
+  admin_people: STANDARD_MODULE_ACTIONS,
+  admin_project_types: STANDARD_MODULE_ACTIONS,
+  admin_architects: STANDARD_MODULE_ACTIONS,
+  admin_farms: STANDARD_MODULE_ACTIONS,
+  admin_zones: STANDARD_MODULE_ACTIONS,
+  admin_regrowth: STANDARD_MODULE_ACTIONS,
+  admin_grasses: STANDARD_MODULE_ACTIONS,
+  admin_key_areas: STANDARD_MODULE_ACTIONS,
+  admin_project_paces: STANDARD_MODULE_ACTIONS,
+  admin_countries: STANDARD_MODULE_ACTIONS,
+  admin_items: STANDARD_MODULE_ACTIONS,
+  admin_item_categories: STANDARD_MODULE_ACTIONS,
+  admin_units: STANDARD_MODULE_ACTIONS,
+  admin_machinery_types: STANDARD_MODULE_ACTIONS,
+  admin_fleet_option_catalogs: STANDARD_MODULE_ACTIONS,
+  admin_equipment_category: STANDARD_MODULE_ACTIONS,
+  dashboard: ["can_show", "can_edit", "can_create", "can_delete"],
 };
 
 /** Modules that expose the "view all data" permission in the roles UI. */
@@ -76,6 +96,10 @@ export const MODULE_SUPPORTS_VIEW_ALL: Record<RoleModule, boolean> = {
   inventory: true,
   harvest_schedule: true,
   harvests: true,
+  fertilizer_usage: true,
+  vehicle_inspections: true,
+  fuel_usage: true,
+  equipment: true,
   admin_people: true,
   admin_project_types: true,
   admin_architects: true,
@@ -88,6 +112,10 @@ export const MODULE_SUPPORTS_VIEW_ALL: Record<RoleModule, boolean> = {
   admin_countries: true,
   admin_items: true,
   admin_item_categories: true,
+  admin_units: true,
+  admin_machinery_types: true,
+  admin_fleet_option_catalogs: true,
+  admin_equipment_category: true,
   dashboard: true,
 };
 

@@ -51,7 +51,8 @@ type RoleActionLabelKey =
   | "create"
   | "delete"
   | "import"
-  | "export";
+  | "export"
+  | "setting";
 
 function permissionKey(action: RolePermissionAction, moduleName: RoleModule): string {
   return `${action}_${moduleName}`;
@@ -63,6 +64,7 @@ const ACTIONS_THAT_REQUIRE_SHOW: RolePermissionAction[] = [
   "can_delete",
   "can_import",
   "can_export",
+  "can_setting",
   VIEW_ALL_DATA_ACTION,
 ];
 
@@ -121,6 +123,10 @@ export default function AdminRolesPage() {
       inventory: t("modules.inventory"),
       harvest_schedule: t("modules.harvest_schedule"),
       harvests: t("modules.harvests"),
+      fertilizer_usage: t("modules.fertilizer_usage"),
+      vehicle_inspections: t("modules.vehicle_inspections"),
+      fuel_usage: t("modules.fuel_usage"),
+      equipment: t("modules.equipment"),
       admin_people: t("modules.admin_people"),
       admin_project_types: t("modules.admin_project_types"),
       admin_architects: t("modules.admin_architects"),
@@ -133,6 +139,10 @@ export default function AdminRolesPage() {
       admin_countries: t("modules.admin_countries"),
       admin_items: t("modules.admin_items"),
       admin_item_categories: t("modules.admin_item_categories"),
+      admin_units: t("modules.admin_units"),
+      admin_machinery_types: t("modules.admin_machinery_types"),
+      admin_fleet_option_catalogs: t("modules.admin_fleet_option_catalogs"),
+      admin_equipment_category: t("modules.admin_equipment_category"),
       dashboard: t("modules.dashboard"),
     }),
     [t],
@@ -339,7 +349,7 @@ export default function AdminRolesPage() {
 
                 <div className="space-y-3 rounded-lg border border-border p-4">
                   <p className="text-sm font-medium">{t("quickToggle")}</p>
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-7">
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-8">
                     {ROLE_ACTIONS.map((action) => {
                       const actionKey = action.slice(4) as RoleActionLabelKey;
                       const label = t(`actions.${actionKey}`);

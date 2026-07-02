@@ -80,7 +80,7 @@ export function harvestLimitRemainingMapKeyForPlanRow(
 /**
  * Match one requirement line (product + uom + load_type).
  * When the requirement has `load_type`, only the same harvest load type counts
- * (no Sprig ↔ Sod→Sprig cross-count). Legacy Sod→Sprig plan rows may still use M² UOM.
+ * (Sprig and Sod→Sprig are separate Kg buckets). Legacy Sod→Sprig plan rows may still use M² UOM.
  * Mirrors PHP `_paceRecalcPlanRowMatchesRequirementLine`.
  */
 export function planRowMatchesRequirementForHarvestLimit(

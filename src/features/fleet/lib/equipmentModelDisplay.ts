@@ -5,7 +5,6 @@ export type EquipmentModelFields = Pick<
   | "commodity_name"
   | "model_short"
   | "sku_sts"
-  | "old_sku"
   | "commodity_code"
   | "thai_code"
   | "myanmar_code"
@@ -15,8 +14,7 @@ export type EquipmentModelFields = Pick<
 
 const CODE_FIELDS: Array<{ key: keyof EquipmentModelFields; label: string }> = [
   { key: "sku_sts", label: "SKU STS" },
-  { key: "old_sku", label: "Old SKU" },
-  { key: "commodity_code", label: "Code" },
+  { key: "commodity_code", label: "VN" },
   { key: "thai_code", label: "TH" },
   { key: "myanmar_code", label: "MM" },
   { key: "malaysia_code", label: "MY" },

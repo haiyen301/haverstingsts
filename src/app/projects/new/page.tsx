@@ -17,7 +17,7 @@ import {
   onHarvestForecastMutation,
   rowDataAffectsHarvest,
 } from "@/features/forecasting/forecastDataSync";
-import { canAccessModule, isSuperAdmin } from "@/shared/auth/permissions";
+import { canAccessModule, canAccessModuleSetting, isSuperAdmin } from "@/shared/auth/permissions";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { useAuthUserStore } from "@/shared/store/authUserStore";
 import {
@@ -65,6 +65,7 @@ import {
   areAllGrassRequirementsFulfilledByActualHarvests,
   buildPrivilegedRecalcSupplementalEstimateSeeds,
   deleteFulfilledGrassEstimateHarvestRows,
+  deletePastEstimateHarvestRows,
   grassRequirementNeedsPrivilegedRecalcSupplementalSeeds,
   isGrassRequirementFulfilledByActualHarvests,
   runProjectPaceChangeHarvestRegeneration,
@@ -473,7 +474,7 @@ export default function ProjectInputPage() {
     isProjectPaceUnset(pace) ? "" : pace.trim().toLowerCase();
 
   const showPrivilegedPaceRecalcSetting = useMemo(
-    () => isEdit && isSuperAdmin(user),
+    () => isEdit && canAccessModuleSetting(user, "projects"),
     [isEdit, user],
   );
 
@@ -1488,10 +1489,15 @@ export default function ProjectInputPage() {
         }
       }
 
+      const paceAnchorYmd =
+        formData.estimateStartDate.trim() ||
+        formData.actualStartDate.trim();
+
       const paceGrassBatchQuantities = shouldRegeneratePaceHarvestsOnEdit &&
         selectedPaceForSave
         ? buildPaceGrassBatchQuantitiesAfterPaceChange({
             paceConfig: projectPaceConfigFromRow(selectedPaceForSave),
+            estimatedStartYmd: paceAnchorYmd,
             grassRequirements: grassReqsForPrivilegedRecalc,
             harvestPlanRows: harvestPlanRowsForPaceOps,
           })
@@ -1503,6 +1509,7 @@ export default function ProjectInputPage() {
               isProjectPaceForHarvestPlan(paceKeyForSave, projectPaceCatalogRows)
                 ? {
                     paceConfig: projectPaceConfigFromRow(selectedPaceForSave),
+                    estimatedStartYmd: paceAnchorYmd,
                   }
                 : {}),
             })
@@ -1686,6 +1693,34 @@ export default function ProjectInputPage() {
           harvestPlanRows: harvestPlanRowsForRecalcApi,
           fallbackTableId: resolvedTableId,
         });
+        const pastEstimateCleanup = await deletePastEstimateHarvestRows({
+          harvestPlanRows: harvestPlanRowsForRecalcApi,
+          fallbackTableId: resolvedTableId,
+        });
+        if (pastEstimateCleanup.deleted > 0) {
+          harvestSnapshotPending = true;
+          plannedHarvestAlertSuffix += t("alertPaceRegenerateDeletedSuffix", {
+            count: pastEstimateCleanup.deleted,
+          });
+          try {
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            harvestPlanRowsForRecalcApi =
+              await fetchAllHarvestPlanRowsForProject(
+                projectIdStr,
+                user?.id != null ? Number(user.id) : undefined,
+              );
+          } catch {
+            setError(t("privilegedPaceRecalcFetchFailed"));
+            return;
+          }
+        }
+        if (pastEstimateCleanup.failed > 0) {
+          plannedHarvestAlertSuffix += t(
+            "alertPaceRegenerateDeleteFailedSuffix",
+            { count: pastEstimateCleanup.failed },
+          );
+          plannedHarvestAlertSeverity = "warning";
+        }
         if (fulfilledCleanup.deleted > 0) {
           harvestSnapshotPending = true;
           plannedHarvestAlertSuffix += t("alertPaceRegenerateDeletedSuffix", {
@@ -1733,9 +1768,7 @@ export default function ProjectInputPage() {
           isProjectPaceForHarvestPlan(paceKeyForSave, projectPaceCatalogRows) &&
           Boolean(selectedPaceForSave);
 
-        const anchorYmd =
-          formData.estimateStartDate.trim() ||
-          formData.actualStartDate.trim();
+        const anchorYmd = paceAnchorYmd;
         let anySeedsPersisted = false;
 
         if (canSeedOnPrivilegedRecalc && selectedPaceForSave && anchorYmd) {
@@ -1748,6 +1781,7 @@ export default function ProjectInputPage() {
             partitionedNeedingEstimates.withPlanRows.filter((req) =>
               grassRequirementNeedsPrivilegedRecalcSupplementalSeeds({
                 paceConfig,
+                estimatedStartYmd: anchorYmd,
                 req,
                 harvestPlanRows: harvestPlanRowsForRecalcApi,
                 allGrassRequirements: grassReqsForPrivilegedRecalc,
@@ -1884,6 +1918,14 @@ export default function ProjectInputPage() {
           grassRequirements: grassReqsNeedingEstimates,
           harvestPlanRows: harvestPlanRowsForRecalcApi,
           zoneConfigurations,
+          ...(canSeedOnPrivilegedRecalc && selectedPaceForSave && anchorYmd
+            ? {
+                paceContext: {
+                  paceConfig: projectPaceConfigFromRow(selectedPaceForSave),
+                  estimatedStartYmd: anchorYmd,
+                },
+              }
+            : {}),
         });
         if (fulfilledCleanup.allRequirementsFulfilled && !anySeedsPersisted) {
           toast.info(t("paceRequirementFulfilledNoEstimates"), {

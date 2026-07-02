@@ -1,5 +1,6 @@
 import { STS_API_PATHS } from "@/shared/api/stsApiPaths";
 import { formatNumber } from "@/shared/lib/format/number";
+import { buildItemCatalogSelectOption } from "@/shared/lib/format/itemProductCodes";
 import {
   stsProxyGet,
   stsProxyPostJson,
@@ -213,15 +214,19 @@ export async function saveEquipmentCategory(categoryIds: number[]): Promise<{
   });
 }
 
-export function equipmentProductOptionLabel(product: EquipmentProductOption): string {
+export function buildEquipmentProductSelectOption(
+  product: EquipmentProductOption,
+): { label: string; subLabel?: string } {
   const brand = String(product.brand ?? "").trim();
   const model = String(product.model_short ?? product.equipment_name ?? "").trim();
-  const sku = String(product.sku_sts ?? "").trim();
-  const path = String(product.category_path ?? "").trim();
+  const primaryName =
+    brand && model ? `${brand} — ${model}` : brand || model || `#${product.id}`;
+  return buildItemCatalogSelectOption(primaryName, product);
+}
 
-  const namePart = brand && model ? `${brand} — ${model}` : brand || model || `#${product.id}`;
-  const extras = [path, sku ? `SKU: ${sku}` : ""].filter(Boolean);
-  return extras.length ? `${namePart} · ${extras.join(" · ")}` : namePart;
+export function equipmentProductOptionLabel(product: EquipmentProductOption): string {
+  const { label, subLabel } = buildEquipmentProductSelectOption(product);
+  return subLabel ? `${label} ${subLabel}` : label;
 }
 
 export function uniqueBrandsFromProducts(

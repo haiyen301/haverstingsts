@@ -7,6 +7,7 @@ import { useTranslations } from "next-intl";
 import { toast } from "react-toastify";
 
 import {
+  buildEquipmentProductSelectOption,
   equipmentProductOptionLabel,
   fetchEquipmentCatalog,
   fetchEquipmentFormOptions,
@@ -149,10 +150,14 @@ export function EquipmentTab() {
 
   const equipmentOptions = useMemo(
     () =>
-      products.map((product) => ({
-        value: String(product.id),
-        label: equipmentProductOptionLabel(product),
-      })),
+      products.map((product) => {
+        const parts = buildEquipmentProductSelectOption(product);
+        return {
+          value: String(product.id),
+          label: parts.label,
+          subLabel: parts.subLabel,
+        };
+      }),
     [products],
   );
 

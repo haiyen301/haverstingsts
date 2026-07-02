@@ -16,6 +16,12 @@ export type VehicleInspectionItemOption = {
   label: string;
   brand?: string | null;
   sku_sts?: string | null;
+  commodity_code?: string | null;
+  thai_code?: string | null;
+  myanmar_code?: string | null;
+  malaysia_code?: string | null;
+  singapore_code?: string | null;
+  machine_fuel_type?: string | null;
 };
 
 export type VehicleInspectionFormOptions = {
@@ -30,6 +36,7 @@ export type VehicleInspectionRow = {
   vehicle_name: string;
   alias_name?: string | null;
   vehicle_type: string;
+  fuel_kind?: string | null;
   farm_id: number;
   farm_name?: string | null;
   registration?: string | null;

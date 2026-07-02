@@ -2541,6 +2541,10 @@ function HarvestInputPageInner() {
               loadType: harvestTypeSubmit,
               farmId: formData.farm.trim() || undefined,
               zoneConfigurations: zoneConfigRows,
+              estimatedStartYmd:
+                String(selectedProjectRow?.estimate_start_date ?? "").trim() ||
+                String(selectedProjectRow?.start_date ?? "").trim() ||
+                undefined,
             });
           } catch {
             /* Server also runs recalc in flutter_add_new_sub_row when actual date is set. */

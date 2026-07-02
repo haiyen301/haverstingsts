@@ -15,6 +15,7 @@ export type ModuleAccess = {
   edit: boolean;
   delete: boolean;
   import: boolean;
+  setting: boolean;
   /** Full data visibility (no farm scope) — requires show on the same module. */
   viewAllData: boolean;
 };
@@ -25,6 +26,7 @@ const EMPTY_ACCESS: ModuleAccess = {
   edit: false,
   delete: false,
   import: false,
+  setting: false,
   viewAllData: false,
 };
 
@@ -46,6 +48,7 @@ export async function getModuleAccess(
     edit: hasModulePermission(moduleName, acl.permissions, "edit", acl.is_admin),
     delete: hasModulePermission(moduleName, acl.permissions, "delete", acl.is_admin),
     import: hasModulePermission(moduleName, acl.permissions, "import", acl.is_admin),
+    setting: hasModulePermission(moduleName, acl.permissions, "setting", acl.is_admin),
     viewAllData: canViewAllModuleData(userLike, moduleName),
   };
 }

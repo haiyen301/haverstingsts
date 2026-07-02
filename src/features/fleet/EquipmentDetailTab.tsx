@@ -31,7 +31,9 @@ import {
   type EquipmentServiceLog,
   type EquipmentServiceLogType,
 } from "@/features/fleet/api/equipmentApi";
+import { FLEET_OPTION_CATALOG_KEYS } from "@/features/fleet/api/fleetOptionCatalogApi";
 import { fetchStaffOptions } from "@/features/fleet/api/machineryApi";
+import { useFleetOptionCatalog } from "@/features/fleet/hooks/useFleetOptionCatalog";
 import { equipmentCardModelTitle } from "@/features/fleet/lib/equipmentModelDisplay";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -115,6 +117,9 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
   const t = useTranslations("EquipmentDetail");
   const tEq = useTranslations("Equipment");
   const router = useRouter();
+  const { values: catalogServiceTypes } = useFleetOptionCatalog(
+    FLEET_OPTION_CATALOG_KEYS.equipmentServiceTypes,
+  );
 
   const [detail, setDetail] = useState<EquipmentDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -160,7 +165,7 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
 
   const eq = detail?.equipment ?? null;
   const logs = detail?.service_logs ?? [];
-  const serviceTypes = detail?.service_types ?? ["Scheduled", "Unscheduled", "Repair"];
+  const serviceTypes = detail?.service_types?.length ? detail.service_types : catalogServiceTypes;
 
   const statusKey = eq ? equipmentStatusKey(String(eq.status)) : "operational";
   const statusBadgeClass: Record<string, string> = {
