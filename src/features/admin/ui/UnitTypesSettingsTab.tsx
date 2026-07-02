@@ -51,6 +51,10 @@ function cellText(value: string | number | null | undefined): string {
   return s || "—";
 }
 
+function isDisplayTruthy(value: UnitTypeRow["display"]): boolean {
+  return value === true || value === 1 || String(value) === "1";
+}
+
 function rowToForm(row: UnitTypeRow): FormState {
   return {
     unit_type_id: Number(row.unit_type_id),
@@ -58,7 +62,7 @@ function rowToForm(row: UnitTypeRow): FormState {
     unit_name: String(row.unit_name ?? ""),
     unit_symbol: String(row.unit_symbol ?? ""),
     order: row.order != null ? String(row.order) : "",
-    display: row.display === true || row.display === 1 || row.display === "1",
+    display: isDisplayTruthy(row.display),
     note: String(row.note ?? ""),
   };
 }
@@ -234,9 +238,7 @@ export function UnitTypesSettingsTab() {
                     <td className="px-4 py-3 text-muted-foreground">{cellText(row.unit_symbol)}</td>
                     <td className="px-4 py-3 text-muted-foreground">{cellText(row.order)}</td>
                     <td className="px-4 py-3 text-muted-foreground">
-                      {row.display === true || row.display === 1 || row.display === "1"
-                        ? t("table.yes")
-                        : t("table.no")}
+                      {isDisplayTruthy(row.display) ? t("table.yes") : t("table.no")}
                     </td>
                     <td className="px-4 py-3">
                       {canEdit || canDelete ? (

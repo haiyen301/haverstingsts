@@ -132,7 +132,7 @@ export async function exportFuelDiaryToGoogleSheet(opts: {
   const { headers, rows } = matrixToRows(matrix);
   const payload: ProjectListGoogleSheetExportPayload = {
     headers: headers.map((h) => (h == null ? "" : String(h))),
-    rows: rows.map((row) => row.map((cell) => (cell == null ? "" : cell))),
+    rows: rows.map((row) => row.map((cell) => (cell == null ? "" : String(cell)))),
     sheetTabName: opts.sheetTabName ?? "Fuel Diary",
   };
 
