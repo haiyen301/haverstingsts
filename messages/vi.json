@@ -25,7 +25,9 @@
     "company": "Công ty",
     "confirmDeleteTitle": "Xác nhận xóa",
     "confirmDeleteMessage": "Bạn có chắc muốn xóa?",
-    "deleting": "Đang xóa..."
+    "deleting": "Đang xóa...",
+    "saving": "Đang lưu…",
+    "unsavedChanges": "Chưa lưu thay đổi"
   },
   "DeploymentBanner": {
     "testServerMessage": "Đây là server TEST"
@@ -2916,10 +2918,20 @@
     }
   },
   "AdminItems": {
+    "table": {
+      "status": "Trạng thái"
+    },
+    "form": {
+      "status": "Trạng thái"
+    },
+    "status": {
+      "active": "Đang dùng",
+      "inactive": "Ngừng dùng"
+    },
     "importExcel": "Nhập Excel",
     "import": {
       "title": "Nhập sản phẩm từ Excel",
-      "subtitle": "Tải file Excel, xem trước dòng nào import được, rồi chọn dòng cần nhập.",
+      "subtitle": "Tải file Excel, xem trước dòng nào import được, rồi chọn dòng cần nhập. Cột tùy chọn: Status (Active hoặc Inactive; mặc định Inactive).",
       "uploadFile": "Tải Excel",
       "backToItems": "Quay lại danh sách sản phẩm",
       "fileLabel": "File",
@@ -2962,6 +2974,7 @@
         "brand": "Thương hiệu",
         "category": "Danh mục",
         "unit": "Đơn vị",
+        "itemStatus": "Trạng thái item",
         "reason": "Lý do",
         "empty": "Không có dòng nào khớp bộ lọc."
       },
@@ -2971,7 +2984,8 @@
         "commit": "Import thất bại.",
         "emptySheet": "File Excel không có dữ liệu.",
         "noRows": "Không tìm thấy dòng nào để import.",
-        "missingColumns": "File Excel thiếu cột bắt buộc."
+        "missingColumns": "File Excel thiếu cột bắt buộc.",
+        "invalidStatus": "Status phải là Active hoặc Inactive."
       }
     }
   }

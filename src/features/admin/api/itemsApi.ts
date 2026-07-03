@@ -95,7 +95,12 @@ export type ItemRow = {
   rate_uom?: string | null;
   machine_fuel_type?: string | null;
   show_in_client_portal?: number | boolean | null;
+  status?: string | null;
 };
+
+export type ItemStatus = "Active" | "Inactive";
+
+export const ITEM_STATUSES: ItemStatus[] = ["Active", "Inactive"];
 
 export type ItemCatalogRow = {
   id: number;
@@ -144,6 +149,7 @@ export type ItemSavePayload = {
   rate_uom?: string | null;
   machine_fuel_type?: string | null;
   show_in_client_portal?: boolean;
+  status?: ItemStatus;
 };
 
 export const ADMIN_ITEMS_PAGE_SIZE = 50;
@@ -152,6 +158,7 @@ export type AdminItemsListParams = {
   search?: string;
   category_id?: number;
   brand_id?: number;
+  status?: ItemStatus;
   page?: number;
   per_page?: number;
 };
@@ -181,6 +188,7 @@ export async function fetchAdminItemsPage(
     search: params?.search,
     category_id: params?.category_id,
     brand_id: params?.brand_id,
+    status: params?.status,
     page: params?.page ?? 1,
     per_page: params?.per_page ?? ADMIN_ITEMS_PAGE_SIZE,
   });

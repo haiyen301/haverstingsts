@@ -25,7 +25,9 @@
     "company": "บริษัท",
     "confirmDeleteTitle": "ยืนยันการลบ",
     "confirmDeleteMessage": "คุณแน่ใจหรือไม่ว่าต้องการลบ?",
-    "deleting": "กำลังลบ..."
+    "deleting": "กำลังลบ...",
+    "saving": "กำลังบันทึก…",
+    "unsavedChanges": "มีการเปลี่ยนแปลงที่ยังไม่ได้บันทึก"
   },
   "DeploymentBanner": {
     "testServerMessage": "นี่คือเซิร์ฟเวอร์ TEST"

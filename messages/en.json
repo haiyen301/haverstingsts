@@ -25,7 +25,9 @@
     "company": "Company",
     "confirmDeleteTitle": "Confirm Delete",
     "confirmDeleteMessage": "Are you sure you want to delete?",
-    "deleting": "Deleting..."
+    "deleting": "Deleting...",
+    "saving": "Saving…",
+    "unsavedChanges": "Unsaved changes"
   },
   "DeploymentBanner": {
     "testServerMessage": "This is the TEST server"
@@ -3248,6 +3250,7 @@
       "category": "Category",
       "unit": "Unit",
       "rate": "Rate",
+      "status": "Status",
       "actions": "Actions",
       "empty": "No items found.",
       "totalRecords": "Total: {total} item(s)",
@@ -3267,6 +3270,7 @@
       "brand": "Brand",
       "category": "Category",
       "unit": "Unit",
+      "status": "Status",
       "rate": "Rate",
       "rateUom": "Rate unit",
       "rateUomPlaceholder": "e.g. kg/ha",
@@ -3285,6 +3289,10 @@
         "petro": "Petro"
       }
     },
+    "status": {
+      "active": "Active",
+      "inactive": "Inactive"
+    },
     "errors": {
       "load": "Failed to load items.",
       "save": "Failed to save item.",
@@ -3298,7 +3306,7 @@
     },
     "import": {
       "title": "Import items from Excel",
-      "subtitle": "Upload an Excel file, preview importable rows, then select which rows to import.",
+      "subtitle": "Upload an Excel file, preview importable rows, then select which rows to import. Optional column: Status (Active or Inactive; default Inactive).",
       "uploadFile": "Upload Excel",
       "backToItems": "Back to items",
       "fileLabel": "File",
@@ -3341,6 +3349,7 @@
         "brand": "Brand",
         "category": "Category",
         "unit": "Unit",
+        "itemStatus": "Item status",
         "reason": "Reason",
         "empty": "No rows match this filter."
       },
@@ -3350,7 +3359,8 @@
         "commit": "Import failed.",
         "emptySheet": "The Excel file has no data.",
         "noRows": "No importable rows were found.",
-        "missingColumns": "The Excel file is missing required columns."
+        "missingColumns": "The Excel file is missing required columns.",
+        "invalidStatus": "Status must be Active or Inactive."
       }
     }
   },
@@ -3793,6 +3803,7 @@
     "requestFailed": "Request failed.",
     "deleteTitle": "Delete option",
     "deleteDescription": "Remove “{name}”? Existing records keep their current stored value.",
+    "optionCount": "{count, plural, one {# option} other {# options}}",
     "catalogs": {
       "fleet_vehicle_inspection_statuses": {
         "title": "Inspection statuses",

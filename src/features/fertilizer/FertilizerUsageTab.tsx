@@ -1189,9 +1189,6 @@ export function FertilizerUsageTab() {
                   selectionSummary="full"
                   disabled={saving}
                 />
-                {products.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">{t("dialog.noProductsHint")}</p>
-                ) : null}
               </label>
               <label className="col-span-2 space-y-1">
                 <span className="text-xs font-medium">{t("dialog.aliasTitle")}</span>

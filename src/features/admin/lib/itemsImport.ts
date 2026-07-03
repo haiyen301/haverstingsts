@@ -15,6 +15,8 @@ export type ItemImportInputRow = {
   brand: string;
   category_path: string;
   product_type: string;
+  /** Active | Inactive from Excel; empty defaults to Inactive on import. */
+  item_status: string;
 };
 
 export type ItemImportPreviewStatus = "ready" | "skip_duplicate" | "skip_invalid";
@@ -28,6 +30,11 @@ export type ItemImportPreviewRow = ItemImportInputRow & {
   brand_id?: number;
   unit_id?: number;
 };
+
+export function normalizeItemImportStatus(raw: string | null | undefined): "Active" | "Inactive" {
+  const value = String(raw ?? "").trim().toLowerCase();
+  return value === "active" ? "Active" : "Inactive";
+}
 
 export type ItemImportPreview = {
   rows: ItemImportPreviewRow[];
@@ -104,6 +111,7 @@ export function parseItemsImportWorkbook(buffer: ArrayBuffer): ItemImportInputRo
     brand: findHeaderIndex(headers, ["brand", "brandname"]),
     category: findHeaderIndex(headers, ["category"]),
     productType: findHeaderIndex(headers, ["producttype"]),
+    itemStatus: findHeaderIndex(headers, ["status", "itemstatus"]),
   };
 
   if (idx.skuSts < 0 && idx.code < 0 && idx.name < 0) {
@@ -120,6 +128,7 @@ export function parseItemsImportWorkbook(buffer: ArrayBuffer): ItemImportInputRo
     const categoryPath = read(idx.category);
     const brand = read(idx.brand);
     const unit = read(idx.unit);
+    const itemStatusRaw = read(idx.itemStatus);
 
     if (!skuSts && !commodityName && !categoryPath && !brand && !unit) {
       continue;
@@ -140,6 +149,7 @@ export function parseItemsImportWorkbook(buffer: ArrayBuffer): ItemImportInputRo
       brand,
       category_path: categoryPath,
       product_type: read(idx.productType),
+      item_status: itemStatusRaw,
     });
   }
 

@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, Pencil, Plus, Search, Trash2, X } from "lucide-react";
+import Link from "next/link";
+import { ChevronDown, Pencil, Plus, Search, Trash2, Upload, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { toast } from "react-toastify";
 
@@ -9,6 +10,7 @@ import {
   fetchAdminItemsPage,
   fetchItemFormOptions,
   ITEM_RATE_CATEGORY_TITLES,
+  ITEM_STATUSES,
   itemCategoryIsMachine,
   itemCategorySupportsRate,
   machineFuelTypeSelectOptions,
@@ -17,6 +19,7 @@ import {
   saveAdminItem,
   type ItemFormOptions,
   type ItemRow,
+  type ItemStatus,
 } from "@/features/admin/api/itemsApi";
 import { FLEET_OPTION_CATALOG_KEYS } from "@/features/fleet/api/fleetOptionCatalogApi";
 import { useFleetOptionCatalog } from "@/features/fleet/hooks/useFleetOptionCatalog";
@@ -29,6 +32,7 @@ import {
 import { TOAST_CONTAINER_TOP_RIGHT } from "@/shared/ui/AppToasts";
 import { MultiSelect } from "@/shared/ui/multi-select";
 import { useModuleAccess } from "@/shared/auth/useModuleAccess";
+import { ADMIN_ITEMS_LIST_STATUS } from "@/app/admin/settings/items/constants";
 
 const inputClass =
   "flex h-9 w-full min-w-0 rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground shadow-sm outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/35";
@@ -41,6 +45,23 @@ const btnOutline =
   "inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md border border-input bg-background px-4 py-2 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 const btnGhost =
   "inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50";
+
+const ITEM_STATUS_BADGE: Record<ItemStatus, string> = {
+  Active: "bg-emerald-100 text-emerald-800",
+  Inactive: "bg-muted text-muted-foreground",
+};
+
+function normalizeItemStatus(raw: string | null | undefined): ItemStatus {
+  const value = String(raw ?? "").trim().toLowerCase();
+  return value === "active" ? "Active" : "Inactive";
+}
+
+function itemStatusLabel(
+  status: ItemStatus,
+  t: (key: "status.active" | "status.inactive") => string,
+): string {
+  return status === "Inactive" ? t("status.inactive") : t("status.active");
+}
 
 type FormState = {
   id?: number;
@@ -62,6 +83,7 @@ type FormState = {
   rate: string;
   rate_uom: string;
   machine_fuel_type: string;
+  status: ItemStatus;
 };
 
 function emptyForm(): FormState {
@@ -84,6 +106,7 @@ function emptyForm(): FormState {
     rate: "",
     rate_uom: "",
     machine_fuel_type: "",
+    status: "Inactive",
   };
 }
 
@@ -116,6 +139,7 @@ function rowToForm(row: ItemRow, fuelCatalog: ReturnType<typeof machineFuelTypeS
       String(row.machine_fuel_type ?? ""),
       fuelCatalog,
     ),
+    status: normalizeItemStatus(row.status),
   };
 }
 
@@ -187,7 +211,8 @@ export function ItemsSettingsTab() {
       search?: string;
       category_id?: number;
       brand_id?: number;
-    } = {};
+      status: ItemStatus;
+    } = { status: ADMIN_ITEMS_LIST_STATUS };
     if (search) params.search = search;
     if (categoryFilter !== "all") {
       const categoryId = Number(categoryFilter);
@@ -353,9 +378,16 @@ export function ItemsSettingsTab() {
                 normalizeMachineFuelTypeValue(form.machine_fuel_type, machineFuelTypeCatalog) || null,
             }
           : { machine_fuel_type: null }),
+        status: form.status,
       });
       setRows((prev) => {
+        const savedStatus = normalizeItemStatus(saved.status);
         const idx = prev.findIndex((r) => Number(r.id) === Number(saved.id));
+        if (savedStatus !== ADMIN_ITEMS_LIST_STATUS) {
+          if (idx < 0) return prev;
+          setTotalRecords((total) => (total != null ? Math.max(0, total - 1) : total));
+          return prev.filter((r) => Number(r.id) !== Number(saved.id));
+        }
         if (idx < 0) {
           setTotalRecords((total) => (total != null ? total + 1 : total));
           return [saved, ...prev];
@@ -441,6 +473,12 @@ export function ItemsSettingsTab() {
           <p className="mt-1 text-sm text-muted-foreground">{t("subtitle")}</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {canCreate ? (
+            <Link href="/admin/settings/items/import" className={btnOutline}>
+              <Upload className="h-4 w-4" />
+              {t("importExcel")}
+            </Link>
+          ) : null}
           <button type="button" className={btnPrimary} onClick={openCreate} disabled={!canCreate}>
             <Plus className="h-4 w-4" />
             {t("add")}
@@ -448,7 +486,7 @@ export function ItemsSettingsTab() {
         </div>
       </div>
 
-      <div className="flex flex-wrap justify-end gap-3">
+      <div className="flex flex-wrap justify-start gap-3">
         <div className="relative w-full max-w-xs">
           <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input
@@ -503,6 +541,7 @@ export function ItemsSettingsTab() {
                   <th className="px-4 py-3 text-left font-medium">{t("table.category")}</th>
                   <th className="px-4 py-3 text-left font-medium">{t("table.unit")}</th>
                   <th className="px-4 py-3 text-left font-medium">{t("table.rate")}</th>
+                  <th className="px-4 py-3 text-left font-medium">{t("table.status")}</th>
                   <th className="px-4 py-3 text-right font-medium">{t("table.actions")}</th>
                 </tr>
               </thead>
@@ -515,6 +554,21 @@ export function ItemsSettingsTab() {
                     <td className="px-4 py-3 text-muted-foreground">{cellText(row.category_title)}</td>
                     <td className="px-4 py-3 text-muted-foreground">{cellText(row.unit_name)}</td>
                     <td className="px-4 py-3 text-muted-foreground">{formatRateCell(row, rateCategoryTitles)}</td>
+                    <td className="px-4 py-3">
+                      {(() => {
+                        const status = normalizeItemStatus(row.status);
+                        return (
+                          <span
+                            className={cn(
+                              "inline-flex rounded px-2 py-0.5 text-xs font-medium",
+                              ITEM_STATUS_BADGE[status],
+                            )}
+                          >
+                            {itemStatusLabel(status, t)}
+                          </span>
+                        );
+                      })()}
+                    </td>
                     <td className="px-4 py-3">
                       {(canEdit || canDelete) ? (
                         <div className="flex items-center justify-end gap-1">
@@ -542,7 +596,7 @@ export function ItemsSettingsTab() {
                 ))}
                 {!loading && rows.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
+                    <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
                       {t("table.empty")}
                     </td>
                   </tr>
@@ -551,7 +605,7 @@ export function ItemsSettingsTab() {
               {!loading && totalRecords != null ? (
                 <tfoot>
                   <tr className="border-t-2 border-border bg-muted/40">
-                    <td colSpan={7} className="px-4 py-3 text-sm font-semibold text-foreground">
+                    <td colSpan={8} className="px-4 py-3 text-sm font-semibold text-foreground">
                       {totalRecords > rows.length
                         ? t("table.totalRecordsFiltered", {
                             loaded: rows.length,
@@ -654,6 +708,22 @@ export function ItemsSettingsTab() {
                   rightIcon={selectChevron}
                   showSelectedChipsInPopover={false}
                 />
+              </div>
+              <div className="space-y-1">
+                <span className="text-xs font-medium">{t("form.status")}</span>
+                <select
+                  className={selectClass}
+                  value={form.status}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, status: e.target.value as ItemStatus }))
+                  }
+                >
+                  {ITEM_STATUSES.map((status) => (
+                    <option key={status} value={status}>
+                      {itemStatusLabel(status, t)}
+                    </option>
+                  ))}
+                </select>
               </div>
               {formIsMachineCategory ? (
                 <div className="space-y-1">

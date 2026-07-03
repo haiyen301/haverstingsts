@@ -53,6 +53,18 @@ function statusLabel(
   }
 }
 
+function formatImportedItemStatus(
+  raw: string | null | undefined,
+  t: (key: "status.active" | "status.inactive") => string,
+): string {
+  const trimmed = String(raw ?? "").trim();
+  if (!trimmed) return t("status.inactive");
+  const lower = trimmed.toLowerCase();
+  if (lower === "active") return t("status.active");
+  if (lower === "inactive") return t("status.inactive");
+  return trimmed;
+}
+
 function cellText(value: string | null | undefined): string {
   const text = String(value ?? "").trim();
   return text || "—";
@@ -383,6 +395,7 @@ export function ItemsImportTab() {
                     <th className="px-3 py-3 text-left font-medium">{t("table.brand")}</th>
                     <th className="px-3 py-3 text-left font-medium">{t("table.category")}</th>
                     <th className="px-3 py-3 text-left font-medium">{t("table.unit")}</th>
+                    <th className="px-3 py-3 text-left font-medium">{t("table.itemStatus")}</th>
                     <th className="px-3 py-3 text-left font-medium">{t("table.reason")}</th>
                   </tr>
                 </thead>
@@ -436,13 +449,16 @@ export function ItemsImportTab() {
                         <td className="px-3 py-2.5 text-muted-foreground">{cellText(row.brand)}</td>
                         <td className="px-3 py-2.5 text-muted-foreground">{cellText(row.category_path)}</td>
                         <td className="px-3 py-2.5 text-muted-foreground">{cellText(row.unit)}</td>
+                        <td className="px-3 py-2.5 text-muted-foreground">
+                          {formatImportedItemStatus(row.item_status, tItems)}
+                        </td>
                         <td className="px-3 py-2.5 text-muted-foreground">{cellText(row.reason)}</td>
                       </tr>
                     );
                   })}
                   {filteredPreviewRows.length === 0 ? (
                     <tr>
-                      <td colSpan={11} className="px-3 py-12 text-center text-muted-foreground">
+                      <td colSpan={12} className="px-3 py-12 text-center text-muted-foreground">
                         {t("table.empty")}
                       </td>
                     </tr>

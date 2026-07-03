@@ -12,7 +12,15 @@ import {
   type FleetCategoryModuleConfig,
   type FleetCategoryOption,
 } from "@/features/fleet/api/fleetItemCategoriesApi";
-import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import {
   itemCategoryDisplayPath,
@@ -22,55 +30,76 @@ import { TOAST_CONTAINER_TOP_RIGHT } from "@/shared/ui/AppToasts";
 import { MultiSelect } from "@/shared/ui/multi-select";
 
 const btnPrimary =
-  "inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60";
-const selectClass = "h-9 w-full max-w-2xl rounded-md text-sm shadow-sm";
+  "inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
+const formSelectClass =
+  "h-10 w-full rounded-md border-input bg-background text-sm text-foreground shadow-sm !border-border hover:bg-background";
+
 const selectChevron = <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />;
 
 type ModuleState = {
   selectedIds: string[];
   excludedIds: string[];
-  savedLabels: string[];
-  savedExcludedLabels: string[];
+  savedSelectedIds: string[];
+  savedExcludedIds: string[];
 };
 
 function categoryLabel(cat: FleetCategoryOption, all: FleetCategoryOption[]): string {
   return itemCategoryDisplayPath(cat, all);
 }
 
-function labelsFromConfig(
-  config: FleetCategoryModuleConfig | undefined,
-  all: FleetCategoryOption[],
-  key: "categories" | "excluded_categories" = "categories",
-): string[] {
-  return (config?.[key] ?? [])
-    .map((c) =>
-      itemCategoryDisplayPath(
-        {
-          id: Number(c.id),
-          title: String(c.title ?? ""),
-          parent_id: c.parent_id ?? null,
-          path: c.path ?? null,
-        },
-        all,
-      ),
-    )
+function idsEqual(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const sortedA = [...a].sort();
+  const sortedB = [...b].sort();
+  return sortedA.every((value, index) => value === sortedB[index]);
+}
+
+function labelsFromIds(ids: string[], all: FleetCategoryOption[]): string[] {
+  return ids
+    .map((id) => {
+      const cat = all.find((c) => String(c.id) === id);
+      return cat ? categoryLabel(cat, all) : "";
+    })
     .filter(Boolean);
 }
 
-function CategoryLabels({ title, labels }: { title: string; labels: string[] }) {
+function CategoryPathSegments({ path }: { path: string }) {
+  const parts = path.split("/").filter(Boolean);
+  if (parts.length === 0) return null;
+
+  return (
+    <span className="inline-flex flex-wrap items-center gap-x-1 gap-y-0.5">
+      {parts.map((part, index) => (
+        <span key={`${part}-${index}`} className="inline-flex items-center gap-1">
+          {index > 0 ? <span className="text-muted-foreground/40">/</span> : null}
+          <span
+            className={cn(
+              "leading-tight",
+              index === parts.length - 1 ? "font-medium text-foreground" : "text-muted-foreground",
+            )}
+          >
+            {part}
+          </span>
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function SelectedCategoryList({ labels }: { labels: string[] }) {
   if (labels.length === 0) return null;
 
   return (
-    <div className="space-y-1">
-      <p className="text-xs font-medium text-muted-foreground">{title}</p>
-      <ul className="space-y-0.5 text-sm text-foreground">
-        {labels.map((label, index) => (
-          <li key={`${label}-${index}`} className="font-mono text-xs sm:text-sm">
-            {label}
-          </li>
-        ))}
-      </ul>
-    </div>
+    <ul className="space-y-1.5">
+      {labels.map((label, index) => (
+        <li
+          key={`${label}-${index}`}
+          className="rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-xs sm:text-sm"
+        >
+          <CategoryPathSegments path={label} />
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -118,84 +147,109 @@ function ModuleSection({
     [categories],
   );
 
+  const selectedLabels = useMemo(
+    () => labelsFromIds(state.selectedIds, categories),
+    [categories, state.selectedIds],
+  );
+  const excludedLabels = useMemo(
+    () => labelsFromIds(state.excludedIds, categories),
+    [categories, state.excludedIds],
+  );
+
+  const isDirty =
+    !idsEqual(state.selectedIds, state.savedSelectedIds) ||
+    !idsEqual(state.excludedIds, state.savedExcludedIds);
+
   return (
     <Card>
-      <CardContent className="space-y-4 p-6">
-        <div className="space-y-1">
-          <h2 className="text-lg font-semibold text-foreground">{title}</h2>
-          <p className="text-xs text-muted-foreground">{hint}</p>
-          {note ? <p className="text-xs text-muted-foreground italic">{note}</p> : null}
+      <CardHeader className="border-b border-border/60">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div className="space-y-1">
+            <CardTitle className="text-base font-semibold">{title}</CardTitle>
+            <CardDescription className="text-sm">{hint}</CardDescription>
+            {note ? <p className="text-xs text-muted-foreground italic">{note}</p> : null}
+          </div>
+          {isDirty ? (
+            <Badge variant="outline" className="shrink-0 font-normal text-amber-700 border-amber-300 bg-amber-50">
+              {tCommon("unsavedChanges")}
+            </Badge>
+          ) : null}
         </div>
+      </CardHeader>
 
-        <div className="space-y-1">
-          <label className="text-sm font-medium">{fieldLabel}</label>
-          <p className="text-xs text-muted-foreground">{fieldHint}</p>
+      <CardContent className="space-y-5 pt-6">
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-foreground">{fieldLabel}</label>
+          <p className="text-xs leading-relaxed text-muted-foreground">{fieldHint}</p>
           <MultiSelect
             options={categoryOptions}
             values={state.selectedIds}
             onChange={onSelectedChange}
             placeholder={t("selectPlaceholder")}
-            className={cn(selectClass)}
+            className={formSelectClass}
             rightIcon={selectChevron}
             disabled={saving}
             multi
-            selectionSummary="compact"
-            compactNameThreshold={1}
-            showSelectedChipsInPopover
+            selectionSummary="count"
             formatSelectedCount={(count) => t("selectedCount", { count })}
           />
+          <SelectedCategoryList labels={selectedLabels} />
         </div>
 
         {excludedFieldLabel && onExcludedChange ? (
-          <div className="space-y-1">
-            <label className="text-sm font-medium">{excludedFieldLabel}</label>
-            <p className="text-xs text-muted-foreground">{excludedFieldHint}</p>
+          <div className="space-y-2 border-t border-border/60 pt-5">
+            <label className="text-sm font-medium text-foreground">{excludedFieldLabel}</label>
+            <p className="text-xs leading-relaxed text-muted-foreground">{excludedFieldHint}</p>
             <MultiSelect
               options={categoryOptions}
               values={state.excludedIds}
               onChange={onExcludedChange}
               placeholder={t("selectExcludedPlaceholder")}
-              className={cn(selectClass)}
+              className={formSelectClass}
               rightIcon={selectChevron}
               disabled={saving}
               multi
-              selectionSummary="compact"
-              compactNameThreshold={1}
-              showSelectedChipsInPopover
+              selectionSummary="count"
               formatSelectedCount={(count) => t("selectedCount", { count })}
             />
+            <SelectedCategoryList labels={excludedLabels} />
           </div>
         ) : null}
+      </CardContent>
 
-        <CategoryLabels title={t("currentLabel")} labels={state.savedLabels} />
-        {state.savedExcludedLabels.length > 0 ? (
-          <CategoryLabels title={t("currentExcludedLabel")} labels={state.savedExcludedLabels} />
-        ) : null}
-
+      <CardFooter className="justify-end border-t border-border/60 bg-muted/10">
         <button
           type="button"
           className={btnPrimary}
-          disabled={saving || state.selectedIds.length === 0}
+          disabled={saving || !isDirty || state.selectedIds.length === 0}
           onClick={onSave}
         >
           {saving ? tCommon("saving") : tCommon("save")}
         </button>
-      </CardContent>
+      </CardFooter>
     </Card>
   );
 }
 
 function moduleStateFromConfig(
   config: FleetCategoryModuleConfig | undefined,
-  all: FleetCategoryOption[],
 ): ModuleState {
+  const selectedIds = (config?.category_ids ?? []).map(String);
+  const excludedIds = (config?.excluded_category_ids ?? []).map(String);
   return {
-    selectedIds: (config?.category_ids ?? []).map(String),
-    excludedIds: (config?.excluded_category_ids ?? []).map(String),
-    savedLabels: labelsFromConfig(config, all, "categories"),
-    savedExcludedLabels: labelsFromConfig(config, all, "excluded_categories"),
+    selectedIds,
+    excludedIds,
+    savedSelectedIds: [...selectedIds],
+    savedExcludedIds: [...excludedIds],
   };
 }
+
+const emptyModuleState = (): ModuleState => ({
+  selectedIds: [],
+  excludedIds: [],
+  savedSelectedIds: [],
+  savedExcludedIds: [],
+});
 
 export function FleetCategorySettingsTab() {
   const t = useTranslations("AdminFleetCategories");
@@ -203,24 +257,9 @@ export function FleetCategorySettingsTab() {
   const [savingModule, setSavingModule] = useState<FleetCategoryModule | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [categories, setCategories] = useState<FleetCategoryOption[]>([]);
-  const [equipment, setEquipment] = useState<ModuleState>({
-    selectedIds: [],
-    excludedIds: [],
-    savedLabels: [],
-    savedExcludedLabels: [],
-  });
-  const [fertilizerUsage, setFertilizerUsage] = useState<ModuleState>({
-    selectedIds: [],
-    excludedIds: [],
-    savedLabels: [],
-    savedExcludedLabels: [],
-  });
-  const [vehicleInspection, setVehicleInspection] = useState<ModuleState>({
-    selectedIds: [],
-    excludedIds: [],
-    savedLabels: [],
-    savedExcludedLabels: [],
-  });
+  const [equipment, setEquipment] = useState<ModuleState>(emptyModuleState());
+  const [fertilizerUsage, setFertilizerUsage] = useState<ModuleState>(emptyModuleState());
+  const [vehicleInspection, setVehicleInspection] = useState<ModuleState>(emptyModuleState());
 
   const sortedCategories = useMemo(
     () => sortItemCategoriesByPath(categories),
@@ -234,9 +273,9 @@ export function FleetCategorySettingsTab() {
       const data = await fetchFleetCategorySettingsConfig();
       const all = data.categories ?? [];
       setCategories(all);
-      setEquipment(moduleStateFromConfig(data.equipment, all));
-      setFertilizerUsage(moduleStateFromConfig(data.fertilizer_usage, all));
-      setVehicleInspection(moduleStateFromConfig(data.vehicle_inspection, all));
+      setEquipment(moduleStateFromConfig(data.equipment));
+      setFertilizerUsage(moduleStateFromConfig(data.fertilizer_usage));
+      setVehicleInspection(moduleStateFromConfig(data.vehicle_inspection));
     } catch (e) {
       setError(e instanceof Error ? e.message : t("loadError"));
     } finally {
@@ -273,11 +312,13 @@ export function FleetCategorySettingsTab() {
         module === "vehicle_inspection" ? excluded : undefined,
       );
       const config = saved.config;
+      const nextSelected = (config.category_ids ?? []).map(String);
+      const nextExcluded = (config.excluded_category_ids ?? []).map(String);
       setState({
-        selectedIds: (config.category_ids ?? []).map(String),
-        excludedIds: (config.excluded_category_ids ?? []).map(String),
-        savedLabels: labelsFromConfig(config, sortedCategories, "categories"),
-        savedExcludedLabels: labelsFromConfig(config, sortedCategories, "excluded_categories"),
+        selectedIds: nextSelected,
+        excludedIds: nextExcluded,
+        savedSelectedIds: [...nextSelected],
+        savedExcludedIds: [...nextExcluded],
       });
       toast.success(t("saved"), { containerId: TOAST_CONTAINER_TOP_RIGHT });
     } catch (e) {
@@ -288,19 +329,21 @@ export function FleetCategorySettingsTab() {
   };
 
   return (
-    <div className="space-y-6 p-4 text-foreground lg:p-8">
+    <div className="w-full space-y-6 p-4 lg:p-8">
       <div>
-        <h1 className="font-heading text-2xl font-bold text-foreground lg:text-3xl">
-          {t("title")}
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">{t("subtitle")}</p>
+        <h1 className="text-2xl font-semibold text-foreground">{t("title")}</h1>
+        <p className="mt-1 max-w-2xl text-sm leading-relaxed text-muted-foreground">{t("subtitle")}</p>
       </div>
 
       {loading ? <p className="text-sm text-muted-foreground">{t("loading")}</p> : null}
-      {error ? <p className="text-sm text-destructive">{error}</p> : null}
+      {error ? (
+        <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+          {error}
+        </p>
+      ) : null}
 
       {!loading ? (
-        <div className="space-y-6">
+        <div className="space-y-5">
           <ModuleSection
             module="equipment"
             title={t("equipment.title")}

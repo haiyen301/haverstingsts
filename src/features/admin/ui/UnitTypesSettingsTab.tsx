@@ -199,7 +199,7 @@ export function UnitTypesSettingsTab() {
         </button>
       </div>
 
-      <div className="flex justify-end">
+      <div className="flex justify-start">
         <div className="relative w-full max-w-xs">
           <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input

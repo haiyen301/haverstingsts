@@ -238,9 +238,6 @@ export function EquipmentFormDialog({ open, onClose, onSaved, equipment = null }
               selectionSummary="full"
               showSelectedChipsInPopover={false}
             />
-            {!optionsLoading && equipmentOptions.length === 0 ? (
-              <p className="text-xs text-muted-foreground">{t("form.noProducts")}</p>
-            ) : null}
           </label>
           <label className="block space-y-1">
             <span className="text-xs font-medium">{t("form.brand")} *</span>
