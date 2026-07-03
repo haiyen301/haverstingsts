@@ -14,6 +14,7 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { TOAST_CONTAINER_TOP_RIGHT } from "@/shared/ui/AppToasts";
+import { Checkbox } from "@/shared/ui/checkbox";
 import { useModuleAccess } from "@/shared/auth/useModuleAccess";
 
 const inputClass =
@@ -326,9 +327,8 @@ export function UnitTypesSettingsTab() {
                   onChange={(e) => setForm((f) => ({ ...f, order: e.target.value }))}
                 />
               </label>
-              <label className="flex items-center gap-2">
-                <input
-                  type="checkbox"
+              <label className="flex cursor-pointer items-center gap-2">
+                <Checkbox
                   checked={form.display}
                   onChange={(e) => setForm((f) => ({ ...f, display: e.target.checked }))}
                 />

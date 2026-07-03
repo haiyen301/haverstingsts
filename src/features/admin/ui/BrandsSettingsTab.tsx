@@ -80,7 +80,7 @@ export function BrandsSettingsTab() {
     const q = search.trim().toLowerCase();
     if (!q) return rows;
     return rows.filter((row) => {
-      const hay = [row.id, row.name, row.title, row.vendor_code, row.company]
+      const hay = [row.id, row.name, row.title]
         .map((v) => String(v ?? "").toLowerCase())
         .join(" ");
       return hay.includes(q);
@@ -187,7 +187,6 @@ export function BrandsSettingsTab() {
                   <th className="w-20 px-4 py-3 text-left font-medium">{t("table.id")}</th>
                   <th className="px-4 py-3 text-left font-medium">{t("table.name")}</th>
                   <th className="px-4 py-3 text-left font-medium">{t("table.title")}</th>
-                  <th className="px-4 py-3 text-left font-medium">{t("table.vendor")}</th>
                   <th className="px-4 py-3 text-right font-medium">{t("table.actions")}</th>
                 </tr>
               </thead>
@@ -197,9 +196,6 @@ export function BrandsSettingsTab() {
                     <td className="px-4 py-3 text-muted-foreground">{row.id}</td>
                     <td className="px-4 py-3 font-medium">{cellText(row.name)}</td>
                     <td className="px-4 py-3 text-muted-foreground">{cellText(row.title)}</td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {cellText(row.company || row.vendor_code)}
-                    </td>
                     <td className="px-4 py-3">
                       {canEdit || canDelete ? (
                         <div className="flex items-center justify-end gap-1">
@@ -227,7 +223,7 @@ export function BrandsSettingsTab() {
                 ))}
                 {!loading && filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">
+                    <td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">
                       {t("table.empty")}
                     </td>
                   </tr>

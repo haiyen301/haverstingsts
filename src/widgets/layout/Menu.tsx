@@ -5,16 +5,12 @@ import { useLocale, useTranslations } from "next-intl";
 
 import { LOCALES, type AppLocale } from "@/i18n/config";
 import { cn } from "@/lib/utils";
-import { ThemeToggle } from "@/widgets/layout/ThemeToggle";
 
 const LOCALE_FLAG_MAP: Record<AppLocale, { code: string; alt: string }> = {
   en: { code: "gb", alt: "English" },
   th: { code: "th", alt: "Thai" },
   vi: { code: "vn", alt: "Vietnamese" },
 };
-
-const themeToggleClassName =
-  "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-sidebar-border bg-sidebar-accent/20 text-sidebar-foreground transition-colors hover:border-sidebar-foreground/25 hover:bg-sidebar-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background";
 
 type SidebarMenuProps = {
   compact?: boolean;
@@ -112,20 +108,6 @@ export function SidebarMenu({ compact = false }: SidebarMenuProps) {
             );
           })}
         </div>
-      </div>
-
-      <div
-        className={cn(
-          "flex w-full items-center gap-2",
-          compact ? "justify-center" : "justify-between",
-        )}
-      >
-        {!compact ? (
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/45">
-            {t("themeLabel")}
-          </p>
-        ) : null}
-        <ThemeToggle className={themeToggleClassName} />
       </div>
     </div>
   );
