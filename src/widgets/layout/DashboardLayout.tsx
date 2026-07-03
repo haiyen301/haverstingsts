@@ -17,6 +17,7 @@ import {
   ClipboardList,
   CloudRain,
   Cog,
+  FileSpreadsheet,
   FileText,
   FlaskConical,
   FolderKanban,
@@ -50,6 +51,7 @@ import { fetchMyAlerts } from "@/features/alerts/api/alertsApi";
 import { ALERTS_UPDATED_EVENT } from "@/features/alerts/alertClientEvents";
 import { useSyncedFarmMultiSelect } from "@/shared/hooks/useSyncedFarmMultiSelect";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
+import { INVENTORY_IMPORT_ALLOWED_USER_IDS } from "@/shared/auth/inventoryImportAccess";
 import {
   PRIVILEGED_ADMIN_USER_IDS,
   userIdInRestrictList,
@@ -283,6 +285,20 @@ export function DashboardLayout({
             icon: BarChart3,
             label: t("Nav.forecasting"),
             module: "forecasting",
+          },
+          {
+            key: "inventory",
+            path: "/inventory",
+            icon: Gauge,
+            label: tn("inventory"),
+            module: "inventory",
+          },
+          {
+            key: "inventory-import",
+            path: "/inventory-import",
+            icon: FileSpreadsheet,
+            label: t("Nav.inventoryImport"),
+            restrictToUserIds: [...INVENTORY_IMPORT_ALLOWED_USER_IDS],
           },
         ],
       },
