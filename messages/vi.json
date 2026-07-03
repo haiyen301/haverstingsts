@@ -50,6 +50,7 @@
     "myAlerts": "Cảnh báo của tôi",
     "harvestSchedule": "Lịch thu hoạch",
     "inventory": "Tồn kho",
+    "stockSummary": "Tổng hợp tồn kho",
     "comingSoon": "Sắp ra mắt",
     "vehicleInspections": "Kiểm tra xe",
     "fuelUsage": "Tiêu hao nhiên liệu",
@@ -2417,6 +2418,7 @@
       "admin_countries": "Admin — Quốc gia",
       "admin_items": "Admin — Sản phẩm",
       "admin_item_categories": "Admin — Danh mục sản phẩm",
+      "admin_brands": "Admin — Thương hiệu",
       "admin_units": "Admin — Đơn vị",
       "admin_machinery_types": "Admin — Loại máy móc",
       "admin_fleet_option_catalogs": "Admin — Tùy chọn Fleet",
@@ -2594,6 +2596,150 @@
     "overlimitBreakdownThKg": "Kg",
     "overlimitBreakdownFromNozone": "{kg} kg từ spread không zone"
   },
+  "StockSummary": {
+    "title": "Tổng hợp tồn kho",
+    "loading": "Đang tải tổng hợp tồn kho…",
+    "empty": "Không có dữ liệu tồn kho với bộ lọc đã chọn.",
+    "filters": {
+      "country": "Quốc gia",
+      "brand": "Thương hiệu",
+      "category": "Danh mục",
+      "allCountries": "Tất cả quốc gia",
+      "allBrands": "Tất cả thương hiệu",
+      "allCategories": "Tất cả danh mục",
+      "searchPlaceholder": "Tìm theo tên…"
+    },
+    "table": {
+      "brand": "Thương hiệu",
+      "category": "Danh mục",
+      "skuSts": "SKU STS",
+      "code": "Mã",
+      "name": "Tên",
+      "unit": "Đơn vị",
+      "country": "Quốc gia",
+      "onHand": "Tồn kho",
+      "lastUpdate": "Cập nhật lần cuối",
+      "total": "Tổng",
+      "totalLoaded": "Tổng (các dòng đã tải)"
+    },
+    "list": {
+      "showing": "Đang hiển thị {shown} dòng",
+      "showingOf": "Đang hiển thị {shown} / {total} dòng",
+      "loadMore": "Tải thêm",
+      "loadingMore": "Đang tải thêm…"
+    },
+    "code": {
+      "th": "TH",
+      "my": "MY",
+      "myn": "MYN",
+      "sg": "SG",
+      "oldSku": "SKU cũ"
+    },
+    "errors": {
+      "load": "Không thể tải tổng hợp tồn kho.",
+      "loadFilters": "Không thể tải tùy chọn bộ lọc."
+    },
+    "export": {
+      "button": "Export",
+      "title": "Export tổng hợp tồn kho",
+      "hint": "Chọn quốc gia, thương hiệu, danh mục và cột. Export tất cả dòng khớp bộ lọc (không chỉ trang đang hiển thị).",
+      "rowCount": "{count, plural, one {# dòng sẽ export} other {# dòng sẽ export}}",
+      "loadingRows": "Đang tải dòng theo bộ lọc…",
+      "loadError": "Không thể tải dữ liệu export.",
+      "failed": "Export thất bại.",
+      "format": "Định dạng",
+      "filtersTitle": "Bộ lọc",
+      "allCountries": "Tất cả quốc gia",
+      "allBrands": "Tất cả thương hiệu",
+      "allCategories": "Tất cả danh mục",
+      "searchPlaceholder": "Tìm theo tên…",
+      "selectAll": "Chọn tất cả",
+      "deselectAll": "Bỏ chọn tất cả",
+      "selectColumns": "Cột",
+      "download": "Tải xuống",
+      "excelPreparing": "Đang chuẩn bị file Excel…",
+      "googleSheetFailed": "Export Google Sheet thất bại.",
+      "googleSheetNotConfigured": "Cấu hình GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET và NEXT_PUBLIC_STS_RENEW_APP_URL — xem projectListGoogleSheetConfig.ts",
+      "googleSheetConnect": "Kết nối Google & export",
+      "googleSheetConnectHint": "Bạn sẽ đăng nhập Google và cấp quyền. Sheet được tạo trên Google Drive của bạn.",
+      "googleSheetConnected": "Đã kết nối Google. Export sẽ tạo spreadsheet mới trên Drive.",
+      "googleSheetUploading": "Đang tạo spreadsheet trên Google Drive…",
+      "googleSheetOpen": "Mở Google Sheet",
+      "exportCol_brand": "Thương hiệu",
+      "exportCol_category": "Danh mục",
+      "exportCol_sku_sts": "SKU STS",
+      "exportCol_code": "Mã",
+      "exportCol_name": "Tên",
+      "exportCol_unit": "Đơn vị",
+      "exportCol_country": "Quốc gia",
+      "exportCol_on_hand": "Tồn kho",
+      "exportCol_last_update": "Cập nhật lần cuối"
+    },
+    "import": {
+      "button": "Import",
+      "title": "Import tồn kho từ FAST",
+      "subtitle": "Tải file Excel, xem trước thay đổi, rồi xác nhận để cập nhật tồn kho.",
+      "close": "Đóng",
+      "uploadFile": "Tải Excel",
+      "loadTestData": "Tải dữ liệu test",
+      "downloadTemplate": "Tải mẫu file",
+      "testDataLabel": "Dữ liệu test mẫu",
+      "formatTitle": "Định dạng file",
+      "formatHint": "Cột: Sku STS, On Hand, Country (ID quốc gia). Tồn kho hiện tại của quốc gia sẽ bị xóa trước khi import, giống luồng FAST cũ.",
+      "formatHintRaw": "File thô FAST của quốc gia đã chọn được xử lý tự động (Việt Nam: Alias + Item in stock; Thái Lan: cột D + cột M). Country ID được gán cho mọi dòng trước khi xem trước.",
+      "fileCountryLabel": "Loại file import",
+      "fileCountryFormatted": "File đã format (Sku STS / On Hand / Country)",
+      "fileCountryVn": "File thô Việt Nam",
+      "fileCountryTh": "File thô Thái Lan",
+      "fileCountryHintVn": "File Việt Nam: cột B (Item code), `Alias` → Sku STS, `Item in stock` → On Hand.",
+      "fileCountryHintTh": "File Thái Lan: đọc cột D (Stock Code) và cột M (Qty); bỏ qua khi cột D trống hoặc chứa To / Stock Code / group.",
+      "uploadRaw": "Tải file thô Excel",
+      "countryLabel": "Country ID (số)",
+      "countryPlaceholder": "Nhập country id",
+      "source": "Nguồn",
+      "previewLoading": "Đang tạo preview…",
+      "previewTitle": "Xem trước import",
+      "previewCountry": "Quốc gia đích: {country}",
+      "previewWarning": "Xác nhận sẽ xóa tồn kho FAST hiện tại của quốc gia này, sau đó áp dụng các dòng hợp lệ bên dưới.",
+      "noPermission": "Bạn không có quyền import tồn kho.",
+      "cancel": "Hủy",
+      "confirmImport": "Xác nhận import",
+      "importing": "Đang import…",
+      "success": "Đã import {imported} dòng. Inactive: {inactive}. Lỗi: {failed}.",
+      "summary": {
+        "total": "Tổng",
+        "valid": "Hợp lệ",
+        "inserts": "Thêm mới",
+        "updates": "Cập nhật",
+        "inactive": "Inactive",
+        "errors": "Lỗi"
+      },
+      "table": {
+        "skuSts": "SKU STS",
+        "name": "Tên",
+        "current": "Hiện tại",
+        "new": "Mới",
+        "country": "Quốc gia",
+        "action": "Hành động",
+        "note": "Ghi chú"
+      },
+      "actions": {
+        "insert": "Thêm mới",
+        "update": "Cập nhật",
+        "inactive": "Inactive",
+        "error": "Lỗi"
+      },
+      "errors": {
+        "preview": "Không thể tạo preview import.",
+        "commit": "Import thất bại.",
+        "parse": "Không đọc được file Excel.",
+        "invalidSheet": "File không có sheet hợp lệ.",
+        "emptySheet": "Sheet trống.",
+        "noRows": "Không tìm thấy dòng import trong file.",
+        "missingColumns": "File thô không có dữ liệu hợp lệ ({skuColumn}, {quantityColumn})."
+      }
+    }
+  },
   "AdminFormCatalog": {
     "architectTitle": "Kiến trúc sư",
     "architectSubtitle": "Quản trị · Kiến trúc sư",
@@ -2766,6 +2912,66 @@
         "export": "Xuất file thất bại.",
         "empty": "Không có dữ liệu cho các trang trại và khoảng ngày đã chọn.",
         "farmRequired": "Vui lòng chọn ít nhất một trang trại."
+      }
+    }
+  },
+  "AdminItems": {
+    "importExcel": "Nhập Excel",
+    "import": {
+      "title": "Nhập sản phẩm từ Excel",
+      "subtitle": "Tải file Excel, xem trước dòng nào import được, rồi chọn dòng cần nhập.",
+      "uploadFile": "Tải Excel",
+      "backToItems": "Quay lại danh sách sản phẩm",
+      "fileLabel": "File",
+      "processingFile": "Đang đọc file Excel…",
+      "close": "Đóng",
+      "noPermission": "Bạn không có quyền nhập sản phẩm.",
+      "selectAllReady": "Chọn tất cả dòng import được",
+      "clearSelection": "Bỏ chọn",
+      "selectedCount": "Đã chọn {count}",
+      "visibleSelectedCount": "Đã chọn {count} dòng đang hiển thị",
+      "toggleVisible": "Chọn/bỏ chọn các dòng đang hiển thị",
+      "toggleRow": "Chọn dòng",
+      "confirmImport": "Import {count} dòng",
+      "importing": "Đang import…",
+      "success": "Đã import {imported} dòng. Lỗi: {failed}. Bỏ qua: {skipped}.",
+      "summary": {
+        "total": "Tổng dòng",
+        "ready": "Sẵn sàng import",
+        "duplicate": "Trùng mã",
+        "invalid": "Không hợp lệ"
+      },
+      "filters": {
+        "all": "Tất cả",
+        "ready": "Import được",
+        "duplicate": "Trùng mã",
+        "invalid": "Không hợp lệ"
+      },
+      "status": {
+        "ready": "Import",
+        "skipDuplicate": "Bỏ qua (trùng)",
+        "skipInvalid": "Bỏ qua (lỗi)"
+      },
+      "table": {
+        "row": "Dòng",
+        "status": "Trạng thái",
+        "skuSts": "SKU STS",
+        "oldSku": "Old STS",
+        "code": "Code",
+        "name": "Tên",
+        "brand": "Thương hiệu",
+        "category": "Danh mục",
+        "unit": "Đơn vị",
+        "reason": "Lý do",
+        "empty": "Không có dòng nào khớp bộ lọc."
+      },
+      "errors": {
+        "parse": "Không đọc được file Excel.",
+        "preview": "Không tạo được bản xem trước.",
+        "commit": "Import thất bại.",
+        "emptySheet": "File Excel không có dữ liệu.",
+        "noRows": "Không tìm thấy dòng nào để import.",
+        "missingColumns": "File Excel thiếu cột bắt buộc."
       }
     }
   }

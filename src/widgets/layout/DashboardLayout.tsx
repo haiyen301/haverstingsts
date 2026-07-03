@@ -17,7 +17,6 @@ import {
   ClipboardList,
   CloudRain,
   Cog,
-  FileSpreadsheet,
   FileText,
   FlaskConical,
   FolderKanban,
@@ -51,7 +50,6 @@ import { fetchMyAlerts } from "@/features/alerts/api/alertsApi";
 import { ALERTS_UPDATED_EVENT } from "@/features/alerts/alertClientEvents";
 import { useSyncedFarmMultiSelect } from "@/shared/hooks/useSyncedFarmMultiSelect";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
-import { INVENTORY_IMPORT_ALLOWED_USER_IDS } from "@/shared/auth/inventoryImportAccess";
 import {
   PRIVILEGED_ADMIN_USER_IDS,
   userIdInRestrictList,
@@ -234,6 +232,7 @@ export function DashboardLayout({
     if (path === "/harvest") return p.startsWith("/harvest");
     if (path === "/forecasting") return p.startsWith("/forecasting");
     if (path === "/inventory") return p.startsWith("/inventory");
+    if (path === "/stock-summary") return p.startsWith("/stock-summary");
     if (path === "/inventory-import") return p.startsWith("/inventory-import");
     if (path === "/planning") return p.startsWith("/planning");
     if (path === "/overview") return p === "/overview" || p.startsWith("/overview/");
@@ -284,20 +283,6 @@ export function DashboardLayout({
             icon: BarChart3,
             label: t("Nav.forecasting"),
             module: "forecasting",
-          },
-          {
-            key: "inventory",
-            path: "/inventory",
-            icon: Gauge,
-            label: tn("inventory"),
-            module: "inventory",
-          },
-          {
-            key: "inventory-import",
-            path: "/inventory-import",
-            icon: FileSpreadsheet,
-            label: t("Nav.inventoryImport"),
-            restrictToUserIds: [...INVENTORY_IMPORT_ALLOWED_USER_IDS],
           },
         ],
       },
@@ -482,6 +467,15 @@ export function DashboardLayout({
                 isActive: (p) =>
                   p === "/admin/settings/item-categories" ||
                   p.startsWith("/admin/settings/item-categories/"),
+              },
+              {
+                value: "brands",
+                label: tn("adminBrands"),
+                icon: Layers,
+                path: "/admin/settings/brands",
+                module: "admin_brands",
+                isActive: (p) =>
+                  p === "/admin/settings/brands" || p.startsWith("/admin/settings/brands/"),
               },
               {
                 value: "unit-types",

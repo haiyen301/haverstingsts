@@ -1,5 +1,11 @@
+import type {
+  ItemImportCommitResult,
+  ItemImportInputRow,
+  ItemImportPreview,
+} from "@/features/admin/lib/itemsImport";
 import { STS_API_PATHS } from "@/shared/api/stsApiPaths";
 import {
+  buildStsProxyGetUrl,
   stsProxyGet,
   stsProxyGetWithParams,
   stsProxyPostJson,
@@ -118,7 +124,7 @@ export type ItemFormOptions = {
 
 export type ItemSavePayload = {
   id?: number;
-  sku_sts?: string;
+  sku_sts: string;
   old_sku?: string;
   commodity_code?: string;
   thai_code?: string;
@@ -139,6 +145,72 @@ export type ItemSavePayload = {
   machine_fuel_type?: string | null;
   show_in_client_portal?: boolean;
 };
+
+export const ADMIN_ITEMS_PAGE_SIZE = 50;
+
+export type AdminItemsListParams = {
+  search?: string;
+  category_id?: number;
+  brand_id?: number;
+  page?: number;
+  per_page?: number;
+};
+
+export type AdminItemsPageResult = {
+  rows: ItemRow[];
+  totalPages: number;
+  totalRecords: number | null;
+};
+
+type AdminItemsListJson = {
+  success?: boolean;
+  data?: unknown;
+  message?: string;
+  total?: number;
+  total_records?: number;
+};
+
+export async function fetchAdminItemsPage(
+  params?: AdminItemsListParams,
+): Promise<AdminItemsPageResult> {
+  if (typeof window === "undefined") {
+    throw new Error("fetchAdminItemsPage is client-only");
+  }
+
+  const url = buildStsProxyGetUrl(STS_API_PATHS.itemsAdminList, {
+    search: params?.search,
+    category_id: params?.category_id,
+    brand_id: params?.brand_id,
+    page: params?.page ?? 1,
+    per_page: params?.per_page ?? ADMIN_ITEMS_PAGE_SIZE,
+  });
+
+  const res = await fetch(url, {
+    method: "GET",
+    headers: { Accept: "application/json" },
+    credentials: "same-origin",
+  });
+
+  let json: AdminItemsListJson;
+  try {
+    json = (await res.json()) as AdminItemsListJson;
+  } catch {
+    throw new Error("Invalid JSON response");
+  }
+
+  if (!json?.success) {
+    throw new Error(json?.message ?? `Request failed (${res.status})`);
+  }
+
+  const rows = Array.isArray(json.data) ? (json.data as ItemRow[]) : [];
+  const totalPages = Math.max(1, Number(json.total) || 1);
+  const totalRecords =
+    json.total_records != null && Number.isFinite(Number(json.total_records))
+      ? Number(json.total_records)
+      : null;
+
+  return { rows, totalPages, totalRecords };
+}
 
 export async function fetchAdminItems(params?: {
   search?: string;
@@ -167,4 +239,16 @@ export async function saveAdminItem(payload: ItemSavePayload): Promise<ItemRow> 
 
 export async function removeAdminItem(id: number): Promise<void> {
   await stsProxyPostJson(STS_API_PATHS.itemsRemove, { id });
+}
+
+export async function previewItemsImport(
+  rows: ItemImportInputRow[],
+): Promise<ItemImportPreview> {
+  return stsProxyPostJson<ItemImportPreview>(STS_API_PATHS.itemsImportPreview, { rows });
+}
+
+export async function commitItemsImport(
+  rows: ItemImportInputRow[],
+): Promise<ItemImportCommitResult> {
+  return stsProxyPostJson<ItemImportCommitResult>(STS_API_PATHS.itemsImportCommit, { rows });
 }

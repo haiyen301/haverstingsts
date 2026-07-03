@@ -139,6 +139,7 @@ export default function AdminRolesPage() {
       admin_countries: t("modules.admin_countries"),
       admin_items: t("modules.admin_items"),
       admin_item_categories: t("modules.admin_item_categories"),
+      admin_brands: t("modules.admin_brands"),
       admin_units: t("modules.admin_units"),
       admin_machinery_types: t("modules.admin_machinery_types"),
       admin_fleet_option_catalogs: t("modules.admin_fleet_option_catalogs"),

@@ -59,6 +59,8 @@ export const STS_API_PATHS = {
   itemsCatalog: "/api/items/catalog",
   itemsSave: "/api/items/save",
   itemsRemove: "/api/items/remove",
+  itemsImportPreview: "/api/items/import_preview",
+  itemsImportCommit: "/api/items/import_commit",
   /** Privileged admin — item categories CRUD */
   itemCategoriesAdminList: "/api/item_categories/admin_list",
   itemCategoriesSave: "/api/item_categories/save",
@@ -67,6 +69,10 @@ export const STS_API_PATHS = {
   wareUnitTypesAdminList: "/api/ware_unit_types/admin_list",
   wareUnitTypesSave: "/api/ware_unit_types/save",
   wareUnitTypesRemove: "/api/ware_unit_types/remove",
+  /** Privileged admin — sts_brands CRUD */
+  brandsAdminList: "/api/brands/admin_list",
+  brandsSave: "/api/brands/save",
+  brandsRemove: "/api/brands/remove",
   /** Fertilizer application log */
   fertilizerUsage: "/api/fertilizer_usage",
   fertilizerUsageSave: "/api/fertilizer_usage/save",
@@ -121,6 +127,14 @@ export const STS_API_PATHS = {
   projectPaces: "/api/project_paces",
   projectPacesSave: "/api/project_paces/save",
   projectPacesRemove: "/api/project_paces/remove",
+  /** GET `Warehouse::index` — FAST warehouse stock (`country_id`, `brand_id`, `category_id`, `search`). */
+  warehouse: "/api/warehouse",
+  warehousePreviewImportFast: "/api/warehouse/preview_import_fast",
+  warehouseImportFast: "/api/warehouse/import_fast",
+  /** GET cron preview — Odoo fetch + mapped rows (no DB write). */
+  warehouseOdooStock: "/api/warehouse/odoo_stock",
+  /** GET|POST cron sync — Odoo fetch + FAST import. */
+  warehouseCronSyncOdoo: "/api/warehouse/cron_sync_odoo",
   /** GET `Harvesting::index` — query: `page`, `per_page`, `search`, `farm_id`, `status_id`, … */
   harvesting: "/api/harvesting",
   /** GET nested inventory report (`Harvesting::react_get_inventory_report`): `country`, `year`, `product_id`, `farm_id`. */

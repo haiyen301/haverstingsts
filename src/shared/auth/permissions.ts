@@ -48,6 +48,7 @@ export const APP_PERMISSION_MODULES = [
   "admin_countries",
   "admin_items",
   "admin_item_categories",
+  "admin_brands",
   "admin_units",
   "admin_machinery_types",
   "admin_fleet_option_catalogs",

@@ -51,6 +51,7 @@
     "harvestSchedule": "Harvest Schedule",
     "fertilizerUsage": "Fertilizer Usage",
     "inventory": "Inventory",
+    "stockSummary": "Stock Summary",
     "comingSoon": "Coming soon",
     "vehicleInspections": "Vehicle Inspections",
     "fuelUsage": "Fuel Usage",
@@ -81,6 +82,7 @@
     "adminWeatherLocations": "Weather locations",
     "adminItems": "Items",
     "adminItemCategories": "Item categories",
+    "adminBrands": "Brands",
     "adminUnitTypes": "Units",
     "help": "Help",
     "helpCenter": "Help center",
@@ -2523,6 +2525,7 @@
       "admin_countries": "Admin — Countries",
       "admin_items": "Admin — Items",
       "admin_item_categories": "Admin — Item categories",
+      "admin_brands": "Admin — Brands",
       "admin_units": "Admin — Units",
       "admin_machinery_types": "Admin — Machinery Types",
       "admin_fleet_option_catalogs": "Admin — Fleet Options",
@@ -2696,6 +2699,150 @@
     "overlimitBreakdownThRegrowth": "Regrowth",
     "overlimitBreakdownThKg": "Kg",
     "overlimitBreakdownFromNozone": "{kg} kg from no-zone spread"
+  },
+  "StockSummary": {
+    "title": "Stock Summary",
+    "loading": "Loading stock summary…",
+    "empty": "No stock data found for the selected filters.",
+    "filters": {
+      "country": "Country",
+      "brand": "Brand",
+      "category": "Category",
+      "allCountries": "All countries",
+      "allBrands": "All brands",
+      "allCategories": "All categories",
+      "searchPlaceholder": "Search by name…"
+    },
+    "table": {
+      "brand": "Brand",
+      "category": "Category",
+      "skuSts": "SKU STS",
+      "code": "Code",
+      "name": "Name",
+      "unit": "Unit",
+      "country": "Country",
+      "onHand": "On hand",
+      "lastUpdate": "Last update",
+      "total": "Total",
+      "totalLoaded": "Total (loaded rows)"
+    },
+    "list": {
+      "showing": "Showing {shown} row(s)",
+      "showingOf": "Showing {shown} of {total} row(s)",
+      "loadMore": "Load more",
+      "loadingMore": "Loading more…"
+    },
+    "code": {
+      "th": "TH",
+      "my": "MY",
+      "myn": "MYN",
+      "sg": "SG",
+      "oldSku": "Old SKU"
+    },
+    "errors": {
+      "load": "Failed to load stock summary.",
+      "loadFilters": "Failed to load filter options."
+    },
+    "export": {
+      "button": "Export",
+      "title": "Export stock summary",
+      "hint": "Choose country, brand, category, and columns. Exports all matching rows (not only the loaded page).",
+      "rowCount": "{count, plural, one {# row to export} other {# rows to export}}",
+      "loadingRows": "Loading filtered rows…",
+      "loadError": "Could not load export data.",
+      "failed": "Export failed.",
+      "format": "Format",
+      "filtersTitle": "Filters",
+      "allCountries": "All countries",
+      "allBrands": "All brands",
+      "allCategories": "All categories",
+      "searchPlaceholder": "Search by name…",
+      "selectAll": "Select all",
+      "deselectAll": "Deselect all",
+      "selectColumns": "Columns",
+      "download": "Download",
+      "excelPreparing": "Preparing Excel file…",
+      "googleSheetFailed": "Google Sheet export failed.",
+      "googleSheetNotConfigured": "Set GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET, and NEXT_PUBLIC_STS_RENEW_APP_URL — see projectListGoogleSheetConfig.ts",
+      "googleSheetConnect": "Connect Google & export",
+      "googleSheetConnectHint": "You will sign in with Google and grant access. The sheet is created on your Google Drive.",
+      "googleSheetConnected": "Google account connected. Export creates a new spreadsheet on your Drive.",
+      "googleSheetUploading": "Creating spreadsheet on your Google Drive…",
+      "googleSheetOpen": "Open Google Sheet",
+      "exportCol_brand": "Brand",
+      "exportCol_category": "Category",
+      "exportCol_sku_sts": "SKU STS",
+      "exportCol_code": "Code",
+      "exportCol_name": "Name",
+      "exportCol_unit": "Unit",
+      "exportCol_country": "Country",
+      "exportCol_on_hand": "On hand",
+      "exportCol_last_update": "Last update"
+    },
+    "import": {
+      "button": "Import",
+      "title": "Import stock from FAST",
+      "subtitle": "Upload an Excel file, preview changes, then confirm to update on-hand stock.",
+      "close": "Close",
+      "uploadFile": "Upload Excel",
+      "loadTestData": "Load test data",
+      "downloadTemplate": "Download template",
+      "testDataLabel": "Test data sample",
+      "formatTitle": "File format",
+      "formatHint": "Columns: Sku STS, On Hand, Country (country ID). Existing stock for the target country is replaced before import, matching the legacy FAST import flow.",
+      "formatHintRaw": "Raw FAST export for the selected country is parsed automatically (Vietnam: Alias + Item in stock; Thailand: column D + column M). Country ID is applied to every row before preview.",
+      "fileCountryLabel": "Import file type",
+      "fileCountryFormatted": "Formatted file (Sku STS / On Hand / Country)",
+      "fileCountryVn": "Vietnam raw file",
+      "fileCountryTh": "Thailand raw file",
+      "fileCountryHintVn": "Vietnam file: column B (Item code), `Alias` → Sku STS, `Item in stock` → On Hand.",
+      "fileCountryHintTh": "Thailand file: reads column D (Stock Code) and column M (Qty); skips only when column D is empty or contains To / Stock Code / group.",
+      "uploadRaw": "Upload raw Excel",
+      "countryLabel": "Country ID (number)",
+      "countryPlaceholder": "Enter country id",
+      "source": "Source",
+      "previewLoading": "Building preview…",
+      "previewTitle": "Import preview",
+      "previewCountry": "Target country: {country}",
+      "previewWarning": "Confirming will delete existing FAST stock for this country, then apply the valid rows below.",
+      "noPermission": "You do not have permission to import stock.",
+      "cancel": "Cancel",
+      "confirmImport": "Confirm import",
+      "importing": "Importing…",
+      "success": "Imported {imported} row(s). Inactive: {inactive}. Failed: {failed}.",
+      "summary": {
+        "total": "Total",
+        "valid": "Valid",
+        "inserts": "Insert",
+        "updates": "Update",
+        "inactive": "Inactive",
+        "errors": "Errors"
+      },
+      "table": {
+        "skuSts": "SKU STS",
+        "name": "Name",
+        "current": "Current",
+        "new": "New",
+        "country": "Country",
+        "action": "Action",
+        "note": "Note"
+      },
+      "actions": {
+        "insert": "Insert",
+        "update": "Update",
+        "inactive": "Inactive",
+        "error": "Error"
+      },
+      "errors": {
+        "preview": "Failed to build import preview.",
+        "commit": "Import failed.",
+        "parse": "Could not read the Excel file.",
+        "invalidSheet": "The file does not contain a valid sheet.",
+        "emptySheet": "The sheet is empty.",
+        "noRows": "No import rows were found in the file.",
+        "missingColumns": "The raw file has no valid data ({skuColumn}, {quantityColumn})."
+      }
+    }
   },
   "AdminFormCatalog": {
     "architectTitle": "Architects",
@@ -3082,9 +3229,11 @@
     "loading": "Loading…",
     "search": "Search items…",
     "filters": {
-      "allCategories": "All categories"
+      "allCategories": "All categories",
+      "allBrands": "All brands"
     },
     "add": "Add item",
+    "importExcel": "Import Excel",
     "createTitle": "New item",
     "editTitle": "Edit item",
     "save": "Save",
@@ -3100,7 +3249,15 @@
       "unit": "Unit",
       "rate": "Rate",
       "actions": "Actions",
-      "empty": "No items found."
+      "empty": "No items found.",
+      "totalRecords": "Total: {total} item(s)",
+      "totalRecordsFiltered": "Total: {total} item(s) · Loaded {loaded}"
+    },
+    "list": {
+      "showing": "Showing {shown} item(s)",
+      "showingOf": "Showing {shown} of {total} item(s)",
+      "loadMore": "Load more",
+      "loadingMore": "Loading more…"
     },
     "form": {
       "skuSts": "SKU (STS)",
@@ -3133,10 +3290,68 @@
       "save": "Failed to save item.",
       "delete": "Failed to delete item.",
       "nameRequired": "Commodity name is required.",
+      "skuRequired": "SKU (STS) is required.",
       "brandRequired": "Brand is required.",
       "categoryRequired": "Category is required.",
       "unitRequired": "Unit is required.",
       "machineFuelTypeRequired": "Fuel type (diesel or petro) is required for MACHINE category."
+    },
+    "import": {
+      "title": "Import items from Excel",
+      "subtitle": "Upload an Excel file, preview importable rows, then select which rows to import.",
+      "uploadFile": "Upload Excel",
+      "backToItems": "Back to items",
+      "fileLabel": "File",
+      "processingFile": "Reading Excel file…",
+      "close": "Close",
+      "noPermission": "You do not have permission to import items.",
+      "selectAllReady": "Select all importable",
+      "clearSelection": "Clear selection",
+      "selectedCount": "{count} selected",
+      "visibleSelectedCount": "{count} visible row(s) selected",
+      "toggleVisible": "Toggle visible rows",
+      "toggleRow": "Toggle row",
+      "confirmImport": "Import {count} row(s)",
+      "importing": "Importing…",
+      "success": "Imported {imported} row(s). Failed: {failed}. Skipped: {skipped}.",
+      "summary": {
+        "total": "Total rows",
+        "ready": "Ready to import",
+        "duplicate": "Duplicate code",
+        "invalid": "Invalid"
+      },
+      "filters": {
+        "all": "All",
+        "ready": "Importable",
+        "duplicate": "Duplicate",
+        "invalid": "Invalid"
+      },
+      "status": {
+        "ready": "Import",
+        "skipDuplicate": "Skip (duplicate)",
+        "skipInvalid": "Skip (invalid)"
+      },
+      "table": {
+        "row": "Row",
+        "status": "Status",
+        "skuSts": "SKU STS",
+        "oldSku": "Old STS",
+        "code": "Code",
+        "name": "Name",
+        "brand": "Brand",
+        "category": "Category",
+        "unit": "Unit",
+        "reason": "Reason",
+        "empty": "No rows match this filter."
+      },
+      "errors": {
+        "parse": "Could not read the Excel file.",
+        "preview": "Could not build import preview.",
+        "commit": "Import failed.",
+        "emptySheet": "The Excel file has no data.",
+        "noRows": "No importable rows were found.",
+        "missingColumns": "The Excel file is missing required columns."
+      }
     }
   },
   "AdminItemCategories": {
@@ -3169,6 +3384,39 @@
       "save": "Failed to save category.",
       "delete": "Failed to delete category.",
       "titleRequired": "Title is required."
+    }
+  },
+  "AdminBrands": {
+    "title": "Brands",
+    "subtitle": "Manage product brands stored in sts_brands.",
+    "loading": "Loading…",
+    "search": "Search brands…",
+    "add": "Add brand",
+    "createTitle": "New brand",
+    "editTitle": "Edit brand",
+    "save": "Save",
+    "cancel": "Cancel",
+    "saved": "Brand saved",
+    "deleted": "Brand deleted",
+    "deleteConfirm": "Delete this brand?",
+    "table": {
+      "id": "ID",
+      "name": "Name",
+      "title": "Title",
+      "vendor": "Vendor",
+      "actions": "Actions",
+      "empty": "No brands found."
+    },
+    "form": {
+      "name": "Brand name",
+      "title": "Title",
+      "titlePlaceholder": "Defaults to name if empty"
+    },
+    "errors": {
+      "load": "Failed to load brands.",
+      "save": "Failed to save brand.",
+      "delete": "Failed to delete brand.",
+      "nameRequired": "Brand name is required."
     }
   },
   "AdminUnitTypes": {

@@ -74,6 +74,35 @@ export function formatDateTimeInDisplayZone(
   }).format(d);
 }
 
+/** Display datetime as `dd/m/yyyy HH:ii:ss` in {@link STS_DISPLAY_TIME_ZONE}. */
+export function formatDateTimeDisplayDmyHms(input: unknown): string {
+  const d = parseStsPortalUtcDate(input);
+  if (!d) return "-";
+
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: STS_DISPLAY_TIME_ZONE,
+    year: "numeric",
+    month: "numeric",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(d);
+
+  const get = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((part) => part.type === type)?.value ?? "";
+
+  const dd = get("day").padStart(2, "0");
+  const m = get("month");
+  const yyyy = get("year");
+  const HH = get("hour").padStart(2, "0");
+  const ii = get("minute").padStart(2, "0");
+  const ss = get("second").padStart(2, "0");
+
+  return `${dd}/${m}/${yyyy} ${HH}:${ii}:${ss}`;
+}
+
 /** Tooltip: raw UTC value and converted UTC+7 display. */
 export function formatStsPortalUtcTooltip(
   input: unknown,

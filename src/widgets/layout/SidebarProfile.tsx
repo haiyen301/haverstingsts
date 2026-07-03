@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, ChevronRight, CloudSun, LogOut } from "lucide-react";
-import { useLocale, useTranslations } from "next-intl";
+import { useTranslations } from "next-intl";
 
 import {
   getUserDisplayName,
@@ -13,19 +13,12 @@ import {
 } from "@/shared/lib/sessionUser";
 import { clearAuthSession, useAuthUserStore } from "@/shared/store/authUserStore";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
-import { LOCALES, type AppLocale } from "@/i18n/config";
 import { cn } from "@/lib/utils";
-import { ThemeToggle } from "@/widgets/layout/ThemeToggle";
+import { SidebarMenu } from "@/widgets/layout/Menu";
 
 type SidebarProfileProps = {
   onNavigate?: () => void;
   compact?: boolean;
-};
-
-const LOCALE_FLAG_MAP: Record<AppLocale, { code: string; alt: string }> = {
-  en: { code: "gb", alt: "English" },
-  th: { code: "th", alt: "Thai" },
-  vi: { code: "vn", alt: "Vietnamese" },
 };
 
 type SidebarWeatherCurrent = {
@@ -92,7 +85,6 @@ export function SidebarProfile({ onNavigate, compact = false }: SidebarProfilePr
   const user = useAuthUserStore((s) => s.user);
   const farms = useHarvestingDataStore((s) => s.farms);
   const countries = useHarvestingDataStore((s) => s.activeCountries);
-  const locale = useLocale() as AppLocale;
   const t = useTranslations("SidebarProfile");
   const [weatherData, setWeatherData] = useState<SidebarWeatherPayload | null>(null);
   const [weatherLoading, setWeatherLoading] = useState(false);
@@ -208,11 +200,6 @@ export function SidebarProfile({ onNavigate, compact = false }: SidebarProfilePr
     router.replace("/");
   };
 
-  const switchLocale = (nextLocale: AppLocale) => {
-    if (nextLocale === locale) return;
-    document.cookie = `NEXT_LOCALE=${nextLocale}; path=/; max-age=31536000; samesite=lax`;
-    router.refresh();
-  };
   const weatherNowLabel = useMemo(
     () =>
       new Intl.DateTimeFormat(undefined, {
@@ -267,101 +254,8 @@ export function SidebarProfile({ onNavigate, compact = false }: SidebarProfilePr
         compact ? "px-2 py-3" : "px-3 pb-4 pt-3",
       )}
     >
-      <div className={cn("space-y-2.5 pb-3", compact ? "flex flex-col items-center" : "")}>
-        {!compact ? (
-          <div>
-            <p
-              id="sidebar-language-label"
-              className="text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/45"
-            >
-              {t("languageLabel")}
-            </p>
-            <p id="sidebar-language-hint" className="sr-only">
-              {t("languageSwitchHint")}
-            </p>
-          </div>
-        ) : (
-          <>
-            <p id="sidebar-language-label" className="sr-only">
-              {t("languageLabel")}
-            </p>
-            <p id="sidebar-language-hint" className="sr-only">
-              {t("languageSwitchHint")}
-            </p>
-          </>
-        )}
-        <div
-          className={
-            compact
-              ? "flex w-full flex-col gap-1.5"
-              : "flex w-full gap-1 rounded-lg border border-sidebar-border bg-sidebar-accent/20 p-1"
-          }
-          role="radiogroup"
-          aria-labelledby="sidebar-language-label"
-          aria-describedby="sidebar-language-hint"
-        >
-          {LOCALES.map((item) => {
-            const selected = item === locale;
-            return (
-              <button
-                key={item}
-                type="button"
-                role="radio"
-                aria-checked={selected}
-                onClick={() => switchLocale(item)}
-                className={`flex items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background ${
-                  compact
-                    ? `h-9 w-full rounded-lg border ${
-                        selected
-                          ? "border-primary/60 bg-primary/10 text-sidebar-foreground shadow-sm"
-                          : "border-sidebar-border bg-sidebar-accent/20 text-sidebar-foreground/80 hover:border-sidebar-foreground/25 hover:bg-sidebar-accent/40"
-                      }`
-                    : `min-h-9 flex-1 gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium ${
-                        selected
-                          ? "bg-primary/15 text-sidebar-foreground shadow-sm ring-1 ring-primary/50"
-                          : "text-sidebar-foreground/80 hover:bg-sidebar-accent/40 hover:text-sidebar-foreground"
-                      }`
-                }`}
-                title={t(`languageNames.${item}`)}
-                aria-label={t(`languageNames.${item}`)}
-              >
-                <img
-                  src={`/flags/${LOCALE_FLAG_MAP[item].code}.svg`}
-                  alt=""
-                  width={20}
-                  height={15}
-                  className={`h-3.5 w-5 shrink-0 rounded-sm object-cover ${
-                    selected ? "" : "opacity-80"
-                  }`}
-                  aria-hidden
-                />
-                {!compact ? (
-                  <span className="leading-none tracking-tight">{t(`languages.${item}`)}</span>
-                ) : null}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <div
-        className={cn(
-          "flex items-center gap-2 border-t border-sidebar-border pt-3",
-          compact ? "justify-center" : "justify-between",
-        )}
-      >
-        {!compact ? (
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/45">
-            {t("themeLabel")}
-          </p>
-        ) : null}
-        <ThemeToggle
-          className={
-            compact
-              ? "inline-flex h-9 w-9 items-center justify-center rounded-lg border border-sidebar-border bg-sidebar-accent/30 text-sidebar-foreground transition-colors hover:bg-sidebar-accent/50"
-              : "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-sidebar-border bg-sidebar-accent/30 text-sidebar-foreground transition-colors hover:bg-sidebar-accent/50"
-          }
-        />
+      <div className="pb-3">
+        <SidebarMenu compact={compact} />
       </div>
 
       {!compact && weatherTarget ? (
@@ -447,7 +341,7 @@ export function SidebarProfile({ onNavigate, compact = false }: SidebarProfilePr
         type="button"
         onClick={goProfile}
         className={cn(
-          "mt-3 flex w-full items-center rounded-lg p-2 transition-colors hover:bg-muted/80 dark:hover:bg-sidebar-accent/50",
+          "mt-3 flex w-full items-center border-t border-sidebar-border pt-3 rounded-lg p-2 transition-colors hover:bg-muted/80 dark:hover:bg-sidebar-accent/50",
           compact ? "justify-center" : "gap-3 text-left",
         )}
         title={compact ? displayName : undefined}

@@ -1,14 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { toast } from "react-toastify";
 
 import {
-  fetchAdminItems,
+  fetchAdminItemsPage,
   fetchItemFormOptions,
-  isAllowedMachineFuelType,
   ITEM_RATE_CATEGORY_TITLES,
   itemCategoryIsMachine,
   itemCategorySupportsRate,
@@ -147,60 +146,132 @@ export function ItemsSettingsTab() {
   const [rows, setRows] = useState<ItemRow[]>([]);
   const [options, setOptions] = useState<ItemFormOptions | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [totalRecords, setTotalRecords] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
+  const [brandFilter, setBrandFilter] = useState("all");
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<FormState>(emptyForm());
-
-  const loadRows = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const params: { category_id?: number } = {};
-      if (categoryFilter !== "all") {
-        const categoryId = Number(categoryFilter);
-        if (Number.isFinite(categoryId) && categoryId > 0) {
-          params.category_id = categoryId;
-        }
-      }
-      const [data, formOptions] = await Promise.all([
-        fetchAdminItems(params),
-        options ? Promise.resolve(options) : fetchItemFormOptions(),
-      ]);
-      setRows(data);
-      if (!options) setOptions(formOptions);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : t("errors.load"));
-    } finally {
-      setLoading(false);
-    }
-  }, [categoryFilter, options, t]);
+  const pageLoadedRef = useRef(0);
+  const loadMoreLockRef = useRef(false);
+  const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    void loadRows();
-  }, [loadRows]);
+    let cancelled = false;
+    void fetchItemFormOptions()
+      .then((formOptions) => {
+        if (!cancelled) setOptions(formOptions);
+      })
+      .catch((e) => {
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : t("errors.load"));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [t]);
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    const list = !q
-      ? rows
-      : rows.filter((row) => {
-          const hay = [
-            row.id,
-            row.sku_sts,
-            row.commodity_name,
-            row.brand_name,
-            row.category_title,
-            row.unit_name,
-          ]
-            .map((v) => String(v ?? "").toLowerCase())
-            .join(" ");
-          return hay.includes(q);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSearch(searchInput.trim()), 300);
+    return () => window.clearTimeout(timer);
+  }, [searchInput]);
+
+  const listQueryParams = useMemo(() => {
+    const params: {
+      search?: string;
+      category_id?: number;
+      brand_id?: number;
+    } = {};
+    if (search) params.search = search;
+    if (categoryFilter !== "all") {
+      const categoryId = Number(categoryFilter);
+      if (Number.isFinite(categoryId) && categoryId > 0) {
+        params.category_id = categoryId;
+      }
+    }
+    if (brandFilter !== "all") {
+      const brandId = Number(brandFilter);
+      if (Number.isFinite(brandId) && brandId > 0) {
+        params.brand_id = brandId;
+      }
+    }
+    return params;
+  }, [brandFilter, categoryFilter, search]);
+
+  const loadPage = useCallback(
+    async (page: number, mode: "replace" | "append") => {
+      const isAppend = mode === "append";
+      if (isAppend) {
+        setLoadingMore(true);
+      } else {
+        setLoading(true);
+      }
+      setError(null);
+
+      try {
+        const result = await fetchAdminItemsPage({
+          ...listQueryParams,
+          page,
         });
-    return [...list].sort((a, b) => Number(b.id) - Number(a.id));
-  }, [rows, search]);
+        setRows((prev) => (isAppend ? [...prev, ...result.rows] : result.rows));
+        setTotalRecords(result.totalRecords);
+        pageLoadedRef.current = page;
+        setHasMore(page < result.totalPages);
+      } catch (e) {
+        if (!isAppend) {
+          setRows([]);
+          setTotalRecords(null);
+          setHasMore(false);
+        }
+        setError(e instanceof Error ? e.message : t("errors.load"));
+      } finally {
+        if (isAppend) {
+          setLoadingMore(false);
+        } else {
+          setLoading(false);
+        }
+      }
+    },
+    [listQueryParams, t],
+  );
+
+  const reloadFromStart = useCallback(async () => {
+    pageLoadedRef.current = 0;
+    loadMoreLockRef.current = false;
+    setHasMore(false);
+    await loadPage(1, "replace");
+  }, [loadPage]);
+
+  useEffect(() => {
+    void reloadFromStart();
+  }, [reloadFromStart]);
+
+  useEffect(() => {
+    const el = loadMoreSentinelRef.current;
+    if (!el || loading || loadingMore || !hasMore) return;
+
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        if (loadMoreLockRef.current || loading || loadingMore || !hasMore) return;
+        loadMoreLockRef.current = true;
+        const nextPage = pageLoadedRef.current + 1;
+        void loadPage(nextPage, "append").finally(() => {
+          loadMoreLockRef.current = false;
+        });
+      },
+      { root: null, rootMargin: "160px", threshold: 0 },
+    );
+
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [hasMore, loadPage, loading, loadingMore, rows.length]);
 
   const machineFuelTypeCatalog = useMemo(
     () => machineFuelTypeSelectOptions(options?.machine_fuel_types ?? fallbackFuelTypes),
@@ -220,10 +291,15 @@ export function ItemsSettingsTab() {
   };
 
   const handleSave = async () => {
+    const skuSts = form.sku_sts.trim();
     const commodityName = form.commodity_name.trim();
     const brandId = Number(form.brand_id);
     const categoryId = Number(form.category_id);
     const unitId = Number(form.unit_id);
+    if (!skuSts) {
+      setError(t("errors.skuRequired"));
+      return;
+    }
     if (!commodityName) {
       setError(t("errors.nameRequired"));
       return;
@@ -242,16 +318,12 @@ export function ItemsSettingsTab() {
     }
     const selectedCategoryTitle = categoryTitleById(sortedCategoryOptions, form.category_id);
     const formIsMachineCategory = itemCategoryIsMachine(selectedCategoryTitle);
-    if (formIsMachineCategory && !isAllowedMachineFuelType(form.machine_fuel_type, machineFuelTypeCatalog)) {
-      setError(t("errors.machineFuelTypeRequired"));
-      return;
-    }
     try {
       setSaving(true);
       setError(null);
       const saved = await saveAdminItem({
         id: form.id,
-        sku_sts: form.sku_sts.trim() || undefined,
+        sku_sts: skuSts,
         old_sku: form.old_sku.trim() || undefined,
         commodity_code: form.commodity_code.trim() || undefined,
         thai_code: form.thai_code.trim() || undefined,
@@ -277,16 +349,17 @@ export function ItemsSettingsTab() {
             }),
         ...(formIsMachineCategory
           ? {
-              machine_fuel_type: normalizeMachineFuelTypeValue(
-                form.machine_fuel_type,
-                machineFuelTypeCatalog,
-              ),
+              machine_fuel_type:
+                normalizeMachineFuelTypeValue(form.machine_fuel_type, machineFuelTypeCatalog) || null,
             }
           : { machine_fuel_type: null }),
       });
       setRows((prev) => {
         const idx = prev.findIndex((r) => Number(r.id) === Number(saved.id));
-        if (idx < 0) return [...prev, saved].sort((a, b) => Number(b.id) - Number(a.id));
+        if (idx < 0) {
+          setTotalRecords((total) => (total != null ? total + 1 : total));
+          return [saved, ...prev];
+        }
         const next = [...prev];
         next[idx] = saved;
         return next;
@@ -310,6 +383,7 @@ export function ItemsSettingsTab() {
       setError(null);
       await removeAdminItem(id);
       setRows((prev) => prev.filter((r) => Number(r.id) !== id));
+      setTotalRecords((total) => (total != null ? Math.max(0, total - 1) : total));
       toast.success(t("deleted"), { containerId: TOAST_CONTAINER_TOP_RIGHT });
     } catch (e) {
       setError(e instanceof Error ? e.message : t("errors.delete"));
@@ -325,7 +399,7 @@ export function ItemsSettingsTab() {
   );
   const brandOptions = options?.brands ?? [];
   const unitOptions = options?.units ?? [];
-  const brandMultiOptions = useMemo(
+  const brandFilterOptions = useMemo(
     () => brandOptions.map((b) => ({ value: String(b.id), label: b.name })),
     [brandOptions],
   );
@@ -366,13 +440,24 @@ export function ItemsSettingsTab() {
           <h1 className="text-2xl font-semibold">{t("title")}</h1>
           <p className="mt-1 text-sm text-muted-foreground">{t("subtitle")}</p>
         </div>
-        <button type="button" className={btnPrimary} onClick={openCreate} disabled={!canCreate}>
-          <Plus className="h-4 w-4" />
-          {t("add")}
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" className={btnPrimary} onClick={openCreate} disabled={!canCreate}>
+            <Plus className="h-4 w-4" />
+            {t("add")}
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-wrap justify-end gap-3">
+        <div className="relative w-full max-w-xs">
+          <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <input
+            className={cn(inputClass, "pl-9")}
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder={t("search")}
+          />
+        </div>
         <div className="w-full max-w-[220px]">
           <MultiSelect
             options={categoryMultiOptions}
@@ -387,13 +472,18 @@ export function ItemsSettingsTab() {
             showSelectedChipsInPopover={false}
           />
         </div>
-        <div className="relative w-full max-w-xs">
-          <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <input
-            className={cn(inputClass, "pl-9")}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder={t("search")}
+        <div className="w-full max-w-[220px]">
+          <MultiSelect
+            options={brandFilterOptions}
+            values={brandFilter !== "all" ? [brandFilter] : []}
+            onChange={(next) => setBrandFilter(next[0] ?? "all")}
+            multi={false}
+            showAllOption
+            allOptionLabel={t("filters.allBrands")}
+            placeholder={t("filters.allBrands")}
+            className={selectClass}
+            rightIcon={selectChevron}
+            showSelectedChipsInPopover={false}
           />
         </div>
       </div>
@@ -417,7 +507,7 @@ export function ItemsSettingsTab() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((row) => (
+                {rows.map((row) => (
                   <tr key={row.id} className="border-b border-border last:border-b-0">
                     <td className="px-4 py-3 font-medium">{cellText(row.sku_sts)}</td>
                     <td className="px-4 py-3">{cellText(row.commodity_name)}</td>
@@ -450,7 +540,7 @@ export function ItemsSettingsTab() {
                     </td>
                   </tr>
                 ))}
-                {!loading && filtered.length === 0 ? (
+                {!loading && rows.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
                       {t("table.empty")}
@@ -458,8 +548,46 @@ export function ItemsSettingsTab() {
                   </tr>
                 ) : null}
               </tbody>
+              {!loading && totalRecords != null ? (
+                <tfoot>
+                  <tr className="border-t-2 border-border bg-muted/40">
+                    <td colSpan={7} className="px-4 py-3 text-sm font-semibold text-foreground">
+                      {totalRecords > rows.length
+                        ? t("table.totalRecordsFiltered", {
+                            loaded: rows.length,
+                            total: totalRecords,
+                          })
+                        : t("table.totalRecords", { total: totalRecords })}
+                    </td>
+                  </tr>
+                </tfoot>
+              ) : null}
             </table>
           </div>
+          <div ref={loadMoreSentinelRef} className="h-1" aria-hidden />
+          {loadingMore ? (
+            <p className="border-t border-border px-4 py-3 text-center text-sm text-muted-foreground">
+              {t("list.loadingMore")}
+            </p>
+          ) : null}
+          {!loading && !loadingMore && hasMore ? (
+            <div className="border-t border-border px-4 py-3 text-center">
+              <button
+                type="button"
+                className={btnOutline}
+                onClick={() => {
+                  if (loadMoreLockRef.current || loadingMore || !hasMore) return;
+                  loadMoreLockRef.current = true;
+                  const nextPage = pageLoadedRef.current + 1;
+                  void loadPage(nextPage, "append").finally(() => {
+                    loadMoreLockRef.current = false;
+                  });
+                }}
+              >
+                {t("list.loadMore")}
+              </button>
+            </div>
+          ) : null}
         </CardContent>
       </Card>
 
@@ -477,7 +605,7 @@ export function ItemsSettingsTab() {
             {error ? <p className="mt-3 text-sm text-destructive">{error}</p> : null}
             <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
               <label className="space-y-1">
-                <span className="text-xs font-medium">{t("form.skuSts")}</span>
+                <span className="text-xs font-medium">{t("form.skuSts")} *</span>
                 <input className={inputClass} value={form.sku_sts} onChange={(e) => setForm((f) => ({ ...f, sku_sts: e.target.value }))} />
               </label>
               <label className="space-y-1">
@@ -491,7 +619,7 @@ export function ItemsSettingsTab() {
               <div className="space-y-1">
                 <span className="text-xs font-medium">{t("form.brand")} *</span>
                 <MultiSelect
-                  options={brandMultiOptions}
+                  options={brandFilterOptions}
                   values={form.brand_id ? [form.brand_id] : []}
                   onChange={(next) => setForm((f) => ({ ...f, brand_id: next[0] ?? "" }))}
                   multi={false}
@@ -529,7 +657,7 @@ export function ItemsSettingsTab() {
               </div>
               {formIsMachineCategory ? (
                 <div className="space-y-1">
-                  <span className="text-xs font-medium">{t("form.machineFuelType")} *</span>
+                  <span className="text-xs font-medium">{t("form.machineFuelType")}</span>
                   <MultiSelect
                     options={machineFuelTypeCatalog}
                     values={form.machine_fuel_type ? [form.machine_fuel_type] : []}

@@ -1,31 +1,23 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ChevronDown, Pencil, Plus, Search, Trash2, X } from "lucide-react";
+import { Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { toast } from "react-toastify";
 
 import {
-  fetchAdminItemCategories,
-  removeAdminItemCategory,
-  saveAdminItemCategory,
-  type ItemCategoryRow,
-} from "@/features/admin/api/itemCategoriesApi";
+  fetchAdminBrands,
+  removeAdminBrand,
+  saveAdminBrand,
+  type BrandRow,
+} from "@/features/admin/api/brandsApi";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import {
-  itemCategoryDisplayPath,
-  sortItemCategoriesByPath,
-} from "@/shared/lib/itemCategoryPath";
 import { TOAST_CONTAINER_TOP_RIGHT } from "@/shared/ui/AppToasts";
-import { MultiSelect } from "@/shared/ui/multi-select";
 import { useModuleAccess } from "@/shared/auth/useModuleAccess";
 
 const inputClass =
   "flex h-9 w-full min-w-0 rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground shadow-sm outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/35";
-const selectClass =
-  "h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm";
-const selectChevron = <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />;
 const btnPrimary =
   "inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50";
 const btnOutline =
@@ -35,23 +27,31 @@ const btnGhost =
 
 type FormState = {
   id?: number;
+  name: string;
   title: string;
-  parent_id: string;
 };
 
 function emptyForm(): FormState {
-  return { title: "", parent_id: "" };
+  return { name: "", title: "" };
 }
 
-function cellText(value: string | null | undefined): string {
+function cellText(value: string | number | null | undefined): string {
   const s = String(value ?? "").trim();
   return s || "—";
 }
 
-export function ItemCategoriesSettingsTab() {
-  const t = useTranslations("AdminItemCategories");
-  const { canCreate, canEdit, canDelete } = useModuleAccess("admin_item_categories");
-  const [rows, setRows] = useState<ItemCategoryRow[]>([]);
+function rowToForm(row: BrandRow): FormState {
+  return {
+    id: Number(row.id),
+    name: String(row.name ?? ""),
+    title: String(row.title ?? ""),
+  };
+}
+
+export function BrandsSettingsTab() {
+  const t = useTranslations("AdminBrands");
+  const { canCreate, canEdit, canDelete } = useModuleAccess("admin_brands");
+  const [rows, setRows] = useState<BrandRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -59,13 +59,11 @@ export function ItemCategoriesSettingsTab() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<FormState>(emptyForm());
 
-  const sortedRows = useMemo(() => sortItemCategoriesByPath(rows), [rows]);
-
   const loadRows = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchAdminItemCategories();
+      const data = await fetchAdminBrands();
       setRows(data);
     } catch (e) {
       setError(e instanceof Error ? e.message : t("errors.load"));
@@ -80,36 +78,14 @@ export function ItemCategoriesSettingsTab() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return sortedRows;
-    return sortedRows.filter((row) => {
-      const path = itemCategoryDisplayPath(row, sortedRows);
-      const parentRow = row.parent_id
-        ? sortedRows.find((r) => Number(r.id) === Number(row.parent_id))
-        : undefined;
-      const parentPath = parentRow ? itemCategoryDisplayPath(parentRow, sortedRows) : "";
-      const hay = [row.id, row.title, path, parentPath]
+    if (!q) return rows;
+    return rows.filter((row) => {
+      const hay = [row.id, row.name, row.title, row.vendor_code, row.company]
         .map((v) => String(v ?? "").toLowerCase())
         .join(" ");
       return hay.includes(q);
     });
-  }, [sortedRows, search]);
-
-  const parentOptions = useMemo(
-    () =>
-      sortItemCategoriesByPath(
-        rows.filter((row) => !form.id || Number(row.id) !== form.id),
-      ),
-    [rows, form.id],
-  );
-
-  const parentMultiOptions = useMemo(
-    () =>
-      parentOptions.map((row) => ({
-        value: String(row.id),
-        label: itemCategoryDisplayPath(row, sortedRows),
-      })),
-    [parentOptions, sortedRows],
-  );
+  }, [rows, search]);
 
   const openCreate = () => {
     setForm(emptyForm());
@@ -117,36 +93,35 @@ export function ItemCategoriesSettingsTab() {
     setOpen(true);
   };
 
-  const openEdit = (row: ItemCategoryRow) => {
-    setForm({
-      id: Number(row.id),
-      title: String(row.title ?? ""),
-      parent_id: row.parent_id ? String(row.parent_id) : "",
-    });
+  const openEdit = (row: BrandRow) => {
+    setForm(rowToForm(row));
     setError(null);
     setOpen(true);
   };
 
   const handleSave = async () => {
-    const title = form.title.trim();
-    if (!title) {
-      setError(t("errors.titleRequired"));
+    const name = form.name.trim();
+    if (!name) {
+      setError(t("errors.nameRequired"));
       return;
     }
     try {
       setSaving(true);
       setError(null);
-      const saved = await saveAdminItemCategory({
+      const title = form.title.trim();
+      const saved = await saveAdminBrand({
         id: form.id,
-        title,
-        parent_id: form.parent_id ? Number(form.parent_id) : null,
+        name,
+        title: title || undefined,
       });
       setRows((prev) => {
         const idx = prev.findIndex((r) => Number(r.id) === Number(saved.id));
-        if (idx < 0) return sortItemCategoriesByPath([...prev, saved]);
+        if (idx < 0) {
+          return [...prev, saved].sort((a, b) => String(a.name).localeCompare(String(b.name)));
+        }
         const next = [...prev];
         next[idx] = saved;
-        return sortItemCategoriesByPath(next);
+        return next.sort((a, b) => String(a.name).localeCompare(String(b.name)));
       });
       setOpen(false);
       setForm(emptyForm());
@@ -158,14 +133,14 @@ export function ItemCategoriesSettingsTab() {
     }
   };
 
-  const handleDelete = async (row: ItemCategoryRow) => {
+  const handleDelete = async (row: BrandRow) => {
     const id = Number(row.id);
     if (!Number.isFinite(id) || id <= 0) return;
     if (!window.confirm(t("deleteConfirm"))) return;
     try {
       setSaving(true);
       setError(null);
-      await removeAdminItemCategory(id);
+      await removeAdminBrand(id);
       setRows((prev) => prev.filter((r) => Number(r.id) !== id));
       toast.success(t("deleted"), { containerId: TOAST_CONTAINER_TOP_RIGHT });
     } catch (e) {
@@ -206,12 +181,13 @@ export function ItemCategoriesSettingsTab() {
       <Card>
         <CardContent className="p-0">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[560px] text-sm">
+            <table className="w-full min-w-[640px] text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/30">
                   <th className="w-20 px-4 py-3 text-left font-medium">{t("table.id")}</th>
+                  <th className="px-4 py-3 text-left font-medium">{t("table.name")}</th>
                   <th className="px-4 py-3 text-left font-medium">{t("table.title")}</th>
-                  <th className="px-4 py-3 text-left font-medium">{t("table.parent")}</th>
+                  <th className="px-4 py-3 text-left font-medium">{t("table.vendor")}</th>
                   <th className="px-4 py-3 text-right font-medium">{t("table.actions")}</th>
                 </tr>
               </thead>
@@ -219,24 +195,13 @@ export function ItemCategoriesSettingsTab() {
                 {filtered.map((row) => (
                   <tr key={row.id} className="border-b border-border last:border-b-0">
                     <td className="px-4 py-3 text-muted-foreground">{row.id}</td>
-                    <td className="px-4 py-3 font-medium">
-                      {cellText(itemCategoryDisplayPath(row, sortedRows))}
-                    </td>
+                    <td className="px-4 py-3 font-medium">{cellText(row.name)}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{cellText(row.title)}</td>
                     <td className="px-4 py-3 text-muted-foreground">
-                      {row.parent_id
-                        ? cellText(
-                            itemCategoryDisplayPath(
-                              sortedRows.find((r) => Number(r.id) === Number(row.parent_id)) ?? {
-                                id: Number(row.parent_id),
-                                title: "",
-                              },
-                              sortedRows,
-                            ),
-                          )
-                        : "—"}
+                      {cellText(row.company || row.vendor_code)}
                     </td>
                     <td className="px-4 py-3">
-                      {(canEdit || canDelete) ? (
+                      {canEdit || canDelete ? (
                         <div className="flex items-center justify-end gap-1">
                           {canEdit ? (
                             <button type="button" className={btnGhost} onClick={() => openEdit(row)}>
@@ -262,7 +227,7 @@ export function ItemCategoriesSettingsTab() {
                 ))}
                 {!loading && filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">
+                    <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">
                       {t("table.empty")}
                     </td>
                   </tr>
@@ -287,28 +252,22 @@ export function ItemCategoriesSettingsTab() {
             {error ? <p className="mt-3 text-sm text-destructive">{error}</p> : null}
             <div className="mt-4 space-y-4">
               <label className="block space-y-1">
-                <span className="text-xs font-medium">{t("form.title")} *</span>
+                <span className="text-xs font-medium">{t("form.name")} *</span>
+                <input
+                  className={inputClass}
+                  value={form.name}
+                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                />
+              </label>
+              <label className="block space-y-1">
+                <span className="text-xs font-medium">{t("form.title")}</span>
                 <input
                   className={inputClass}
                   value={form.title}
                   onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+                  placeholder={t("form.titlePlaceholder")}
                 />
               </label>
-              <div className="space-y-1">
-                <span className="text-xs font-medium">{t("form.parent")}</span>
-                <MultiSelect
-                  options={parentMultiOptions}
-                  values={form.parent_id ? [form.parent_id] : []}
-                  onChange={(next) => setForm((f) => ({ ...f, parent_id: next[0] ?? "" }))}
-                  multi={false}
-                  showAllOption
-                  allOptionLabel={t("form.noParent")}
-                  placeholder={t("form.noParent")}
-                  className={selectClass}
-                  rightIcon={selectChevron}
-                  showSelectedChipsInPopover={false}
-                />
-              </div>
             </div>
             <div className="mt-6 flex justify-end gap-2">
               <button type="button" className={btnOutline} onClick={() => setOpen(false)}>
