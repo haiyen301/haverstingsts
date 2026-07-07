@@ -15,9 +15,7 @@ export function parsePrivilegedAdminUserId(raw: unknown): number | undefined {
   return n;
 }
 
-export function userIdIsPrivilegedAdmin(
-  userId: number | string | undefined | null,
-): boolean {
+export function userIdIsPrivilegedAdmin(userId: unknown): boolean {
   const n = parsePrivilegedAdminUserId(userId);
   if (n == null) return false;
   return PRIVILEGED_ADMIN_USER_ID_SET.has(n);
