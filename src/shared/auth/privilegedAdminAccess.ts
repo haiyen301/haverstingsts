@@ -33,3 +33,18 @@ export function userIdInRestrictList(
   if (uid == null) return false;
   return allowedIds.includes(uid);
 }
+
+/** Zone config rows created by privileged admins (409) are hidden from everyone else. */
+export function zoneConfigIsPrivateOwner(createdBy: unknown): boolean {
+  const ownerId = parsePrivilegedAdminUserId(createdBy);
+  if (ownerId == null) return false;
+  return userIdIsPrivilegedAdmin(ownerId);
+}
+
+export function zoneConfigRowVisibleToUser(
+  row: { created_by?: number | string | null },
+  viewerUserId: unknown,
+): boolean {
+  if (!zoneConfigIsPrivateOwner(row.created_by)) return true;
+  return userIdIsPrivilegedAdmin(viewerUserId);
+}

@@ -3592,6 +3592,22 @@ function HarvestInputPageInner() {
                         )}
                       </div>
                       <div>
+                        <label className={harvestLabelClass}>{t("deliveryDate")}</label>
+                        <DatePicker
+                          value={formData.deliveryDate}
+                          onChange={(value) =>
+                            setFormData({
+                              ...formData,
+                              deliveryDate: value,
+                            })
+                          }
+                          disabled={formDisabled}
+                        />
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {t("deliveryDateHint")}
+                        </p>
+                      </div>
+                      <div>
                         <label className={harvestLabelClass}>{t("harvestEndDate")}</label>
                         <DatePicker
                           value={formData.actualHarvestEndDate}
@@ -3616,19 +3632,6 @@ function HarvestInputPageInner() {
                         <p className="mt-1 text-xs text-muted-foreground">
                           {t("portArrivalDateHint")}
                         </p>
-                      </div>
-                      <div>
-                        <label className={harvestLabelClass}>{t("deliveryDate")}</label>
-                        <DatePicker
-                          value={formData.deliveryDate}
-                          onChange={(value) =>
-                            setFormData({
-                              ...formData,
-                              deliveryDate: value,
-                            })
-                          }
-                          disabled={formDisabled}
-                        />
                       </div>
                     </div>
                   </div>

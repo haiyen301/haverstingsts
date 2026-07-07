@@ -5,19 +5,18 @@ import type { ZoneInventoryDaySnapshot } from "@/features/forecasting/forecastDb
 import {
   AGGREGATE_ZONE_KEY,
   type DbSnapshotRow,
+  type InventoryTotalsRow,
 } from "@/features/forecasting/forecastSnapshotApi";
 import type { ZoneConfigurationRow } from "@/features/admin/api/adminApi";
 import type { ForecastHarvestRow } from "@/features/forecasting/forecastingTypes";
 import {
   canonicalForecastZoneKey,
   findActiveZoneConfiguration,
-  forecastZoneKeyFromParts,
   forecastZoneKeyFromRow,
   forecastZoneKeysEqual,
-  zoneConfigIsActiveAtYmd,
   zoneConfigurationMaxKg,
 } from "@/features/forecasting/inventoryRegrowthCalculator";
-import { isForecastExcludedZone } from "@/features/forecasting/forecastingInventoryConversion";
+import { isForecastExcludedZone, isMappedForecastZoneKey } from "@/features/forecasting/forecastingInventoryConversion";
 import type { InventoryAvailableOverrideEntry } from "@/shared/store/inventoryAvailableOverrideStore";
 
 function num(v: unknown): number {
@@ -128,7 +127,46 @@ function snapshotForZoneKey(
   return undefined;
 }
 
-/** Chart metric per day — `0|__aggregate__|0` (parity forecasting chart). */
+/** Company inventory (cap C) per day from `inventory_totals` API rows. */
+export function buildCompanyInventoryTotalByDate(
+  rows: InventoryTotalsRow[],
+): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const row of rows) {
+    const date = normalizeYmd(String(row.snapshot_date ?? ""));
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+    out.set(date, Math.round(num(row.zone_sum_available_kg)));
+  }
+  return out;
+}
+
+/** Fallback: SUM zone snapshots (excludes aggregate + nozone) — Inventory cap C. */
+export function buildCompanyInventoryTotalFromZoneSnapshots(
+  rows: DbSnapshotRow[],
+  permissionScopeFarmIds: string[] = [],
+): Map<string, number> {
+  const scopeSet = new Set(
+    permissionScopeFarmIds.map((x) => String(x).trim()).filter(Boolean),
+  );
+  const hasPermissionFarmScope = scopeSet.size > 0;
+  const out = new Map<string, number>();
+
+  for (const row of rows) {
+    const zoneKey = String(row.zone_key ?? "");
+    if (zoneKey === AGGREGATE_ZONE_KEY) continue;
+    if (!isMappedForecastZoneKey(zoneKey)) continue;
+
+    const farmId = String(row.farm_id ?? "").trim();
+    if (hasPermissionFarmScope && !scopeSet.has(farmId)) continue;
+
+    const date = normalizeYmd(String(row.snapshot_date ?? ""));
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+    out.set(date, (out.get(date) ?? 0) + Math.round(num(row.available_kg)));
+  }
+  return out;
+}
+
+/** Chart metric per day — `0|__aggregate__|0` (v14: past=Σ zone Cap C, today+=Σ pool Cap A from PHP engine). */
 export function buildAggregateAvailableByDate(
   rows: DbSnapshotRow[],
   permissionScopeFarmIds: string[] = [],
@@ -508,13 +546,10 @@ export function buildInventoryRowsFromDbSnapshots(params: {
   const seenKeys = new Set<string>();
   const rows: InventoryDbZoneRow[] = [];
 
-  for (const config of zoneConfigurations) {
-    if (!zoneConfigIsActiveAtYmd(config, asOfYmd)) continue;
-    if (isForecastExcludedZone(config.zone)) continue;
-    const key = forecastZoneKeyFromParts(config.farm_id, String(config.zone ?? ""), config.grass_id);
+  // Snapshots are authoritative for kg; zone configs (when visible) only enrich labels/caps.
+  for (const [key, snap] of dayByZone) {
     if (seenKeys.has(key)) continue;
-    const snap = snapshotForZoneKey(dayByZone, key);
-    if (!snap) continue;
+    if (isForecastExcludedZone(String(snap.zone ?? ""))) continue;
     seenKeys.add(key);
     const mapped = mapDbSnapshotToInventoryRow(
       snap,
@@ -525,22 +560,6 @@ export function buildInventoryRowsFromDbSnapshots(params: {
       optimisticClientOverrides,
     );
     if (mapped) rows.push(mapped);
-  }
-
-  if (rows.length === 0) {
-    for (const [key, snap] of dayByZone) {
-      if (seenKeys.has(key)) continue;
-      seenKeys.add(key);
-      const mapped = mapDbSnapshotToInventoryRow(
-        snap,
-        zoneConfigurations,
-        forecastRows,
-        overridesByZone,
-        asOfYmd,
-        optimisticClientOverrides,
-      );
-      if (mapped) rows.push(mapped);
-    }
   }
 
   if (rows.length === 0) return null;

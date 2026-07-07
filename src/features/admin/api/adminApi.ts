@@ -96,6 +96,8 @@ export type ZoneConfigurationRow = {
   effective_from?: string | null;
   /** Inclusive end of zone setup validity; null = open-ended. */
   effective_to?: string | null;
+  /** When set to privileged admin (409), row is visible only to that user until replaced. */
+  created_by?: number | string | null;
 };
 
 export type ZoneConfigurationSavePayload = {

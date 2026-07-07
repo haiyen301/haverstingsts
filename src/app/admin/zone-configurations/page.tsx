@@ -18,6 +18,10 @@ import {
   zoneMutationAffectsForecast,
   type ZoneConfigForecastRow,
 } from "@/features/forecasting/forecastDataSync";
+import {
+  zoneConfigHasPeriod as zoneConfigRowHasPeriod,
+  zoneConfigPeriodsOverlap,
+} from "@/features/forecasting/inventoryRegrowthCalculator";
 import { TOAST_CONTAINER_TOP_RIGHT } from "@/shared/ui/AppToasts";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 import { Card, CardContent } from "@/components/ui/card";
@@ -33,6 +37,12 @@ import {
 } from "@/shared/lib/harvestReferenceData";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { DatePicker, DateRangePicker } from "@/shared/ui/date-picker";
+import {
+  userIdIsPrivilegedAdmin,
+  zoneConfigIsPrivateOwner,
+  zoneConfigRowVisibleToUser,
+} from "@/shared/auth/privilegedAdminAccess";
+import { useAuthUserStore } from "@/shared/store/authUserStore";
 
 function zoneRowToForecastRow(row: ZoneConfigurationRow): ZoneConfigForecastRow {
   return {
@@ -161,32 +171,6 @@ function zoneConfigOverlapsFilter(
   return rowFrom <= fTo && rowTo >= fFrom;
 }
 
-function zoneConfigHasPeriod(input: {
-  effective_from?: string | null;
-  effective_to?: string | null;
-}): boolean {
-  return Boolean(ymdSlice(input.effective_from) || ymdSlice(input.effective_to));
-}
-
-function zoneConfigIdentityKey(input: {
-  farm_id: number | string;
-  grass_id: number | string;
-  zone: string;
-  effective_from?: string | null;
-  effective_to?: string | null;
-}): string {
-  if (!zoneConfigHasPeriod(input)) {
-    return [String(input.farm_id), String(input.grass_id), String(input.zone ?? "").trim()].join("|");
-  }
-  return [
-    String(input.farm_id),
-    String(input.grass_id),
-    String(input.zone ?? "").trim(),
-    ymdSlice(input.effective_from) || "",
-    ymdSlice(input.effective_to) || "",
-  ].join("|");
-}
-
 function findDuplicateZoneConfig(
   rows: ZoneConfigurationRow[],
   candidate: {
@@ -197,14 +181,48 @@ function findDuplicateZoneConfig(
     effective_from?: string | null;
     effective_to?: string | null;
   },
+  farmZones: FarmZoneReferenceRow[],
 ): ZoneConfigurationRow | undefined {
-  const key = zoneConfigIdentityKey(candidate);
   const excludeId = candidate.id != null ? Number(candidate.id) : 0;
+  const candidateHasPeriod = zoneConfigRowHasPeriod(candidate);
 
   return rows.find((row) => {
     if (excludeId > 0 && Number(row.id) === excludeId) return false;
-    return zoneConfigIdentityKey(row) === key;
+    if (Number(row.farm_id) !== Number(candidate.farm_id)) return false;
+    if (Number(row.grass_id) !== Number(candidate.grass_id)) return false;
+    if (!zoneConfigRowMatchesFormZone(row, String(candidate.zone ?? ""), farmZones)) return false;
+
+    const rowHasPeriod = zoneConfigRowHasPeriod(row);
+    if (!candidateHasPeriod && !rowHasPeriod) return true;
+    if (candidateHasPeriod && rowHasPeriod) {
+      return zoneConfigPeriodsOverlap(candidate, row);
+    }
+    return false;
   });
+}
+
+function findBlockingDuplicateZoneConfig(
+  rows: ZoneConfigurationRow[],
+  candidate: {
+    id?: number;
+    farm_id: number | string;
+    grass_id: number | string;
+    zone: string;
+    effective_from?: string | null;
+    effective_to?: string | null;
+  },
+  farmZones: FarmZoneReferenceRow[],
+  viewerUserId: unknown,
+): ZoneConfigurationRow | undefined {
+  const duplicate = findDuplicateZoneConfig(rows, candidate, farmZones);
+  if (!duplicate) return undefined;
+
+  const ownerIsPrivate = zoneConfigIsPrivateOwner(duplicate.created_by);
+  if (ownerIsPrivate && !userIdIsPrivilegedAdmin(viewerUserId)) {
+    return undefined;
+  }
+
+  return duplicate;
 }
 
 function zoneConfigRowMatchesFormZone(
@@ -238,6 +256,7 @@ function formatNumber(value: string | number | null | undefined): string {
 
 export default function AdminZoneConfigurationsPage() {
   const t = useTranslations("AdminZones");
+  const user = useAuthUserStore((s) => s.user);
   const [rows, setRows] = useState<ZoneConfigurationRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -337,8 +356,13 @@ export default function AdminZoneConfigurationsPage() {
     return options.sort((a, b) => a.label.localeCompare(b.label));
   }, [rows, grasses]);
 
+  const rowsForViewer = useMemo(
+    () => rows.filter((row) => zoneConfigRowVisibleToUser(row, user?.id)),
+    [rows, user?.id],
+  );
+
   const rowsAfterFarmGrassFilter = useMemo(() => {
-    let next = rows;
+    let next = rowsForViewer;
     if (selectedFarmFilter) {
       next = next.filter((row) => String(row.farm_id) === selectedFarmFilter);
     }
@@ -346,7 +370,7 @@ export default function AdminZoneConfigurationsPage() {
       next = next.filter((row) => String(row.grass_id) === selectedGrassFilter);
     }
     return next;
-  }, [rows, selectedFarmFilter, selectedGrassFilter]);
+  }, [rowsForViewer, selectedFarmFilter, selectedGrassFilter]);
 
   const visibleRows = useMemo(
     () =>
@@ -458,17 +482,22 @@ export default function AdminZoneConfigurationsPage() {
       return;
     }
 
-    const duplicate = findDuplicateZoneConfig(rows, {
-      id: form.id,
-      farm_id: farmId,
-      grass_id: grassId,
-      zone,
-      effective_from: effectiveFrom || null,
-      effective_to: effectiveTo || null,
-    });
+    const duplicate = findBlockingDuplicateZoneConfig(
+      rows,
+      {
+        id: form.id,
+        farm_id: farmId,
+        grass_id: grassId,
+        zone,
+        effective_from: effectiveFrom || null,
+        effective_to: effectiveTo || null,
+      },
+      farmZones,
+      user?.id,
+    );
     if (duplicate) {
       setFormError(
-        zoneConfigHasPeriod({ effective_from: effectiveFrom, effective_to: effectiveTo })
+        zoneConfigRowHasPeriod({ effective_from: effectiveFrom, effective_to: effectiveTo })
           ? t("errors.duplicate")
           : t("errors.duplicateNoDates"),
       );

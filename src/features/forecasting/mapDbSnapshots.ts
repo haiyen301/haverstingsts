@@ -77,6 +77,7 @@ export function aggregateSnapshotsByDate(
 
   if (useChartAggregateOnly) {
     if (!hasPermissionFarmScope) {
+      // Prefer persisted aggregate rows (v14 engine writes past/future split into available_kg).
       for (const row of rows) {
         const zoneKey = String(row.zone_key ?? "");
         if (zoneKey !== AGGREGATE_ZONE_KEY) continue;

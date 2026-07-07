@@ -55,6 +55,18 @@ export function zoneConfigIsActiveAtYmd(row: ZoneConfigurationRow, ymd: string):
   return zoneConfigCoversYmd(row, ymd);
 }
 
+/** Inclusive overlap between two setup windows (open-ended bounds use sentinels). */
+export function zoneConfigPeriodsOverlap(
+  a: { effective_from?: string | null; effective_to?: string | null },
+  b: { effective_from?: string | null; effective_to?: string | null },
+): boolean {
+  const aFrom = zoneConfigYmdSlice(a.effective_from) || "0000-01-01";
+  const aTo = zoneConfigYmdSlice(a.effective_to) || "9999-12-31";
+  const bFrom = zoneConfigYmdSlice(b.effective_from) || "0000-01-01";
+  const bTo = zoneConfigYmdSlice(b.effective_to) || "9999-12-31";
+  return aFrom <= bTo && bFrom <= aTo;
+}
+
 export function zoneConfigIsActiveAtDate(row: ZoneConfigurationRow, date: Date): boolean {
   return zoneConfigIsActiveAtYmd(row, ymdFromDateLocal(date));
 }

@@ -7,7 +7,7 @@ import { toast } from "react-toastify";
 import { useTranslations } from "next-intl";
 
 import RequireAuth from "@/features/auth/RequireAuth";
-import { filterActiveZoneConfigurations } from "@/features/forecasting/forecastActiveRecords";
+import { filterVisibleZoneConfigurations } from "@/features/forecasting/forecastActiveRecords";
 import {
   buildInventoryRowsFromDbSnapshots,
   buildZoneDailySnapshotsFromDb,
@@ -49,6 +49,7 @@ import {
   useInventoryAvailableOverrideStore,
 } from "@/shared/store/inventoryAvailableOverrideStore";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
+import { useAuthUserStore } from "@/shared/store/authUserStore";
 import { useHarvestingReferenceHydrated } from "@/shared/hooks/useHarvestingReferenceHydrated";
 import {
   parseCsvList,
@@ -321,6 +322,7 @@ function buildInventoryRowsAtDate(params: {
 export default function InventoryPage() {
   const t = useTranslations("InventoryBalance");
   const tForecast = useTranslations("ForecastInventory");
+  const user = useAuthUserStore((s) => s.user);
   const referenceHydrated = useHarvestingReferenceHydrated();
   const [zoneConfigurations, setZoneConfigurations] = useState<ZoneConfigurationRow[]>([]);
   const [zoneConfigurationsLoading, setZoneConfigurationsLoading] = useState(true);
@@ -363,15 +365,11 @@ export default function InventoryPage() {
   const inventoryTodayYmd = useMemo(() => ymdFromDate(getForecastToday()), []);
   const dbSeriesRefreshKey = useForecastDataStore((s) => s.dbSeriesRefreshKey);
 
-  const inventoryDbDateFrom = useMemo(() => {
-    const updateYmd = updateDate.trim().slice(0, 10);
-    return updateYmd < inventoryTodayYmd ? updateYmd : inventoryTodayYmd;
-  }, [inventoryTodayYmd, updateDate]);
-
-  const inventoryDbDateTo = useMemo(() => {
-    const updateYmd = updateDate.trim().slice(0, 10);
-    return updateYmd > inventoryTodayYmd ? updateYmd : inventoryTodayYmd;
-  }, [inventoryTodayYmd, updateDate]);
+  /** Single-day fetch for the update dialog — avoids loading past→today on every date change. */
+  const updateSnapshotDateYmd = useMemo(
+    () => updateDate.trim().slice(0, 10),
+    [updateDate],
+  );
 
   const inventoryDb = useInventoryZoneDbSnapshots({
     dateFrom: inventoryTodayYmd,
@@ -383,14 +381,26 @@ export default function InventoryPage() {
     farmIds: selectedFarmIds.length > 0 ? selectedFarmIds : undefined,
   });
 
+  const updateDialogFarmId = useMemo(() => {
+    const id = Number(selectedFarm);
+    return Number.isFinite(id) && id > 0 ? id : undefined;
+  }, [selectedFarm]);
+
   const updateInventoryDb = useInventoryZoneDbSnapshots({
-    dateFrom: inventoryDbDateFrom,
-    dateTo: inventoryDbDateTo,
-    enabled: referenceHydrated && updateOpen,
+    dateFrom: updateSnapshotDateYmd,
+    dateTo: updateSnapshotDateYmd,
+    enabled:
+      referenceHydrated &&
+      updateOpen &&
+      /^\d{4}-\d{2}-\d{2}$/.test(updateSnapshotDateYmd) &&
+      updateDialogFarmId != null,
     refreshKey: dbSeriesRefreshKey,
     scopeModule: "inventory",
     permissionScopeFarmIds,
-    farmIds: selectedFarmIds.length > 0 ? selectedFarmIds : undefined,
+    farmId: updateDialogFarmId,
+    farmIds:
+      !updateDialogFarmId && selectedFarmIds.length > 0 ? selectedFarmIds : undefined,
+    includeTotals: false,
   });
 
   const activeGrasses = useMemo(() => filterActiveGrassRows(grasses), [grasses]);
@@ -437,7 +447,7 @@ export default function InventoryPage() {
     void fetchZoneConfigurations({ scopeModule: "inventory" })
       .then((rows) => {
         if (cancelled) return;
-        setZoneConfigurations(filterActiveZoneConfigurations(rows));
+        setZoneConfigurations(filterVisibleZoneConfigurations(rows, user?.id));
       })
       .finally(() => {
         if (!cancelled) setZoneConfigurationsLoading(false);
@@ -445,7 +455,7 @@ export default function InventoryPage() {
     return () => {
       cancelled = true;
     };
-  }, [referenceHydrated]);
+  }, [referenceHydrated, user?.id]);
 
   useEffect(() => {
     if (!referenceHydrated) return;
@@ -480,6 +490,7 @@ export default function InventoryPage() {
   const dbReady = inventoryDb.hasData && !inventoryDb.isLoading;
   const zoneRowsReady = inventoryDb.snapshotRows.length > 0 && !inventoryDb.isLoading;
   const aggregateAvailableToday = inventoryDb.aggregateAvailableByDate.get(inventoryTodayYmd) ?? null;
+  // aggregateAvailableByDate = company inventory (SUM farm totals), not Forecasting aggregate
   const inventoryFiltersAll =
     selectedFarmIds.length === 0 && selectedGrassIds.length === 0;
   const pageLoading =
@@ -511,25 +522,29 @@ export default function InventoryPage() {
     });
   }, [zoneRowsReady, overridesByZone, zoneConfigurations, inventoryDb.snapshotRows]);
 
+  const updateRowsLoading = updateOpen && updateInventoryDb.isLoading;
+
   const { rows: updateRows } = useMemo(() => {
-    const source = updateOpen ? updateInventoryDb : inventoryDb;
-    if (!source.hasData || source.isLoading) return { rows: [] };
+    if (!updateOpen) return { rows: [] };
+    if (
+      !updateInventoryDb.snapshotRows.some(
+        (r) => String(r.snapshot_date ?? "").trim().slice(0, 10) === updateSnapshotDateYmd,
+      )
+    ) {
+      return { rows: [] };
+    }
     const asOf = startOfLocalDay(parseUpdateDateYmd(updateDate));
     return buildInventoryRowsAtDate({
       asOf,
       zoneConfigurations,
       overridesByZone,
-      dbSnapshotRows: source.snapshotRows,
+      dbSnapshotRows: updateInventoryDb.snapshotRows,
       optimisticClientOverrides: true,
     });
   }, [
     updateOpen,
     updateInventoryDb.snapshotRows,
-    updateInventoryDb.hasData,
-    updateInventoryDb.isLoading,
-    inventoryDb.snapshotRows,
-    inventoryDb.hasData,
-    inventoryDb.isLoading,
+    updateSnapshotDateYmd,
     overridesByZone,
     updateDate,
     zoneConfigurations,
@@ -1362,9 +1377,9 @@ export default function InventoryPage() {
                     </label>
                   </div>
 
-                  {selectedFarm && overridesLoading ? (
+                  {selectedFarm && (overridesLoading || updateRowsLoading) ? (
                     <p className="rounded-md border border-amber-100 bg-amber-50/80 px-3 py-2 text-xs text-amber-900">
-                      {t("loadingSavedBalances")}
+                      {overridesLoading ? t("loadingSavedBalances") : t("loading")}
                     </p>
                   ) : null}
 

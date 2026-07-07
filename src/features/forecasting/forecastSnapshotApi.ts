@@ -86,6 +86,48 @@ export async function fetchForecastMeta(anchorDate?: string): Promise<ForecastMe
   const ALL_PERIODS_ZONE_LIMIT = 6000;
   const ALL_PERIODS_FARM_GRASS_LIMIT = 20000;
 
+export type InventoryTotalsRow = {
+  snapshot_date: string;
+  zone_sum_available_kg?: number | string;
+  zone_sum_raw_available_kg?: number | string;
+  scope_type?: string;
+  farm_id?: number | string;
+  grass_id?: number | string;
+};
+
+export async function fetchInventoryTotals(params: {
+  dateFrom: string;
+  dateTo: string;
+  scopeType: "farm" | "farm_grass";
+  rollup?: "company";
+  farmId?: number;
+  grassId?: number;
+  farmIds?: string[];
+  scopeModule?: "forecasting" | "inventory";
+}): Promise<InventoryTotalsRow[]> {
+  const query: Record<string, string | number> = {
+    date_from: params.dateFrom,
+    date_to: params.dateTo,
+    scope_type: params.scopeType,
+    limit: 100000,
+  };
+  if (params.rollup === "company") query.rollup = "company";
+  if (params.farmId) query.farm_id = params.farmId;
+  if (params.grassId) query.grass_id = params.grassId;
+  const farmIdsCsv = (params.farmIds ?? [])
+    .map((x) => String(x).trim())
+    .filter(Boolean)
+    .join(",");
+  if (farmIdsCsv) query.farm_ids = farmIdsCsv;
+  if (params.scopeModule) query.scope_module = params.scopeModule;
+
+  const res = await stsProxyGetWithParamsOptional<InventoryTotalsRow[]>(
+    STS_API_PATHS.forecastInventoryTotals,
+    query,
+  );
+  return Array.isArray(res) ? res : [];
+}
+
 export async function fetchForecastSnapshots(params: {
   dateFrom: string;
   dateTo: string;

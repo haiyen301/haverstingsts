@@ -1509,7 +1509,7 @@ export function InventoryForecast({
     return parseYmdLocal(endYmd) ?? addMonths(getForecastToday(), forecastSpanMonths);
   }, [forecastDateRange.end, forecastSpanMonths]);
 
-  /** Chart series: inventory_daily_snapshots only (parity /forecast_audit). */
+  /** Chart series: inventory_daily_snapshots aggregate (v14 — engine writes past Cap C / future Cap A). */
   const dbSeries = useForecastDbSeries({
     dateFrom: forecastDateRange.start,
     dateTo: forecastDateRange.end,

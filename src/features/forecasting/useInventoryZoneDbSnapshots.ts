@@ -6,12 +6,13 @@ import { getForecastToday, ymdFromDate } from "@/features/forecasting/forecastDa
 import {
   fetchForecastMeta,
   fetchForecastSnapshots,
+  fetchInventoryTotals,
   fetchZoneBalanceHistorySnapshots,
-  AGGREGATE_ZONE_KEY,
   type DbSnapshotRow,
 } from "@/features/forecasting/forecastSnapshotApi";
 import {
-  buildAggregateAvailableByDate,
+  buildCompanyInventoryTotalByDate,
+  buildCompanyInventoryTotalFromZoneSnapshots,
   filterSnapshotRowsForZoneKey,
   zoneLevelSnapshotRows,
 } from "@/features/forecasting/inventoryDbSnapshots";
@@ -36,6 +37,8 @@ type Args = {
   permissionScopeFarmIds?: string[];
   enabled?: boolean;
   refreshKey?: number;
+  /** When false, skip inventory_totals rollup (e.g. single-day update dialog). */
+  includeTotals?: boolean;
 };
 
 export function useInventoryZoneDbSnapshots(args: Args) {
@@ -65,6 +68,7 @@ export function useInventoryZoneDbSnapshots(args: Args) {
         refresh: args.refreshKey ?? 0,
         storeRefresh: dbSeriesRefreshKey,
         impactOnly: args.impactOnly ?? false,
+        includeTotals: args.includeTotals !== false,
       }),
     [
       args.dateFrom,
@@ -78,6 +82,7 @@ export function useInventoryZoneDbSnapshots(args: Args) {
       args.periodId,
       args.allPeriods,
       args.impactOnly,
+      args.includeTotals,
       args.refreshKey,
       dbSeriesRefreshKey,
     ],
@@ -163,21 +168,35 @@ export function useInventoryZoneDbSnapshots(args: Args) {
           }
         }
 
-        const aggregateRows = zoneKey
-          ? ([] as DbSnapshotRow[])
-          : await fetchForecastSnapshots({
-              dateFrom: args.dateFrom,
-              dateTo: args.dateTo,
-              zoneKey: AGGREGATE_ZONE_KEY,
-              scopeModule,
-            });
-
         if (cancelled) return;
 
         setSnapshotRows(zoneRows);
-        setAggregateAvailableByDate(
-          buildAggregateAvailableByDate(zoneRows, args.permissionScopeFarmIds ?? []),
-        );
+
+        let companyByDate = new Map<string, number>();
+        if (!zoneKey && args.includeTotals !== false) {
+          try {
+            const totalsRows = await fetchInventoryTotals({
+              dateFrom: args.dateFrom,
+              dateTo: args.dateTo,
+              scopeType: "farm",
+              rollup: "company",
+              scopeModule,
+              ...(scopedFarmIds.length > 0 ? { farmIds: scopedFarmIds } : {}),
+            });
+            companyByDate = buildCompanyInventoryTotalByDate(totalsRows);
+          } catch {
+            // totals API unavailable — fallback below
+          }
+        }
+
+        if (companyByDate.size === 0) {
+          companyByDate = buildCompanyInventoryTotalFromZoneSnapshots(
+            zoneRows,
+            args.permissionScopeFarmIds ?? [],
+          );
+        }
+
+        setAggregateAvailableByDate(companyByDate);
       } catch (e) {
         if (!cancelled) {
           setError(e instanceof Error ? e.message : "Failed to load inventory snapshots");

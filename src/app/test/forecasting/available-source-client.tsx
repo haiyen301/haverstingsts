@@ -324,9 +324,11 @@ export function DevForecastingAvailableSourceClient() {
                   Chỉ đọc <strong>inventory_daily_snapshots</strong> + API{" "}
                   <code className="text-xs">day_detail</code> /{" "}
                   <code className="text-xs">regrowth_stats</code> — parity{" "}
-                  <code className="text-xs">/forecast_audit</code>. Metric chart ={" "}
-                  <code className="text-xs">0|__aggregate__|0</code> ·{" "}
-                  <code className="text-xs">available_kg</code>.
+                  <code className="text-xs">/forecast_audit</code>. Chart aggregate{" "}
+                  <code className="text-xs">0|__aggregate__|0</code>: ngày &lt; anchor = Σ zone cap{" "}
+                  <strong>C</strong> (v14, kỳ vọng MATCH Inventory); ngày ≥ anchor = Σ farm+grass cap{" "}
+                  <strong>A</strong>. Không client simulate — cần{" "}
+                  <code className="text-xs">forecast:rebuild --full</code> sau bump logic.
                 </p>
                 {db.isLoading ? (
                   <p className="mt-1 text-xs text-slate-500">Đang tải snapshot từ DB…</p>

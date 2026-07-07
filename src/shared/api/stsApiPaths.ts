@@ -189,6 +189,8 @@ export const STS_API_PATHS = {
   activityLogs: "/api/activity_logs",
   /** GET inventory forecast snapshots (aggregate + zone rows). */
   forecastSnapshots: "/api/forecast/snapshots",
+  /** GET inventory totals by farm / farm×grass (cap C rollup). */
+  forecastInventoryTotals: "/api/forecast/inventory_totals",
   forecastMeta: "/api/forecast/meta",
   forecastDayDetail: "/api/forecast/day_detail",
   forecastRegrowthStats: "/api/forecast/regrowth_stats",
