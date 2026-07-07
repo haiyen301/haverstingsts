@@ -132,6 +132,15 @@ function qtyDisplay(raw: unknown): string {
   return String(raw ?? "").trim() || "0";
 }
 
+/** Numeric compare for preview — DB decimals may differ from formatted recalc output. */
+function paceRecalcDisplayValuesEqual(before: string, after: string): boolean {
+  const b = before.trim();
+  const a = after.trim();
+  if (!b && !a) return true;
+  if (!b || !a) return false;
+  return Math.abs(parseQuantity(b) - parseQuantity(a)) < 1e-6;
+}
+
 function estimateDateYmd(row: HarvestPlanRowForPaceRecalc): string {
   const t = String(row.estimated_harvest_date ?? "").trim();
   if (!t || t.startsWith("0000")) return "";
@@ -596,7 +605,8 @@ function buildPreviewRowsForContext(
       const action =
         isNew
           ? "create"
-          : beforeQty === afterQty && beforeArea === afterArea
+          : paceRecalcDisplayValuesEqual(beforeQty, afterQty) &&
+              paceRecalcDisplayValuesEqual(beforeArea, afterArea)
             ? "unchanged"
             : "update";
 
