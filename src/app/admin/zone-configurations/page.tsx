@@ -333,8 +333,13 @@ export default function AdminZoneConfigurationsPage() {
     };
   }, []);
 
+  const rowsForViewer = useMemo(
+    () => rows.filter((row) => zoneConfigRowVisibleToUser(row, user?.id)),
+    [rows, user?.id],
+  );
+
   const grassFilterOptions = useMemo(() => {
-    const ids = new Set(rows.map((r) => String(r.grass_id)));
+    const ids = new Set(rowsForViewer.map((r) => String(r.grass_id)));
     const idToTitle = new Map<string, string>();
     for (const g of grasses as unknown[]) {
       if (!g || typeof g !== "object") continue;
@@ -346,7 +351,7 @@ export default function AdminZoneConfigurationsPage() {
     }
     const options = [...ids].map((id) => {
       const fromRef = idToTitle.get(id);
-      const sample = rows.find((row) => String(row.grass_id) === id);
+      const sample = rowsForViewer.find((row) => String(row.grass_id) === id);
       const turf =
         sample?.turfgrass != null && String(sample.turfgrass).trim() !== ""
           ? String(sample.turfgrass)
@@ -354,12 +359,7 @@ export default function AdminZoneConfigurationsPage() {
       return { id, label: fromRef ?? turf ?? id };
     });
     return options.sort((a, b) => a.label.localeCompare(b.label));
-  }, [rows, grasses]);
-
-  const rowsForViewer = useMemo(
-    () => rows.filter((row) => zoneConfigRowVisibleToUser(row, user?.id)),
-    [rows, user?.id],
-  );
+  }, [rowsForViewer, grasses]);
 
   const rowsAfterFarmGrassFilter = useMemo(() => {
     let next = rowsForViewer;

@@ -744,15 +744,6 @@ export default function DashboardPage() {
   const zoneConfigurations = useHarvestingDataStore((s) => s.zoneConfigurations);
   const fetchAllHarvestingReferenceData = useHarvestingDataStore((s) => s.fetchAllHarvestingReferenceData);
 
-  const { grassFilterOptions, allowedGrassIdsForSelectedFarms } = useGrassFilterByFarm({
-    grasses: grassesRef as unknown[],
-    zoneConfigs: zoneConfigurations,
-    selectedFarmIds,
-    selectedGrassIds: grassFilterIds,
-    onSelectedGrassIdsChange: setGrassFilterIds,
-    catalogMode: "all",
-  });
-
   useEffect(() => {
     void fetchAllHarvestingReferenceData();
   }, [fetchAllHarvestingReferenceData]);
@@ -858,6 +849,25 @@ export default function DashboardPage() {
       return a.farmName.localeCompare(b.farmName, undefined, { sensitivity: "base" });
     });
   }, [scopedFarms, activeCountriesRef]);
+
+  /** Farms that narrow the grass filter: explicit farm pick, else all farms in selected countries. */
+  const grassFilterFarmIds = useMemo(() => {
+    if (selectedFarmIds.length > 0) return selectedFarmIds;
+    if (countryFilterIds.length === 0) return [];
+    const countrySet = new Set(countryFilterIds);
+    return farmFilters
+      .filter((f) => countrySet.has(f.countryId))
+      .map((f) => f.farmId);
+  }, [selectedFarmIds, countryFilterIds, farmFilters]);
+
+  const { grassFilterOptions, allowedGrassIdsForSelectedFarms } = useGrassFilterByFarm({
+    grasses: grassesRef as unknown[],
+    zoneConfigs: zoneConfigurations,
+    selectedFarmIds: grassFilterFarmIds,
+    selectedGrassIds: grassFilterIds,
+    onSelectedGrassIdsChange: setGrassFilterIds,
+    catalogMode: "all",
+  });
 
   const normalizeStatus = (v: unknown): string => {
     const s = String(v ?? "").toLowerCase().trim();

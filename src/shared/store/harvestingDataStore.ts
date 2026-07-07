@@ -6,7 +6,7 @@ import {
 } from "zustand/middleware";
 
 import type { RegrowthRuleRow, ZoneConfigurationRow } from "@/features/admin/api/adminApi";
-import { filterVisibleZoneConfigurations } from "@/features/forecasting/forecastActiveRecords";
+import { filterActiveZoneConfigurations } from "@/features/forecasting/forecastActiveRecords";
 import { STS_API_PATHS } from "@/shared/api/stsApiPaths";
 import {
   filterActiveCountryRows,
@@ -422,9 +422,8 @@ export const useHarvestingDataStore = create<HarvestingDataState>()(
 
       set({
         farmZones: normalizeFarmZoneRows(farmZones),
-        zoneConfigurations: filterVisibleZoneConfigurations(
+        zoneConfigurations: filterActiveZoneConfigurations(
           asArray(zoneConfigurationsRaw) as ZoneConfigurationRow[],
-          sessionUser?.id,
         ),
         keyAreas: normalizeKeyAreaRows(keyAreasRaw),
         staffs: asArray(staffs),

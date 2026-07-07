@@ -7,7 +7,7 @@ import { toast } from "react-toastify";
 import { useTranslations } from "next-intl";
 
 import RequireAuth from "@/features/auth/RequireAuth";
-import { filterVisibleZoneConfigurations } from "@/features/forecasting/forecastActiveRecords";
+import { filterActiveZoneConfigurations } from "@/features/forecasting/forecastActiveRecords";
 import {
   buildInventoryRowsFromDbSnapshots,
   buildZoneDailySnapshotsFromDb,
@@ -49,7 +49,6 @@ import {
   useInventoryAvailableOverrideStore,
 } from "@/shared/store/inventoryAvailableOverrideStore";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
-import { useAuthUserStore } from "@/shared/store/authUserStore";
 import { useHarvestingReferenceHydrated } from "@/shared/hooks/useHarvestingReferenceHydrated";
 import {
   parseCsvList,
@@ -322,7 +321,6 @@ function buildInventoryRowsAtDate(params: {
 export default function InventoryPage() {
   const t = useTranslations("InventoryBalance");
   const tForecast = useTranslations("ForecastInventory");
-  const user = useAuthUserStore((s) => s.user);
   const referenceHydrated = useHarvestingReferenceHydrated();
   const [zoneConfigurations, setZoneConfigurations] = useState<ZoneConfigurationRow[]>([]);
   const [zoneConfigurationsLoading, setZoneConfigurationsLoading] = useState(true);
@@ -447,7 +445,7 @@ export default function InventoryPage() {
     void fetchZoneConfigurations({ scopeModule: "inventory" })
       .then((rows) => {
         if (cancelled) return;
-        setZoneConfigurations(filterVisibleZoneConfigurations(rows, user?.id));
+        setZoneConfigurations(filterActiveZoneConfigurations(rows));
       })
       .finally(() => {
         if (!cancelled) setZoneConfigurationsLoading(false);
@@ -455,7 +453,7 @@ export default function InventoryPage() {
     return () => {
       cancelled = true;
     };
-  }, [referenceHydrated, user?.id]);
+  }, [referenceHydrated]);
 
   useEffect(() => {
     if (!referenceHydrated) return;

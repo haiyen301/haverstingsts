@@ -75,6 +75,7 @@ import { fetchFleetStockLedger, type FleetStockLedgerRow } from "@/features/flee
 import { canAccessModule } from "@/shared/auth/permissions";
 import { useAuthUserStore } from "@/shared/store/authUserStore";
 import type { ZoneConfigurationRow } from "@/features/admin/api/adminApi";
+import { buildGrassFilterOptionsForFarms } from "@/shared/lib/grassFilterByFarmZone";
 
 const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const CHART_FILL = "hsl(152,55%,36%)";
@@ -626,14 +627,13 @@ export function FertilizerUsageTab() {
         title: String((g as { title?: unknown }).title ?? ""),
       }));
     }
-    const ids = new Set(zoneRowsForForm.map((z) => String(z.grass_id)));
-    return grasses
-      .map((g) => ({
-        id: String((g as { id?: unknown }).id ?? ""),
-        title: String((g as { title?: unknown }).title ?? ""),
-      }))
-      .filter((g) => ids.has(g.id));
-  }, [form.farm_id, grasses, zoneRowsForForm]);
+    return buildGrassFilterOptionsForFarms({
+      grasses,
+      zoneConfigs: zoneConfigurations as ZoneConfigurationRow[],
+      selectedFarmIds: [form.farm_id],
+      pinnedGrassIds: form.grass_id.trim() ? [form.grass_id.trim()] : [],
+    }).map((o) => ({ id: o.value, title: o.label }));
+  }, [form.farm_id, form.grass_id, grasses, zoneConfigurations]);
 
   const openCreate = () => {
     setEditingId(null);

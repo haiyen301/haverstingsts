@@ -61,12 +61,12 @@ export function useGrassFilterByFarm(args: UseGrassFilterByFarmArgs): UseGrassFi
   );
 
   useEffect(() => {
-    if (selectedFarmIds.length === 0 || selectedGrassIds.length === 0) return;
+    if (selectedGrassIds.length === 0) return;
     const next = pruneGrassIdsToFarmZoneOptions(selectedGrassIds, grassFilterOptions);
     if (next.length !== selectedGrassIds.length) {
       onSelectedGrassIdsChange(next);
     }
-  }, [selectedFarmIds, selectedGrassIds, grassFilterOptions, onSelectedGrassIdsChange]);
+  }, [selectedGrassIds, grassFilterOptions, onSelectedGrassIdsChange]);
 
   return { grassFilterOptions, allowedGrassIdsForSelectedFarms };
 }

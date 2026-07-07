@@ -89,7 +89,9 @@ import {
   pickGrassCatalogRows,
   todayYmdLocal,
 } from "@/shared/lib/harvestReferenceData";
-import { buildGrassFilterOptionsForFarms } from "@/shared/lib/grassFilterByFarmZone";
+import { buildGrassFilterOptionsForFarms, filterZoneConfigsForGrassSelectUi } from "@/shared/lib/grassFilterByFarmZone";
+import { fetchZoneConfigurations, type ZoneConfigurationRow } from "@/features/admin/api/adminApi";
+import { filterActiveZoneConfigurations } from "@/features/forecasting/forecastActiveRecords";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 import { AlertRouteCategoryBanner } from "@/features/alerts/AlertRouteCategoryBanner";
 import { dispatchRouteAlert } from "@/features/alerts/dispatchRouteAlert";
@@ -558,6 +560,9 @@ export default function ProjectInputPage() {
   const products = useHarvestingDataStore((s) => s.products);
   const grasses = useHarvestingDataStore((s) => s.grasses);
   const zoneConfigurations = useHarvestingDataStore((s) => s.zoneConfigurations);
+  const [zoneConfigRowsForGrassSelect, setZoneConfigRowsForGrassSelect] = useState<
+    ZoneConfigurationRow[]
+  >([]);
   const farmsRaw = useHarvestingDataStore((s) => s.farms);
   const fetchAllHarvestingReferenceData = useHarvestingDataStore(
     (s) => s.fetchAllHarvestingReferenceData,
@@ -615,6 +620,30 @@ export default function ProjectInputPage() {
   useEffect(() => {
     void fetchAllHarvestingReferenceData();
   }, [fetchAllHarvestingReferenceData]);
+
+  useEffect(() => {
+    let mounted = true;
+    void fetchZoneConfigurations({ scopeModule: "forecasting" })
+      .then((rows) => {
+        if (!mounted) return;
+        setZoneConfigRowsForGrassSelect(filterActiveZoneConfigurations(rows));
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setZoneConfigRowsForGrassSelect([]);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const zoneConfigsForGrassSelect = useMemo(() => {
+    const source =
+      zoneConfigRowsForGrassSelect.length > 0
+        ? zoneConfigRowsForGrassSelect
+        : zoneConfigurations;
+    return filterZoneConfigsForGrassSelectUi(source);
+  }, [zoneConfigRowsForGrassSelect, zoneConfigurations]);
 
   useEffect(() => {
     if (!isEdit) {
@@ -793,7 +822,7 @@ export default function ProjectInputPage() {
       if (!farmId) return productOptions;
       return buildGrassFilterOptionsForFarms({
         grasses: grassesCatalog,
-        zoneConfigs: zoneConfigurations,
+        zoneConfigs: zoneConfigsForGrassSelect,
         selectedFarmIds: [farmId],
         pinnedGrassIds: row.grass.trim() ? [row.grass.trim()] : [],
         catalogMode: "harvest_form_dates",
@@ -802,7 +831,7 @@ export default function ProjectInputPage() {
         .map((o) => ({ id: o.value, name: o.label }))
         .filter((x) => x.id && x.name);
     },
-    [grassRefYmds, grassesCatalog, productOptions, zoneConfigurations],
+    [grassRefYmds, grassesCatalog, productOptions, zoneConfigsForGrassSelect],
   );
 
   /** All farms (same as harvest entry) — grass supply is not limited to the project country. */

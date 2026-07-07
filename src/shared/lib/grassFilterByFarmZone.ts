@@ -1,5 +1,9 @@
 import type { ZoneConfigurationRow } from "@/features/admin/api/adminApi";
 import { isForecastExcludedZone } from "@/features/forecasting/forecastingInventoryConversion";
+import {
+  zoneConfigIsPrivateOwner,
+  zoneConfigRowVisibleToUser,
+} from "@/shared/auth/privilegedAdminAccess";
 
 import {
   mapRowsToSelectOptions,
@@ -11,8 +15,33 @@ export type GrassFilterSelectOption = { value: string; label: string };
 
 export type ZoneConfigGrassLinkRow = Pick<
   ZoneConfigurationRow,
-  "farm_id" | "grass_id" | "turfgrass" | "zone"
+  "farm_id" | "grass_id" | "turfgrass" | "zone" | "created_by"
 >;
+
+/** Grass dropdowns show the same zone links a non-privileged user would see in admin. */
+const GRASS_SELECT_UI_VIEWER_USER_ID = 1;
+
+function zoneConfigCreatedBy(row: ZoneConfigGrassLinkRow): unknown {
+  const r = row as Record<string, unknown>;
+  return r.created_by ?? r.createdBy;
+}
+
+/**
+ * Zone configs eligible for farm→grass dropdowns and list filters.
+ * Privileged-owner rows (409) stay in the dataset for calculations but never appear in grass UI.
+ */
+export function filterZoneConfigsForGrassSelectUi<T extends ZoneConfigGrassLinkRow>(
+  zoneConfigs: readonly T[],
+): T[] {
+  return zoneConfigs.filter((row) => {
+    const createdBy = zoneConfigCreatedBy(row);
+    if (zoneConfigIsPrivateOwner(createdBy)) return false;
+    return zoneConfigRowVisibleToUser(
+      { created_by: createdBy as number | string | null | undefined },
+      GRASS_SELECT_UI_VIEWER_USER_ID,
+    );
+  });
+}
 
 export function buildGrassCatalogLabelById(catalog: unknown[]): Map<string, string> {
   const map = new Map<string, string>();
@@ -39,7 +68,7 @@ export function collectGrassIdsFromZoneConfigForFarms(
   if (farms.length === 0) return null;
   const farmSet = new Set(farms);
   const ids = new Set<string>();
-  for (const row of zoneConfigs) {
+  for (const row of filterZoneConfigsForGrassSelectUi(zoneConfigs)) {
     if (!farmSet.has(String(row.farm_id ?? "").trim())) continue;
     if (isForecastExcludedZone(row.zone)) continue;
     const grassId = String(row.grass_id ?? "").trim();
@@ -70,6 +99,7 @@ export function buildGrassFilterOptionsForFarms(
     args.zoneConfigs,
     args.selectedFarmIds,
   );
+  const zoneConfigsForUi = filterZoneConfigsForGrassSelectUi(args.zoneConfigs);
   const catalogLabelById = buildGrassCatalogLabelById(args.grasses);
 
   if (grassIdsFromZones === null) {
@@ -97,7 +127,7 @@ export function buildGrassFilterOptionsForFarms(
   };
 
   for (const id of grassIdsFromZones) {
-    const sample = args.zoneConfigs.find((row) => String(row.grass_id ?? "").trim() === id);
+    const sample = zoneConfigsForUi.find((row) => String(row.grass_id ?? "").trim() === id);
     const turf =
       sample?.turfgrass != null && String(sample.turfgrass).trim() !== ""
         ? String(sample.turfgrass).trim()
@@ -105,11 +135,12 @@ export function buildGrassFilterOptionsForFarms(
     pushOption(id, turf);
   }
 
-  // Edit / URL pins: keep grass visible even when it is not in zone config for the farm.
+  // Edit / URL pins: keep grass visible when allowed for UI; never surface 409-only zone links.
   for (const rawId of pinnedGrassIds) {
     const id = String(rawId ?? "").trim();
     if (!id) continue;
-    const sample = args.zoneConfigs.find((row) => String(row.grass_id ?? "").trim() === id);
+    if (grassIdsFromZones !== null && !grassIdsFromZones.has(id)) continue;
+    const sample = zoneConfigsForUi.find((row) => String(row.grass_id ?? "").trim() === id);
     const turf =
       sample?.turfgrass != null && String(sample.turfgrass).trim() !== ""
         ? String(sample.turfgrass).trim()

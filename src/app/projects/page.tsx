@@ -10,7 +10,7 @@ import RequireAuth from "@/features/auth/RequireAuth";
 import { canAccessModule } from "@/shared/auth/permissions";
 import { useSyncedFarmMultiSelect } from "@/shared/hooks/useSyncedFarmMultiSelect";
 import { useAuthUserStore } from "@/shared/store/authUserStore";
-import { useFarmUserScope } from "@/shared/store/farmUserScope";
+import { filterFarmCatalogByScope, useFarmUserScope } from "@/shared/store/farmUserScope";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { MultiSelect } from "@/shared/ui/multi-select";
 import {
@@ -156,7 +156,7 @@ export default function ProjectListPage() {
   const refreshParam = (searchParams.get("refresh") ?? "").trim();
   const user = useAuthUserStore((s) => s.user);
   const aclReady = useAuthUserStore((s) => s.aclReady);
-  const { scopeKey: farmScopeKey } = useFarmUserScope("projects");
+  const { scopeKey: farmScopeKey, scopeIds } = useFarmUserScope("projects");
   const authReady = !!user && aclReady;
   const canCreateProjects = canAccessModule(user, "projects", "create");
   const canEditProjects = canAccessModule(user, "projects", "edit");
@@ -219,10 +219,29 @@ export default function ProjectListPage() {
   const referenceBootstrapDone = useHarvestingDataStore((s) => s.bootstrapDone);
   const referenceLoading = useHarvestingDataStore((s) => s.loading);
 
+  const scopedFarms = useMemo(
+    () => filterFarmCatalogByScope(farmsRef, scopeIds),
+    [farmsRef, scopeIds],
+  );
+
+  /** Farms that narrow the grass filter: explicit farm pick, else all farms in selected countries. */
+  const grassFilterFarmIds = useMemo(() => {
+    if (farmFilterIds.length > 0) return farmFilterIds;
+    if (countryFilterIds.length === 0) return [];
+    const countrySet = new Set(countryFilterIds);
+    return toRecArray(scopedFarms)
+      .map((r) => ({
+        farmId: String(r.id ?? "").trim(),
+        countryId: String(r.country_id ?? "").trim(),
+      }))
+      .filter((f) => f.farmId && f.countryId && countrySet.has(f.countryId))
+      .map((f) => f.farmId);
+  }, [farmFilterIds, countryFilterIds, scopedFarms]);
+
   const { grassFilterOptions } = useGrassFilterByFarm({
     grasses: grassesRef as unknown[],
     zoneConfigs: zoneConfigurations,
-    selectedFarmIds: farmFilterIds,
+    selectedFarmIds: grassFilterFarmIds,
     selectedGrassIds: grassFilterIds,
     onSelectedGrassIdsChange: setGrassFilterIds,
     catalogMode: "all",
