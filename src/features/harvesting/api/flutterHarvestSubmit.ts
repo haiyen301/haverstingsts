@@ -100,10 +100,6 @@ export function resolveHarvestedAreaForSubmit(
   quantity: string,
   harvestType?: string,
 ): { harvestedArea: string | undefined; status?: string } {
-  const existing = parsePositiveNumber(harvestedArea ?? "");
-  if (existing > 0) {
-    return { harvestedArea: stripCommas(harvestedArea ?? "") };
-  }
   const loadType = normalizeHarvestTypeStorageKey(harvestType);
   // Sprig / sod→sprig quantity is kg — do not copy into harvested_area (m²).
   if (loadType === "sprig" || loadType === "sod_to_sprig") {
@@ -112,6 +108,18 @@ export function resolveHarvestedAreaForSubmit(
   const qty = stripCommas(quantity);
   if (parsePositiveNumber(qty) <= 0) {
     return { harvestedArea: undefined };
+  }
+  // Business rule: for Sod (M2), harvested_area must match quantity.
+  if (loadType === "sod") {
+    return {
+      harvestedArea: qty,
+      status: AUTO_HARVEST_AREA_STATUS,
+    };
+  }
+
+  const existing = parsePositiveNumber(harvestedArea ?? "");
+  if (existing > 0) {
+    return { harvestedArea: stripCommas(harvestedArea ?? "") };
   }
   return {
     harvestedArea: qty,

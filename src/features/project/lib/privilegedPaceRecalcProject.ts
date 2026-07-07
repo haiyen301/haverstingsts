@@ -574,6 +574,10 @@ function buildPreviewRowsForContext(
       const beforeQty = isNew ? "" : qtyDisplay(row.quantity);
       const afterQty = formatQtyStr(newQty);
       let afterArea = qtyDisplay(row.harvested_area);
+      // Business rule (backend): for Sod M2, keep harvested_area == quantity.
+      if (req.uom === "M2" && req.loadType === "sod") {
+        afterArea = afterQty;
+      }
       if (
         req.uom === "Kg" &&
         (req.loadType === "sprig" || req.loadType === "sod_to_sprig") &&
