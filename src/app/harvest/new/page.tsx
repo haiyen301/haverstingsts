@@ -1244,6 +1244,7 @@ function HarvestInputPageInner() {
   const tCommon = (key: string) => tBase(`Common.${key}`);
   const router = useRouter();
   const searchParams = useSearchParams();
+  const searchParamsKey = searchParams.toString();
   const editId = searchParams.get("id")?.trim() || null;
   const projectIdParam = searchParams.get("projectId")?.trim() || "";
   const returnToParam = searchParams.get("returnTo")?.trim() || "";
@@ -1380,6 +1381,7 @@ function HarvestInputPageInner() {
   }, [products]);
 
   const [formData, setFormData] = useState(emptyForm);
+  const [editGrassIdAtLoad, setEditGrassIdAtLoad] = useState("");
 
   useEffect(() => {
     if (!bootstrapDone || !formData.project.trim()) return;
@@ -1408,8 +1410,12 @@ function HarvestInputPageInner() {
   ]);
 
   const grassRowsForSelect = useMemo(() => {
-    return pickGrassesForHarvestGrassSelect(grassRefYmds, formData.grass);
+    const pinnedGrassId =
+      formData.grass.trim() || (editId ? editGrassIdAtLoad : "");
+    return pickGrassesForHarvestGrassSelect(grassRefYmds, pinnedGrassId);
   }, [
+    editGrassIdAtLoad,
+    editId,
     pickGrassesForHarvestGrassSelect,
     grassRefYmds,
     formData.grass,
@@ -1619,6 +1625,9 @@ function HarvestInputPageInner() {
         setEditTableId("");
         setEditTableName("Harvesting");
         setEditLoadError(null);
+        setEditGrassIdAtLoad(
+          String((dupRow as Record<string, unknown>).product_id ?? "").trim(),
+        );
         setEditLoaded(true);
         setFieldErrors({});
         setHarvestDateTouched(false);
@@ -1634,13 +1643,28 @@ function HarvestInputPageInner() {
       setEditTableId("");
       setEditTableName("Harvesting");
       setEditLoadError(null);
+      setEditGrassIdAtLoad("");
       setEditLoaded(true);
       setFieldErrors({});
       setHarvestDateTouched(false);
       return;
     }
+    setFormData(emptyForm);
+    setUseEstimatedDateRange(false);
+    setStatusAtLoad("");
+    setInitialActualDateAtLoad("");
+    setInitialQuantityAtLoad("");
+    setEditGrassIdAtLoad("");
+    setPhotos({});
+    setExistingDocSlots({});
+    setPendingImagesRemoved({});
+    setPendingFilesRemoved({});
+    setEditTableId("");
+    setEditTableName("Harvesting");
     setEditLoaded(false);
     setEditLoadError(null);
+    setFieldErrors({});
+    setHarvestDateTouched(false);
     let cancelled = false;
     void (async () => {
       try {
@@ -1657,7 +1681,9 @@ function HarvestInputPageInner() {
         }
         if (cancelled) return;
         const row = raw as Record<string, unknown>;
-        setFormData(applyRowToFormState(row));
+        const loadedForm = applyRowToFormState(row);
+        setFormData(loadedForm);
+        setEditGrassIdAtLoad(loadedForm.grass.trim());
         setInitialActualDateAtLoad(toDateInput(row.actual_harvest_date));
         setInitialQuantityAtLoad(
           stripDecimalGrouping(String(row.quantity ?? "").trim()),
@@ -1684,7 +1710,7 @@ function HarvestInputPageInner() {
     return () => {
       cancelled = true;
     };
-  }, [accessDenied, editId, initialProjectId]);
+  }, [accessDenied, editId, initialProjectId, searchParamsKey]);
 
   useEffect(() => {
     defaultFarmAppliedRef.current = false;
@@ -1868,9 +1894,15 @@ function HarvestInputPageInner() {
       filterGrassRowsForProjectRequirements(
         grassRowsForSelect,
         selectedProjectRequirements,
-        formData.grass,
+        formData.grass.trim() || (editId ? editGrassIdAtLoad : ""),
       ),
-    [formData.grass, grassRowsForSelect, selectedProjectRequirements],
+    [
+      editGrassIdAtLoad,
+      editId,
+      formData.grass,
+      grassRowsForSelect,
+      selectedProjectRequirements,
+    ],
   );
 
   const productOptions = useMemo(() => {
@@ -1879,24 +1911,36 @@ function HarvestInputPageInner() {
       "title",
     );
     const farmId = formData.farm.trim();
-    if (!farmId) return baseOptions;
+    const pinnedGrassId =
+      formData.grass.trim() || (editId ? editGrassIdAtLoad : "");
+    let options = baseOptions;
+    if (farmId) {
+      const farmGrassOptions = buildGrassFilterOptionsForFarms({
+        grasses: grassesCatalog,
+        zoneConfigs: zoneConfigRows,
+        selectedFarmIds: [farmId],
+        pinnedGrassIds: pinnedGrassId ? [pinnedGrassId] : [],
+        catalogMode: "harvest_form_dates",
+        refYmds: grassRefYmds,
+      });
+      const allowedIds = new Set(farmGrassOptions.map((o) => o.value));
+      options = baseOptions.filter((o) => allowedIds.has(o.id));
+    }
 
-    const farmGrassOptions = buildGrassFilterOptionsForFarms({
-      grasses: grassesCatalog,
-      zoneConfigs: zoneConfigRows,
-      selectedFarmIds: [farmId],
-      pinnedGrassIds: formData.grass.trim() ? [formData.grass.trim()] : [],
-      catalogMode: "harvest_form_dates",
-      refYmds: grassRefYmds,
-    });
-    const allowedIds = new Set(farmGrassOptions.map((o) => o.value));
-    return baseOptions.filter((o) => allowedIds.has(o.id));
+    if (pinnedGrassId && !options.some((o) => o.id === pinnedGrassId)) {
+      const label = productNameById.get(pinnedGrassId)?.trim() || pinnedGrassId;
+      options = [{ id: pinnedGrassId, label }, ...options];
+    }
+    return options;
   }, [
+    editGrassIdAtLoad,
+    editId,
     formData.farm,
     formData.grass,
     grassRefYmds,
     grassesCatalog,
     grassRowsForSelectByProject,
+    productNameById,
     zoneConfigRows,
   ]);
 
@@ -1925,6 +1969,8 @@ function HarvestInputPageInner() {
   }, [editId, formData.grass, formData.project, selectedProjectRequirements]);
 
   useEffect(() => {
+    // Edit rows keep stored grass even when farm/zone filters hide it from the catalog.
+    if (editId) return;
     if (!editLoaded) return;
     const farmId = formData.farm.trim();
     if (!farmId) return;
@@ -1938,7 +1984,7 @@ function HarvestInputPageInner() {
       harvestType: undefined,
       quantity: undefined,
     }));
-  }, [editLoaded, formData.farm, formData.grass, productOptions]);
+  }, [editId, editLoaded, formData.farm, formData.grass, productOptions]);
 
   useEffect(() => {
     if (accessDenied || editId || !editLoaded || !bootstrapDone) return;
@@ -2072,7 +2118,31 @@ function HarvestInputPageInner() {
     return [...allowedUomsForProduct(selectedProjectRequirements, grassId)];
   }, [formData.grass, selectedProjectRequirements]);
 
+  const harvestTypeOptionsForUi = useMemo(() => {
+    const allowed = allowedHarvestTypesForGrass;
+    if (!editId || !editLoaded) return allowed;
+    const loaded = normalizeHarvestTypeStorageKey(formData.harvestType);
+    if (!loaded || allowed.includes(loaded)) return allowed;
+    return [...allowed, loaded];
+  }, [
+    allowedHarvestTypesForGrass,
+    editId,
+    editLoaded,
+    formData.harvestType,
+  ]);
+
+  const uomOptionsForUi = useMemo(() => {
+    const allowed = allowedUomsForGrass;
+    if (!editId || !editLoaded) return allowed;
+    const key = normUomKey(formData.uom);
+    const loaded = key === "kg" ? "Kg" : key === "m2" ? "M2" : null;
+    if (!loaded || allowed.includes(loaded)) return allowed;
+    return [...allowed, loaded];
+  }, [allowedUomsForGrass, editId, editLoaded, formData.uom]);
+
   useEffect(() => {
+    // Edit mode keeps harvest type / UoM / quantity from the loaded row.
+    if (editId) return;
     const grassId = formData.grass.trim();
     if (!grassId) return;
 
@@ -2095,7 +2165,7 @@ function HarvestInputPageInner() {
       }
       return { ...prev, harvestType: "", quantity: "" };
     });
-  }, [allowedHarvestTypesForGrass, allowedUomsForGrass, formData.grass]);
+  }, [allowedHarvestTypesForGrass, allowedUomsForGrass, editId, formData.grass]);
 
   const selectedUomLabel = useMemo((): "Kg" | "M2" | null => {
     const key = normUomKey(formData.uom);
@@ -2108,8 +2178,8 @@ function HarvestInputPageInner() {
   const harvestQuantitySelectionReady = Boolean(
     selectedHarvestTypeKey &&
       selectedUomLabel &&
-      allowedHarvestTypesForGrass.includes(selectedHarvestTypeKey) &&
-      allowedUomsForGrass.includes(selectedUomLabel),
+      harvestTypeOptionsForUi.includes(selectedHarvestTypeKey) &&
+      uomOptionsForUi.includes(selectedUomLabel),
   );
 
   /** Grass selected — on non-pace projects, harvest type / UoM can be chosen freely. */
@@ -2372,11 +2442,12 @@ function HarvestInputPageInner() {
 
   useEffect(() => {
     if (!formData.zone) return;
+    if (editId && !editLoaded) return;
     const isValid = filteredZoneEntries.some(([key]) => key === formData.zone);
     if (!isValid) {
       setFormData((prev) => ({ ...prev, zone: "" }));
     }
-  }, [filteredZoneEntries, formData.zone]);
+  }, [editId, editLoaded, filteredZoneEntries, formData.zone]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -3166,7 +3237,7 @@ function HarvestInputPageInner() {
                             ] as const
                           )
                             .filter(([value]) =>
-                              allowedHarvestTypesForGrass.includes(value),
+                              harvestTypeOptionsForUi.includes(value),
                             )
                             .map(([value, label]) => (
                             <button
@@ -3239,7 +3310,7 @@ function HarvestInputPageInner() {
                         <label className={harvestLabelClass}>{t("unit")}</label>
                         <div className="inline-grid w-auto shrink-0 grid-cols-[auto_auto] gap-2 ">
                           {(["Kg", "M2"] as const)
-                            .filter((u) => allowedUomsForGrass.includes(u))
+                            .filter((u) => uomOptionsForUi.includes(u))
                             .map((u) => (
                             <button
                               key={`harvest-uom-${u}`}
@@ -3956,6 +4027,8 @@ function HarvestInputPageInner() {
 
 export default function HarvestInputPage() {
   const tBase = useAppTranslations();
+  const searchParams = useSearchParams();
+  const routeKey = searchParams.toString();
   return (
     <Suspense
       fallback={
@@ -3964,7 +4037,7 @@ export default function HarvestInputPage() {
         </div>
       }
     >
-      <HarvestInputPageInner />
+      <HarvestInputPageInner key={routeKey} />
     </Suspense>
   );
 }
