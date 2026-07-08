@@ -2542,6 +2542,8 @@ export default function DashboardPage() {
               farmFilters={farmFilters}
               selectedFarmIds={selectedFarmIds}
               scopeFarmIds={scopeIds}
+              recentDateFrom={kpiDateRange.start}
+              recentDateTo={kpiDateRange.end}
             />
 
             {deliveryGrassTypePeriodBreakdown.length > 0 ? (

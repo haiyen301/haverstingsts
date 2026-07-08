@@ -41,6 +41,7 @@ import { userIdIsPrivilegedAdmin } from "@/shared/auth/privilegedAdminAccess";
 import { useAuthUserStore } from "@/shared/store/authUserStore";
 import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
 import { MultiSelect } from "@/shared/ui/multi-select";
+import { RainfallImportSection } from "@/features/admin/ui/RainfallImportSection";
 import { cn } from "@/lib/utils";
 
 const PROJECT_LIST_PAGE_SIZE = 40;
@@ -858,6 +859,8 @@ export function UpdatingSettingsTab() {
           </div>
         </div>
       </div>
+
+      <RainfallImportSection />
     </div>
   );
 }

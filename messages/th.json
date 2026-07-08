@@ -255,6 +255,39 @@
       "load": "โหลดรายการโครงการไม่ได้",
       "preview": "สร้างตัวอย่างไม่ได้",
       "apply": "ใช้การคำนวณใหม่ไม่ได้"
+    },
+    "rainfallImport": {
+      "title": "นำเข้าปริมาณฝนจาก Excel",
+      "description": "อัปโหลดไฟล์ RAINFALL REGISTRATION CHART (แต่ละชีตคือหนึ่งปี) ค่าจะบันทึกลงรายการฝนแบบ manual สำหรับฟาร์มที่เลือก",
+      "farm": "ฟาร์ม",
+      "farmPlaceholder": "— เลือกฟาร์ม —",
+      "file": "ไฟล์ Excel",
+      "uploadHint": "เลือกไฟล์ .xlsx",
+      "emptyHint": "อัปโหลดไฟล์ rainfall chart เพื่อดูตัวอย่างจำนวนชีตและวันที่มีฝนก่อนนำเข้า",
+      "previewTitle": "อ่านไฟล์แล้ว",
+      "previewSummary": "{sheets} ชีต, {entries} วันที่มีฝน ({from} → {to}) สำหรับ {farm}",
+      "import": "นำเข้าฐานข้อมูล",
+      "importing": "กำลังนำเข้า…",
+      "confirmTitle": "นำเข้าข้อมูลฝน?",
+      "confirmBody": "จะ upsert {entries} รายการฝน manual สำหรับ {farm} วันที่มีอยู่แล้วจะถูกอัปเดต",
+      "previewListHint": "เรียงตามวันที่ใกล้วันนี้ที่สุด — ตรวจสอบรายการด้านล่างก่อนยืนยัน",
+      "colDate": "วันที่",
+      "colRainfall": "ปริมาณฝน (mm)",
+      "colYear": "ปี",
+      "today": "วันนี้",
+      "listShowing": "แสดง {shown} จาก {total} รายการ",
+      "loadMore": "โหลดเพิ่ม",
+      "confirmYes": "ใช่ นำเข้า",
+      "confirmNo": "ยกเลิก",
+      "importSuccess": "นำเข้า {total} รายการ: สร้าง {created}, อัปเดต {updated}",
+      "importSuccessGeneric": "นำเข้าข้อมูลฝนสำเร็จ",
+      "errors": {
+        "loadFarms": "โหลดรายการฟาร์มไม่ได้",
+        "invalidFile": "กรุณาเลือกไฟล์ rainfall chart .xlsx",
+        "noEntries": "ไม่พบค่าฝนในไฟล์",
+        "parse": "อ่านไฟล์ Excel ไม่ได้",
+        "import": "นำเข้าข้อมูลฝนไม่ได้"
+      }
     }
   },
   "AdminActivityLog": {

@@ -255,6 +255,39 @@
       "load": "Không tải được danh sách dự án.",
       "preview": "Không tạo được bản xem trước.",
       "apply": "Không áp dụng được tính lại balance."
+    },
+    "rainfallImport": {
+      "title": "Import lượng mưa từ Excel",
+      "description": "Tải file RAINFALL REGISTRATION CHART (mỗi sheet là một năm). Dữ liệu sẽ ghi vào bảng nhập tay lượng mưa cho farm đã chọn.",
+      "farm": "Farm",
+      "farmPlaceholder": "— Chọn farm —",
+      "file": "File Excel",
+      "uploadHint": "Chọn file .xlsx",
+      "emptyHint": "Tải file rainfall chart để xem trước số sheet và các ngày có mưa trước khi import.",
+      "previewTitle": "Đã đọc file",
+      "previewSummary": "{sheets} sheet, {entries} ngày có mưa ({from} → {to}) cho {farm}.",
+      "import": "Import vào database",
+      "importing": "Đang import…",
+      "confirmTitle": "Import dữ liệu mưa?",
+      "confirmBody": "Sẽ upsert {entries} bản ghi mưa nhập tay cho {farm}. Các ngày đã có sẽ được cập nhật.",
+      "previewListHint": "Sắp xếp theo ngày gần hôm nay nhất — xem danh sách bên dưới trước khi xác nhận.",
+      "colDate": "Ngày",
+      "colRainfall": "Lượng mưa (mm)",
+      "colYear": "Năm",
+      "today": "Hôm nay",
+      "listShowing": "Hiển thị {shown}/{total} bản ghi",
+      "loadMore": "Tải thêm",
+      "confirmYes": "Có, import",
+      "confirmNo": "Hủy",
+      "importSuccess": "Đã import {total} bản ghi: {created} tạo mới, {updated} cập nhật.",
+      "importSuccessGeneric": "Import lượng mưa thành công.",
+      "errors": {
+        "loadFarms": "Không tải được danh sách farm.",
+        "invalidFile": "Vui lòng chọn file rainfall chart .xlsx.",
+        "noEntries": "Không tìm thấy giá trị mưa trong file.",
+        "parse": "Không đọc được file Excel.",
+        "import": "Không import được dữ liệu mưa."
+      }
     }
   },
   "AdminActivityLog": {

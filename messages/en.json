@@ -264,6 +264,39 @@
       "load": "Could not load projects.",
       "preview": "Could not build preview.",
       "apply": "Could not apply recalculation."
+    },
+    "rainfallImport": {
+      "title": "Import rainfall from Excel",
+      "description": "Upload the legacy RAINFALL REGISTRATION CHART workbook (one sheet per year). Values are saved to manual rainfall entries for the selected farm.",
+      "farm": "Farm",
+      "farmPlaceholder": "— Select farm —",
+      "file": "Excel file",
+      "uploadHint": "Choose .xlsx file",
+      "emptyHint": "Upload a rainfall chart workbook to preview sheet counts and daily values before importing.",
+      "previewTitle": "Parsed workbook",
+      "previewSummary": "{sheets} sheet(s), {entries} day(s) with rainfall ({from} → {to}) for {farm}.",
+      "import": "Import to database",
+      "importing": "Importing…",
+      "confirmTitle": "Import rainfall data?",
+      "confirmBody": "This will upsert {entries} manual rainfall record(s) for {farm}. Existing dates for this farm will be updated.",
+      "previewListHint": "Sorted by closeness to today — review the list below before confirming.",
+      "colDate": "Date",
+      "colRainfall": "Rainfall (mm)",
+      "colYear": "Year",
+      "today": "Today",
+      "listShowing": "Showing {shown} of {total} record(s)",
+      "loadMore": "Load more",
+      "confirmYes": "Yes, import",
+      "confirmNo": "Cancel",
+      "importSuccess": "Imported {total} record(s): {created} created, {updated} updated.",
+      "importSuccessGeneric": "Rainfall import completed.",
+      "errors": {
+        "loadFarms": "Could not load farms.",
+        "invalidFile": "Please choose an .xlsx rainfall chart file.",
+        "noEntries": "No rainfall values found in the workbook.",
+        "parse": "Could not read the Excel file.",
+        "import": "Could not import rainfall data."
+      }
     }
   },
   "AdminWeatherLocations": {

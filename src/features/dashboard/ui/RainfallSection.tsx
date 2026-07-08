@@ -110,6 +110,8 @@ type RainfallSectionProps = {
   farmFilters: FarmFilter[];
   selectedFarmIds: string[];
   scopeFarmIds: string[] | null;
+  recentDateFrom?: string;
+  recentDateTo?: string;
 };
 
 function StatBox({
@@ -240,7 +242,13 @@ function RainfallSourceHint({
   );
 }
 
-export function RainfallSection({ farmFilters, selectedFarmIds, scopeFarmIds }: RainfallSectionProps) {
+export function RainfallSection({
+  farmFilters,
+  selectedFarmIds,
+  scopeFarmIds,
+  recentDateFrom,
+  recentDateTo,
+}: RainfallSectionProps) {
   const t = useTranslations("Dashboard.rainfall");
   const user = useAuthUserStore((s) => s.user);
   const canExportRainfall = canAccessModule(user, "dashboard", "export");
@@ -262,6 +270,8 @@ export function RainfallSection({ farmFilters, selectedFarmIds, scopeFarmIds }: 
   const [recentVisibleCount, setRecentVisibleCount] = useState(RAINFALL_RECENT_PAGE_SIZE);
   const [exportOpen, setExportOpen] = useState(false);
   const recentListRef = useRef<HTMLDivElement>(null);
+  const loadMoreSentinelRef = useRef<HTMLDivElement>(null);
+  const loadMoreLockRef = useRef(false);
 
   const entryKey = (entry: RainfallRecentEntry) => `${entry.farm_id}|${entry.date}`;
 
@@ -332,6 +342,8 @@ export function RainfallSection({ farmFilters, selectedFarmIds, scopeFarmIds }: 
       const payload = await fetchRainfallDashboard({
         year,
         farmIds: queryFarmIds,
+        dateFrom: recentDateFrom,
+        dateTo: recentDateTo,
       });
       const processed = RAINFALL_MANUAL_ONLY
         ? applyManualRainfallOnly(payload, year, today)
@@ -350,7 +362,7 @@ export function RainfallSection({ farmFilters, selectedFarmIds, scopeFarmIds }: 
       setLoading(false);
       setRefreshing(false);
     }
-  }, [queryFarmIds, t, today, year]);
+  }, [queryFarmIds, recentDateFrom, recentDateTo, t, today, year]);
 
   useEffect(() => {
     void load();
@@ -360,23 +372,55 @@ export function RainfallSection({ farmFilters, selectedFarmIds, scopeFarmIds }: 
     () => sortRainfallRecentEntries(data?.recent ?? [], today),
     [data?.recent, today],
   );
-  const recentTotal = data?.recent_total ?? sortedRecent.length;
+  const recentTotal = sortedRecent.length;
   const visibleRecent = sortedRecent.slice(0, recentVisibleCount);
   const hasMoreRecent = recentVisibleCount < recentTotal;
 
   useEffect(() => {
     setRecentVisibleCount(RAINFALL_RECENT_PAGE_SIZE);
-  }, [queryFarmIds, year]);
+    loadMoreLockRef.current = false;
+  }, [queryFarmIds, year, recentDateFrom, recentDateTo]);
 
-  const handleRecentScroll = useCallback(() => {
+  const loadMoreRecent = useCallback(() => {
+    if (loadMoreLockRef.current) return;
+    loadMoreLockRef.current = true;
+    setRecentVisibleCount((count) => {
+      const next = Math.min(count + RAINFALL_RECENT_PAGE_SIZE, recentTotal);
+      if (next === count) {
+        loadMoreLockRef.current = false;
+        return count;
+      }
+      requestAnimationFrame(() => {
+        loadMoreLockRef.current = false;
+      });
+      return next;
+    });
+  }, [recentTotal]);
+
+  useEffect(() => {
+    const root = recentListRef.current;
+    const sentinel = loadMoreSentinelRef.current;
+    if (!root || !sentinel || !hasMoreRecent) return;
+
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        loadMoreRecent();
+      },
+      { root, rootMargin: "48px", threshold: 0 },
+    );
+
+    obs.observe(sentinel);
+    return () => obs.disconnect();
+  }, [hasMoreRecent, loadMoreRecent, visibleRecent.length]);
+
+  useEffect(() => {
     const el = recentListRef.current;
     if (!el || !hasMoreRecent) return;
-    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 24) {
-      setRecentVisibleCount((count) =>
-        Math.min(count + RAINFALL_RECENT_PAGE_SIZE, recentTotal),
-      );
+    if (el.scrollHeight <= el.clientHeight + 1) {
+      loadMoreRecent();
     }
-  }, [hasMoreRecent, recentTotal]);
+  }, [hasMoreRecent, loadMoreRecent, visibleRecent.length]);
 
   const perms = data?.permissions ?? { can_create: false, can_edit: false, can_delete: false };
 
@@ -582,7 +626,6 @@ export function RainfallSection({ farmFilters, selectedFarmIds, scopeFarmIds }: 
               <h4 className="mb-3 font-heading text-sm font-semibold text-foreground">{t("recent")}</h4>
               <div
                 ref={recentListRef}
-                onScroll={handleRecentScroll}
                 className="max-h-80 space-y-1.5 overflow-y-auto pr-1"
               >
                 {sortedRecent.length === 0 && (
@@ -646,6 +689,7 @@ export function RainfallSection({ farmFilters, selectedFarmIds, scopeFarmIds }: 
                     ) : null}
                   </div>
                 ))}
+                {hasMoreRecent ? <div ref={loadMoreSentinelRef} className="h-1" aria-hidden /> : null}
               </div>
             </div>
           </div>

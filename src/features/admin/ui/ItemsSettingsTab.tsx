@@ -9,10 +9,8 @@ import { toast } from "react-toastify";
 import {
   fetchAdminItemsPage,
   fetchItemFormOptions,
-  ITEM_RATE_CATEGORY_TITLES,
   ITEM_STATUSES,
   itemCategoryIsMachine,
-  itemCategorySupportsRate,
   machineFuelTypeSelectOptions,
   normalizeMachineFuelTypeValue,
   removeAdminItem,
@@ -80,8 +78,6 @@ type FormState = {
   category_id: string;
   unit_id: string;
   purchase_price: string;
-  rate: string;
-  rate_uom: string;
   machine_fuel_type: string;
   status: ItemStatus;
 };
@@ -103,8 +99,6 @@ function emptyForm(): FormState {
     category_id: "",
     unit_id: "",
     purchase_price: "",
-    rate: "",
-    rate_uom: "",
     machine_fuel_type: "",
     status: "Inactive",
   };
@@ -133,25 +127,12 @@ function rowToForm(row: ItemRow, fuelCatalog: ReturnType<typeof machineFuelTypeS
     category_id: row.category_id ? String(row.category_id) : "",
     unit_id: row.unit_id ? String(row.unit_id) : "",
     purchase_price: row.purchase_price != null ? String(row.purchase_price) : "",
-    rate: row.rate != null ? String(row.rate) : "",
-    rate_uom: String(row.rate_uom ?? ""),
     machine_fuel_type: normalizeMachineFuelTypeValue(
       String(row.machine_fuel_type ?? ""),
       fuelCatalog,
     ),
     status: normalizeItemStatus(row.status),
   };
-}
-
-function formatRateCell(row: ItemRow, rateCategoryTitles: readonly string[]): string {
-  if (!itemCategorySupportsRate(row.category_title, rateCategoryTitles)) {
-    return "—";
-  }
-  const rate = String(row.rate ?? "").trim();
-  const uom = String(row.rate_uom ?? "").trim();
-  if (!rate && !uom) return "—";
-  if (rate && uom) return `${rate} ${uom}`;
-  return rate || uom;
 }
 
 function categoryTitleById(
@@ -363,15 +344,6 @@ export function ItemsSettingsTab() {
         category_id: categoryId,
         unit_id: unitId,
         purchase_price: form.purchase_price.trim() || undefined,
-        ...(formSupportsRate
-          ? {
-              rate: form.rate.trim() || null,
-              rate_uom: form.rate_uom.trim() || null,
-            }
-          : {
-              rate: null,
-              rate_uom: null,
-            }),
         ...(formIsMachineCategory
           ? {
               machine_fuel_type:
@@ -447,20 +419,15 @@ export function ItemsSettingsTab() {
     () => unitOptions.map((u) => ({ value: String(u.unit_type_id), label: u.unit_name })),
     [unitOptions],
   );
-  const rateCategoryTitles = options?.rate_category_titles ?? ITEM_RATE_CATEGORY_TITLES;
   const selectedCategoryTitle = categoryTitleById(sortedCategoryOptions, form.category_id);
-  const formSupportsRate = itemCategorySupportsRate(selectedCategoryTitle, rateCategoryTitles);
   const formIsMachineCategory = itemCategoryIsMachine(selectedCategoryTitle);
 
   const handleCategoryChange = (categoryId: string) => {
     const title = categoryTitleById(sortedCategoryOptions, categoryId);
-    const supportsRate = itemCategorySupportsRate(title, rateCategoryTitles);
     const isMachineCategory = itemCategoryIsMachine(title);
     setForm((f) => ({
       ...f,
       category_id: categoryId,
-      rate: supportsRate ? f.rate : "",
-      rate_uom: supportsRate ? f.rate_uom : "",
       machine_fuel_type: isMachineCategory ? f.machine_fuel_type : "",
     }));
   };
@@ -540,7 +507,6 @@ export function ItemsSettingsTab() {
                   <th className="px-4 py-3 text-left font-medium">{t("table.brand")}</th>
                   <th className="px-4 py-3 text-left font-medium">{t("table.category")}</th>
                   <th className="px-4 py-3 text-left font-medium">{t("table.unit")}</th>
-                  <th className="px-4 py-3 text-left font-medium">{t("table.rate")}</th>
                   <th className="px-4 py-3 text-left font-medium">{t("table.status")}</th>
                   <th className="px-4 py-3 text-right font-medium">{t("table.actions")}</th>
                 </tr>
@@ -553,7 +519,6 @@ export function ItemsSettingsTab() {
                     <td className="px-4 py-3 text-muted-foreground">{cellText(row.brand_name)}</td>
                     <td className="px-4 py-3 text-muted-foreground">{cellText(row.category_title)}</td>
                     <td className="px-4 py-3 text-muted-foreground">{cellText(row.unit_name)}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{formatRateCell(row, rateCategoryTitles)}</td>
                     <td className="px-4 py-3">
                       {(() => {
                         const status = normalizeItemStatus(row.status);
@@ -596,7 +561,7 @@ export function ItemsSettingsTab() {
                 ))}
                 {!loading && rows.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-4 py-8 text-center text-muted-foreground">
+                    <td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">
                       {t("table.empty")}
                     </td>
                   </tr>
@@ -605,7 +570,7 @@ export function ItemsSettingsTab() {
               {!loading && totalRecords != null ? (
                 <tfoot>
                   <tr className="border-t-2 border-border bg-muted/40">
-                    <td colSpan={8} className="px-4 py-3 text-sm font-semibold text-foreground">
+                    <td colSpan={7} className="px-4 py-3 text-sm font-semibold text-foreground">
                       {totalRecords > rows.length
                         ? t("table.totalRecordsFiltered", {
                             loaded: rows.length,
@@ -739,23 +704,6 @@ export function ItemsSettingsTab() {
                     showSelectedChipsInPopover={false}
                   />
                 </div>
-              ) : null}
-              {formSupportsRate ? (
-                <>
-                  <label className="space-y-1">
-                    <span className="text-xs font-medium">{t("form.rate")}</span>
-                    <input className={inputClass} value={form.rate} onChange={(e) => setForm((f) => ({ ...f, rate: e.target.value }))} />
-                  </label>
-                  <label className="space-y-1">
-                    <span className="text-xs font-medium">{t("form.rateUom")}</span>
-                    <input
-                      className={inputClass}
-                      value={form.rate_uom}
-                      onChange={(e) => setForm((f) => ({ ...f, rate_uom: e.target.value }))}
-                      placeholder={t("form.rateUomPlaceholder")}
-                    />
-                  </label>
-                </>
               ) : null}
               <label className="space-y-1">
                 <span className="text-xs font-medium">{t("form.commodityCode")}</span>
