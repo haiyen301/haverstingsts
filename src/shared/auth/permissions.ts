@@ -44,6 +44,7 @@ export const APP_PERMISSION_MODULES = [
   "admin_regrowth",
   "admin_grasses",
   "admin_key_areas",
+  "admin_fertilizer_product",
   "admin_project_paces",
   "admin_countries",
   "admin_items",

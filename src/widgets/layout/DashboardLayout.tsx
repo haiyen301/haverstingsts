@@ -465,15 +465,16 @@ export function DashboardLayout({
                   p === "/admin/settings/weather-locations" ||
                   p.startsWith("/admin/settings/weather-locations/"),
               },
-              {
-                value: "items",
-                label: tn("adminItems"),
-                icon: Layers,
-                path: "/admin/settings/items",
-                module: "admin_items",
-                isActive: (p) =>
-                  p === "/admin/settings/items" || p.startsWith("/admin/settings/items/"),
-              },
+              // TODO: tạm ẩn — chưa dùng
+              // {
+              //   value: "items",
+              //   label: tn("adminItems"),
+              //   icon: Layers,
+              //   path: "/admin/settings/items",
+              //   module: "admin_items",
+              //   isActive: (p) =>
+              //     p === "/admin/settings/items" || p.startsWith("/admin/settings/items/"),
+              // },
               {
                 value: "item-categories",
                 label: tn("adminItemCategories"),
@@ -519,6 +520,7 @@ export function DashboardLayout({
               p.startsWith("/admin/regrowth") ||
               p.startsWith("/admin/grasses") ||
               p.startsWith("/admin/keyareas") ||
+              p.startsWith("/admin/fertilizer-product") ||
               p.startsWith("/admin/project-paces"),
             tabs: [
               {
@@ -582,6 +584,16 @@ export function DashboardLayout({
                 path: "/admin/keyareas",
                 module: "admin_key_areas",
                 isActive: (p) => p === "/admin/keyareas" || p.startsWith("/admin/keyareas/"),
+              },
+              {
+                value: "fertilizer-product",
+                label: tn("adminFertilizerProduct"),
+                icon: Leaf,
+                path: "/admin/fertilizer-product",
+                module: "admin_fertilizer_product",
+                isActive: (p) =>
+                  p === "/admin/fertilizer-product" ||
+                  p.startsWith("/admin/fertilizer-product/"),
               },
               {
                 value: "project-paces",

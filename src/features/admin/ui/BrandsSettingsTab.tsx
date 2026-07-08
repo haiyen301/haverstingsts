@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Pencil, Plus, Search, Trash2, X } from "lucide-react";
+import { ChevronDown, Pencil, Plus, Search, Trash2, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { toast } from "react-toastify";
 
@@ -11,13 +11,25 @@ import {
   saveAdminBrand,
   type BrandRow,
 } from "@/features/admin/api/brandsApi";
+import {
+  fetchAdminItemCategories,
+  type ItemCategoryRow,
+} from "@/features/admin/api/itemCategoriesApi";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import {
+  itemCategoryDisplayPath,
+  sortItemCategoriesByPath,
+} from "@/shared/lib/itemCategoryPath";
 import { TOAST_CONTAINER_TOP_RIGHT } from "@/shared/ui/AppToasts";
+import { MultiSelect } from "@/shared/ui/multi-select";
 import { useModuleAccess } from "@/shared/auth/useModuleAccess";
 
 const inputClass =
   "flex h-9 w-full min-w-0 rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground shadow-sm outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/35";
+const selectClass =
+  "h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm";
+const selectChevron = <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />;
 const btnPrimary =
   "inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50";
 const btnOutline =
@@ -29,10 +41,11 @@ type FormState = {
   id?: number;
   name: string;
   title: string;
+  itemCategorieIds: string[];
 };
 
 function emptyForm(): FormState {
-  return { name: "", title: "" };
+  return { name: "", title: "", itemCategorieIds: [] };
 }
 
 function cellText(value: string | number | null | undefined): string {
@@ -40,11 +53,28 @@ function cellText(value: string | number | null | undefined): string {
   return s || "—";
 }
 
+/** Parse the brand's category ids from either a CSV string or an array. */
+function parseCategoryIds(row: BrandRow): string[] {
+  const raw = row.item_categorie_ids;
+  let ids: string[] = [];
+  if (Array.isArray(raw)) {
+    ids = raw.map((v) => String(v));
+  } else if (typeof raw === "string" && raw.trim()) {
+    ids = raw.split(",");
+  } else if (row.item_categorie_id != null) {
+    ids = [String(row.item_categorie_id)];
+  }
+  return ids
+    .map((v) => v.trim())
+    .filter((v) => v !== "" && Number(v) > 0);
+}
+
 function rowToForm(row: BrandRow): FormState {
   return {
     id: Number(row.id),
     name: String(row.name ?? ""),
     title: String(row.title ?? ""),
+    itemCategorieIds: parseCategoryIds(row),
   };
 }
 
@@ -52,6 +82,7 @@ export function BrandsSettingsTab() {
   const t = useTranslations("AdminBrands");
   const { canCreate, canEdit, canDelete } = useModuleAccess("admin_brands");
   const [rows, setRows] = useState<BrandRow[]>([]);
+  const [categories, setCategories] = useState<ItemCategoryRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -76,16 +107,62 @@ export function BrandsSettingsTab() {
     void loadRows();
   }, [loadRows]);
 
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        const data = await fetchAdminItemCategories();
+        if (active) setCategories(data);
+      } catch {
+        if (active) setCategories([]);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const sortedCategories = useMemo(
+    () => sortItemCategoriesByPath(categories),
+    [categories],
+  );
+
+  const categoryOptions = useMemo(
+    () =>
+      sortedCategories.map((row) => ({
+        value: String(row.id),
+        label: itemCategoryDisplayPath(row, sortedCategories),
+      })),
+    [sortedCategories],
+  );
+
+  const categoryPathById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const row of sortedCategories) {
+      map.set(String(row.id), itemCategoryDisplayPath(row, sortedCategories));
+    }
+    return map;
+  }, [sortedCategories]);
+
+  const brandCategoryText = useCallback(
+    (row: BrandRow): string => {
+      const ids = parseCategoryIds(row);
+      const labels = ids.map((id) => categoryPathById.get(id) ?? id);
+      return labels.join(", ");
+    },
+    [categoryPathById],
+  );
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return rows;
     return rows.filter((row) => {
-      const hay = [row.id, row.name, row.title]
+      const hay = [row.id, row.name, row.title, brandCategoryText(row)]
         .map((v) => String(v ?? "").toLowerCase())
         .join(" ");
       return hay.includes(q);
     });
-  }, [rows, search]);
+  }, [rows, search, brandCategoryText]);
 
   const openCreate = () => {
     setForm(emptyForm());
@@ -109,10 +186,14 @@ export function BrandsSettingsTab() {
       setSaving(true);
       setError(null);
       const title = form.title.trim();
+      const itemCategorieIds = form.itemCategorieIds
+        .map((v) => Number(v))
+        .filter((v) => Number.isFinite(v) && v > 0);
       const saved = await saveAdminBrand({
         id: form.id,
         name,
         title: title || undefined,
+        item_categorie_ids: itemCategorieIds,
       });
       setRows((prev) => {
         const idx = prev.findIndex((r) => Number(r.id) === Number(saved.id));
@@ -187,6 +268,7 @@ export function BrandsSettingsTab() {
                   <th className="w-20 px-4 py-3 text-left font-medium">{t("table.id")}</th>
                   <th className="px-4 py-3 text-left font-medium">{t("table.name")}</th>
                   <th className="px-4 py-3 text-left font-medium">{t("table.title")}</th>
+                  <th className="px-4 py-3 text-left font-medium">{t("table.category")}</th>
                   <th className="px-4 py-3 text-right font-medium">{t("table.actions")}</th>
                 </tr>
               </thead>
@@ -196,6 +278,9 @@ export function BrandsSettingsTab() {
                     <td className="px-4 py-3 text-muted-foreground">{row.id}</td>
                     <td className="px-4 py-3 font-medium">{cellText(row.name)}</td>
                     <td className="px-4 py-3 text-muted-foreground">{cellText(row.title)}</td>
+                    <td className="px-4 py-3 text-muted-foreground">
+                      {cellText(brandCategoryText(row))}
+                    </td>
                     <td className="px-4 py-3">
                       {canEdit || canDelete ? (
                         <div className="flex items-center justify-end gap-1">
@@ -223,7 +308,7 @@ export function BrandsSettingsTab() {
                 ))}
                 {!loading && filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">
+                    <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">
                       {t("table.empty")}
                     </td>
                   </tr>
@@ -264,6 +349,21 @@ export function BrandsSettingsTab() {
                   placeholder={t("form.titlePlaceholder")}
                 />
               </label>
+              <div className="space-y-1">
+                <span className="text-xs font-medium">{t("form.category")}</span>
+                <MultiSelect
+                  options={categoryOptions}
+                  values={form.itemCategorieIds}
+                  onChange={(next) =>
+                    setForm((f) => ({ ...f, itemCategorieIds: next }))
+                  }
+                  multi
+                  selectionSummary="compact"
+                  placeholder={t("form.categoryNone")}
+                  className={selectClass}
+                  rightIcon={selectChevron}
+                />
+              </div>
             </div>
             <div className="mt-6 flex justify-end gap-2">
               <button type="button" className={btnOutline} onClick={() => setOpen(false)}>

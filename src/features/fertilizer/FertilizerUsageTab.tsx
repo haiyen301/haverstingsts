@@ -15,7 +15,10 @@ import {
   YAxis,
 } from "recharts";
 
-import { fetchFertilizerItemsCatalog, type ItemCatalogRow } from "@/features/admin/api/itemsApi";
+import {
+  fetchFertilizerProducts,
+  type FertilizerProductRow,
+} from "@/features/admin/api/adminApi";
 import {
   fetchFertilizerUsage,
   removeFertilizerUsage,
@@ -52,7 +55,6 @@ import {
 } from "@/shared/lib/harvestReferenceData";
 import { bgSurfaceFilter } from "@/shared/lib/surfaceFilter";
 import { farmAliasDisplayLabel } from "@/shared/lib/farmAliasDisplay";
-import { buildItemCatalogSelectOption } from "@/shared/lib/format/itemProductCodes";
 import { useHarvestingReferenceHydrated } from "@/shared/hooks/useHarvestingReferenceHydrated";
 import { useSyncedFarmMultiSelect } from "@/shared/hooks/useSyncedFarmMultiSelect";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
@@ -121,10 +123,6 @@ function isTransferUsageRow(row: Pick<FertilizerUsageRow, "is_transfer">): boole
   return v === 1 || v === true || String(v) === "1";
 }
 
-function itemRateUom(product: ItemCatalogRow | undefined): string {
-  return product?.rate_uom?.trim() || "";
-}
-
 function formatRateValue(rate: unknown): string {
   const n = Number(stripDecimalGrouping(String(rate ?? "")));
   if (!Number.isFinite(n) || n === 0) return "";
@@ -146,18 +144,10 @@ function parseDecimalField(raw: string): number {
   return Number.isFinite(n) ? n : NaN;
 }
 
-function rateFieldsFromProduct(product: ItemCatalogRow | undefined): Pick<EntryForm, "rate" | "rate_uom"> {
-  if (!product) {
-    return { rate: "", rate_uom: "" };
-  }
-  const rate = Number(product.default_rate);
-  return {
-    rate:
-      Number.isFinite(rate) && rate !== 0
-        ? formatDecimalInputFromValue(rate)
-        : "",
-    rate_uom: itemRateUom(product),
-  };
+function rateFieldsFromProduct(
+  _product: FertilizerProductRow | undefined,
+): Pick<EntryForm, "rate" | "rate_uom"> {
+  return { rate: "", rate_uom: "" };
 }
 
 function todayIso(): string {
@@ -184,7 +174,7 @@ function emptyForm(farmId = "", grassId = ""): EntryForm {
 
 function productLabel(
   row: Pick<FertilizerUsageRow, "item_id" | "product_name" | "alias_name">,
-  productById: Map<number, ItemCatalogRow>,
+  productById: Map<number, FertilizerProductRow>,
 ): string {
   const productName =
     row.product_name ?? productById.get(Number(row.item_id))?.name ?? String(row.item_id);
@@ -241,7 +231,7 @@ export function FertilizerUsageTab() {
     farmNameById: scopedFarmNameById,
   } = useSyncedFarmMultiSelect("fertilizer_usage");
 
-  const [products, setProducts] = useState<ItemCatalogRow[]>([]);
+  const [products, setProducts] = useState<FertilizerProductRow[]>([]);
   const [entries, setEntries] = useState<FertilizerUsageRow[]>([]);
   const [ledgerRows, setLedgerRows] = useState<FleetStockLedgerRow[]>([]);
   const [balanceUsageRows, setBalanceUsageRows] = useState<FertilizerUsageRow[]>([]);
@@ -291,7 +281,7 @@ export function FertilizerUsageTab() {
   }, [grasses]);
 
   const productById = useMemo(() => {
-    const map = new Map<number, ItemCatalogRow>();
+    const map = new Map<number, FertilizerProductRow>();
     for (const p of products) map.set(Number(p.id), p);
     return map;
   }, [products]);
@@ -319,27 +309,19 @@ export function FertilizerUsageTab() {
 
   const productStockKeyOptions = useMemo(
     () =>
-      products.map((product) => {
-        const parts = buildItemCatalogSelectOption(product.name, product);
-        return {
-          value: String(product.id),
-          label: parts.label,
-          subLabel: parts.subLabel,
-        };
-      }),
+      products.map((product) => ({
+        value: String(product.id),
+        label: product.name,
+      })),
     [products],
   );
 
   const productOptions = useMemo(
     () =>
-      products.map((product) => {
-        const parts = buildItemCatalogSelectOption(product.name, product);
-        return {
-          value: String(product.id),
-          label: parts.label,
-          subLabel: parts.subLabel,
-        };
-      }),
+      products.map((product) => ({
+        value: String(product.id),
+        label: product.name,
+      })),
     [products],
   );
 
@@ -360,7 +342,7 @@ export function FertilizerUsageTab() {
       }
       const [usageRows, catalogRows] = await Promise.all([
         fetchFertilizerUsage(params),
-        fetchFertilizerItemsCatalog(),
+        fetchFertilizerProducts(),
       ]);
       setEntries(usageRows);
       setProducts(catalogRows);

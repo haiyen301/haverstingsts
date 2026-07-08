@@ -550,6 +550,56 @@ export async function removeKeyArea(id: number): Promise<{ id: number }> {
   return stsProxyPostJson<{ id: number }>(STS_API_PATHS.keyareasRemove, { id });
 }
 
+export type FertilizerProductRow = {
+  id: number;
+  name: string;
+  uom?: string | null;
+  country_id?: number | null;
+  country_name?: string | null;
+  created_by?: number | null;
+};
+
+export type FertilizerProductSavePayload = {
+  id?: number;
+  name: string;
+  uom?: string;
+  country_id?: number | null;
+};
+
+export function sortFertilizerProductRowsByName(
+  list: FertilizerProductRow[],
+): FertilizerProductRow[] {
+  return [...list].sort(
+    (a, b) =>
+      String(a.name ?? "").localeCompare(String(b.name ?? ""), undefined, {
+        sensitivity: "base",
+      }) || Number(a.id) - Number(b.id),
+  );
+}
+
+export async function fetchFertilizerProducts(): Promise<FertilizerProductRow[]> {
+  const data = await stsProxyGet<unknown[]>(STS_API_PATHS.fertilizerProducts);
+  return sortFertilizerProductRowsByName(
+    Array.isArray(data) ? (data as FertilizerProductRow[]) : [],
+  );
+}
+
+export async function saveFertilizerProduct(
+  payload: FertilizerProductSavePayload,
+): Promise<FertilizerProductRow> {
+  return stsProxyPostJson<FertilizerProductRow>(
+    STS_API_PATHS.fertilizerProductsSave,
+    payload,
+  );
+}
+
+export async function removeFertilizerProduct(id: number): Promise<{ id: number }> {
+  return stsProxyPostJson<{ id: number }>(
+    STS_API_PATHS.fertilizerProductsRemove,
+    { id },
+  );
+}
+
 export type ProjectPaceRow = {
   id: number;
   pace_key: string;

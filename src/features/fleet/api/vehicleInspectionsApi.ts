@@ -10,29 +10,12 @@ export type InspectionStatusOption = {
   label: string;
 };
 
-export type VehicleInspectionItemOption = {
-  id: number;
-  name: string;
-  label: string;
-  brand?: string | null;
-  sku_sts?: string | null;
-  commodity_code?: string | null;
-  thai_code?: string | null;
-  myanmar_code?: string | null;
-  malaysia_code?: string | null;
-  singapore_code?: string | null;
-  machine_fuel_type?: string | null;
-};
-
 export type VehicleInspectionFormOptions = {
   statuses: InspectionStatusOption[];
-  vehicles: VehicleInspectionItemOption[];
 };
 
 export type VehicleInspectionRow = {
   id: number;
-  item_id?: number | null;
-  machinery_id?: number | null;
   vehicle_name: string;
   alias_name?: string | null;
   vehicle_type: string;
@@ -49,11 +32,10 @@ export type VehicleInspectionRow = {
 
 export type VehicleInspectionSavePayload = {
   id?: number;
-  item_id?: number | null;
-  machinery_id?: number | null;
   vehicle_name: string;
   alias_name?: string | null;
   vehicle_type: string;
+  fuel_kind?: string | null;
   farm_id: number;
   registration?: string;
   last_inspection_date?: string;

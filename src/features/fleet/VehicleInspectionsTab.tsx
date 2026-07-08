@@ -23,7 +23,6 @@ import {
   removeVehicleInspection,
   saveVehicleInspection,
   type InspectionStatusOption,
-  type VehicleInspectionItemOption,
   type VehicleInspectionRow,
 } from "@/features/fleet/api/vehicleInspectionsApi";
 import {
@@ -31,7 +30,6 @@ import {
   FLEET_OPTION_CATALOG_KEYS,
 } from "@/features/fleet/api/fleetOptionCatalogApi";
 import { fuelUsageFuelKindLabel } from "@/features/fleet/api/fuelUsageApi";
-import { buildItemCatalogSelectOption } from "@/shared/lib/format/itemProductCodes";
 import { useFleetOptionCatalog } from "@/features/fleet/hooks/useFleetOptionCatalog";
 import { useMachineryTypes } from "@/features/fleet/hooks/useMachineryTypes";
 import { Card, CardContent } from "@/components/ui/card";
@@ -73,7 +71,7 @@ const DEFAULT_STATUSES: InspectionStatusOption[] = DEFAULT_INSPECTION_STATUSES;
 
 type FormState = {
   id?: number;
-  item_ids: string[];
+  vehicle_name: string;
   alias_name: string;
   vehicle_type: string;
   fuel_kind: string;
@@ -92,7 +90,7 @@ function todayIso(): string {
 
 function emptyForm(farmId = "", defaultStatus = "pass", vehicleTypeDefault = ""): FormState {
   return {
-    item_ids: [],
+    vehicle_name: "",
     alias_name: "",
     vehicle_type: vehicleTypeDefault,
     fuel_kind: "",
@@ -150,7 +148,6 @@ export function VehicleInspectionsTab() {
   );
 
   const [rows, setRows] = useState<VehicleInspectionRow[]>([]);
-  const [vehicles, setVehicles] = useState<VehicleInspectionItemOption[]>([]);
   const [statuses, setStatuses] = useState<InspectionStatusOption[]>(DEFAULT_STATUSES);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -164,7 +161,6 @@ export function VehicleInspectionsTab() {
   const loadFormOptions = useCallback(async () => {
     try {
       const options = await fetchVehicleInspectionFormOptions();
-      if (options.vehicles?.length) setVehicles(options.vehicles);
       if (options.statuses?.length) setStatuses(options.statuses);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t("errors.loadOptions"), {
@@ -218,23 +214,9 @@ export function VehicleInspectionsTab() {
   const overdueCount = rows.filter((v) => v.status === "overdue" || v.status === "fail").length;
   const openDefectsCount = rows.filter((v) => hasDefectsText(v.defects)).length;
 
-  const vehicleOptionLabel = useCallback((vehicle: VehicleInspectionItemOption) => {
-    const brand = String(vehicle.brand ?? "").trim();
-    const primaryName = brand ? `${brand} — ${vehicle.name}` : vehicle.name;
-    return buildItemCatalogSelectOption(primaryName, vehicle);
-  }, []);
-
-  const vehicleOptions = useMemo(
-    () =>
-      vehicles.map((vehicle) => {
-        const parts = vehicleOptionLabel(vehicle);
-        return {
-          value: String(vehicle.id),
-          label: parts.label,
-          subLabel: parts.subLabel,
-        };
-      }),
-    [vehicles, vehicleOptionLabel],
+  const fuelTypeSelectOptions = useMemo(
+    () => fuelTypeOptions.map((option) => ({ value: String(option.value), label: option.label })),
+    [fuelTypeOptions],
   );
 
   const farmOptions = useMemo(
@@ -251,43 +233,6 @@ export function VehicleInspectionsTab() {
     () => statuses.map((status) => ({ value: status.value, label: status.label })),
     [statuses],
   );
-
-  const vehicleOptionsForForm = useMemo(() => {
-    if (!editingId || form.item_ids.length === 0) return vehicleOptions;
-    const selectedId = form.item_ids[0];
-    if (vehicleOptions.some((opt) => opt.value === selectedId)) return vehicleOptions;
-    const row = rows.find((r) => r.id === editingId);
-    if (!row?.item_id) return vehicleOptions;
-    const fallbackVehicle: VehicleInspectionItemOption = {
-      id: Number(row.item_id),
-      name: row.vehicle_name,
-      label: row.vehicle_name,
-    };
-    return [
-      {
-        value: String(row.item_id),
-        label: vehicleOptionLabel(fallbackVehicle).label,
-        subLabel: vehicleOptionLabel(fallbackVehicle).subLabel,
-      },
-      ...vehicleOptions,
-    ];
-  }, [editingId, form.item_ids, rows, vehicleOptions, vehicleOptionLabel]);
-
-  const fuelKindForItem = useCallback(
-    (itemId: string): string => {
-      if (!itemId) return "";
-      const vehicle = vehicles.find((v) => String(v.id) === itemId);
-      return String(vehicle?.machine_fuel_type ?? "").trim();
-    },
-    [vehicles],
-  );
-
-  useEffect(() => {
-    if (!dialogOpen || form.item_ids.length === 0) return;
-    const nextFuelKind = fuelKindForItem(form.item_ids[0]);
-    if (!nextFuelKind) return;
-    setForm((f) => (f.fuel_kind === nextFuelKind ? f : { ...f, fuel_kind: nextFuelKind }));
-  }, [dialogOpen, form.item_ids, fuelKindForItem]);
 
   const openCreate = () => {
     const firstFarm = scopedFarmOptions[0];
@@ -307,10 +252,10 @@ export function VehicleInspectionsTab() {
     setEditingId(Number(row.id));
     setForm({
       id: Number(row.id),
-      item_ids: row.item_id ? [String(row.item_id)] : [],
+      vehicle_name: String(row.vehicle_name ?? ""),
       alias_name: String(row.alias_name ?? ""),
       vehicle_type: row.vehicle_type || machineryTypes[0] || "",
-      fuel_kind: String(row.fuel_kind ?? fuelKindForItem(row.item_id ? String(row.item_id) : "")),
+      fuel_kind: String(row.fuel_kind ?? ""),
       farm_id: String(row.farm_id),
       registration: String(row.registration ?? ""),
       last_inspection_date: String(row.last_inspection_date ?? "").slice(0, 10),
@@ -334,7 +279,7 @@ export function VehicleInspectionsTab() {
       return {
         ...f,
         farm_id: nextFarmId,
-        item_ids: [],
+        vehicle_name: "",
         alias_name: "",
         vehicle_type: "",
         fuel_kind: "",
@@ -348,22 +293,11 @@ export function VehicleInspectionsTab() {
     });
   };
 
-  const handleVehicleIdsChange = (nextIds: string[]) => {
-    const itemId = nextIds[0] ?? "";
-    setForm((f) => ({
-      ...f,
-      item_ids: nextIds,
-      fuel_kind: fuelKindForItem(itemId),
-    }));
-  };
-
   const handleSave = async () => {
     const farmId = Number(form.farm_id);
-    const itemIds = form.item_ids
-      .map((id) => Number(id))
-      .filter((id) => Number.isFinite(id) && id > 0);
+    const vehicleName = form.vehicle_name.trim();
     if (
-      itemIds.length === 0 ||
+      vehicleName === "" ||
       !form.vehicle_type ||
       !Number.isFinite(farmId) ||
       farmId <= 0
@@ -374,8 +308,10 @@ export function VehicleInspectionsTab() {
     try {
       setSaving(true);
       const shared = {
+        vehicle_name: vehicleName,
         alias_name: form.alias_name.trim() || undefined,
         vehicle_type: form.vehicle_type,
+        fuel_kind: form.fuel_kind.trim() || null,
         farm_id: farmId,
         registration: form.registration.trim() || undefined,
         last_inspection_date: form.last_inspection_date || undefined,
@@ -386,24 +322,10 @@ export function VehicleInspectionsTab() {
       };
 
       if (editingId) {
-        const itemId = itemIds[0];
-        const vehicle = vehicles.find((v) => v.id === itemId);
-        const editingRow = rows.find((r) => r.id === editingId);
-        await saveVehicleInspection({
-          id: editingId,
-          item_id: itemId,
-          vehicle_name: vehicle?.name ?? editingRow?.vehicle_name ?? "",
-          ...shared,
-        });
+        await saveVehicleInspection({ id: editingId, ...shared });
         toast.success(t("updated"), { containerId: TOAST_CONTAINER_TOP_RIGHT });
       } else {
-        const itemId = itemIds[0];
-        const vehicle = vehicles.find((v) => v.id === itemId);
-        await saveVehicleInspection({
-          item_id: itemId,
-          vehicle_name: vehicle?.name ?? "",
-          ...shared,
-        });
+        await saveVehicleInspection({ ...shared });
         toast.success(t("saved"), { containerId: TOAST_CONTAINER_TOP_RIGHT });
       }
       closeDialog();
@@ -614,17 +536,12 @@ export function VehicleInspectionsTab() {
               </div>
               <div className={cn(fieldClass, "sm:col-span-2")}>
                 <span className={labelClass}>{t("dialog.vehicleName")} *</span>
-                <MultiSelect
-                  options={vehicleOptionsForForm}
-                  values={form.item_ids}
-                  onChange={handleVehicleIdsChange}
-                  placeholder={t("dialog.selectVehicle")}
-                  className={selectClass}
-                  rightIcon={selectChevron}
-                  selectionSummary="full"
-                  multi={false}
-                  showSelectedChipsInPopover={false}
+                <input
+                  className={inputClass}
+                  value={form.vehicle_name}
+                  placeholder={t("dialog.vehicleNamePlaceholder")}
                   disabled={saving || !form.farm_id}
+                  onChange={(e) => setForm((f) => ({ ...f, vehicle_name: e.target.value }))}
                 />
               </div>
               <div className={cn(fieldClass, "sm:col-span-2")}>
@@ -654,16 +571,19 @@ export function VehicleInspectionsTab() {
               <div className={fieldClass}>
                 <span className={labelClass}>{t("dialog.fuelType")}</span>
                 <select
-                  className={cn(selectClass, "bg-muted/50")}
+                  className={selectClass}
                   value={form.fuel_kind}
-                  disabled
+                  disabled={saving || !form.farm_id}
+                  onChange={(e) => setForm((f) => ({ ...f, fuel_kind: e.target.value }))}
                 >
-                  <option value="">
-                    {form.item_ids.length > 0
-                      ? t("dialog.fuelTypeEmpty")
-                      : t("dialog.selectVehicleFirst")}
-                  </option>
-                  {form.fuel_kind ? (
+                  <option value="">{t("dialog.selectFuelType")}</option>
+                  {fuelTypeSelectOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                  {form.fuel_kind &&
+                  !fuelTypeSelectOptions.some((option) => option.value === form.fuel_kind) ? (
                     <option value={form.fuel_kind}>
                       {fuelUsageFuelKindLabel(
                         form.fuel_kind,

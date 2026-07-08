@@ -71,6 +71,7 @@
     "adminRegrowthRules": "Quy tắc tái sinh",
     "adminGrassTypes": "Loại cỏ",
     "adminKeyAreas": "Khu vực chính",
+    "adminFertilizerProduct": "Sản phẩm phân bón",
     "adminProjectPaces": "Nhịp độ dự án",
     "settings": "Cài đặt",
     "adminCountries": "Quốc gia",
@@ -2016,6 +2017,40 @@
     },
     "deleteConfirm": "Xóa khu vực này?"
   },
+  "AdminFertilizerProduct": {
+    "title": "Sản phẩm phân bón",
+    "description": "Danh mục sản phẩm phân bón dùng cho các bản ghi bón phân.",
+    "loading": "Đang tải…",
+    "add": "Thêm sản phẩm",
+    "edit": "Sửa sản phẩm",
+    "save": "Lưu",
+    "saving": "Đang lưu…",
+    "cancel": "Hủy",
+    "empty": "Chưa có sản phẩm phân bón.",
+    "table": {
+      "name": "Tên",
+      "country": "Quốc gia",
+      "global": "Toàn cục",
+      "uom": "Đơn vị",
+      "actions": "Thao tác"
+    },
+    "form": {
+      "name": "Tên *",
+      "uom": "Đơn vị (UOM)",
+      "uomPlaceholder": "ví dụ: kg, lít, bao",
+      "country": "Quốc gia",
+      "countryGlobal": "Toàn cục (không chọn quốc gia — tên phải unique)"
+    },
+    "errors": {
+      "nameRequired": "Vui lòng nhập tên.",
+      "duplicateGlobal": "Tên sản phẩm này đã tồn tại trong danh mục toàn cục.",
+      "duplicateCountry": "Tên sản phẩm này đã tồn tại cho quốc gia đã chọn.",
+      "load": "Không tải được danh sách sản phẩm phân bón.",
+      "save": "Không lưu được.",
+      "delete": "Không xóa được."
+    },
+    "deleteConfirm": "Xóa sản phẩm phân bón này?"
+  },
   "AdminProjectPaces": {
     "title": "Nhịp độ dự án",
     "description": "Cấu hình nhịp độ dự án. Thời lượng = tháng × 4 tuần.",
@@ -2450,6 +2485,7 @@
       "admin_regrowth": "Admin — Tái sinh",
       "admin_grasses": "Admin — Loại cỏ",
       "admin_key_areas": "Admin — Khu vực chính",
+      "admin_fertilizer_product": "Admin — Sản phẩm phân bón",
       "admin_project_paces": "Admin — Nhịp độ dự án",
       "admin_countries": "Admin — Quốc gia",
       "admin_items": "Admin — Sản phẩm",

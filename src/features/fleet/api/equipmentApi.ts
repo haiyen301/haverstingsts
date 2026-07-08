@@ -63,9 +63,17 @@ export type EquipmentProductOption = {
   singapore_code?: string;
 };
 
+export type EquipmentBrandOption = {
+  id: number;
+  name: string;
+  title?: string;
+  item_categorie_ids?: number[];
+};
+
 export type EquipmentRow = {
   id: number;
-  item_id?: number | null;
+  brand_id?: number | null;
+  model_name?: string;
   equipment_name?: string;
   brand: string;
   model: string;
@@ -87,9 +95,8 @@ export type EquipmentRow = {
 
 export type EquipmentSavePayload = {
   id?: number;
-  item_id: number;
-  brand?: string;
-  equipment_name?: string;
+  brand_id: number;
+  model_name?: string;
   type: string;
   engine_code?: string;
   farm_id: number;
@@ -114,7 +121,7 @@ export type EquipmentFormOptions = {
     category_id?: number;
     category_title?: string | null;
   };
-  products: EquipmentProductOption[];
+  brands: EquipmentBrandOption[];
   types: Array<{ id: number; label: string; slug: string; active?: boolean }>;
 };
 

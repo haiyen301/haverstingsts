@@ -27,9 +27,11 @@ export default async function AdminPage() {
     { module: "admin_regrowth", path: "/admin/regrowth" },
     { module: "admin_grasses", path: "/admin/grasses" },
     { module: "admin_key_areas", path: "/admin/keyareas" },
+    { module: "admin_fertilizer_product", path: "/admin/fertilizer-product" },
     { module: "admin_project_paces", path: "/admin/project-paces" },
     { module: "admin_countries", path: "/admin/settings/countries" },
-    { module: "admin_items", path: "/admin/settings/items" },
+    // TODO: tạm ẩn — chưa dùng
+    // { module: "admin_items", path: "/admin/settings/items" },
     { module: "admin_item_categories", path: "/admin/settings/item-categories" },
     { module: "admin_brands", path: "/admin/settings/brands" },
     { module: "admin_units", path: "/admin/settings/unit-types" },

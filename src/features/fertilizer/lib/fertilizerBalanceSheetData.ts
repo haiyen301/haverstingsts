@@ -1,5 +1,5 @@
-import type { ItemCatalogRow } from "@/features/admin/api/itemsApi";
-import { fetchFertilizerItemsCatalog } from "@/features/admin/api/itemsApi";
+import type { FertilizerProductRow } from "@/features/admin/api/adminApi";
+import { fetchFertilizerProducts } from "@/features/admin/api/adminApi";
 import type { FertilizerUsageRow } from "@/features/fertilizer/api/fertilizerUsageApi";
 import { fetchFertilizerUsage } from "@/features/fertilizer/api/fertilizerUsageApi";
 import {
@@ -247,7 +247,7 @@ function computeWeekMetrics(
 
 function buildProductRow(
   farmId: number,
-  product: ItemCatalogRow,
+  product: FertilizerProductRow,
   alias: string | undefined,
   ledgerRows: FleetStockLedgerRow[],
   usageRows: FertilizerUsageRow[],
@@ -290,9 +290,9 @@ function buildProductRow(
 
   return {
     itemId,
-    itemCode: String(product.sku_sts ?? "").trim(),
+    itemCode: "",
     description: farmAliasDisplayLabel(alias, product.name, String(itemId)),
-    unit: String(product.unit ?? "").trim().toLowerCase() || "kg",
+    unit: "kg",
     open: openingBalance,
     weeks: weekMetrics,
     monthTotal,
@@ -305,7 +305,7 @@ export function buildFertilizerBalanceSheetModel(opts: {
   farmName: string;
   year: number;
   month: number;
-  products: ItemCatalogRow[];
+  products: FertilizerProductRow[];
   aliasesByItemId: Map<number, string>;
   ledgerRows: FleetStockLedgerRow[];
   usageRows: FertilizerUsageRow[];
@@ -397,7 +397,7 @@ export async function fetchFertilizerBalanceSheetModel(opts: {
     priorIncomingTransfers,
     aliasRows,
   ] = await Promise.all([
-    fetchFertilizerItemsCatalog(),
+    fetchFertilizerProducts(),
     fetchFleetStockLedger({
       farm_id: farmId,
       module: "fertilizer",

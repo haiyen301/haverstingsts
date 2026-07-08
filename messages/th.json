@@ -71,6 +71,7 @@
     "adminRegrowthRules": "กฎการฟื้นตัว",
     "adminGrassTypes": "ประเภทหญ้า",
     "adminKeyAreas": "พื้นที่หลัก",
+    "adminFertilizerProduct": "ผลิตภัณฑ์ปุ๋ย",
     "adminProjectPaces": "จังหวะโครงการ",
     "settings": "การตั้งค่า",
     "adminCountries": "ประเทศ",
@@ -1960,6 +1961,40 @@
     },
     "deleteConfirm": "ลบพื้นที่หลักนี้?"
   },
+  "AdminFertilizerProduct": {
+    "title": "ผลิตภัณฑ์ปุ๋ย",
+    "description": "รายการผลิตภัณฑ์ปุ๋ยที่ใช้ในบันทึกการใส่ปุ๋ย",
+    "loading": "กำลังโหลด…",
+    "add": "เพิ่มผลิตภัณฑ์",
+    "edit": "แก้ไขผลิตภัณฑ์",
+    "save": "บันทึก",
+    "saving": "กำลังบันทึก…",
+    "cancel": "ยกเลิก",
+    "empty": "ไม่มีผลิตภัณฑ์ปุ๋ย",
+    "table": {
+      "name": "ชื่อ",
+      "country": "ประเทศ",
+      "global": "ทั่วโลก",
+      "uom": "หน่วย",
+      "actions": "การทำงาน"
+    },
+    "form": {
+      "name": "ชื่อ *",
+      "uom": "หน่วย (UOM)",
+      "uomPlaceholder": "เช่น kg, ลิตร, ถุง",
+      "country": "ประเทศ",
+      "countryGlobal": "ทั่วโลก (ไม่เลือกประเทศ — ชื่อต้องไม่ซ้ำ)"
+    },
+    "errors": {
+      "nameRequired": "กรุณากรอกชื่อ",
+      "duplicateGlobal": "มีผลิตภัณฑ์ชื่อนี้ในแคตตาล็อกทั่วโลกแล้ว",
+      "duplicateCountry": "มีผลิตภัณฑ์ชื่อนี้ในประเทศที่เลือกแล้ว",
+      "load": "โหลดผลิตภัณฑ์ปุ๋ยไม่ได้",
+      "save": "บันทึกไม่ได้",
+      "delete": "ลบไม่ได้"
+    },
+    "deleteConfirm": "ลบผลิตภัณฑ์ปุ๋ยนี้?"
+  },
   "AdminProjectPaces": {
     "title": "จังหวะโครงการ",
     "description": "ตั้งค่าจังหวะโครงการ ระยะเวลา = เดือน × 4 สัปดาห์",
@@ -2380,6 +2415,7 @@
       "admin_regrowth": "Admin — การฟื้นตัว",
       "admin_grasses": "Admin — ประเภทหญ้า",
       "admin_key_areas": "Admin — พื้นที่หลัก",
+      "admin_fertilizer_product": "Admin — ผลิตภัณฑ์ปุ๋ย",
       "admin_project_paces": "Admin — จังหวะโครงการ",
       "admin_countries": "Admin — ประเทศ",
       "admin_items": "Admin — รายการสินค้า",

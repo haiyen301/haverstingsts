@@ -124,6 +124,10 @@ export const STS_API_PATHS = {
   keyareas: "/api/keyareas",
   keyareasSave: "/api/keyareas/save",
   keyareasRemove: "/api/keyareas/remove",
+  /** Fertilizer product catalog (name lookup) */
+  fertilizerProducts: "/api/fertilizer_product",
+  fertilizerProductsSave: "/api/fertilizer_product/save",
+  fertilizerProductsRemove: "/api/fertilizer_product/remove",
   projectPaces: "/api/project_paces",
   projectPacesSave: "/api/project_paces/save",
   projectPacesRemove: "/api/project_paces/remove",

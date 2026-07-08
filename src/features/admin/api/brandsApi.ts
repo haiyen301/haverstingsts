@@ -8,6 +8,8 @@ export type BrandRow = {
   vendor_id?: number | null;
   vendor_code?: string | null;
   company?: string | null;
+  item_categorie_id?: number | null;
+  item_categorie_ids?: string | number[] | null;
 };
 
 export type BrandSavePayload = {
@@ -15,6 +17,7 @@ export type BrandSavePayload = {
   name: string;
   title?: string;
   vendor_id?: number | null;
+  item_categorie_ids?: number[];
 };
 
 export async function fetchAdminBrands(): Promise<BrandRow[]> {

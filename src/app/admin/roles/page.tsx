@@ -135,6 +135,7 @@ export default function AdminRolesPage() {
       admin_regrowth: t("modules.admin_regrowth"),
       admin_grasses: t("modules.admin_grasses"),
       admin_key_areas: t("modules.admin_key_areas"),
+      admin_fertilizer_product: t("modules.admin_fertilizer_product"),
       admin_project_paces: t("modules.admin_project_paces"),
       admin_countries: t("modules.admin_countries"),
       admin_items: t("modules.admin_items"),

@@ -6,24 +6,20 @@ import { useTranslations } from "next-intl";
 import { toast } from "react-toastify";
 
 import {
-  buildEquipmentProductSelectOption,
   fetchEquipmentFormOptions,
   saveEquipment,
-  type EquipmentProductOption,
+  type EquipmentBrandOption,
   type EquipmentRow,
   type EquipmentStatus,
 } from "@/features/fleet/api/equipmentApi";
 import { useMachineryTypes } from "@/features/fleet/hooks/useMachineryTypes";
 import { fetchStaffOptions } from "@/features/fleet/api/machineryApi";
-import { formatEquipmentModelDisplay } from "@/features/fleet/lib/equipmentModelDisplay";
-import { cn } from "@/lib/utils";
 import { useScopedFarmSelectOptions } from "@/shared/store/farmUserScope";
 import { TOAST_CONTAINER_TOP_RIGHT } from "@/shared/ui/AppToasts";
 import { MultiSelect } from "@/shared/ui/multi-select";
 
 const inputClass =
   "flex h-9 w-full min-w-0 rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground shadow-sm outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/35";
-const readOnlyClass = cn(inputClass, "bg-muted/50");
 const selectClass = "h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm";
 const selectChevron = <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />;
 const btnPrimary =
@@ -33,40 +29,46 @@ const btnOutline =
 const btnGhost =
   "inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
+const STATUS_OPTIONS: Array<{ value: EquipmentStatus; labelKey: string }> = [
+  { value: "Active", labelKey: "status.operational" },
+  { value: "Under Maintenance", labelKey: "status.maintenance" },
+  { value: "Out of Service", labelKey: "status.outOfService" },
+];
+
 type FormState = {
-  item_id: string;
-  brand: string;
-  model_display: string;
+  brand_id: string;
+  model: string;
   type: string;
   engine_code: string;
   hours_between_service: string;
   farm_id: string;
   assigned_to_user_id: string;
+  status: EquipmentStatus;
 };
 
 function emptyForm(typeDefault = "", farmId = ""): FormState {
   return {
-    item_id: "",
-    brand: "",
-    model_display: "",
+    brand_id: "",
+    model: "",
     type: typeDefault,
     engine_code: "",
     hours_between_service: "250",
     farm_id: farmId,
     assigned_to_user_id: "",
+    status: "Active",
   };
 }
 
 function equipmentToForm(eq: EquipmentRow): FormState {
   return {
-    item_id: eq.item_id ? String(eq.item_id) : "",
-    brand: eq.brand,
-    model_display: eq.model || "",
+    brand_id: eq.brand_id ? String(eq.brand_id) : "",
+    model: eq.model_name || eq.model_short || eq.equipment_name || "",
     type: eq.type,
     engine_code: String(eq.engine_code ?? ""),
     hours_between_service: String(eq.hours_between_service ?? "250"),
     farm_id: String(eq.farm_id),
     assigned_to_user_id: eq.assigned_to_user_id ? String(eq.assigned_to_user_id) : "",
+    status: (eq.status as EquipmentStatus) || "Active",
   };
 }
 
@@ -82,7 +84,7 @@ export function EquipmentFormDialog({ open, onClose, onSaved, equipment = null }
   const { types: machineryTypes } = useMachineryTypes();
   const farmOptions = useScopedFarmSelectOptions("equipment");
 
-  const [products, setProducts] = useState<EquipmentProductOption[]>([]);
+  const [brands, setBrands] = useState<EquipmentBrandOption[]>([]);
   const [staff, setStaff] = useState<Array<{ id: number | string; label: string }>>([]);
   const [saving, setSaving] = useState(false);
   const [optionsLoading, setOptionsLoading] = useState(false);
@@ -97,7 +99,7 @@ export function EquipmentFormDialog({ open, onClose, onSaved, equipment = null }
         fetchEquipmentFormOptions(),
         staff.length ? Promise.resolve(null) : fetchStaffOptions().catch(() => []),
       ]);
-      setProducts(options.products ?? []);
+      setBrands(options.brands ?? []);
       if (staffRows) {
         setStaff(
           staffRows.map((s) => ({
@@ -109,7 +111,7 @@ export function EquipmentFormDialog({ open, onClose, onSaved, equipment = null }
         );
       }
     } catch {
-      setProducts([]);
+      setBrands([]);
     } finally {
       setOptionsLoading(false);
     }
@@ -125,46 +127,32 @@ export function EquipmentFormDialog({ open, onClose, onSaved, equipment = null }
     void loadFormOptions();
   }, [open, equipment, farmOptions, machineryTypes, loadFormOptions]);
 
-  const equipmentOptions = useMemo(
+  const brandOptions = useMemo(
     () =>
-      products.map((product) => {
-        const parts = buildEquipmentProductSelectOption(product);
-        return {
-          value: String(product.id),
-          label: parts.label,
-          subLabel: parts.subLabel,
-        };
-      }),
-    [products],
+      brands.map((brand) => ({
+        value: String(brand.id),
+        label: brand.name || brand.title || `#${brand.id}`,
+      })),
+    [brands],
   );
 
-  const selectedProduct = useMemo(
-    () => products.find((p) => String(p.id) === form.item_id) ?? null,
-    [products, form.item_id],
+  const picOptions = useMemo(
+    () =>
+      staff.map((s) => ({
+        value: String(s.id),
+        label: s.label,
+      })),
+    [staff],
   );
-
-  const applyEquipmentSelection = (itemId: string) => {
-    const product = products.find((p) => String(p.id) === itemId);
-    if (!product) {
-      setForm((f) => ({ ...f, item_id: itemId, brand: "", model_display: "" }));
-      return;
-    }
-    setForm((f) => ({
-      ...f,
-      item_id: itemId,
-      brand: String(product.brand ?? "").trim(),
-      model_display: formatEquipmentModelDisplay(product),
-    }));
-  };
 
   const handleSave = async () => {
-    const itemId = Number(form.item_id);
+    const brandId = Number(form.brand_id);
     const farmId = Number(form.farm_id);
     if (
-      !form.item_id ||
+      !form.brand_id ||
       !form.type ||
-      !Number.isFinite(itemId) ||
-      itemId <= 0 ||
+      !Number.isFinite(brandId) ||
+      brandId <= 0 ||
       !Number.isFinite(farmId) ||
       farmId <= 0
     ) {
@@ -176,10 +164,8 @@ export function EquipmentFormDialog({ open, onClose, onSaved, equipment = null }
       setSaving(true);
       const row = await saveEquipment({
         id: equipment?.id,
-        item_id: itemId,
-        brand: form.brand.trim() || selectedProduct?.brand,
-        equipment_name:
-          selectedProduct?.equipment_name ?? selectedProduct?.model_short ?? "",
+        brand_id: brandId,
+        model_name: form.model.trim() || undefined,
         type: form.type,
         engine_code: form.engine_code.trim() || undefined,
         farm_id: farmId,
@@ -189,9 +175,7 @@ export function EquipmentFormDialog({ open, onClose, onSaved, equipment = null }
         hours_between_service: form.hours_between_service
           ? Number(form.hours_between_service)
           : undefined,
-        status: isEdit
-          ? (equipment.status as EquipmentStatus)
-          : "Active",
+        status: form.status,
       });
       toast.success(isEdit ? t("updated") : t("saved"), {
         containerId: TOAST_CONTAINER_TOP_RIGHT,
@@ -211,7 +195,7 @@ export function EquipmentFormDialog({ open, onClose, onSaved, equipment = null }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg border border-border bg-background p-6 shadow-lg">
+      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-lg border border-border bg-background p-6 shadow-lg">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold">
             {isEdit ? t("editTitle") : t("createTitle")}
@@ -220,33 +204,32 @@ export function EquipmentFormDialog({ open, onClose, onSaved, equipment = null }
             <X className="h-4 w-4" />
           </button>
         </div>
-        <div className="mt-4 space-y-4">
+        <div className="mt-4 grid grid-cols-1 gap-x-4 gap-y-3 sm:grid-cols-2">
           <label className="block space-y-1">
-            <span className="text-xs font-medium">{t("form.equipment")} *</span>
+            <span className="text-xs font-medium">{t("form.brand")} *</span>
             <MultiSelect
-              options={equipmentOptions}
-              values={form.item_id ? [form.item_id] : []}
-              onChange={(next) => applyEquipmentSelection(next[0] ?? "")}
+              options={brandOptions}
+              values={form.brand_id ? [form.brand_id] : []}
+              onChange={(next) => setForm((f) => ({ ...f, brand_id: next[0] ?? "" }))}
               placeholder={
-                optionsLoading ? t("form.loadingProducts") : t("form.selectEquipment")
+                optionsLoading ? t("form.loadingBrands") : t("form.selectBrand")
               }
               className={selectClass}
               rightIcon={selectChevron}
-              disabled={optionsLoading || saving || equipmentOptions.length === 0}
+              disabled={optionsLoading || saving || brandOptions.length === 0}
               multi={false}
               maxSelections={1}
               selectionSummary="full"
               showSelectedChipsInPopover={false}
             />
-          </label>
-          <label className="block space-y-1">
-            <span className="text-xs font-medium">{t("form.brand")} *</span>
-            <input className={readOnlyClass} value={form.brand} readOnly placeholder="—" />
+            {!optionsLoading && brandOptions.length === 0 ? (
+              <p className="text-xs text-muted-foreground">{t("form.noBrands")}</p>
+            ) : null}
           </label>
           <label className="block space-y-1">
             <span className="text-xs font-medium">{t("form.type")} *</span>
             <select
-              className={inputClass}
+              className={selectClass}
               value={form.type}
               disabled={saving}
               onChange={(e) => setForm((f) => ({ ...f, type: e.target.value }))}
@@ -260,13 +243,13 @@ export function EquipmentFormDialog({ open, onClose, onSaved, equipment = null }
             </select>
           </label>
           <label className="block space-y-1">
-            <span className="text-xs font-medium">{t("form.model")} *</span>
-            <textarea
-              className={cn(readOnlyClass, "min-h-[120px] resize-none py-2 font-mono text-xs leading-relaxed")}
-              value={form.model_display}
-              readOnly
-              rows={6}
-              placeholder="—"
+            <span className="text-xs font-medium">{t("form.model")}</span>
+            <input
+              className={inputClass}
+              value={form.model}
+              disabled={saving}
+              placeholder={t("form.modelPlaceholder")}
+              onChange={(e) => setForm((f) => ({ ...f, model: e.target.value }))}
             />
           </label>
           <label className="block space-y-1">
@@ -293,7 +276,7 @@ export function EquipmentFormDialog({ open, onClose, onSaved, equipment = null }
           <label className="block space-y-1">
             <span className="text-xs font-medium">{t("form.farm")} *</span>
             <select
-              className={inputClass}
+              className={selectClass}
               value={form.farm_id}
               disabled={saving}
               onChange={(e) => setForm((f) => ({ ...f, farm_id: e.target.value }))}
@@ -307,20 +290,39 @@ export function EquipmentFormDialog({ open, onClose, onSaved, equipment = null }
             </select>
           </label>
           <label className="block space-y-1">
-            <span className="text-xs font-medium">{t("form.pic")}</span>
+            <span className="text-xs font-medium">{t("form.status")} *</span>
             <select
-              className={inputClass}
-              value={form.assigned_to_user_id}
+              className={selectClass}
+              value={form.status}
               disabled={saving}
-              onChange={(e) => setForm((f) => ({ ...f, assigned_to_user_id: e.target.value }))}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, status: e.target.value as EquipmentStatus }))
+              }
             >
-              <option value="">{t("form.selectPic")}</option>
-              {staff.map((s) => (
-                <option key={String(s.id)} value={String(s.id)}>
-                  {s.label}
+              {STATUS_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {t(opt.labelKey)}
                 </option>
               ))}
             </select>
+          </label>
+          <label className="block space-y-1">
+            <span className="text-xs font-medium">{t("form.pic")}</span>
+            <MultiSelect
+              options={picOptions}
+              values={form.assigned_to_user_id ? [form.assigned_to_user_id] : []}
+              onChange={(next) =>
+                setForm((f) => ({ ...f, assigned_to_user_id: next[0] ?? "" }))
+              }
+              placeholder={t("form.selectPic")}
+              className={selectClass}
+              rightIcon={selectChevron}
+              disabled={saving}
+              multi={false}
+              maxSelections={1}
+              selectionSummary="full"
+              showSelectedChipsInPopover={false}
+            />
           </label>
         </div>
         <div className="mt-6 flex justify-end gap-2">

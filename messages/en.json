@@ -75,6 +75,7 @@
     "adminRegrowthRules": "Regrowth Rules",
     "adminGrassTypes": "Grass types",
     "adminKeyAreas": "Key Areas",
+    "adminFertilizerProduct": "Fertilizer Product",
     "adminProjectPaces": "Project Pace",
     "settings": "Settings",
     "adminCountries": "Countries",
@@ -83,7 +84,7 @@
     "adminActivityLog": "Activity log",
     "adminWeatherLocations": "Weather locations",
     "adminItems": "Items",
-    "adminItemCategories": "Item categories",
+    "adminItemCategories": "Categories",
     "adminBrands": "Brands",
     "adminUnitTypes": "Units",
     "help": "Help",
@@ -2126,6 +2127,40 @@
     },
     "deleteConfirm": "Remove this key area?"
   },
+  "AdminFertilizerProduct": {
+    "title": "Fertilizer Product",
+    "description": "Catalog of fertilizer products used on fertilizer application records.",
+    "loading": "Loading…",
+    "add": "Add product",
+    "edit": "Edit product",
+    "save": "Save",
+    "saving": "Saving…",
+    "cancel": "Cancel",
+    "empty": "No fertilizer products found.",
+    "table": {
+      "name": "Name",
+      "country": "Country",
+      "global": "Global",
+      "uom": "UOM",
+      "actions": "Actions"
+    },
+    "form": {
+      "name": "Name *",
+      "uom": "UOM",
+      "uomPlaceholder": "e.g. kg, litre, bag",
+      "country": "Country",
+      "countryGlobal": "Global (no country — name must be unique)"
+    },
+    "errors": {
+      "nameRequired": "Name is required.",
+      "duplicateGlobal": "A product with this name already exists in the global catalog.",
+      "duplicateCountry": "A product with this name already exists for this country.",
+      "load": "Could not load fertilizer products.",
+      "save": "Could not save.",
+      "delete": "Could not delete."
+    },
+    "deleteConfirm": "Remove this fertilizer product?"
+  },
   "AdminProjectPaces": {
     "title": "Project Pace",
     "description": "Configure project pace options for the project form and planned harvest generation. Duration spans months × 4 weeks.",
@@ -2560,10 +2595,11 @@
       "admin_regrowth": "Admin — Regrowth",
       "admin_grasses": "Admin — Grass types",
       "admin_key_areas": "Admin — Key Areas",
+      "admin_fertilizer_product": "Admin — Fertilizer Product",
       "admin_project_paces": "Admin — Project Pace",
       "admin_countries": "Admin — Countries",
       "admin_items": "Admin — Items",
-      "admin_item_categories": "Admin — Item categories",
+      "admin_item_categories": "Admin — Categories",
       "admin_brands": "Admin — Brands",
       "admin_units": "Admin — Units",
       "admin_machinery_types": "Admin — Machinery Types",
@@ -3402,7 +3438,7 @@
     }
   },
   "AdminItemCategories": {
-    "title": "Item categories",
+    "title": "Categories",
     "subtitle": "Organize items into categories (supports parent categories).",
     "loading": "Loading…",
     "search": "Search categories…",
@@ -3451,13 +3487,16 @@
       "name": "Name",
       "title": "Title",
       "vendor": "Vendor",
+      "category": "Categories",
       "actions": "Actions",
       "empty": "No brands found."
     },
     "form": {
       "name": "Brand name",
       "title": "Title",
-      "titlePlaceholder": "Defaults to name if empty"
+      "titlePlaceholder": "Defaults to name if empty",
+      "category": "Categories",
+      "categoryNone": "Select categories…"
     },
     "errors": {
       "load": "Failed to load brands.",
@@ -3553,11 +3592,10 @@
       "title": "New Inspection",
       "editTitle": "Edit Inspection",
       "vehicleName": "Vehicle name",
+      "vehicleNamePlaceholder": "e.g. Harvester HV-01",
       "aliasName": "Alias name",
       "aliasNamePlaceholder": "Harvester HV-01",
-      "selectVehicle": "Select vehicle from catalog",
-      "selectVehicleFirst": "Select a vehicle first",
-      "vehiclesSelected": "{count} vehicles selected",
+      "selectFuelType": "Select fuel type",
       "type": "Type",
       "fuelType": "Fuel type",
       "farm": "Farm",
@@ -3627,28 +3665,29 @@
       "next": "Next"
     },
     "form": {
-      "equipment": "Equipment",
       "brand": "Brand",
       "type": "Type",
       "model": "Model",
+      "modelPlaceholder": "e.g. 5075E",
       "engineCode": "Engine Code",
       "engineCodePlaceholder": "e.g. KR-2000-A",
       "hoursBetweenService": "Hours Between Service",
       "hoursBetweenServicePlaceholder": "e.g. 250",
       "farm": "Location",
+      "status": "Status",
       "pic": "STS PIC",
-      "selectEquipment": "Search equipment…",
+      "selectBrand": "Select brand…",
       "selectType": "Select type",
       "selectFarm": "Select farm",
       "selectPic": "Select person in charge",
-      "loadingProducts": "Loading equipment catalog…",
-      "noProducts": "No items in configured categories. Set categories in Admin → Fleet → Equipment Category."
+      "loadingBrands": "Loading brands…",
+      "noBrands": "No brands in configured categories. Link brands to categories in Admin → Settings → Brands and set categories in Admin → Fleet → Equipment Category."
     },
     "errors": {
       "load": "Failed to load equipment.",
       "save": "Failed to register equipment.",
       "delete": "Failed to delete equipment.",
-      "requiredFields": "Equipment, type and location are required."
+      "requiredFields": "Brand, type and location are required."
     }
   },
   "EquipmentDetail": {
@@ -3851,8 +3890,8 @@
         "hint": "Type dropdown when adding equipment service records."
       },
       "fleet_fuel_types": {
-        "title": "Fuel types (diesel / petrol)",
-        "hint": "Diesel/petrol options on Admin → Settings → Items (MACHINE category), fuel stock ledger, and fuel usage."
+        "title": "Fuel types",
+        "hint": ""
       }
     }
   }

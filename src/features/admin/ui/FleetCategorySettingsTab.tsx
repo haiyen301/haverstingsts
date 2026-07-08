@@ -258,8 +258,6 @@ export function FleetCategorySettingsTab() {
   const [error, setError] = useState<string | null>(null);
   const [categories, setCategories] = useState<FleetCategoryOption[]>([]);
   const [equipment, setEquipment] = useState<ModuleState>(emptyModuleState());
-  const [fertilizerUsage, setFertilizerUsage] = useState<ModuleState>(emptyModuleState());
-  const [vehicleInspection, setVehicleInspection] = useState<ModuleState>(emptyModuleState());
 
   const sortedCategories = useMemo(
     () => sortItemCategoriesByPath(categories),
@@ -274,8 +272,6 @@ export function FleetCategorySettingsTab() {
       const all = data.categories ?? [];
       setCategories(all);
       setEquipment(moduleStateFromConfig(data.equipment));
-      setFertilizerUsage(moduleStateFromConfig(data.fertilizer_usage));
-      setVehicleInspection(moduleStateFromConfig(data.vehicle_inspection));
     } catch (e) {
       setError(e instanceof Error ? e.message : t("loadError"));
     } finally {
@@ -356,54 +352,6 @@ export function FleetCategorySettingsTab() {
             onSelectedChange={(ids) => setEquipment((s) => ({ ...s, selectedIds: ids }))}
             onSave={() =>
               void handleSave("equipment", equipment.selectedIds, [], setEquipment)
-            }
-          />
-
-          <ModuleSection
-            module="fertilizer_usage"
-            title={t("fertilizerUsage.title")}
-            hint={t("fertilizerUsage.hint")}
-            fieldLabel={t("fieldLabel")}
-            fieldHint={t("fieldHint")}
-            categories={sortedCategories}
-            state={fertilizerUsage}
-            saving={savingModule === "fertilizer_usage"}
-            onSelectedChange={(ids) => setFertilizerUsage((s) => ({ ...s, selectedIds: ids }))}
-            onSave={() =>
-              void handleSave(
-                "fertilizer_usage",
-                fertilizerUsage.selectedIds,
-                [],
-                setFertilizerUsage,
-              )
-            }
-          />
-
-          <ModuleSection
-            module="vehicle_inspection"
-            title={t("vehicleInspection.title")}
-            hint={t("vehicleInspection.hint")}
-            note={t("fuelUsageNote")}
-            fieldLabel={t("fieldLabel")}
-            fieldHint={t("fieldHint")}
-            excludedFieldLabel={t("excludedFieldLabel")}
-            excludedFieldHint={t("excludedFieldHint")}
-            categories={sortedCategories}
-            state={vehicleInspection}
-            saving={savingModule === "vehicle_inspection"}
-            onSelectedChange={(ids) =>
-              setVehicleInspection((s) => ({ ...s, selectedIds: ids }))
-            }
-            onExcludedChange={(ids) =>
-              setVehicleInspection((s) => ({ ...s, excludedIds: ids }))
-            }
-            onSave={() =>
-              void handleSave(
-                "vehicle_inspection",
-                vehicleInspection.selectedIds,
-                vehicleInspection.excludedIds,
-                setVehicleInspection,
-              )
             }
           />
         </div>
