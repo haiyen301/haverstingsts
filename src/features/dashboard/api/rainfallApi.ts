@@ -44,14 +44,10 @@ export async function fetchRainfallConfiguredFarms(): Promise<RainfallConfigured
 export async function fetchRainfallDashboard(params: {
   year?: number;
   farmIds?: string[];
-  dateFrom?: string;
-  dateTo?: string;
 }): Promise<RainfallDashboardData> {
   const data = await stsProxyGetWithParams<RainfallDashboardData>("/api/weather/rainfall_dashboard", {
     year: params.year,
     farm_ids: params.farmIds?.length ? params.farmIds.join(",") : undefined,
-    date_from: params.dateFrom,
-    date_to: params.dateTo,
   });
   return data;
 }

@@ -2542,8 +2542,8 @@ export default function DashboardPage() {
               farmFilters={farmFilters}
               selectedFarmIds={selectedFarmIds}
               scopeFarmIds={scopeIds}
-              recentDateFrom={kpiDateRange.start}
-              recentDateTo={kpiDateRange.end}
+              recentDateFrom={kpiDateFilter.preset === "lastMonth" ? undefined : kpiDateRange.start}
+              recentDateTo={kpiDateFilter.preset === "lastMonth" ? undefined : kpiDateRange.end}
             />
 
             {deliveryGrassTypePeriodBreakdown.length > 0 ? (

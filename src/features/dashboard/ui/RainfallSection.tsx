@@ -342,8 +342,6 @@ export function RainfallSection({
       const payload = await fetchRainfallDashboard({
         year,
         farmIds: queryFarmIds,
-        dateFrom: recentDateFrom,
-        dateTo: recentDateTo,
       });
       const processed = RAINFALL_MANUAL_ONLY
         ? applyManualRainfallOnly(payload, year, today)
@@ -362,7 +360,7 @@ export function RainfallSection({
       setLoading(false);
       setRefreshing(false);
     }
-  }, [queryFarmIds, recentDateFrom, recentDateTo, t, today, year]);
+  }, [queryFarmIds, t, today, year]);
 
   useEffect(() => {
     void load();
@@ -372,8 +370,19 @@ export function RainfallSection({
     () => sortRainfallRecentEntries(data?.recent ?? [], today),
     [data?.recent, today],
   );
-  const recentTotal = sortedRecent.length;
-  const visibleRecent = sortedRecent.slice(0, recentVisibleCount);
+  /**
+   * Recent readings honor the dashboard date filter only when a range is set.
+   * Default (no range) shows the full history via load-more. Summary/monthly
+   * boxes stay year-based regardless and are unaffected by this list filter.
+   */
+  const filteredRecent = useMemo(() => {
+    if (!recentDateFrom || !recentDateTo) return sortedRecent;
+    return sortedRecent.filter(
+      (entry) => entry.date >= recentDateFrom && entry.date <= recentDateTo,
+    );
+  }, [sortedRecent, recentDateFrom, recentDateTo]);
+  const recentTotal = filteredRecent.length;
+  const visibleRecent = filteredRecent.slice(0, recentVisibleCount);
   const hasMoreRecent = recentVisibleCount < recentTotal;
 
   useEffect(() => {
@@ -500,6 +509,14 @@ export function RainfallSection({
   const summary = data?.summary ?? { today_mm: 0, month_mm: 0, year_mm: 0, rain_days: 0 };
   const monthlyData = data?.monthly ?? [];
 
+  const rangeActive = Boolean(recentDateFrom && recentDateTo);
+  const rangeTotalMm =
+    Math.round(filteredRecent.reduce((sum, entry) => sum + (entry.rainfall_mm ?? 0), 0) * 100) / 100;
+  const rangeRainDays = filteredRecent.reduce(
+    (count, entry) => count + ((entry.rainfall_mm ?? 0) > 0 ? 1 : 0),
+    0,
+  );
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -532,11 +549,41 @@ export function RainfallSection({
               saving && !refreshing && "opacity-90",
             )}
           >
-          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-            <StatBox label={t("today")} value={`${summary.today_mm} mm`} sub={formatDisplayDate(today)} icon={Droplets} />
-            <StatBox label={t("thisMonth")} value={`${summary.month_mm} mm`} sub={monthLabel} icon={CalendarDays} />
-            <StatBox label={t("thisYear")} value={`${summary.year_mm} mm`} sub={String(year)} icon={CloudRain} />
-            <StatBox label={t("rainDays")} value={String(summary.rain_days)} sub={t("rainDaysSub", { year })} icon={Droplets} />
+          <div
+            className={cn(
+              "grid gap-4",
+              rangeActive ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-2 lg:grid-cols-4",
+            )}
+          >
+            {rangeActive ? (
+              <>
+                <StatBox
+                  label={t("rangeRainfall")}
+                  value={`${rangeTotalMm} mm`}
+                  sub={t("rangeRainfallSub", {
+                    from: formatDisplayDate(recentDateFrom ?? ""),
+                    to: formatDisplayDate(recentDateTo ?? ""),
+                  })}
+                  icon={CloudRain}
+                />
+                <StatBox
+                  label={t("rainDays")}
+                  value={String(rangeRainDays)}
+                  sub={t("rainDaysRangeSub", {
+                    from: formatDisplayDate(recentDateFrom ?? ""),
+                    to: formatDisplayDate(recentDateTo ?? ""),
+                  })}
+                  icon={Droplets}
+                />
+              </>
+            ) : (
+              <>
+                <StatBox label={t("today")} value={`${summary.today_mm} mm`} sub={formatDisplayDate(today)} icon={Droplets} />
+                <StatBox label={t("thisMonth")} value={`${summary.month_mm} mm`} sub={monthLabel} icon={CalendarDays} />
+                <StatBox label={t("thisYear")} value={`${summary.year_mm} mm`} sub={String(year)} icon={CloudRain} />
+                <StatBox label={t("rainDays")} value={String(summary.rain_days)} sub={t("rainDaysSub", { year })} icon={Droplets} />
+              </>
+            )}
           </div>
 
           {(perms.can_create || perms.can_edit || canExportRainfall) && (
