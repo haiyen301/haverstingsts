@@ -2,7 +2,7 @@ import type { FertilizerProductRow } from "@/features/admin/api/adminApi";
 
 function productCountryId(product: FertilizerProductRow): number | null {
   const raw = product.country_id;
-  if (raw == null || raw === "") return null;
+  if (raw == null) return null;
   const n = Number(raw);
   return Number.isFinite(n) && n > 0 ? n : null;
 }
