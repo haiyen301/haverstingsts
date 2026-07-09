@@ -1966,6 +1966,7 @@
     "description": "รายการผลิตภัณฑ์ปุ๋ยที่ใช้ในบันทึกการใส่ปุ๋ย",
     "loading": "กำลังโหลด…",
     "add": "เพิ่มผลิตภัณฑ์",
+    "importExcel": "นำเข้า Excel",
     "edit": "แก้ไขผลิตภัณฑ์",
     "save": "บันทึก",
     "saving": "กำลังบันทึก…",
@@ -1993,7 +1994,61 @@
       "save": "บันทึกไม่ได้",
       "delete": "ลบไม่ได้"
     },
-    "deleteConfirm": "ลบผลิตภัณฑ์ปุ๋ยนี้?"
+    "deleteConfirm": "ลบผลิตภัณฑ์ปุ๋ยนี้?",
+    "import": {
+      "title": "นำเข้าผลิตภัณฑ์ปุ๋ยจาก Excel",
+      "subtitle": "อัปโหลดไฟล์ Excel ที่มีคอลัมน์ name, uom (ไม่บังคับ), country (ไม่บังคับ — เว้นว่าง = ทั่วโลก)",
+      "uploadFile": "อัปโหลด Excel",
+      "downloadTemplate": "ดาวน์โหลดเทมเพลต",
+      "fileLabel": "ไฟล์",
+      "processingFile": "กำลังอ่านไฟล์ Excel…",
+      "close": "ปิด",
+      "noPermission": "คุณไม่มีสิทธิ์นำเข้าผลิตภัณฑ์ปุ๋ย",
+      "globalLabel": "ทั่วโลก",
+      "selectAllReady": "เลือกทุกแถวที่นำเข้าได้",
+      "clearSelection": "ล้างการเลือก",
+      "selectedCount": "เลือกแล้ว {count}",
+      "visibleSelectedCount": "เลือกแถวที่มองเห็น {count}",
+      "toggleVisible": "สลับแถวที่มองเห็น",
+      "toggleRow": "สลับแถว",
+      "confirmImport": "นำเข้า {count} แถว",
+      "importing": "กำลังนำเข้า…",
+      "success": "นำเข้าแล้ว {imported} แถว ล้มเหลว {failed}",
+      "filters": {
+        "all": "ทั้งหมด",
+        "ready": "นำเข้าได้",
+        "duplicate": "ซ้ำ",
+        "invalid": "ไม่ถูกต้อง"
+      },
+      "status": {
+        "ready": "นำเข้า",
+        "skipDuplicate": "ข้าม (ซ้ำ)",
+        "skipInvalid": "ข้าม (ไม่ถูกต้อง)"
+      },
+      "table": {
+        "row": "แถว",
+        "status": "สถานะ",
+        "name": "ชื่อ",
+        "uom": "หน่วย",
+        "country": "ประเทศ",
+        "reason": "เหตุผล",
+        "empty": "ไม่มีแถวที่ตรงกับตัวกรอง"
+      },
+      "reasons": {
+        "nameRequired": "กรุณากรอกชื่อ",
+        "duplicateExisting": "มีผลิตภัณฑ์นี้ในแคตตาล็อกแล้ว",
+        "duplicateInFile": "แถวซ้ำในไฟล์นี้",
+        "countryNotFound": "ไม่พบประเทศ"
+      },
+      "errors": {
+        "parse": "อ่านไฟล์ Excel ไม่ได้",
+        "preview": "สร้างตัวอย่างนำเข้าไม่ได้",
+        "commit": "นำเข้าล้มเหลว",
+        "emptySheet": "ไฟล์ Excel ไม่มีข้อมูล",
+        "noRows": "ไม่พบแถวที่นำเข้าได้",
+        "missingColumns": "ไฟล์ Excel ต้องมีคอลัมน์ name"
+      }
+    }
   },
   "AdminProjectPaces": {
     "title": "จังหวะโครงการ",

@@ -34,7 +34,8 @@ export default async function AdminPage() {
     // { module: "admin_items", path: "/admin/settings/items" },
     { module: "admin_item_categories", path: "/admin/settings/item-categories" },
     { module: "admin_brands", path: "/admin/settings/brands" },
-    { module: "admin_units", path: "/admin/settings/unit-types" },
+    // TODO: tạm ẩn — chưa dùng
+    // { module: "admin_units", path: "/admin/settings/unit-types" },
   ];
 
   const firstAllowed = targets.find((target) =>

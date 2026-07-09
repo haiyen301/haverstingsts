@@ -2132,6 +2132,7 @@
     "description": "Catalog of fertilizer products used on fertilizer application records.",
     "loading": "Loading…",
     "add": "Add product",
+    "importExcel": "Import Excel",
     "edit": "Edit product",
     "save": "Save",
     "saving": "Saving…",
@@ -2159,7 +2160,61 @@
       "save": "Could not save.",
       "delete": "Could not delete."
     },
-    "deleteConfirm": "Remove this fertilizer product?"
+    "deleteConfirm": "Remove this fertilizer product?",
+    "import": {
+      "title": "Import fertilizer products from Excel",
+      "subtitle": "Upload an Excel file with columns name, uom (optional), and country (optional — leave empty for global catalog).",
+      "uploadFile": "Upload Excel",
+      "downloadTemplate": "Download template",
+      "fileLabel": "File",
+      "processingFile": "Reading Excel file…",
+      "close": "Close",
+      "noPermission": "You do not have permission to import fertilizer products.",
+      "globalLabel": "Global",
+      "selectAllReady": "Select all importable",
+      "clearSelection": "Clear selection",
+      "selectedCount": "{count} selected",
+      "visibleSelectedCount": "{count} visible row(s) selected",
+      "toggleVisible": "Toggle visible rows",
+      "toggleRow": "Toggle row",
+      "confirmImport": "Import {count} row(s)",
+      "importing": "Importing…",
+      "success": "Imported {imported} row(s). Failed: {failed}.",
+      "filters": {
+        "all": "All",
+        "ready": "Importable",
+        "duplicate": "Duplicate",
+        "invalid": "Invalid"
+      },
+      "status": {
+        "ready": "Import",
+        "skipDuplicate": "Skip (duplicate)",
+        "skipInvalid": "Skip (invalid)"
+      },
+      "table": {
+        "row": "Row",
+        "status": "Status",
+        "name": "Name",
+        "uom": "UOM",
+        "country": "Country",
+        "reason": "Reason",
+        "empty": "No rows match this filter."
+      },
+      "reasons": {
+        "nameRequired": "Name is required.",
+        "duplicateExisting": "Product already exists in the catalog.",
+        "duplicateInFile": "Duplicate row in this file.",
+        "countryNotFound": "Country not found."
+      },
+      "errors": {
+        "parse": "Could not read the Excel file.",
+        "preview": "Could not build import preview.",
+        "commit": "Import failed.",
+        "emptySheet": "The Excel file has no data.",
+        "noRows": "No importable rows were found.",
+        "missingColumns": "The Excel file must include a name column."
+      }
+    }
   },
   "AdminProjectPaces": {
     "title": "Project Pace",

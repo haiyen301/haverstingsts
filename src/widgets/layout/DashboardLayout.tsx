@@ -494,16 +494,17 @@ export function DashboardLayout({
                 isActive: (p) =>
                   p === "/admin/settings/brands" || p.startsWith("/admin/settings/brands/"),
               },
-              {
-                value: "unit-types",
-                label: tn("adminUnitTypes"),
-                icon: Layers,
-                path: "/admin/settings/unit-types",
-                module: "admin_units",
-                isActive: (p) =>
-                  p === "/admin/settings/unit-types" ||
-                  p.startsWith("/admin/settings/unit-types/"),
-              },
+              // TODO: tạm ẩn — chưa dùng
+              // {
+              //   value: "unit-types",
+              //   label: tn("adminUnitTypes"),
+              //   icon: Layers,
+              //   path: "/admin/settings/unit-types",
+              //   module: "admin_units",
+              //   isActive: (p) =>
+              //     p === "/admin/settings/unit-types" ||
+              //     p.startsWith("/admin/settings/unit-types/"),
+              // },
             ],
           },
           {

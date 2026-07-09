@@ -2022,6 +2022,7 @@
     "description": "Danh mục sản phẩm phân bón dùng cho các bản ghi bón phân.",
     "loading": "Đang tải…",
     "add": "Thêm sản phẩm",
+    "importExcel": "Nhập Excel",
     "edit": "Sửa sản phẩm",
     "save": "Lưu",
     "saving": "Đang lưu…",
@@ -2049,7 +2050,61 @@
       "save": "Không lưu được.",
       "delete": "Không xóa được."
     },
-    "deleteConfirm": "Xóa sản phẩm phân bón này?"
+    "deleteConfirm": "Xóa sản phẩm phân bón này?",
+    "import": {
+      "title": "Nhập sản phẩm phân bón từ Excel",
+      "subtitle": "Tải file Excel với cột name (tên), uom (tùy chọn), country (tùy chọn — để trống = toàn cục).",
+      "uploadFile": "Tải Excel",
+      "downloadTemplate": "Tải mẫu",
+      "fileLabel": "File",
+      "processingFile": "Đang đọc file Excel…",
+      "close": "Đóng",
+      "noPermission": "Bạn không có quyền nhập sản phẩm phân bón.",
+      "globalLabel": "Toàn cục",
+      "selectAllReady": "Chọn tất cả dòng có thể nhập",
+      "clearSelection": "Bỏ chọn",
+      "selectedCount": "Đã chọn {count}",
+      "visibleSelectedCount": "{count} dòng hiển thị đã chọn",
+      "toggleVisible": "Chọn/bỏ chọn dòng hiển thị",
+      "toggleRow": "Chọn dòng",
+      "confirmImport": "Nhập {count} dòng",
+      "importing": "Đang nhập…",
+      "success": "Đã nhập {imported} dòng. Lỗi: {failed}.",
+      "filters": {
+        "all": "Tất cả",
+        "ready": "Có thể nhập",
+        "duplicate": "Trùng",
+        "invalid": "Không hợp lệ"
+      },
+      "status": {
+        "ready": "Nhập",
+        "skipDuplicate": "Bỏ qua (trùng)",
+        "skipInvalid": "Bỏ qua (lỗi)"
+      },
+      "table": {
+        "row": "Dòng",
+        "status": "Trạng thái",
+        "name": "Tên",
+        "uom": "Đơn vị",
+        "country": "Quốc gia",
+        "reason": "Lý do",
+        "empty": "Không có dòng nào khớp bộ lọc."
+      },
+      "reasons": {
+        "nameRequired": "Vui lòng nhập tên.",
+        "duplicateExisting": "Sản phẩm đã tồn tại trong danh mục.",
+        "duplicateInFile": "Dòng trùng trong file.",
+        "countryNotFound": "Không tìm thấy quốc gia."
+      },
+      "errors": {
+        "parse": "Không đọc được file Excel.",
+        "preview": "Không tạo được bản xem trước.",
+        "commit": "Nhập thất bại.",
+        "emptySheet": "File Excel không có dữ liệu.",
+        "noRows": "Không tìm thấy dòng nào để nhập.",
+        "missingColumns": "File Excel phải có cột name (tên)."
+      }
+    }
   },
   "AdminProjectPaces": {
     "title": "Nhịp độ dự án",

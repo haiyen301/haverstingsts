@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, Pencil, Plus, Trash2, X } from "lucide-react";
+import { ChevronDown, Pencil, Plus, Trash2, Upload, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import RequireAuth from "@/features/auth/RequireAuth";
 import {
@@ -12,7 +12,8 @@ import {
   sortFertilizerProductRowsByName,
   type FertilizerProductRow,
 } from "@/features/admin/api/adminApi";
-import { fetchActiveCountries } from "@/features/admin/api/countriesApi";
+import { fetchActiveCountries, type CountryRow } from "@/features/admin/api/countriesApi";
+import { FertilizerProductImportDialog } from "@/features/admin/ui/FertilizerProductImportDialog";
 import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -52,7 +53,8 @@ export default function AdminFertilizerProductPage() {
   const canDelete = canAccessModule(user, "admin_fertilizer_product", "delete");
 
   const [rows, setRows] = useState<FertilizerProductRow[]>([]);
-  const [countries, setCountries] = useState<unknown[]>([]);
+  const [countries, setCountries] = useState<CountryRow[]>([]);
+  const [importOpen, setImportOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -167,15 +169,26 @@ export default function AdminFertilizerProductPage() {
               <p className="mt-1 text-sm text-muted-foreground">{t("description")}</p>
             </div>
             {canCreate ? (
-              <button
-                type="button"
-                className={btnPrimary}
-                onClick={openCreate}
-                disabled={saving}
-              >
-                <Plus className="h-4 w-4" />
-                {t("add")}
-              </button>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className={btnOutline}
+                  onClick={() => setImportOpen(true)}
+                  disabled={saving}
+                >
+                  <Upload className="h-4 w-4" />
+                  {t("importExcel")}
+                </button>
+                <button
+                  type="button"
+                  className={btnPrimary}
+                  onClick={openCreate}
+                  disabled={saving}
+                >
+                  <Plus className="h-4 w-4" />
+                  {t("add")}
+                </button>
+              </div>
             ) : null}
           </div>
 
@@ -255,6 +268,15 @@ export default function AdminFertilizerProductPage() {
             </CardContent>
           </Card>
         </div>
+
+        <FertilizerProductImportDialog
+          open={importOpen}
+          onClose={() => setImportOpen(false)}
+          onImported={() => void loadRows()}
+          existingRows={rows}
+          countries={countries}
+          canImport={canCreate}
+        />
 
         {open ? (
           <Modal
