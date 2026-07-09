@@ -11,6 +11,7 @@ import {
   Package,
   Pencil,
   Plus,
+  Search,
   Trash2,
   TrendingDown,
   TrendingUp,
@@ -243,6 +244,7 @@ export function FuelUsageTab() {
   const [form, setForm] = useState<EntryForm>(() => emptyForm());
   const [stockReloadToken, setStockReloadToken] = useState(0);
   const [selectedFuelKinds, setSelectedFuelKinds] = useState<string[]>([]);
+  const [vehicleSearch, setVehicleSearch] = useState("");
   const loadSeqRef = useRef(0);
 
   const farmNameById = useMemo(() => {
@@ -436,15 +438,27 @@ export function FuelUsageTab() {
   }, [dialogOpen, form.vehicle_inspection_id, vehicleTypeForInspection, fuelKindForInspection]);
 
   const filtered = useMemo(() => {
-    if (selectedFuelKinds.length === 0) return entries;
-    const selected = new Set(selectedFuelKinds.map((kind) => kind.toLowerCase()));
+    const q = vehicleSearch.trim().toLowerCase();
     return entries.filter((row) => {
-      const kind = String(row.fuel_kind ?? "")
-        .trim()
-        .toLowerCase();
-      return kind && selected.has(kind);
+      if (selectedFuelKinds.length > 0) {
+        const kind = String(row.fuel_kind ?? "")
+          .trim()
+          .toLowerCase();
+        const selected = new Set(selectedFuelKinds.map((kind) => kind.toLowerCase()));
+        if (!kind || !selected.has(kind)) return false;
+      }
+      if (!q) return true;
+      const hay = [
+        fuelUsageVehicleLabel(row, vehicleLabelByInspectionId),
+        row.vehicle_name,
+        row.alias_name,
+        row.vehicle_type,
+      ]
+        .map((x) => String(x ?? "").toLowerCase())
+        .join(" ");
+      return hay.includes(q);
     });
-  }, [entries, selectedFuelKinds]);
+  }, [entries, selectedFuelKinds, vehicleSearch, vehicleLabelByInspectionId]);
 
   const visibleUsageRows = useMemo(
     () => filtered.slice(0, listVisibleCount),
@@ -474,7 +488,7 @@ export function FuelUsageTab() {
 
   useEffect(() => {
     setListVisibleCount(USAGE_LIST_PAGE_SIZE);
-  }, [selectedFarmIds, selectedFuelKinds, hasActiveDateFilter, dateRange.start, dateRange.end]);
+  }, [selectedFarmIds, selectedFuelKinds, vehicleSearch, hasActiveDateFilter, dateRange.start, dateRange.end]);
   const totalLitres = filtered.reduce((s, e) => s + num(e.litres), 0);
   const totalCost = filtered.reduce((s, e) => s + lineCost(e), 0);
   const avgPerEntry = filtered.length > 0 ? totalLitres / filtered.length : 0;
@@ -712,6 +726,15 @@ export function FuelUsageTab() {
       </div>
 
       <div className="flex flex-wrap items-start gap-3">
+        <div className="relative min-w-[220px] flex-1">
+          <Search className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <input
+            className={cn(inputClass, "pl-9")}
+            placeholder={t("filters.searchVehicle")}
+            value={vehicleSearch}
+            onChange={(e) => setVehicleSearch(e.target.value)}
+          />
+        </div>
         <MultiSelect
           options={farmOptions.map((f) => ({ value: f.id, label: f.label }))}
           values={selectedFarmIds}
