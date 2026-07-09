@@ -78,6 +78,7 @@ import { canAccessModule } from "@/shared/auth/permissions";
 import { useAuthUserStore } from "@/shared/store/authUserStore";
 import type { ZoneConfigurationRow } from "@/features/admin/api/adminApi";
 import { buildGrassFilterOptionsForFarms } from "@/shared/lib/grassFilterByFarmZone";
+import { filterFertilizerProductsForFarm } from "@/features/fertilizer/lib/filterFertilizerProductsForFarm";
 
 const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const CHART_FILL = "hsl(152,55%,36%)";
@@ -307,22 +308,48 @@ export function FertilizerUsageTab() {
     return map;
   }, [staffOptions]);
 
+  const farmCountryById = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const farm of farms) {
+      const id = String((farm as { id?: unknown }).id ?? "").trim();
+      const countryId = Number((farm as { country_id?: unknown }).country_id);
+      if (id && Number.isFinite(countryId) && countryId > 0) {
+        map.set(id, countryId);
+      }
+    }
+    return map;
+  }, [farms]);
+
+  const stockLedgerFarmCountryId = useMemo(() => {
+    const farmId =
+      selectedFarmIds.length === 1
+        ? selectedFarmIds[0]
+        : farmOptions[0]?.id ?? "";
+    return farmId ? (farmCountryById.get(farmId) ?? null) : null;
+  }, [selectedFarmIds, farmOptions, farmCountryById]);
+
   const productStockKeyOptions = useMemo(
     () =>
-      products.map((product) => ({
+      filterFertilizerProductsForFarm(products, stockLedgerFarmCountryId).map((product) => ({
         value: String(product.id),
         label: product.name,
       })),
-    [products],
+    [products, stockLedgerFarmCountryId],
   );
+
+  const productsForForm = useMemo(() => {
+    const farmCountryId = form.farm_id ? (farmCountryById.get(form.farm_id) ?? null) : null;
+    const pinnedItemIds = form.item_id ? [Number(form.item_id)] : [];
+    return filterFertilizerProductsForFarm(products, farmCountryId, pinnedItemIds);
+  }, [products, form.farm_id, form.item_id, farmCountryById]);
 
   const productOptions = useMemo(
     () =>
-      products.map((product) => ({
+      productsForForm.map((product) => ({
         value: String(product.id),
         label: product.name,
       })),
-    [products],
+    [productsForForm],
   );
 
   const load = useCallback(async () => {
@@ -1169,7 +1196,7 @@ export function FertilizerUsageTab() {
                   rightIcon={selectChevron}
                   showSelectedChipsInPopover={false}
                   selectionSummary="full"
-                  disabled={saving}
+                  disabled={saving || !form.farm_id}
                 />
               </label>
               <label className="col-span-2 space-y-1">
