@@ -9,11 +9,59 @@ export function stripDecimalGrouping(raw: string): string {
 }
 
 /**
+ * Normalize typed decimal text before formatting/parsing.
+ * Trailing `,` (iOS vi keypad) and a single mid-string `,` (e.g. `1,25`) become `.`.
+ */
+export function normalizeDecimalTyping(raw: string): string {
+  let text = raw.replace(/[^\d.,]/g, "");
+  if (text.includes(".")) return text;
+
+  if (text.endsWith(",")) {
+    return `${text.slice(0, -1)}.`;
+  }
+
+  const commaIdx = text.indexOf(",");
+  if (commaIdx >= 0 && !text.slice(commaIdx + 1).includes(",")) {
+    const intPart = text.slice(0, commaIdx).replace(/,/g, "");
+    const decPart = text.slice(commaIdx + 1);
+    const looksLikeThousands =
+      intPart.length >= 1 && decPart.length === 3 && /^\d+$/.test(decPart);
+    if (decPart.length > 0 && decPart.length <= 4 && !looksLikeThousands) {
+      return `${intPart}.${decPart}`;
+    }
+  }
+
+  // e.g. "0,8" stripped to "08" without a separator → 0.8
+  const leadingZero = /^0(\d{1,4})$/.exec(text);
+  if (leadingZero) {
+    return `0.${leadingZero[1]}`;
+  }
+
+  return text;
+}
+
+/** Normalized decimal string for API payloads (preserves fractional digits). */
+export function normalizedDecimalApiString(
+  raw: string | null | undefined,
+): string | undefined {
+  if (raw == null || !raw.trim()) return undefined;
+  let normalized = stripDecimalGrouping(normalizeDecimalTyping(raw.trim()));
+  if (!normalized || normalized === ".") return undefined;
+  if (normalized.endsWith(".")) {
+    normalized = normalized.slice(0, -1);
+  }
+  if (!normalized) return undefined;
+  const n = Number(normalized);
+  if (!Number.isFinite(n)) return undefined;
+  return normalized;
+}
+
+/**
  * Format decimal text for inputs: `,` groups thousands, `.` separates decimals.
  * Preserves in-progress typing such as `123.` or `.5`.
  */
 export function formatDecimalInput(raw: string): string {
-  const stripped = stripDecimalGrouping(raw.trim());
+  const stripped = stripDecimalGrouping(normalizeDecimalTyping(raw.trim()));
   if (!stripped) return "";
 
   const trailingDot = stripped.endsWith(".");
@@ -38,6 +86,13 @@ export function formatDecimalInput(raw: string): string {
   return decPart ? `${formattedInt}.${decPart}` : formattedInt;
 }
 
+/** Trim redundant trailing zeros after the decimal point (e.g. `0.80000` → `0.8`). */
+export function trimTrailingDecimalZeros(raw: string): string {
+  const s = raw.trim();
+  if (!s.includes(".")) return s;
+  return s.replace(/0+$/, "").replace(/\.$/, "");
+}
+
 /**
  * Format a stored numeric value for decimal inputs.
  * Whole numbers omit a fractional part (e.g. `3000` → `3,000`, not `3,000.000`).
@@ -45,12 +100,39 @@ export function formatDecimalInput(raw: string): string {
 export function formatDecimalInputFromValue(
   value: number | string | null | undefined,
 ): string {
-  const raw = stripDecimalGrouping(String(value ?? "").trim());
+  const raw = stripDecimalGrouping(
+    normalizeDecimalTyping(String(value ?? "").trim()),
+  );
   if (!raw) return "";
   const n = Number(raw);
   if (!Number.isFinite(n)) return formatDecimalInput(raw);
   if (Number.isInteger(n)) return formatDecimalInput(String(Math.trunc(n)));
-  return formatDecimalInput(parseFloat(n.toFixed(10)).toString());
+  const trimmed = trimTrailingDecimalZeros(n.toFixed(10));
+  return formatDecimalInput(trimmed);
+}
+
+/**
+ * Format numeric values for display without redundant trailing decimal zeros.
+ */
+export function formatDecimalDisplay(
+  value: number | string | null | undefined,
+  maximumFractionDigits = 4,
+): string {
+  const raw =
+    typeof value === "number"
+      ? value
+      : Number(
+          stripDecimalGrouping(
+            normalizeDecimalTyping(String(value ?? "").trim()),
+          ),
+        );
+
+  if (!Number.isFinite(raw)) return "0";
+
+  return raw.toLocaleString("en-US", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits,
+  });
 }
 
 /**
@@ -64,7 +146,11 @@ export function formatNumber(
   const raw =
     typeof value === "number"
       ? value
-      : Number(stripDecimalGrouping(String(value ?? "")).trim());
+      : Number(
+          stripDecimalGrouping(
+            normalizeDecimalTyping(String(value ?? "").trim()),
+          ),
+        );
 
   if (!Number.isFinite(raw)) {
     return "0";
@@ -76,8 +162,10 @@ export function formatNumber(
   });
 }
 
-/** Parse formatted decimal input (`1,234.56`) back to a number. */
+/** Parse formatted decimal input (`1,234.56`, `1,25`) back to a number. */
 export function parseDecimalField(raw: string): number {
-  const n = Number(stripDecimalGrouping(raw.trim()));
+  const n = Number(
+    stripDecimalGrouping(normalizeDecimalTyping(raw.trim())),
+  );
   return Number.isFinite(n) ? n : NaN;
 }

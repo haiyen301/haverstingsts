@@ -3237,6 +3237,7 @@
       "remaining": "Remaining (L)",
       "openingBalance": "Opening balance",
       "importStock": "Import",
+      "costPerLitre": "Cost / Litre",
       "cost": "Cost",
       "odometer": "Odometer",
       "operator": "Operator",

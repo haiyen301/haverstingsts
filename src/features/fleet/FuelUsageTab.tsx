@@ -59,9 +59,13 @@ import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { formatDateDisplay } from "@/shared/lib/format/date";
 import {
+  formatDecimalDisplay,
   formatDecimalInput,
   formatDecimalInputFromValue,
   formatNumber,
+  normalizeDecimalTyping,
+  normalizedDecimalApiString,
+  parseDecimalField,
   stripDecimalGrouping,
 } from "@/shared/lib/format/number";
 import {
@@ -127,13 +131,10 @@ function emptyForm(farmId = "", vehicleTypeDefault = ""): EntryForm {
 }
 
 function num(v: unknown): number {
-  const n = Number(stripDecimalGrouping(String(v ?? "")));
+  const n = Number(
+    stripDecimalGrouping(normalizeDecimalTyping(String(v ?? "").trim())),
+  );
   return Number.isFinite(n) ? n : 0;
-}
-
-function parseDecimalField(raw: string): number {
-  const n = Number(stripDecimalGrouping(raw.trim()));
-  return Number.isFinite(n) ? n : NaN;
 }
 
 function parseIntegerField(raw: string): number {
@@ -537,8 +538,10 @@ export function FuelUsageTab() {
   const handleSave = async () => {
     const farmId = Number(form.farm_id);
     const vehicleInspectionId = Number(form.vehicle_inspection_id);
-    const litres = parseDecimalField(form.litres);
-    const costPerLitre = form.cost_per_litre.trim()
+    const litresText = normalizedDecimalApiString(form.litres);
+    const litres = litresText ? parseDecimalField(form.litres) : NaN;
+    const costPerLitreText = normalizedDecimalApiString(form.cost_per_litre);
+    const costPerLitre = costPerLitreText
       ? parseDecimalField(form.cost_per_litre)
       : undefined;
     const odometerKm = form.odometer_km.trim()
@@ -752,6 +755,7 @@ export function FuelUsageTab() {
                     <th className="px-4 py-3 text-left font-medium">{t("table.fuelKind")}</th>
                     <th className="px-4 py-3 text-left font-medium">{t("table.litres")}</th>
                     <th className="px-4 py-3 text-right font-medium">{t("table.remaining")}</th>
+                    <th className="px-4 py-3 text-left font-medium">{t("table.costPerLitre")}</th>
                     <th className="px-4 py-3 text-left font-medium">{t("table.cost")}</th>
                     <th className="px-4 py-3 text-left font-medium">{t("table.odometer")}</th>
                     <th className="px-4 py-3 text-left font-medium">{t("table.operator")}</th>
@@ -820,7 +824,14 @@ export function FuelUsageTab() {
                         </div>
                       </td>
                       <td className="px-4 py-3">
-                        ${formatNumber(lineCost(e), { maximumFractionDigits: 2 })}
+                        {num(e.cost_per_litre) > 0
+                          ? `$${formatDecimalDisplay(num(e.cost_per_litre), 4)}`
+                          : "—"}
+                      </td>
+                      <td className="px-4 py-3 font-semibold">
+                        {lineCost(e) > 0
+                          ? `$${formatNumber(lineCost(e), { maximumFractionDigits: 2 })}`
+                          : "—"}
                       </td>
                       <td className="px-4 py-3">
                         {e.odometer_km != null

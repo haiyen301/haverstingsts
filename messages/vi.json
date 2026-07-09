@@ -3138,6 +3138,7 @@
       "farm": "Trang trại",
       "fuelKind": "Loại nhiên liệu",
       "litres": "Lít",
+      "costPerLitre": "Giá / lít",
       "cost": "Chi phí",
       "odometer": "Công tơ mét",
       "operator": "Người vận hành",
