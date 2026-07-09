@@ -12,6 +12,7 @@ import {
   fertilizerBalanceExportFileName,
   fertilizerBalanceSheetTabName,
   resolveFertilizerBalanceExportFileName,
+  type FertilizerBalanceWeekBucket,
   type FertilizerBalanceYearMonth,
 } from "@/features/fertilizer/lib/fertilizerBalanceWeeks";
 import type {
@@ -31,6 +32,45 @@ export type FertilizerBalanceExportFilter = {
   toYear: number;
   toMonth: number;
 };
+
+export type FertilizerBalanceSheetLabels = {
+  title: string;
+  no: string;
+  itemCode: string;
+  description: string;
+  unit: string;
+  open: string;
+  monthTotal: string;
+  /** Use `{date}` for the month-end date (dd/mm/yyyy). */
+  inventoryRemaining: string;
+  /** Use `{index}`, `{from}`, `{to}` for week bucket labels. */
+  weekLabel: string;
+  import: string;
+  transfer: string;
+  consumption: string;
+  balance: string;
+};
+
+function inventoryEndDateLabel(ymd: string): string {
+  const [y, m, d] = ymd.split("-");
+  return `${d}/${m}/${y}`;
+}
+
+function resolveInventoryRemainingLabel(labels: FertilizerBalanceSheetLabels, monthEndYmd: string): string {
+  return labels.inventoryRemaining.replace("{date}", inventoryEndDateLabel(monthEndYmd));
+}
+
+function resolveBalanceSheetWeekLabels(
+  model: FertilizerBalanceSheetModel,
+  labels: FertilizerBalanceSheetLabels,
+): string[] {
+  return model.weeks.map((bucket: FertilizerBalanceWeekBucket) =>
+    labels.weekLabel
+      .replace("{index}", String(bucket.index))
+      .replace("{from}", `${bucket.startDay}/${model.month}/${model.year}`)
+      .replace("{to}", `${bucket.endDay}/${model.month}/${model.year}`),
+  );
+}
 
 function argb(hex: string): string {
   const h = hex.replace("#", "").toUpperCase();
@@ -70,11 +110,6 @@ function styleDataCell(cell: ExcelJS.Cell, opts?: { bg?: string; color?: string 
   if (opts?.bg) cell.fill = fillSolid(opts.bg);
 }
 
-function inventoryEndDateLabel(ymd: string): string {
-  const [y, m, d] = ymd.split("-");
-  return `${d}/${m}/${y}`;
-}
-
 /** Column letters A..AC (29 cols) for the balance layout. */
 const COL = {
   no: 1,
@@ -110,7 +145,10 @@ function weekImportCol(weekIndex: number): number {
   return COL.wk1Import + (weekIndex - 1) * 4;
 }
 
-export function buildFertilizerBalanceGoogleSheetPayload(model: FertilizerBalanceSheetModel): {
+export function buildFertilizerBalanceGoogleSheetPayload(
+  model: FertilizerBalanceSheetModel,
+  labels: FertilizerBalanceSheetLabels,
+): {
   headers: string[];
   rows: string[][];
   sheetTabName: string;
@@ -137,60 +175,57 @@ export function buildFertilizerBalanceGoogleSheetPayload(model: FertilizerBalanc
   };
 
   const blank = () => Array(29).fill("");
+  const weekLabels = resolveBalanceSheetWeekLabels(model, labels);
+  const inventoryHeader = resolveInventoryRemainingLabel(labels, model.monthEndYmd);
+  const subHeaders = [labels.import, labels.transfer, labels.consumption, labels.balance] as const;
 
   const r1 = blank();
-  r1[0] = "BIÊN BẢN SẢN LƯỢNG PHÂN/HOÁ CHẤT CÒN LẠI TRONG KHO";
+  r1[0] = labels.title;
   matrix.push(r1);
   mergeRanges.push({ startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: 29 });
   for (let c = 0; c < 29; c += 1) pushFill(0, c, FERTILIZER_BALANCE_COLORS.titleBg);
 
   const r2 = blank();
-  r2[0] = "MINUTES OF MONTHLYN FERTILIZER/CHEMICALS BALANCE IN STOCK";
-  matrix.push(r2);
-  mergeRanges.push({ startRowIndex: 1, endRowIndex: 2, startColumnIndex: 0, endColumnIndex: 29 });
-
-  const r3 = blank();
-  r3[0] = "No";
-  r3[1] = "Item Code";
-  r3[2] = "Description";
-  r3[3] = "Unit";
-  r3[4] = "OPEN ";
-  model.weekLabels.forEach((label, i) => {
-    r3[weekImportCol(i + 1) - 1] = label;
+  r2[0] = labels.no;
+  r2[1] = labels.itemCode;
+  r2[2] = labels.description;
+  r2[3] = labels.unit;
+  r2[4] = labels.open;
+  weekLabels.forEach((label, i) => {
+    r2[weekImportCol(i + 1) - 1] = label;
   });
-  r3[21] = "Tổng sử dụng/tháng";
-  r3[26] = `Số lượng còn trong kho ${inventoryEndDateLabel(model.monthEndYmd)}`;
-  matrix.push(r3);
-  mergeRanges.push({ startRowIndex: 2, endRowIndex: 3, startColumnIndex: 0, endColumnIndex: 1 });
-  mergeRanges.push({ startRowIndex: 2, endRowIndex: 3, startColumnIndex: 2, endColumnIndex: 3 });
-  mergeRanges.push({ startRowIndex: 2, endRowIndex: 3, startColumnIndex: 3, endColumnIndex: 4 });
-  mergeRanges.push({ startRowIndex: 2, endRowIndex: 3, startColumnIndex: 4, endColumnIndex: 5 });
+  r2[21] = labels.monthTotal;
+  r2[26] = inventoryHeader;
+  matrix.push(r2);
+  mergeRanges.push({ startRowIndex: 1, endRowIndex: 2, startColumnIndex: 0, endColumnIndex: 1 });
+  mergeRanges.push({ startRowIndex: 1, endRowIndex: 2, startColumnIndex: 1, endColumnIndex: 2 });
+  mergeRanges.push({ startRowIndex: 1, endRowIndex: 2, startColumnIndex: 2, endColumnIndex: 3 });
+  mergeRanges.push({ startRowIndex: 1, endRowIndex: 2, startColumnIndex: 3, endColumnIndex: 4 });
+  mergeRanges.push({ startRowIndex: 1, endRowIndex: 2, startColumnIndex: 4, endColumnIndex: 5 });
   for (let w = 0; w < 4; w += 1) {
     mergeRanges.push({
-      startRowIndex: 2,
-      endRowIndex: 3,
+      startRowIndex: 1,
+      endRowIndex: 2,
       startColumnIndex: weekImportCol(w + 1) - 1,
       endColumnIndex: weekImportCol(w + 1) + 3,
     });
   }
-  mergeRanges.push({ startRowIndex: 2, endRowIndex: 3, startColumnIndex: 21, endColumnIndex: 24 });
-  mergeRanges.push({ startRowIndex: 2, endRowIndex: 3, startColumnIndex: 26, endColumnIndex: 29 });
-  pushFill(2, 21, FERTILIZER_BALANCE_COLORS.monthTotalHeader);
-  pushFill(2, 26, FERTILIZER_BALANCE_COLORS.monthTotalHeader);
+  mergeRanges.push({ startRowIndex: 1, endRowIndex: 2, startColumnIndex: 21, endColumnIndex: 24 });
+  mergeRanges.push({ startRowIndex: 1, endRowIndex: 2, startColumnIndex: 26, endColumnIndex: 29 });
+  pushFill(1, 21, FERTILIZER_BALANCE_COLORS.monthTotalHeader);
+  pushFill(1, 26, FERTILIZER_BALANCE_COLORS.monthTotalHeader);
 
-  const r4 = blank();
-  r4[1] = "Mã vật tư";
-  const subHeaders = ["Import", "Transfer", "Consump", "Balance"] as const;
+  const r3 = blank();
   for (let w = 0; w < 4; w += 1) {
     const base = weekImportCol(w + 1) - 1;
     subHeaders.forEach((label, j) => {
-      r4[base + j] = label;
+      r3[base + j] = label;
     });
   }
-  r4[21] = "Import";
-  r4[22] = "Transfer";
-  r4[23] = "Consump";
-  matrix.push(r4);
+  r3[21] = labels.import;
+  r3[22] = labels.transfer;
+  r3[23] = labels.consumption;
+  matrix.push(r3);
 
   function productHasInventory(product: FertilizerBalanceSheetModel["productRows"][number]): boolean {
     return (
@@ -262,6 +297,7 @@ function uniqueSheetTitle(base: string, used: Set<string>): string {
 function fillFertilizerBalanceWorksheet(
   ws: ExcelJS.Worksheet,
   model: FertilizerBalanceSheetModel,
+  labels: FertilizerBalanceSheetLabels,
 ): void {
   ws.getColumn(COL.no).width = 5;
   ws.getColumn(COL.itemCode).width = 12;
@@ -278,51 +314,51 @@ function fillFertilizerBalanceWorksheet(
 
   ws.mergeCells(1, 1, 1, 29);
   const titleCell = ws.getCell(1, 1);
-  titleCell.value = "BIÊN BẢN SẢN LƯỢNG PHÂN/HOÁ CHẤT CÒN LẠI TRONG KHO";
+  titleCell.value = labels.title;
   styleHeaderCell(titleCell, { bg: FERTILIZER_BALANCE_COLORS.titleBg, bold: true });
   for (let c = 1; c <= 29; c += 1) {
     if (c > 1) styleHeaderCell(ws.getCell(1, c), { bg: FERTILIZER_BALANCE_COLORS.titleBg });
   }
 
-  ws.mergeCells(2, 1, 2, 29);
-  ws.getCell(2, 1).value = "MINUTES OF MONTHLYN FERTILIZER/CHEMICALS BALANCE IN STOCK";
-  styleHeaderCell(ws.getCell(2, 1), { bold: true });
+  const headerRow = 2;
+  const subHeaderRow = 3;
+  const weekLabels = resolveBalanceSheetWeekLabels(model, labels);
+  const inventoryHeader = resolveInventoryRemainingLabel(labels, model.monthEndYmd);
+  const subHeaders = [labels.import, labels.transfer, labels.consumption, labels.balance] as const;
 
-  const headerRow = 3;
-  const subHeaderRow = 4;
   ws.mergeCells(headerRow, COL.no, subHeaderRow, COL.no);
+  ws.mergeCells(headerRow, COL.itemCode, subHeaderRow, COL.itemCode);
   ws.mergeCells(headerRow, COL.description, subHeaderRow, COL.description);
   ws.mergeCells(headerRow, COL.unit, subHeaderRow, COL.unit);
   ws.mergeCells(headerRow, COL.open, subHeaderRow, COL.open);
 
   styleHeaderCell(ws.getCell(headerRow, COL.no), { bold: true });
+  ws.getCell(headerRow, COL.no).value = labels.no;
   styleHeaderCell(ws.getCell(headerRow, COL.itemCode), { bold: true });
-  ws.getCell(headerRow, COL.itemCode).value = "Item Code";
-  styleHeaderCell(ws.getCell(subHeaderRow, COL.itemCode), { bold: true });
-  ws.getCell(subHeaderRow, COL.itemCode).value = "Mã vật tư";
+  ws.getCell(headerRow, COL.itemCode).value = labels.itemCode;
   styleHeaderCell(ws.getCell(headerRow, COL.description), { bold: true });
-  ws.getCell(headerRow, COL.description).value = "Description";
+  ws.getCell(headerRow, COL.description).value = labels.description;
   styleHeaderCell(ws.getCell(headerRow, COL.unit), { bold: true });
-  ws.getCell(headerRow, COL.unit).value = "Unit";
+  ws.getCell(headerRow, COL.unit).value = labels.unit;
   styleHeaderCell(ws.getCell(headerRow, COL.open), { bold: true });
-  ws.getCell(headerRow, COL.open).value = "OPEN ";
+  ws.getCell(headerRow, COL.open).value = labels.open;
 
   for (let w = 0; w < 4; w += 1) {
     const importCol = weekImportCol(w + 1);
     ws.mergeCells(headerRow, importCol, headerRow, importCol + 3);
     styleHeaderCell(ws.getCell(headerRow, importCol), { bold: true, wrap: true });
-    ws.getCell(headerRow, importCol).value = model.weekLabels[w] ?? "";
+    ws.getCell(headerRow, importCol).value = weekLabels[w] ?? "";
 
     const subs: Array<{ col: number; bg: string; color?: string; label: string }> = [
-      { col: importCol, bg: FERTILIZER_BALANCE_COLORS.importHeader, label: "Import" },
-      { col: importCol + 1, bg: FERTILIZER_BALANCE_COLORS.transferHeader, label: "Transfer" },
+      { col: importCol, bg: FERTILIZER_BALANCE_COLORS.importHeader, label: labels.import },
+      { col: importCol + 1, bg: FERTILIZER_BALANCE_COLORS.transferHeader, label: labels.transfer },
       {
         col: importCol + 2,
         bg: FERTILIZER_BALANCE_COLORS.consumpHeader,
         color: FERTILIZER_BALANCE_COLORS.headerTextOnRed,
-        label: "Consump",
+        label: labels.consumption,
       },
-      { col: importCol + 3, bg: FERTILIZER_BALANCE_COLORS.balanceHeader, label: "Balance" },
+      { col: importCol + 3, bg: FERTILIZER_BALANCE_COLORS.balanceHeader, label: labels.balance },
     ];
     for (const sub of subs) {
       const cell = ws.getCell(subHeaderRow, sub.col);
@@ -334,20 +370,20 @@ function fillFertilizerBalanceWorksheet(
   ws.mergeCells(headerRow, COL.monthImport, headerRow, COL.monthConsump);
   ws.mergeCells(headerRow, COL.invName, headerRow, COL.invQty);
   const monthTotalCell = ws.getCell(headerRow, COL.monthImport);
-  monthTotalCell.value = "Tổng sử dụng/tháng";
+  monthTotalCell.value = labels.monthTotal;
   styleHeaderCell(monthTotalCell, { bg: FERTILIZER_BALANCE_COLORS.monthTotalHeader, bold: true });
   const invHeaderCell = ws.getCell(headerRow, COL.invName);
-  invHeaderCell.value = `Số lượng còn trong kho ${inventoryEndDateLabel(model.monthEndYmd)}`;
+  invHeaderCell.value = inventoryHeader;
   styleHeaderCell(invHeaderCell, { bg: FERTILIZER_BALANCE_COLORS.monthTotalHeader, bold: true });
 
   const monthSubs: Array<{ col: number; bg: string; color?: string; label: string }> = [
-    { col: COL.monthImport, bg: FERTILIZER_BALANCE_COLORS.importHeader, label: "Import" },
-    { col: COL.monthTransfer, bg: FERTILIZER_BALANCE_COLORS.transferHeader, label: "Transfer" },
+    { col: COL.monthImport, bg: FERTILIZER_BALANCE_COLORS.importHeader, label: labels.import },
+    { col: COL.monthTransfer, bg: FERTILIZER_BALANCE_COLORS.transferHeader, label: labels.transfer },
     {
       col: COL.monthConsump,
       bg: FERTILIZER_BALANCE_COLORS.consumpHeader,
       color: FERTILIZER_BALANCE_COLORS.headerTextOnRed,
-      label: "Consump",
+      label: labels.consumption,
     },
   ];
   for (const sub of monthSubs) {
@@ -433,6 +469,7 @@ function periodRangeFromModels(
 
 export async function exportFertilizerBalanceModelsToXlsx(
   models: FertilizerBalanceSheetModel[],
+  labels: FertilizerBalanceSheetLabels,
   fileName?: string,
 ): Promise<void> {
   if (models.length === 0) return;
@@ -444,7 +481,7 @@ export async function exportFertilizerBalanceModelsToXlsx(
       usedTitles,
     );
     const ws = wb.addWorksheet(tab);
-    fillFertilizerBalanceWorksheet(ws, model);
+    fillFertilizerBalanceWorksheet(ws, model, labels);
   }
 
   const range = periodRangeFromModels(models);
@@ -469,9 +506,10 @@ export async function exportFertilizerBalanceModelsToXlsx(
 
 export async function exportFertilizerBalanceToXlsx(
   model: FertilizerBalanceSheetModel,
+  labels: FertilizerBalanceSheetLabels,
   fileName?: string,
 ): Promise<void> {
-  await exportFertilizerBalanceModelsToXlsx([model], fileName);
+  await exportFertilizerBalanceModelsToXlsx([model], labels, fileName);
 }
 
 function downloadCsvBlob(csv: string, name: string): void {
@@ -486,17 +524,18 @@ function downloadCsvBlob(csv: string, name: string): void {
 
 export function exportFertilizerBalanceModelsToCsv(
   models: FertilizerBalanceSheetModel[],
+  labels: FertilizerBalanceSheetLabels,
   fileName?: string,
 ): void {
   if (models.length === 0) return;
 
   if (models.length === 1) {
-    exportFertilizerBalanceToCsv(models[0]!, fileName);
+    exportFertilizerBalanceToCsv(models[0]!, labels, fileName);
     return;
   }
 
   models.forEach((model, index) => {
-    const payload = buildFertilizerBalanceGoogleSheetPayload(model);
+    const payload = buildFertilizerBalanceGoogleSheetPayload(model, labels);
     const escapeCsv = (v: string) => {
       if (/[",\n\r]/.test(v)) return `"${v.replace(/"/g, '""')}"`;
       return v;
@@ -515,9 +554,10 @@ export function exportFertilizerBalanceModelsToCsv(
 
 export function exportFertilizerBalanceToCsv(
   model: FertilizerBalanceSheetModel,
+  labels: FertilizerBalanceSheetLabels,
   fileName?: string,
 ): void {
-  const payload = buildFertilizerBalanceGoogleSheetPayload(model);
+  const payload = buildFertilizerBalanceGoogleSheetPayload(model, labels);
   const escapeCsv = (v: string) => {
     if (/[",\n\r]/.test(v)) return `"${v.replace(/"/g, '""')}"`;
     return v;
@@ -532,6 +572,7 @@ export function exportFertilizerBalanceToCsv(
 
 export async function exportFertilizerBalanceModelsToGoogleSheet(
   models: FertilizerBalanceSheetModel[],
+  labels: FertilizerBalanceSheetLabels,
 ): Promise<{
   ok: boolean;
   message?: string;
@@ -544,7 +585,7 @@ export async function exportFertilizerBalanceModelsToGoogleSheet(
   }
 
   const tabs = models.map((model) => {
-    const payload = buildFertilizerBalanceGoogleSheetPayload(model);
+    const payload = buildFertilizerBalanceGoogleSheetPayload(model, labels);
     return {
       sheetTabName: payload.sheetTabName ?? fertilizerBalanceSheetTabName(model.farmName, model.year, model.month),
       headers: payload.headers,
@@ -553,7 +594,7 @@ export async function exportFertilizerBalanceModelsToGoogleSheet(
   });
 
   const first = models[0]!;
-  const firstPayload = buildFertilizerBalanceGoogleSheetPayload(first);
+  const firstPayload = buildFertilizerBalanceGoogleSheetPayload(first, labels);
   const range = periodRangeFromModels(models);
   const uniqueFarms = uniqueFarmNamesFromModels(models);
   const spreadsheetTitle = resolveFertilizerBalanceExportFileName(
@@ -603,6 +644,7 @@ export async function exportFertilizerBalanceModelsToGoogleSheet(
 
 export async function exportFertilizerBalanceToGoogleSheet(
   model: FertilizerBalanceSheetModel,
+  labels: FertilizerBalanceSheetLabels,
 ): Promise<{
   ok: boolean;
   message?: string;
@@ -610,7 +652,7 @@ export async function exportFertilizerBalanceToGoogleSheet(
   authorizePath?: string;
   spreadsheetUrl?: string;
 }> {
-  return exportFertilizerBalanceModelsToGoogleSheet([model]);
+  return exportFertilizerBalanceModelsToGoogleSheet([model], labels);
 }
 
 export {

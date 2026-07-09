@@ -1,5 +1,8 @@
 "use client";
 
+import { useMemo } from "react";
+import { useTranslations } from "next-intl";
+
 import { cn } from "@/lib/utils";
 import {
   FERTILIZER_BALANCE_COLORS,
@@ -9,6 +12,7 @@ import {
   formatBalanceQty,
   type FertilizerBalanceSheetModel,
 } from "@/features/fertilizer/lib/fertilizerBalanceSheetData";
+import type { FertilizerBalanceSheetLabels } from "@/features/fertilizer/lib/fertilizerBalanceExport";
 
 const cellBase = "border border-black px-1 py-0.5 text-center text-[11px] leading-tight align-middle";
 const headerBase = cn(cellBase, "font-semibold whitespace-nowrap");
@@ -24,6 +28,47 @@ type Props = {
 };
 
 export function FertilizerBalanceSheetTable({ model, className }: Props) {
+  const t = useTranslations("FertilizerUsage.balanceSheet");
+
+  const labels = useMemo<FertilizerBalanceSheetLabels>(
+    () => ({
+      title: t("title"),
+      no: t("no"),
+      itemCode: t("itemCode"),
+      description: t("description"),
+      unit: t("unit"),
+      open: t("open"),
+      monthTotal: t("monthTotal"),
+      inventoryRemaining: t("inventoryRemaining", { date: "{date}" }),
+      weekLabel: t("weekLabel", {
+        index: "{index}",
+        from: "{from}",
+        to: "{to}",
+      }),
+      import: t("import"),
+      transfer: t("transfer"),
+      consumption: t("consumption"),
+      balance: t("balance"),
+    }),
+    [t],
+  );
+
+  const weekLabels = useMemo(
+    () =>
+      model.weeks.map((bucket) =>
+        labels.weekLabel
+          .replace("{index}", String(bucket.index))
+          .replace("{from}", `${bucket.startDay}/${model.month}/${model.year}`)
+          .replace("{to}", `${bucket.endDay}/${model.month}/${model.year}`),
+      ),
+    [labels.weekLabel, model.month, model.weeks, model.year],
+  );
+
+  const inventoryHeader = labels.inventoryRemaining.replace(
+    "{date}",
+    inventoryEndDateLabel(model.monthEndYmd),
+  );
+
   return (
     <div className={cn("overflow-x-auto bg-white text-black", className)}>
       <table className="min-w-[1280px] w-full border-collapse font-sans">
@@ -58,30 +103,27 @@ export function FertilizerBalanceSheetTable({ model, className }: Props) {
               colSpan={29}
               style={{ backgroundColor: `#${FERTILIZER_BALANCE_COLORS.titleBg}` }}
             >
-              BIÊN BẢN SẢN LƯỢNG PHÂN/HOÁ CHẤT CÒN LẠI TRONG KHO
-            </td>
-          </tr>
-          <tr>
-            <td className={cn(cellBase, "py-1 text-xs font-semibold")} colSpan={29}>
-              MINUTES OF MONTHLYN FERTILIZER/CHEMICALS BALANCE IN STOCK
+              {labels.title}
             </td>
           </tr>
 
           <tr>
             <td className={headerBase} rowSpan={2}>
-              No
-            </td>
-            <td className={headerBase}>Item Code</td>
-            <td className={headerBase} rowSpan={2}>
-              Description
+              {labels.no}
             </td>
             <td className={headerBase} rowSpan={2}>
-              Unit
+              {labels.itemCode}
             </td>
             <td className={headerBase} rowSpan={2}>
-              OPEN
+              {labels.description}
             </td>
-            {model.weekLabels.map((label) => (
+            <td className={headerBase} rowSpan={2}>
+              {labels.unit}
+            </td>
+            <td className={headerBase} rowSpan={2}>
+              {labels.open}
+            </td>
+            {weekLabels.map((label) => (
               <td
                 key={label}
                 className={headerBase}
@@ -96,7 +138,7 @@ export function FertilizerBalanceSheetTable({ model, className }: Props) {
               colSpan={3}
               style={{ backgroundColor: `#${FERTILIZER_BALANCE_COLORS.monthTotalHeader}` }}
             >
-              Tổng sử dụng/tháng
+              {labels.monthTotal}
             </td>
             <td className="border-0" colSpan={2} />
             <td
@@ -104,25 +146,30 @@ export function FertilizerBalanceSheetTable({ model, className }: Props) {
               colSpan={3}
               style={{ backgroundColor: `#${FERTILIZER_BALANCE_COLORS.monthTotalHeader}` }}
             >
-              Số lượng còn trong kho {inventoryEndDateLabel(model.monthEndYmd)}
+              {inventoryHeader}
             </td>
           </tr>
           <tr>
-            <td className={headerBase}>Mã vật tư</td>
             {Array.from({ length: 4 }).map((_, wIdx) => (
-              <WeekSubHeaders key={`wk-sub-${wIdx}`} />
+              <WeekSubHeaders
+                key={`wk-sub-${wIdx}`}
+                importLabel={labels.import}
+                transferLabel={labels.transfer}
+                consumptionLabel={labels.consumption}
+                balanceLabel={labels.balance}
+              />
             ))}
             <td
               className={headerBase}
               style={{ backgroundColor: `#${FERTILIZER_BALANCE_COLORS.importHeader}` }}
             >
-              Import
+              {labels.import}
             </td>
             <td
               className={headerBase}
               style={{ backgroundColor: `#${FERTILIZER_BALANCE_COLORS.transferHeader}` }}
             >
-              Transfer
+              {labels.transfer}
             </td>
             <td
               className={headerBase}
@@ -131,7 +178,7 @@ export function FertilizerBalanceSheetTable({ model, className }: Props) {
                 color: `#${FERTILIZER_BALANCE_COLORS.headerTextOnRed}`,
               }}
             >
-              Consump
+              {labels.consumption}
             </td>
             <td className="border-0" colSpan={2} />
             <td className={headerBase} colSpan={3} />
@@ -192,20 +239,30 @@ export function FertilizerBalanceSheetTable({ model, className }: Props) {
   );
 }
 
-function WeekSubHeaders() {
+function WeekSubHeaders({
+  importLabel,
+  transferLabel,
+  consumptionLabel,
+  balanceLabel,
+}: {
+  importLabel: string;
+  transferLabel: string;
+  consumptionLabel: string;
+  balanceLabel: string;
+}) {
   return (
     <>
       <td
         className={headerBase}
         style={{ backgroundColor: `#${FERTILIZER_BALANCE_COLORS.importHeader}` }}
       >
-        Import
+        {importLabel}
       </td>
       <td
         className={headerBase}
         style={{ backgroundColor: `#${FERTILIZER_BALANCE_COLORS.transferHeader}` }}
       >
-        Transfer
+        {transferLabel}
       </td>
       <td
         className={headerBase}
@@ -214,13 +271,13 @@ function WeekSubHeaders() {
           color: `#${FERTILIZER_BALANCE_COLORS.headerTextOnRed}`,
         }}
       >
-        Consump
+        {consumptionLabel}
       </td>
       <td
         className={headerBase}
         style={{ backgroundColor: `#${FERTILIZER_BALANCE_COLORS.balanceHeader}` }}
       >
-        Balance
+        {balanceLabel}
       </td>
     </>
   );

@@ -10,6 +10,7 @@ import {
   exportFertilizerBalanceModelsToXlsx,
   resolveFertilizerBalanceExportFileName,
   type FertilizerBalanceExportFilter,
+  type FertilizerBalanceSheetLabels,
 } from "@/features/fertilizer/lib/fertilizerBalanceExport";
 import {
   exportFertilizerUsageDetailToCsv,
@@ -208,6 +209,29 @@ export function FertilizerBalanceExportDialog({
     [t],
   );
 
+  const balanceSheetLabels = useMemo<FertilizerBalanceSheetLabels>(
+    () => ({
+      title: t("balanceSheet.title"),
+      no: t("balanceSheet.no"),
+      itemCode: t("balanceSheet.itemCode"),
+      description: t("balanceSheet.description"),
+      unit: t("balanceSheet.unit"),
+      open: t("balanceSheet.open"),
+      monthTotal: t("balanceSheet.monthTotal"),
+      inventoryRemaining: t("balanceSheet.inventoryRemaining", { date: "{date}" }),
+      weekLabel: t("balanceSheet.weekLabel", {
+        index: "{index}",
+        from: "{from}",
+        to: "{to}",
+      }),
+      import: t("balanceSheet.import"),
+      transfer: t("balanceSheet.transfer"),
+      consumption: t("balanceSheet.consumption"),
+      balance: t("balanceSheet.balance"),
+    }),
+    [t],
+  );
+
   const fileName = useMemo(() => {
     const ext = format === "csv" ? "csv" : "xlsx";
     const from = { year: fromYear, month: fromMonth };
@@ -341,7 +365,7 @@ export function FertilizerBalanceExportDialog({
       }
 
       const models = await loadModels();
-      const result = await exportFertilizerBalanceModelsToGoogleSheet(models);
+      const result = await exportFertilizerBalanceModelsToGoogleSheet(models, balanceSheetLabels);
       if (result.needsAuth) {
         savePendingFertilizerGoogleSheetExport({ filter, exportKind });
         startFertilizerGoogleSheetOAuth();
@@ -373,6 +397,7 @@ export function FertilizerBalanceExportDialog({
     loadModels,
     loadDetailRows,
     detailLabels,
+    balanceSheetLabels,
     fileName,
     onClose,
     onResumeHandled,
@@ -461,13 +486,17 @@ export function FertilizerBalanceExportDialog({
 
       const models = await loadModels();
       if (format === "csv") {
-        exportFertilizerBalanceModelsToCsv(models, models.length === 1 ? fileName : undefined);
+        exportFertilizerBalanceModelsToCsv(
+          models,
+          balanceSheetLabels,
+          models.length === 1 ? fileName : undefined,
+        );
         onClose();
         return;
       }
       if (format === "xlsx") {
         setProgressMessage(tHarvest("exportExcelPreparing"));
-        await exportFertilizerBalanceModelsToXlsx(models, fileName);
+        await exportFertilizerBalanceModelsToXlsx(models, balanceSheetLabels, fileName);
         onClose();
         return;
       }
@@ -476,7 +505,7 @@ export function FertilizerBalanceExportDialog({
         startFertilizerGoogleSheetOAuth();
         return;
       }
-      const result = await exportFertilizerBalanceModelsToGoogleSheet(models);
+      const result = await exportFertilizerBalanceModelsToGoogleSheet(models, balanceSheetLabels);
       if (result.needsAuth) {
         savePendingFertilizerGoogleSheetExport({ filter, exportKind });
         startFertilizerGoogleSheetOAuth();
