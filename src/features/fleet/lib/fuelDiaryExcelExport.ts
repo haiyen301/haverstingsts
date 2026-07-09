@@ -174,7 +174,8 @@ function parseDiaryDate(value: unknown): Date | unknown {
   const day = Number(m[1]);
   const month = Number(m[2]);
   const year = Number(m[3]);
-  return new Date(year, month - 1, day);
+  // UTC midnight keeps Excel calendar day stable across timezones.
+  return new Date(Date.UTC(year, month - 1, day));
 }
 
 function applyLayoutMerges(

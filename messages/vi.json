@@ -3125,6 +3125,7 @@
     },
     "filters": {
       "allFarms": "Tất cả trang trại",
+      "allFuelTypes": "Tất cả loại nhiên liệu",
       "allTime": "Mọi thời gian",
       "today": "Hôm nay",
       "thisWeek": "Tuần này",
@@ -3254,6 +3255,43 @@
         "export": "Xuất file thất bại.",
         "empty": "Không có dữ liệu cho các trang trại và khoảng ngày đã chọn.",
         "farmRequired": "Vui lòng chọn ít nhất một trang trại."
+      }
+    },
+    "import": {
+      "button": "Import",
+      "title": "Import sổ nhiên liệu",
+      "subtitle": "Tải file PETROL-DIESEL diary. Lít theo máy và ngày sẽ được import vào fuel usage cho farm đã chọn.",
+      "close": "Đóng",
+      "farm": "Farm",
+      "selectFarm": "Chọn farm",
+      "file": "File Excel",
+      "uploadHint": "Chọn file .xlsx",
+      "emptyHint": "Tải file PETROL-DIESEL diary để xem trước trước khi import.",
+      "previewTitle": "Đã đọc file",
+      "previewSummary": "{sheets} sheet, {entries} dòng sử dụng ({ready} sẵn sàng, {unmatched} không khớp máy), {stockImports} dòng nhập kho từ {from} → {to} cho {farm}.",
+      "openingHint": "Tồn đầu kỳ (REMAINING/Tồn ngày 01/01/2026) không được import — bạn nhập thủ công một lần trong Balance.",
+      "stockPreviewTitle": "Nhập kho nhiên liệu ({count})",
+      "unmatchedTitle": "Máy không khớp trong farm này",
+      "import": "Import vào database",
+      "importing": "Đang import…",
+      "confirmTitle": "Import sổ nhiên liệu?",
+      "confirmBody": "Sẽ upsert {entries} bản ghi fuel usage và {stockImports} dòng nhập kho cho {farm}.",
+      "colDate": "Ngày",
+      "colVehicle": "Máy",
+      "colFuel": "Loại",
+      "colLitres": "Lít",
+      "colImportQty": "Nhập (L)",
+      "listShowing": "Hiển thị {shown}/{total} bản ghi",
+      "loadMore": "Tải thêm",
+      "confirmYes": "Có, import",
+      "confirmNo": "Hủy",
+      "importSuccess": "Đã import {usageTotal} usage ({usageCreated} mới, {usageUpdated} cập nhật) và {stockTotal} nhập kho ({stockCreated} mới, {stockUpdated} cập nhật).",
+      "importSuccessGeneric": "Import fuel usage thành công.",
+      "errors": {
+        "invalidFile": "Vui lòng chọn file .xlsx fuel diary.",
+        "noEntries": "Không tìm thấy lít nhiên liệu trong file.",
+        "parse": "Không đọc được file Excel.",
+        "import": "Không import được fuel usage."
       }
     }
   },

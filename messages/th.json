@@ -3052,6 +3052,7 @@
     },
     "filters": {
       "allFarms": "ฟาร์มทั้งหมด",
+      "allFuelTypes": "น้ำมันทุกประเภท",
       "allTime": "ตลอดเวลา",
       "today": "วันนี้",
       "thisWeek": "สัปดาห์นี้",
@@ -3176,6 +3177,43 @@
         "export": "ส่งออกไม่สำเร็จ",
         "empty": "ไม่มีข้อมูลในช่วงวันที่ที่เลือก",
         "farmRequired": "กรุณาเลือกฟาร์ม"
+      }
+    },
+    "import": {
+      "button": "นำเข้า",
+      "title": "นำเข้าบันทึกเชื้อเพลิง",
+      "subtitle": "อัปโหลดไฟล์ PETROL-DIESEL diary ลิตรต่อยานพาหนะและวันที่จะถูกนำเข้า fuel usage สำหรับฟาร์มที่เลือก",
+      "close": "ปิด",
+      "farm": "ฟาร์ม",
+      "selectFarm": "เลือกฟาร์ม",
+      "file": "ไฟล์ Excel",
+      "uploadHint": "เลือกไฟล์ .xlsx",
+      "emptyHint": "อัปโหลดไฟล์ PETROL-DIESEL diary เพื่อดูตัวอย่างก่อนนำเข้า",
+      "previewTitle": "อ่านไฟล์แล้ว",
+      "previewSummary": "{sheets} ชีต, {entries} แถวการใช้ ({ready} พร้อม, {unmatched} ไม่ตรงยานพาหนะ), {stockImports} แถวรับเข้าสต็อก {from} → {to} สำหรับ {farm}",
+      "openingHint": "ยอดเปิด (REMAINING/Tồn วันที่ 01/01/2026) ไม่ถูกนำเข้า — ตั้งค่าด้วยตนเองครั้งเดียวใน Balance",
+      "stockPreviewTitle": "รับเข้าสต็อก ({count})",
+      "unmatchedTitle": "ยานพาหนะที่ไม่ตรงในฟาร์มนี้",
+      "import": "นำเข้าฐานข้อมูล",
+      "importing": "กำลังนำเข้า…",
+      "confirmTitle": "นำเข้าบันทึกเชื้อเพลิง?",
+      "confirmBody": "จะ upsert {entries} รายการ fuel usage และ {stockImports} รายการรับเข้าสต็อกสำหรับ {farm}",
+      "colDate": "วันที่",
+      "colVehicle": "ยานพาหนะ",
+      "colFuel": "เชื้อเพลิง",
+      "colLitres": "ลิตร",
+      "colImportQty": "รับเข้า (L)",
+      "listShowing": "แสดง {shown} จาก {total} รายการ",
+      "loadMore": "โหลดเพิ่ม",
+      "confirmYes": "ใช่ นำเข้า",
+      "confirmNo": "ยกเลิก",
+      "importSuccess": "นำเข้า {usageTotal} การใช้ ({usageCreated} ใหม่, {usageUpdated} อัปเดต) และ {stockTotal} รับเข้าสต็อก ({stockCreated} ใหม่, {stockUpdated} อัปเดต)",
+      "importSuccessGeneric": "นำเข้า fuel usage สำเร็จ",
+      "errors": {
+        "invalidFile": "กรุณาเลือกไฟล์ .xlsx fuel diary",
+        "noEntries": "ไม่พบลิตรเชื้อเพลิงในไฟล์",
+        "parse": "อ่านไฟล์ Excel ไม่ได้",
+        "import": "นำเข้า fuel usage ไม่ได้"
       }
     }
   },

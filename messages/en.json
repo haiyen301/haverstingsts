@@ -3221,6 +3221,7 @@
     },
     "filters": {
       "allFarms": "All Farms",
+      "allFuelTypes": "All Fuel Types",
       "allTime": "All Time",
       "today": "Today",
       "thisWeek": "This Week",
@@ -3371,6 +3372,43 @@
         "export": "Export failed.",
         "empty": "No data to export for the selected farms and dates.",
         "farmRequired": "Please select at least one farm."
+      }
+    },
+    "import": {
+      "button": "Import",
+      "title": "Import fuel diary",
+      "subtitle": "Upload the PETROL-DIESEL diary workbook. Litres per vehicle and date are imported into fuel usage for the selected farm.",
+      "close": "Close",
+      "farm": "Farm",
+      "selectFarm": "Select farm",
+      "file": "Excel file",
+      "uploadHint": "Choose .xlsx file",
+      "emptyHint": "Upload a PETROL-DIESEL diary workbook to preview entries before importing.",
+      "previewTitle": "Parsed workbook",
+      "previewSummary": "{sheets} sheet(s), {entries} usage row(s) ({ready} ready, {unmatched} unmatched), {stockImports} stock import(s) from {from} → {to} for {farm}.",
+      "openingHint": "Opening balance (REMAINING/Tồn on 01/01/2026) is not imported — set it once manually under Balance.",
+      "stockPreviewTitle": "Stock imports ({count})",
+      "unmatchedTitle": "Vehicles not matched in this farm",
+      "import": "Import to database",
+      "importing": "Importing…",
+      "confirmTitle": "Import fuel diary?",
+      "confirmBody": "This will upsert {entries} fuel usage record(s) and {stockImports} stock import(s) for {farm}.",
+      "colDate": "Date",
+      "colVehicle": "Vehicle",
+      "colFuel": "Fuel",
+      "colLitres": "Litres",
+      "colImportQty": "Import (L)",
+      "listShowing": "Showing {shown} of {total} record(s)",
+      "loadMore": "Load more",
+      "confirmYes": "Yes, import",
+      "confirmNo": "Cancel",
+      "importSuccess": "Imported {usageTotal} usage ({usageCreated} new, {usageUpdated} updated) and {stockTotal} stock import(s) ({stockCreated} new, {stockUpdated} updated).",
+      "importSuccessGeneric": "Fuel usage import completed.",
+      "errors": {
+        "invalidFile": "Please choose a .xlsx fuel diary file.",
+        "noEntries": "No fuel usage litres found in the workbook.",
+        "parse": "Could not read the Excel file.",
+        "import": "Could not import fuel usage."
       }
     }
   },

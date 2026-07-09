@@ -58,16 +58,68 @@ export async function removeFuelUsage(id: number): Promise<void> {
   await stsProxyPostJson(STS_API_PATHS.fuelUsageRemove, { id });
 }
 
-export function fuelUsageVehicleLabel(row: Pick<
-  FuelUsageRow,
-  "vehicle_name" | "alias_name"
->): string {
+export type FuelUsageImportEntryPayload = {
+  fuel_date: string;
+  vehicle_inspection_id: number;
+  vehicle_type?: string;
+  litres: number;
+  odometer_km?: number;
+};
+
+export type FuelStockImportEntryPayload = {
+  balance_date: string;
+  fuel_kind: "diesel" | "petrol";
+  import_qty: number;
+};
+
+export type FuelUsageImportSummary = {
+  usage: {
+    total: number;
+    created: number;
+    updated: number;
+    skipped: number;
+  };
+  stock: {
+    total: number;
+    created: number;
+    updated: number;
+    skipped: number;
+  };
+};
+
+export async function importFuelUsageBulk(payload: {
+  farm_id: number;
+  entries?: FuelUsageImportEntryPayload[];
+  stock_imports?: FuelStockImportEntryPayload[];
+}): Promise<{ summary: FuelUsageImportSummary }> {
+  return stsProxyPostJson<{ summary: FuelUsageImportSummary }>(
+    STS_API_PATHS.fuelUsageImportBulk,
+    payload,
+  );
+}
+
+export function fuelUsageVehicleLabel(
+  row: Pick<FuelUsageRow, "vehicle_name" | "alias_name" | "vehicle_inspection_id">,
+  lookupByInspectionId?: ReadonlyMap<string, string> | Record<string, string>,
+): string {
   const alias = String(row.alias_name ?? "").trim();
   const name = String(row.vehicle_name ?? "").trim();
   if (alias && name && alias !== name) {
     return `${alias} (${name})`;
   }
-  return alias || name || "—";
+  const fromRow = alias || name;
+  if (fromRow) return fromRow;
+
+  const inspectionId = String(row.vehicle_inspection_id ?? "").trim();
+  if (inspectionId && lookupByInspectionId) {
+    const resolved =
+      lookupByInspectionId instanceof Map
+        ? lookupByInspectionId.get(inspectionId)
+        : lookupByInspectionId[inspectionId];
+    if (resolved) return resolved;
+  }
+
+  return "—";
 }
 
 export function fuelUsageFuelKindLabel(

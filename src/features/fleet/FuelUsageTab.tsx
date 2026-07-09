@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlignLeft,
   ArrowDown,
+  ChevronDown,
   DollarSign,
   Fuel,
   Info,
@@ -14,6 +15,7 @@ import {
   TrendingDown,
   TrendingUp,
   Download,
+  Upload,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { toast } from "react-toastify";
@@ -30,6 +32,7 @@ import { FLEET_OPTION_CATALOG_KEYS } from "@/features/fleet/api/fleetOptionCatal
 import { useFleetOptionCatalog } from "@/features/fleet/hooks/useFleetOptionCatalog";
 import { FuelStockLedgerPanel } from "@/features/fleet/FuelStockLedgerPanel";
 import { FuelDiaryExportDialog } from "@/features/fleet/ui/FuelDiaryExportDialog";
+import { FuelUsageImportDialog } from "@/features/fleet/ui/FuelUsageImportDialog";
 import { FuelUsageBalanceBreakdownPanel } from "@/features/fleet/ui/FuelUsageBalanceBreakdownPanel";
 import {
   buildFuelUsageBalanceIndex,
@@ -76,6 +79,9 @@ import { MultiSelect } from "@/shared/ui/multi-select";
 
 const inputClass =
   "flex h-9 w-full min-w-0 rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground shadow-sm outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/35";
+const selectClass =
+  "h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground shadow-sm";
+const selectChevron = <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />;
 const textareaClass =
   "flex min-h-[96px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground shadow-sm outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/35";
 const btnPrimary =
@@ -156,10 +162,28 @@ function inspectionVehicleLabel(row: VehicleInspectionRow): string {
   return alias || name || `#${row.id}`;
 }
 
+function dedupeFuelUsageRows(rows: FuelUsageRow[]): FuelUsageRow[] {
+  const seen = new Set<number>();
+  const deduped: FuelUsageRow[] = [];
+  for (const row of rows) {
+    const id = Number(row.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      deduped.push(row);
+      continue;
+    }
+    if (seen.has(id)) continue;
+    seen.add(id);
+    deduped.push(row);
+  }
+  return deduped;
+}
+
 export function FuelUsageTab() {
   const t = useTranslations("FuelUsage");
   const user = useAuthUserStore((s) => s.user);
   const canCreate = canAccessModule(user, "fuel_usage", "create");
+  const canImport =
+    canAccessModule(user, "fuel_usage", "import") || canCreate;
   const canEdit = canAccessModule(user, "fuel_usage", "edit");
   const canDelete = canAccessModule(user, "fuel_usage", "delete");
   const canExport = canAccessModule(user, "fuel_usage", "export");
@@ -178,6 +202,14 @@ export function FuelUsageTab() {
   const fuelKindFallback = useMemo(
     () => ({ diesel: t("stock.diesel"), petrol: t("stock.petrol") }),
     [t],
+  );
+  const fuelKindFilterOptions = useMemo(
+    () =>
+      fuelTypeOptions.map((option) => ({
+        value: String(option.value).toLowerCase(),
+        label: option.label,
+      })),
+    [fuelTypeOptions],
   );
   const farms = useHarvestingDataStore((s) => s.farms);
   const staffs = useHarvestingDataStore((s) => s.staffs);
@@ -199,15 +231,18 @@ export function FuelUsageTab() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [kpiDateFilter, setKpiDateFilter] = useState<KpiDeliveryDateFilter>({
-    preset: "lastWeek",
+    preset: "lastMonth",
   });
   const [dialogOpen, setDialogOpen] = useState(false);
   const [balanceOpen, setBalanceOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [listVisibleCount, setListVisibleCount] = useState(USAGE_LIST_PAGE_SIZE);
   const [form, setForm] = useState<EntryForm>(() => emptyForm());
   const [stockReloadToken, setStockReloadToken] = useState(0);
+  const [selectedFuelKinds, setSelectedFuelKinds] = useState<string[]>([]);
+  const loadSeqRef = useRef(0);
 
   const farmNameById = useMemo(() => {
     const map = new Map(scopedFarmNameById);
@@ -245,10 +280,32 @@ export function FuelUsageTab() {
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [staffs]);
 
+  const vehicleLabelByInspectionId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const vehicle of vehicles) {
+      map.set(String(vehicle.id), inspectionVehicleLabel(vehicle));
+    }
+    return map;
+  }, [vehicles]);
+
   const formVehicles = useMemo(() => {
     if (!form.farm_id) return vehicles;
     return vehicles.filter((v) => String(v.farm_id) === form.farm_id);
   }, [form.farm_id, vehicles]);
+
+  const vehicleSelectOptions = useMemo(
+    () =>
+      formVehicles.map((vehicle) => ({
+        value: String(vehicle.id),
+        label: inspectionVehicleLabel(vehicle),
+      })),
+    [formVehicles],
+  );
+
+  const operatorSelectOptions = useMemo(
+    () => staffOptions.map((staff) => ({ value: staff.id, label: staff.name })),
+    [staffOptions],
+  );
 
   const vehicleTypeOptions = useMemo(() => {
     const options = [...machineryTypes];
@@ -289,6 +346,7 @@ export function FuelUsageTab() {
   }, [t]);
 
   const load = useCallback(async () => {
+    const seq = ++loadSeqRef.current;
     setLoading(true);
     try {
       const params: {
@@ -303,14 +361,18 @@ export function FuelUsageTab() {
         if (dateRange.start) params.fuel_from = dateRange.start;
         if (dateRange.end) params.fuel_to = dateRange.end;
       }
-      const usageRows = await fetchFuelUsage(params);
+      const usageRows = dedupeFuelUsageRows(await fetchFuelUsage(params));
+      if (seq !== loadSeqRef.current) return;
       setEntries(usageRows);
     } catch (e) {
+      if (seq !== loadSeqRef.current) return;
       toast.error(e instanceof Error ? e.message : t("errors.load"), {
         containerId: TOAST_CONTAINER_TOP_RIGHT,
       });
     } finally {
-      setLoading(false);
+      if (seq === loadSeqRef.current) {
+        setLoading(false);
+      }
     }
   }, [selectedFarmIds, hasActiveDateFilter, dateRange.start, dateRange.end, t]);
 
@@ -372,7 +434,16 @@ export function FuelUsageTab() {
     });
   }, [dialogOpen, form.vehicle_inspection_id, vehicleTypeForInspection, fuelKindForInspection]);
 
-  const filtered = entries;
+  const filtered = useMemo(() => {
+    if (selectedFuelKinds.length === 0) return entries;
+    const selected = new Set(selectedFuelKinds.map((kind) => kind.toLowerCase()));
+    return entries.filter((row) => {
+      const kind = String(row.fuel_kind ?? "")
+        .trim()
+        .toLowerCase();
+      return kind && selected.has(kind);
+    });
+  }, [entries, selectedFuelKinds]);
 
   const visibleUsageRows = useMemo(
     () => filtered.slice(0, listVisibleCount),
@@ -402,7 +473,7 @@ export function FuelUsageTab() {
 
   useEffect(() => {
     setListVisibleCount(USAGE_LIST_PAGE_SIZE);
-  }, [selectedFarmIds, hasActiveDateFilter, dateRange.start, dateRange.end]);
+  }, [selectedFarmIds, selectedFuelKinds, hasActiveDateFilter, dateRange.start, dateRange.end]);
   const totalLitres = filtered.reduce((s, e) => s + num(e.litres), 0);
   const totalCost = filtered.reduce((s, e) => s + lineCost(e), 0);
   const avgPerEntry = filtered.length > 0 ? totalLitres / filtered.length : 0;
@@ -501,6 +572,7 @@ export function FuelUsageTab() {
     }
     try {
       setSaving(true);
+      loadSeqRef.current += 1;
       await saveFuelUsage({
         id: editingId ?? undefined,
         fuel_date: form.fuel_date,
@@ -528,9 +600,13 @@ export function FuelUsageTab() {
 
   const handleDelete = async (row: FuelUsageRow) => {
     if (!window.confirm(t("deleteConfirm"))) return;
+    const rowId = Number(row.id);
+    if (!Number.isFinite(rowId) || rowId <= 0) return;
     try {
       setSaving(true);
-      await removeFuelUsage(Number(row.id));
+      loadSeqRef.current += 1;
+      await removeFuelUsage(rowId);
+      setEntries((prev) => prev.filter((entry) => Number(entry.id) !== rowId));
       toast.success(t("deleted"), { containerId: TOAST_CONTAINER_TOP_RIGHT });
       setStockReloadToken((n) => n + 1);
       await Promise.all([load(), loadBalanceData()]);
@@ -538,6 +614,7 @@ export function FuelUsageTab() {
       toast.error(e instanceof Error ? e.message : t("errors.delete"), {
         containerId: TOAST_CONTAINER_TOP_RIGHT,
       });
+      await load();
     } finally {
       setSaving(false);
     }
@@ -571,6 +648,12 @@ export function FuelUsageTab() {
             <Package className="h-4 w-4" />
             {t("stock.balanceButton")}
           </button>
+          {canImport ? (
+            <button type="button" className={btnOutline} onClick={() => setImportOpen(true)}>
+              <Upload className="h-4 w-4" />
+              {t("import.button")}
+            </button>
+          ) : null}
           {canExport ? (
             <button type="button" className={btnOutline} onClick={() => setExportOpen(true)}>
               <Download className="h-4 w-4" />
@@ -635,6 +718,15 @@ export function FuelUsageTab() {
           className={cn(multiSelectBaseClass, bgSurfaceFilter(selectedFarmIds.length > 0))}
           rightIcon={filterTriggerIcon}
         />
+        <MultiSelect
+          options={fuelKindFilterOptions}
+          values={selectedFuelKinds}
+          onChange={setSelectedFuelKinds}
+          placeholder={t("filters.allFuelTypes")}
+          showAllOption
+          className={cn(multiSelectBaseClass, bgSurfaceFilter(selectedFuelKinds.length > 0))}
+          rightIcon={filterTriggerIcon}
+        />
         <DashboardKpiDateFilter
           value={kpiDateFilter}
           onChange={setKpiDateFilter}
@@ -677,7 +769,9 @@ export function FuelUsageTab() {
                       </td>
                       <td className="px-4 py-3">
                         <div>
-                          <p className="font-medium">{fuelUsageVehicleLabel(e)}</p>
+                          <p className="font-medium">
+                            {fuelUsageVehicleLabel(e, vehicleLabelByInspectionId)}
+                          </p>
                           {e.vehicle_type ? (
                             <p className="text-xs text-muted-foreground">{e.vehicle_type}</p>
                           ) : null}
@@ -846,6 +940,20 @@ export function FuelUsageTab() {
         initialDateTo={hasActiveDateFilter ? dateRange.end : undefined}
       />
 
+      <FuelUsageImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        farmOptions={farmOptions.map((f) => ({ id: f.id, label: f.label }))}
+        vehicles={vehicles}
+        initialFarmId={
+          selectedFarmIds.length === 1 ? selectedFarmIds[0] : farmOptions[0]?.id
+        }
+        onImported={() => {
+          setStockReloadToken((token) => token + 1);
+          void Promise.all([load(), loadBalanceData()]);
+        }}
+      />
+
       {dialogOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg border border-border bg-background p-6 shadow-lg">
@@ -879,19 +987,17 @@ export function FuelUsageTab() {
               </label>
               <label className="space-y-1">
                 <span className="text-xs font-medium">{t("dialog.vehicle")} *</span>
-                <select
-                  className={inputClass}
-                  value={form.vehicle_inspection_id}
-                  onChange={(e) => handleVehicleChange(e.target.value)}
-                  disabled={!form.farm_id}
-                >
-                  <option value="">{t("dialog.selectVehicle")}</option>
-                  {formVehicles.map((vehicle) => (
-                    <option key={vehicle.id} value={String(vehicle.id)}>
-                      {inspectionVehicleLabel(vehicle)}
-                    </option>
-                  ))}
-                </select>
+                <MultiSelect
+                  options={vehicleSelectOptions}
+                  values={form.vehicle_inspection_id ? [form.vehicle_inspection_id] : []}
+                  onChange={(next) => handleVehicleChange(next[0] ?? "")}
+                  multi={false}
+                  placeholder={t("dialog.selectVehicle")}
+                  className={selectClass}
+                  rightIcon={selectChevron}
+                  showSelectedChipsInPopover={false}
+                  disabled={!form.farm_id || saving}
+                />
               </label>
               <label className="space-y-1">
                 <span className="text-xs font-medium">{t("dialog.vehicleType")}</span>
@@ -979,18 +1085,17 @@ export function FuelUsageTab() {
               </label>
               <label className="space-y-1">
                 <span className="text-xs font-medium">{t("dialog.operator")}</span>
-                <select
-                  className={inputClass}
-                  value={form.operator_id}
-                  onChange={(e) => setForm((f) => ({ ...f, operator_id: e.target.value }))}
-                >
-                  <option value="">{t("dialog.selectOperator")}</option>
-                  {staffOptions.map((staff) => (
-                    <option key={staff.id} value={staff.id}>
-                      {staff.name}
-                    </option>
-                  ))}
-                </select>
+                <MultiSelect
+                  options={operatorSelectOptions}
+                  values={form.operator_id ? [form.operator_id] : []}
+                  onChange={(next) => setForm((f) => ({ ...f, operator_id: next[0] ?? "" }))}
+                  multi={false}
+                  placeholder={t("dialog.selectOperator")}
+                  className={selectClass}
+                  rightIcon={selectChevron}
+                  showSelectedChipsInPopover={false}
+                  disabled={saving}
+                />
               </label>
               <label className="col-span-2 space-y-1">
                 <span className="text-xs font-medium">{t("dialog.purpose")}</span>

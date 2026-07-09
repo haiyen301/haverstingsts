@@ -38,6 +38,13 @@ const actionBtnClass =
   "inline-flex h-9 items-center justify-center whitespace-nowrap rounded-md border border-border px-3 text-sm font-medium ring-offset-background transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
 const selectChevron = <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />;
 
+function localDateYmd(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 export function FuelDiaryExportDialog({
   open,
   onClose,
@@ -49,8 +56,8 @@ export function FuelDiaryExportDialog({
   const t = useTranslations("FuelUsage");
   const locale = useLocale();
   const [farmIds, setFarmIds] = useState<string[]>([]);
-  const [dateFrom, setDateFrom] = useState(() => new Date().toISOString().slice(0, 10));
-  const [dateTo, setDateTo] = useState(() => new Date().toISOString().slice(0, 10));
+  const [dateFrom, setDateFrom] = useState(() => localDateYmd(new Date()));
+  const [dateTo, setDateTo] = useState(() => localDateYmd(new Date()));
   const [format, setFormat] = useState<ExportFormat>("xlsx");
   const [report, setReport] = useState<FuelDiaryReportData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -69,12 +76,8 @@ export function FuelDiaryExportDialog({
   useEffect(() => {
     if (!open) return;
     const today = new Date();
-    const firstDay = new Date(today.getFullYear(), today.getMonth(), 1)
-      .toISOString()
-      .slice(0, 10);
-    const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0)
-      .toISOString()
-      .slice(0, 10);
+    const firstDay = localDateYmd(new Date(today.getFullYear(), today.getMonth(), 1));
+    const lastDay = localDateYmd(new Date(today.getFullYear(), today.getMonth() + 1, 0));
     setDateFrom(initialDateFrom || firstDay);
     setDateTo(initialDateTo || lastDay);
 

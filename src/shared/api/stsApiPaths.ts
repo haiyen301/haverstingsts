@@ -86,6 +86,7 @@ export const STS_API_PATHS = {
   fuelUsageSave: "/api/fuel_usage/save",
   fuelUsageRemove: "/api/fuel_usage/remove",
   fuelUsageDiaryReport: "/api/fuel_usage/diary_report",
+  fuelUsageImportBulk: "/api/fuel_usage/import_bulk",
   /** Fleet consumable stock ledger (fuel diesel/petrol, fertilizer by item) */
   fleetStockLedger: "/api/fleet_stock_ledger",
   fleetStockLedgerSave: "/api/fleet_stock_ledger/save",
