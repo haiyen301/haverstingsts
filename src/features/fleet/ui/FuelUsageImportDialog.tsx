@@ -149,6 +149,7 @@ export function FuelUsageImportDialog({
       fuel_date: row.fuel_date,
       vehicle_inspection_id: Number(row.vehicle_inspection_id),
       vehicle_type: row.vehicle_type,
+      fuel_kind: row.fuel_kind,
       litres: row.litres,
     }));
 

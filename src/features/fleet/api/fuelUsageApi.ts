@@ -62,6 +62,7 @@ export type FuelUsageImportEntryPayload = {
   fuel_date: string;
   vehicle_inspection_id: number;
   vehicle_type?: string;
+  fuel_kind?: "diesel" | "petrol";
   litres: number;
   odometer_km?: number;
 };
@@ -112,10 +113,12 @@ export function fuelUsageVehicleLabel(
 
   const inspectionId = String(row.vehicle_inspection_id ?? "").trim();
   if (inspectionId && lookupByInspectionId) {
-    const resolved =
-      lookupByInspectionId instanceof Map
-        ? lookupByInspectionId.get(inspectionId)
-        : lookupByInspectionId[inspectionId];
+    let resolved: string | undefined;
+    if (lookupByInspectionId instanceof Map) {
+      resolved = lookupByInspectionId.get(inspectionId);
+    } else {
+      resolved = (lookupByInspectionId as Record<string, string>)[inspectionId];
+    }
     if (resolved) return resolved;
   }
 

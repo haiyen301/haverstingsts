@@ -158,9 +158,39 @@ function isDiarySheet(ws: ExcelJS.Worksheet): boolean {
   return false;
 }
 
+function isSectionHeaderLabel(label: string): boolean {
+  const text = label.trim().toLowerCase();
+  if (!text) return false;
+  // Diary section titles only — not equipment rows like "Diesel Pump (Pump)" / "Petrol Pump (Pump)".
+  if (
+    text === "máy dầu/diesel" ||
+    text === "diesel machines" ||
+    text.startsWith("máy dầu/") ||
+    text.includes("เครื่องดีเซล")
+  ) {
+    return true;
+  }
+  if (
+    text === "máy xăng/petro" ||
+    text === "máy xăng/petrol" ||
+    text === "petrol machines" ||
+    text.startsWith("máy xăng/") ||
+    text.includes("เครื่องเบนซิน")
+  ) {
+    return true;
+  }
+  return false;
+}
+
 function sectionForLabel(label: string): FuelUsageImportFuelKind | null {
-  const text = label.toLowerCase();
-  if (text.includes("diesel") || text.includes("máy dầu") || text.includes("may dau")) {
+  if (!isSectionHeaderLabel(label)) return null;
+  const text = label.trim().toLowerCase();
+  if (
+    text.includes("diesel") ||
+    text.includes("máy dầu") ||
+    text.includes("may dau") ||
+    text.includes("เครื่องดีเซล")
+  ) {
     return "diesel";
   }
   if (
@@ -168,7 +198,8 @@ function sectionForLabel(label: string): FuelUsageImportFuelKind | null {
     text.includes("petro") ||
     text.includes("xăng") ||
     text.includes("xang") ||
-    text.includes("máy xăng")
+    text.includes("máy xăng") ||
+    text.includes("เครื่องเบนซิน")
   ) {
     return "petrol";
   }
