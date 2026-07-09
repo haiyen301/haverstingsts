@@ -615,13 +615,12 @@ export function StockLedgerPanel({
     if (configsLoading) return;
 
     if (openingConfigs.length > 0) {
-      setCreatingOpening(false);
-      setEditingOpening(false);
       setView((current) => (current === "configuredOpenings" ? current : "balance"));
       return;
     }
 
     if (didInitFirstSetupRef.current) return;
+    if (!farmOptions.length) return;
 
     didInitFirstSetupRef.current = true;
     setView("balance");
