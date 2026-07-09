@@ -12,6 +12,15 @@ import {
   type FertilizerBalanceExportFilter,
 } from "@/features/fertilizer/lib/fertilizerBalanceExport";
 import {
+  exportFertilizerUsageDetailToCsv,
+  exportFertilizerUsageDetailToGoogleSheet,
+  exportFertilizerUsageDetailToXlsx,
+  fetchFertilizerUsageDetailRows,
+  resolveFertilizerUsageDetailExportFileName,
+  type FertilizerUsageDetailLabels,
+  type FertilizerUsageExportKind,
+} from "@/features/fertilizer/lib/fertilizerUsageDetailExport";
+import {
   clearPendingFertilizerGoogleSheetExport,
   readPendingFertilizerGoogleSheetExport,
   savePendingFertilizerGoogleSheetExport,
@@ -123,6 +132,7 @@ export function FertilizerBalanceExportDialog({
   const [toYear, setToYear] = useState(initialYear);
   const [toMonth, setToMonth] = useState(initialMonth);
   const [format, setFormat] = useState<ExportFormat>("xlsx");
+  const [exportKind, setExportKind] = useState<FertilizerUsageExportKind>("summary");
   const [exporting, setExporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [progressMessage, setProgressMessage] = useState<string | null>(null);
@@ -179,16 +189,34 @@ export function FertilizerBalanceExportDialog({
     [fromYear, fromMonth, toYear, toMonth],
   );
 
-  const fileName = useMemo(
-    () =>
-      resolveFertilizerBalanceExportFileName(
-        selectedFarmNames,
-        { year: fromYear, month: fromMonth },
-        { year: toYear, month: toMonth },
-        format === "csv" ? "csv" : "xlsx",
-      ),
-    [selectedFarmNames, fromYear, fromMonth, toYear, toMonth, format],
+  const detailLabels = useMemo<FertilizerUsageDetailLabels>(
+    () => ({
+      date: t("table.date"),
+      farm: t("table.farm"),
+      grass: t("table.grass"),
+      zone: t("table.zone"),
+      product: t("table.product"),
+      type: t("table.type"),
+      amount: t("table.amount"),
+      remaining: t("table.remaining"),
+      rate: t("table.rate"),
+      operator: t("table.operator"),
+      notes: t("dialog.notes"),
+      consumption: t("table.consumption"),
+      transferTo: t("table.transferTo", { farm: "{farm}" }),
+    }),
+    [t],
   );
+
+  const fileName = useMemo(() => {
+    const ext = format === "csv" ? "csv" : "xlsx";
+    const from = { year: fromYear, month: fromMonth };
+    const to = { year: toYear, month: toMonth };
+    if (exportKind === "detail") {
+      return resolveFertilizerUsageDetailExportFileName(selectedFarmNames, from, to, ext);
+    }
+    return resolveFertilizerBalanceExportFileName(selectedFarmNames, from, to, ext);
+  }, [selectedFarmNames, fromYear, fromMonth, toYear, toMonth, format, exportKind]);
 
   useEffect(() => {
     if (!open) return;
@@ -201,6 +229,7 @@ export function FertilizerBalanceExportDialog({
       setToYear(f.toYear);
       setToMonth(f.toMonth);
       setFormat("google_sheet");
+      setExportKind(pending.exportKind ?? "summary");
     } else {
       setSelectedFarmIds(
         initialFarmIds.length > 0 ? initialFarmIds : farmOptions[0] ? [farmOptions[0].id] : [],
@@ -210,6 +239,7 @@ export function FertilizerBalanceExportDialog({
       setToYear(initialYear);
       setToMonth(initialMonth);
       setFormat("xlsx");
+      setExportKind("summary");
     }
     setError(null);
     setProgressMessage(null);
@@ -266,16 +296,54 @@ export function FertilizerBalanceExportDialog({
     return Promise.all(tasks);
   }, [filter, t]);
 
+  const loadDetailRows = useCallback(async () => {
+    if (filter.farms.length === 0) {
+      throw new Error(t("balance.selectFarmHint"));
+    }
+    const rows = await fetchFertilizerUsageDetailRows(filter);
+    if (rows.length === 0) {
+      throw new Error(t("balance.noDetailRows"));
+    }
+    return rows;
+  }, [filter, t]);
+
   const runGoogleSheetExport = useCallback(async () => {
     if (!canExport) return false;
     setExporting(true);
     setError(null);
     setProgressMessage(tHarvest("exportGoogleSheetUploading"));
     try {
+      if (exportKind === "detail") {
+        const rows = await loadDetailRows();
+        const spreadsheetTitle = fileName.replace(/\.xlsx$/, "");
+        const result = await exportFertilizerUsageDetailToGoogleSheet(
+          rows,
+          detailLabels,
+          spreadsheetTitle,
+        );
+        if (result.needsAuth) {
+          savePendingFertilizerGoogleSheetExport({ filter, exportKind });
+          startFertilizerGoogleSheetOAuth();
+          return false;
+        }
+        if (!result.ok) {
+          setError(result.message ?? tHarvest("exportGoogleSheetFailed"));
+          return false;
+        }
+        clearPendingFertilizerGoogleSheetExport();
+        if (result.spreadsheetUrl) {
+          setLastSpreadsheetUrl(result.spreadsheetUrl);
+          window.open(result.spreadsheetUrl, "_blank", "noopener,noreferrer");
+        }
+        onResumeHandled?.();
+        onClose();
+        return true;
+      }
+
       const models = await loadModels();
       const result = await exportFertilizerBalanceModelsToGoogleSheet(models);
       if (result.needsAuth) {
-        savePendingFertilizerGoogleSheetExport({ filter });
+        savePendingFertilizerGoogleSheetExport({ filter, exportKind });
         startFertilizerGoogleSheetOAuth();
         return false;
       }
@@ -298,7 +366,18 @@ export function FertilizerBalanceExportDialog({
       setExporting(false);
       setProgressMessage(null);
     }
-  }, [canExport, filter, loadModels, onClose, onResumeHandled, tHarvest]);
+  }, [
+    canExport,
+    exportKind,
+    filter,
+    loadModels,
+    loadDetailRows,
+    detailLabels,
+    fileName,
+    onClose,
+    onResumeHandled,
+    tHarvest,
+  ]);
 
   useEffect(() => {
     if (
@@ -331,13 +410,55 @@ export function FertilizerBalanceExportDialog({
       ? tHarvest("exportGoogleSheetConnected")
       : tHarvest("exportGoogleSheetConnectHint");
 
-  const sheetCount = selectedFarmIds.length * monthCount;
+  const sheetCount = exportKind === "summary" ? selectedFarmIds.length * monthCount : 1;
 
   const onExport = async () => {
     if (!canExport || selectedFarmIds.length === 0) return;
     setExporting(true);
     setError(null);
     try {
+      if (exportKind === "detail") {
+        const rows = await loadDetailRows();
+        if (format === "csv") {
+          exportFertilizerUsageDetailToCsv(rows, detailLabels, fileName);
+          onClose();
+          return;
+        }
+        if (format === "xlsx") {
+          setProgressMessage(tHarvest("exportExcelPreparing"));
+          await exportFertilizerUsageDetailToXlsx(rows, detailLabels, fileName);
+          onClose();
+          return;
+        }
+        if (!googleSheetConnected) {
+          savePendingFertilizerGoogleSheetExport({ filter, exportKind });
+          startFertilizerGoogleSheetOAuth();
+          return;
+        }
+        const spreadsheetTitle = fileName.replace(/\.xlsx$/, "");
+        const result = await exportFertilizerUsageDetailToGoogleSheet(
+          rows,
+          detailLabels,
+          spreadsheetTitle,
+        );
+        if (result.needsAuth) {
+          savePendingFertilizerGoogleSheetExport({ filter, exportKind });
+          startFertilizerGoogleSheetOAuth();
+          return;
+        }
+        if (!result.ok) {
+          setError(result.message ?? tHarvest("exportGoogleSheetFailed"));
+          return;
+        }
+        clearPendingFertilizerGoogleSheetExport();
+        if (result.spreadsheetUrl) {
+          window.open(result.spreadsheetUrl, "_blank", "noopener,noreferrer");
+        }
+        onResumeHandled?.();
+        onClose();
+        return;
+      }
+
       const models = await loadModels();
       if (format === "csv") {
         exportFertilizerBalanceModelsToCsv(models, models.length === 1 ? fileName : undefined);
@@ -351,13 +472,13 @@ export function FertilizerBalanceExportDialog({
         return;
       }
       if (!googleSheetConnected) {
-        savePendingFertilizerGoogleSheetExport({ filter });
+        savePendingFertilizerGoogleSheetExport({ filter, exportKind });
         startFertilizerGoogleSheetOAuth();
         return;
       }
       const result = await exportFertilizerBalanceModelsToGoogleSheet(models);
       if (result.needsAuth) {
-        savePendingFertilizerGoogleSheetExport({ filter });
+        savePendingFertilizerGoogleSheetExport({ filter, exportKind });
         startFertilizerGoogleSheetOAuth();
         return;
       }
@@ -401,7 +522,7 @@ export function FertilizerBalanceExportDialog({
           <p className="text-xs text-muted-foreground">
             {t("balance.periodSummary", { period: periodLabel, count: monthCount })}
           </p>
-          {sheetCount > 1 ? (
+          {sheetCount > 1 && exportKind === "summary" ? (
             <p className="text-xs text-muted-foreground">
               {t("balance.multiSheetHint", { count: sheetCount })}
             </p>
@@ -410,6 +531,41 @@ export function FertilizerBalanceExportDialog({
 
         <div className="min-h-0 flex-1 overflow-y-auto p-6 pt-4">
           <div className="mb-4 space-y-3">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              {t("balance.exportType")}
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                className={cn(
+                  "rounded-md border px-3 py-2 text-left transition-colors",
+                  exportKind === "summary"
+                    ? "border-primary bg-primary/10 text-foreground"
+                    : "border-border bg-background hover:bg-muted/50",
+                )}
+                onClick={() => setExportKind("summary")}
+              >
+                <span className="block text-sm font-medium">{t("balance.exportTypeSummary")}</span>
+                <span className="mt-1 block text-xs text-muted-foreground">
+                  {t("balance.exportTypeSummaryHint")}
+                </span>
+              </button>
+              <button
+                type="button"
+                className={cn(
+                  "rounded-md border px-3 py-2 text-left transition-colors",
+                  exportKind === "detail"
+                    ? "border-primary bg-primary/10 text-foreground"
+                    : "border-border bg-background hover:bg-muted/50",
+                )}
+                onClick={() => setExportKind("detail")}
+              >
+                <span className="block text-sm font-medium">{t("balance.exportTypeDetail")}</span>
+                <span className="mt-1 block text-xs text-muted-foreground">
+                  {t("balance.exportTypeDetailHint")}
+                </span>
+              </button>
+            </div>
             <MultiSelect
               options={farmOptions.map((f) => ({ value: f.id, label: f.label }))}
               values={selectedFarmIds}

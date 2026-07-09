@@ -320,21 +320,28 @@ export function FertilizerUsageTab() {
     return map;
   }, [farms]);
 
-  const stockLedgerFarmCountryId = useMemo(() => {
-    const farmId =
-      selectedFarmIds.length === 1
-        ? selectedFarmIds[0]
-        : farmOptions[0]?.id ?? "";
-    return farmId ? (farmCountryById.get(farmId) ?? null) : null;
-  }, [selectedFarmIds, farmOptions, farmCountryById]);
+  const productCountryByStockKey = useMemo(() => {
+    const map = new Map<string, number | null>();
+    for (const product of products) {
+      const id = String(product.id);
+      const countryId = product.country_id;
+      if (countryId == null) {
+        map.set(id, null);
+        continue;
+      }
+      const n = Number(countryId);
+      map.set(id, Number.isFinite(n) && n > 0 ? n : null);
+    }
+    return map;
+  }, [products]);
 
-  const productStockKeyOptions = useMemo(
+  const allProductStockKeyOptions = useMemo(
     () =>
-      filterFertilizerProductsForFarm(products, stockLedgerFarmCountryId).map((product) => ({
+      products.map((product) => ({
         value: String(product.id),
         label: product.name,
       })),
-    [products, stockLedgerFarmCountryId],
+    [products],
   );
 
   const productsForForm = useMemo(() => {
@@ -1093,7 +1100,9 @@ export function FertilizerUsageTab() {
             <StockLedgerPanel
               variant="fertilizer"
               farmOptions={farmOptions.map((f) => ({ id: f.id, label: f.label }))}
-              stockKeyOptions={productStockKeyOptions}
+              stockKeyOptions={allProductStockKeyOptions}
+              farmCountryById={farmCountryById}
+              productCountryByStockKey={productCountryByStockKey}
               initialFarmId={
                 selectedFarmIds.length === 1 ? selectedFarmIds[0] : farmOptions[0]?.id ?? null
               }

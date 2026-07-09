@@ -2,7 +2,6 @@ import ExcelJS from "exceljs";
 
 import {
   FERTILIZER_BALANCE_COLORS,
-  FERTILIZER_BALANCE_COMPANY,
 } from "@/features/fertilizer/lib/fertilizerBalanceColors";
 import {
   formatBalanceQty,
@@ -138,72 +137,60 @@ export function buildFertilizerBalanceGoogleSheetPayload(model: FertilizerBalanc
   };
 
   const blank = () => Array(29).fill("");
+
   const r1 = blank();
-  r1[2] = FERTILIZER_BALANCE_COMPANY.name;
+  r1[0] = "BIÊN BẢN SẢN LƯỢNG PHÂN/HOÁ CHẤT CÒN LẠI TRONG KHO";
   matrix.push(r1);
+  mergeRanges.push({ startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: 29 });
+  for (let c = 0; c < 29; c += 1) pushFill(0, c, FERTILIZER_BALANCE_COLORS.titleBg);
+
   const r2 = blank();
-  r2[2] = FERTILIZER_BALANCE_COMPANY.address1;
+  r2[0] = "MINUTES OF MONTHLYN FERTILIZER/CHEMICALS BALANCE IN STOCK";
   matrix.push(r2);
+  mergeRanges.push({ startRowIndex: 1, endRowIndex: 2, startColumnIndex: 0, endColumnIndex: 29 });
+
   const r3 = blank();
-  r3[2] = FERTILIZER_BALANCE_COMPANY.address2;
-  matrix.push(r3);
-  const r4 = blank();
-  r4[2] = FERTILIZER_BALANCE_COMPANY.taxCode;
-  matrix.push(r4);
-
-  const r5 = blank();
-  r5[0] = "BIÊN BẢN SẢN LƯỢNG PHÂN/HOÁ CHẤT CÒN LẠI TRONG KHO";
-  matrix.push(r5);
-  mergeRanges.push({ startRowIndex: 4, endRowIndex: 5, startColumnIndex: 0, endColumnIndex: 29 });
-  for (let c = 0; c < 29; c += 1) pushFill(4, c, FERTILIZER_BALANCE_COLORS.titleBg);
-
-  const r6 = blank();
-  r6[0] = "MINUTES OF MONTHLYN FERTILIZER/CHEMICALS BALANCE IN STOCK";
-  matrix.push(r6);
-  mergeRanges.push({ startRowIndex: 5, endRowIndex: 6, startColumnIndex: 0, endColumnIndex: 29 });
-
-  const r7 = blank();
-  r7[0] = "No";
-  r7[1] = "Item Code";
-  r7[2] = "Description";
-  r7[3] = "Unit";
-  r7[4] = "OPEN ";
+  r3[0] = "No";
+  r3[1] = "Item Code";
+  r3[2] = "Description";
+  r3[3] = "Unit";
+  r3[4] = "OPEN ";
   model.weekLabels.forEach((label, i) => {
-    r7[weekImportCol(i + 1) - 1] = label;
+    r3[weekImportCol(i + 1) - 1] = label;
   });
-  r7[21] = "Tổng sử dụng/tháng";
-  r7[26] = `Số lượng còn trong kho ${inventoryEndDateLabel(model.monthEndYmd)}`;
-  matrix.push(r7);
-  mergeRanges.push({ startRowIndex: 6, endRowIndex: 7, startColumnIndex: 0, endColumnIndex: 1 });
-  mergeRanges.push({ startRowIndex: 6, endRowIndex: 7, startColumnIndex: 2, endColumnIndex: 3 });
-  mergeRanges.push({ startRowIndex: 6, endRowIndex: 7, startColumnIndex: 3, endColumnIndex: 4 });
-  mergeRanges.push({ startRowIndex: 6, endRowIndex: 7, startColumnIndex: 4, endColumnIndex: 5 });
+  r3[21] = "Tổng sử dụng/tháng";
+  r3[26] = `Số lượng còn trong kho ${inventoryEndDateLabel(model.monthEndYmd)}`;
+  matrix.push(r3);
+  mergeRanges.push({ startRowIndex: 2, endRowIndex: 3, startColumnIndex: 0, endColumnIndex: 1 });
+  mergeRanges.push({ startRowIndex: 2, endRowIndex: 3, startColumnIndex: 2, endColumnIndex: 3 });
+  mergeRanges.push({ startRowIndex: 2, endRowIndex: 3, startColumnIndex: 3, endColumnIndex: 4 });
+  mergeRanges.push({ startRowIndex: 2, endRowIndex: 3, startColumnIndex: 4, endColumnIndex: 5 });
   for (let w = 0; w < 4; w += 1) {
     mergeRanges.push({
-      startRowIndex: 6,
-      endRowIndex: 7,
+      startRowIndex: 2,
+      endRowIndex: 3,
       startColumnIndex: weekImportCol(w + 1) - 1,
       endColumnIndex: weekImportCol(w + 1) + 3,
     });
   }
-  mergeRanges.push({ startRowIndex: 6, endRowIndex: 7, startColumnIndex: 21, endColumnIndex: 24 });
-  mergeRanges.push({ startRowIndex: 6, endRowIndex: 7, startColumnIndex: 26, endColumnIndex: 29 });
-  pushFill(6, 21, FERTILIZER_BALANCE_COLORS.monthTotalHeader);
-  pushFill(6, 26, FERTILIZER_BALANCE_COLORS.monthTotalHeader);
+  mergeRanges.push({ startRowIndex: 2, endRowIndex: 3, startColumnIndex: 21, endColumnIndex: 24 });
+  mergeRanges.push({ startRowIndex: 2, endRowIndex: 3, startColumnIndex: 26, endColumnIndex: 29 });
+  pushFill(2, 21, FERTILIZER_BALANCE_COLORS.monthTotalHeader);
+  pushFill(2, 26, FERTILIZER_BALANCE_COLORS.monthTotalHeader);
 
-  const r8 = blank();
-  r8[1] = "Mã vật tư";
+  const r4 = blank();
+  r4[1] = "Mã vật tư";
   const subHeaders = ["Import", "Transfer", "Consump", "Balance"] as const;
   for (let w = 0; w < 4; w += 1) {
     const base = weekImportCol(w + 1) - 1;
     subHeaders.forEach((label, j) => {
-      r8[base + j] = label;
+      r4[base + j] = label;
     });
   }
-  r8[21] = "Import";
-  r8[22] = "Transfer";
-  r8[23] = "Consump";
-  matrix.push(r8);
+  r4[21] = "Import";
+  r4[22] = "Transfer";
+  r4[23] = "Consump";
+  matrix.push(r4);
 
   function productHasInventory(product: FertilizerBalanceSheetModel["productRows"][number]): boolean {
     return (
@@ -289,25 +276,20 @@ function fillFertilizerBalanceWorksheet(
   ws.getColumn(COL.invUnit).width = 6;
   ws.getColumn(COL.invQty).width = 10;
 
-  ws.getCell(1, 3).value = FERTILIZER_BALANCE_COMPANY.name;
-  ws.getCell(2, 3).value = FERTILIZER_BALANCE_COMPANY.address1;
-  ws.getCell(3, 3).value = FERTILIZER_BALANCE_COMPANY.address2;
-  ws.getCell(4, 3).value = FERTILIZER_BALANCE_COMPANY.taxCode;
-
-  ws.mergeCells(5, 1, 5, 29);
-  const titleCell = ws.getCell(5, 1);
+  ws.mergeCells(1, 1, 1, 29);
+  const titleCell = ws.getCell(1, 1);
   titleCell.value = "BIÊN BẢN SẢN LƯỢNG PHÂN/HOÁ CHẤT CÒN LẠI TRONG KHO";
   styleHeaderCell(titleCell, { bg: FERTILIZER_BALANCE_COLORS.titleBg, bold: true });
   for (let c = 1; c <= 29; c += 1) {
-    if (c > 1) styleHeaderCell(ws.getCell(5, c), { bg: FERTILIZER_BALANCE_COLORS.titleBg });
+    if (c > 1) styleHeaderCell(ws.getCell(1, c), { bg: FERTILIZER_BALANCE_COLORS.titleBg });
   }
 
-  ws.mergeCells(6, 1, 6, 29);
-  ws.getCell(6, 1).value = "MINUTES OF MONTHLYN FERTILIZER/CHEMICALS BALANCE IN STOCK";
-  styleHeaderCell(ws.getCell(6, 1), { bold: true });
+  ws.mergeCells(2, 1, 2, 29);
+  ws.getCell(2, 1).value = "MINUTES OF MONTHLYN FERTILIZER/CHEMICALS BALANCE IN STOCK";
+  styleHeaderCell(ws.getCell(2, 1), { bold: true });
 
-  const headerRow = 7;
-  const subHeaderRow = 8;
+  const headerRow = 3;
+  const subHeaderRow = 4;
   ws.mergeCells(headerRow, COL.no, subHeaderRow, COL.no);
   ws.mergeCells(headerRow, COL.description, subHeaderRow, COL.description);
   ws.mergeCells(headerRow, COL.unit, subHeaderRow, COL.unit);

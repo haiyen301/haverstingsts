@@ -3044,8 +3044,14 @@
       "prevMonth": "Previous month",
       "nextMonth": "Next month",
       "exportButton": "Export",
-      "exportTitle": "Export fertilizer balance",
-      "exportHint": "Download the monthly balance sheet in Excel, CSV, or Google Sheets. File name includes farm and month.",
+      "exportTitle": "Export fertilizer data",
+      "exportHint": "Choose summary (weekly totals by product) or detail (each application log with farm, grass, and zone).",
+      "exportType": "Export type",
+      "exportTypeSummary": "Monthly totals",
+      "exportTypeSummaryHint": "Weekly usage totals by product — same as the balance sheet export.",
+      "exportTypeDetail": "Usage log detail",
+      "exportTypeDetailHint": "Each application row with farm, grass type, zone, amount, and operator.",
+      "noDetailRows": "No usage records for the selected farms and period.",
       "loadError": "Failed to load balance sheet."
     },
     "charts": {

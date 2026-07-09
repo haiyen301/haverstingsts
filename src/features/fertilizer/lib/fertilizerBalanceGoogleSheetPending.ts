@@ -5,6 +5,7 @@ export const PENDING_FERTILIZER_GOOGLE_SHEET_EXPORT_KEY =
 
 export type PendingFertilizerGoogleSheetExport = {
   filter: FertilizerBalanceExportFilter;
+  exportKind?: "summary" | "detail";
   savedAt: number;
 };
 

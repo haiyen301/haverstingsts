@@ -36,3 +36,35 @@ export function filterFertilizerProductsForFarm(
     return countryId === farmCountry;
   });
 }
+
+export type StockKeyOption = {
+  value: string;
+  label: string;
+  subLabel?: string;
+};
+
+/**
+ * Same country rules as filterFertilizerProductsForFarm, for stock ledger product keys.
+ */
+export function filterStockKeyOptionsForFarmCountry(
+  options: StockKeyOption[],
+  productCountryByStockKey: Map<string, number | null>,
+  farmCountryId: number | null | undefined,
+  pinnedValues: string[] = [],
+): StockKeyOption[] {
+  const pinned = new Set(pinnedValues.filter((value) => value.trim() !== ""));
+  const farmCountry =
+    farmCountryId != null && Number.isFinite(Number(farmCountryId)) && Number(farmCountryId) > 0
+      ? Number(farmCountryId)
+      : null;
+
+  return options.filter((option) => {
+    if (pinned.has(option.value)) return true;
+
+    const productCountry = productCountryByStockKey.get(option.value) ?? null;
+    if (productCountry == null) return true;
+    if (farmCountry == null) return false;
+
+    return productCountry === farmCountry;
+  });
+}

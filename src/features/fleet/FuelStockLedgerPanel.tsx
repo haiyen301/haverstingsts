@@ -29,6 +29,7 @@ import {
   DatePicker,
 } from "@/shared/ui/date-picker";
 import { MultiSelect } from "@/shared/ui/multi-select";
+import { filterStockKeyOptionsForFarmCountry } from "@/features/fertilizer/lib/filterFertilizerProductsForFarm";
 
 const FUEL_KINDS_FALLBACK = ["diesel", "petrol"] as const;
 const OPENING_LIST_PAGE_SIZE = 8;
@@ -80,6 +81,9 @@ export type StockLedgerPanelProps = {
   embedded?: boolean;
   onClose?: () => void;
   onDataChanged?: () => void;
+  /** When set (fertilizer), product keys are filtered by the selected farm's country. */
+  farmCountryById?: Map<string, number>;
+  productCountryByStockKey?: Map<string, number | null>;
 };
 
 type FuelStockLedgerPanelProps = Omit<
@@ -239,16 +243,14 @@ export function StockLedgerPanel({
   embedded = false,
   onClose,
   onDataChanged,
+  farmCountryById,
+  productCountryByStockKey,
 }: StockLedgerPanelProps) {
   const t = useTranslations(variant === "fuel" ? "FuelUsage" : "FertilizerUsage");
   const ledgerModule: FleetStockModule = variant;
   const stockKeyLabel = variant === "fuel" ? "stock.fuelType" : "stock.product";
-  const stockKindOptions = useMemo(
-    () => stockKeyOptions.map((row) => row.value),
-    [stockKeyOptions],
-  );
   const [selectedFarmId, setSelectedFarmId] = useState("");
-  const [selectedKind, setSelectedKind] = useState(stockKindOptions[0] ?? "");
+  const [selectedKind, setSelectedKind] = useState("");
   const [selectedDate, setSelectedDate] = useState(() =>
     new Date().toISOString().slice(0, 10),
   );
@@ -277,6 +279,35 @@ export function StockLedgerPanel({
   } | null>(null);
   const rowsCacheRef = useRef<Map<string, FleetStockLedgerRow[]>>(new Map());
   const loadRequestIdRef = useRef(0);
+
+  const farmCountryIdForFilter = useMemo(() => {
+    if (!farmCountryById || !selectedFarmId) return null;
+    return farmCountryById.get(selectedFarmId) ?? null;
+  }, [farmCountryById, selectedFarmId]);
+
+  const selectableStockKeyOptions = useMemo(() => {
+    if (!farmCountryById || !productCountryByStockKey) return stockKeyOptions;
+    const pinned =
+      editingOpening && selectedKind.trim() !== "" ? [selectedKind] : [];
+    return filterStockKeyOptionsForFarmCountry(
+      stockKeyOptions,
+      productCountryByStockKey,
+      farmCountryIdForFilter,
+      pinned,
+    );
+  }, [
+    stockKeyOptions,
+    farmCountryById,
+    productCountryByStockKey,
+    farmCountryIdForFilter,
+    editingOpening,
+    selectedKind,
+  ]);
+
+  const stockKindOptions = useMemo(
+    () => selectableStockKeyOptions.map((row) => row.value),
+    [selectableStockKeyOptions],
+  );
 
   const farmId = useMemo(() => {
     const id = Number(selectedFarmId);
@@ -995,7 +1026,10 @@ export function StockLedgerPanel({
             className={inputClass}
             value={selectedFarmId}
             disabled={editingOpening}
-            onChange={(e) => setSelectedFarmId(e.target.value)}
+            onChange={(e) => {
+              setSelectedFarmId(e.target.value);
+              if (!editingOpening) setSelectedKind("");
+            }}
           >
             <option value="">{t("stock.selectFarm")}</option>
             {farmOptions.map((farm) => (
