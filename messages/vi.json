@@ -3328,5 +3328,23 @@
         "invalidStatus": "Status phải là Active hoặc Inactive."
       }
     }
+  },
+  "AdminMachineryTypes": {
+    "title": "Loại máy",
+    "subtitle": "Quản lý danh mục loại thiết bị khi đăng ký máy móc.",
+    "loading": "Đang tải…",
+    "newPlaceholder": "Tên loại mới…",
+    "add": "Thêm loại",
+    "colLabel": "Tên hiển thị",
+    "colSlug": "Slug",
+    "colActive": "Kích hoạt",
+    "colActions": "Thao tác",
+    "empty": "Chưa có loại máy nào. Chạy seeder hoặc thêm ở trên.",
+    "loadError": "Không tải được danh sách loại máy.",
+    "requestFailed": "Yêu cầu thất bại.",
+    "deleteTitle": "Xóa loại máy",
+    "deleteDescription": "Xóa “{name}” khỏi danh mục? Bản ghi máy hiện có vẫn giữ giá trị loại cũ.",
+    "duplicateLabel": "Tên loại máy này đã tồn tại.",
+    "duplicateSlug": "Slug này đã được dùng cho loại máy khác."
   }
 }

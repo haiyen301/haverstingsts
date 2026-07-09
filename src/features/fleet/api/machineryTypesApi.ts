@@ -52,3 +52,30 @@ export function machineryTypeLabels(rows: MachineryTypeRow[] | null | undefined)
   if (!rows?.length) return [...DEFAULT_MACHINERY_TYPES];
   return rows.filter((r) => r.active !== false).map((r) => r.label);
 }
+
+export function machineryTypeSlugify(label: string): string {
+  let s = label.trim().toLowerCase();
+  s = s.replace(/[^a-z0-9]+/gi, "_");
+  s = s.replace(/_+/g, "_");
+  s = s.replace(/^_+|_+$/g, "");
+  return s || "type";
+}
+
+export function findMachineryTypeDuplicate(
+  rows: MachineryTypeRow[],
+  label: string,
+  slug: string,
+  excludeId = 0,
+): "label" | "slug" | null {
+  const labelTrim = label.trim();
+  const slugLower = slug.trim().toLowerCase();
+  if (!labelTrim || !slugLower) return null;
+
+  for (const row of rows) {
+    if (row.id === excludeId) continue;
+    if (row.label.trim().toLowerCase() === labelTrim.toLowerCase()) return "label";
+    if (row.slug.trim().toLowerCase() === slugLower) return "slug";
+  }
+
+  return null;
+}

@@ -84,3 +84,40 @@ export function defectsPreview(defects: string | null | undefined, maxLen = 80):
   if (text.length <= maxLen) return text;
   return `${text.slice(0, maxLen).trim()}…`;
 }
+
+function normalizeVehicleInspectionFuelKind(
+  fuelKind: string | null | undefined,
+): string {
+  return String(fuelKind ?? "").trim().toLowerCase();
+}
+
+export function findVehicleInspectionDuplicate(
+  rows: VehicleInspectionRow[],
+  candidate: {
+    vehicle_name: string;
+    vehicle_type: string;
+    fuel_kind?: string | null;
+    farm_id: number;
+  },
+  excludeId = 0,
+): VehicleInspectionRow | null {
+  const vehicleName = candidate.vehicle_name.trim().toLowerCase();
+  const vehicleType = candidate.vehicle_type.trim();
+  const fuelKind = normalizeVehicleInspectionFuelKind(candidate.fuel_kind);
+  const farmId = candidate.farm_id;
+
+  if (!vehicleName || !vehicleType || !Number.isFinite(farmId) || farmId <= 0) {
+    return null;
+  }
+
+  for (const row of rows) {
+    if (row.id === excludeId) continue;
+    if (Number(row.farm_id) !== farmId) continue;
+    if (String(row.vehicle_type ?? "").trim() !== vehicleType) continue;
+    if (String(row.vehicle_name ?? "").trim().toLowerCase() !== vehicleName) continue;
+    if (normalizeVehicleInspectionFuelKind(row.fuel_kind) !== fuelKind) continue;
+    return row;
+  }
+
+  return null;
+}

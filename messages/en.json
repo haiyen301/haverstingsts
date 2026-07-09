@@ -3696,7 +3696,8 @@
       "loadOptions": "Failed to load inspection form options.",
       "save": "Failed to save inspection.",
       "delete": "Failed to remove inspection.",
-      "requiredFields": "Vehicle, type and farm are required."
+      "requiredFields": "Vehicle, type and farm are required.",
+      "duplicate": "A vehicle with the same name, type, fuel type, and farm already exists."
     }
   },
   "Equipment": {
@@ -3937,7 +3938,9 @@
     "loadError": "Failed to load machinery types.",
     "requestFailed": "Request failed.",
     "deleteTitle": "Delete machinery type",
-    "deleteDescription": "Remove “{name}” from the catalog? Existing machinery records keep their current type value."
+    "deleteDescription": "Remove “{name}” from the catalog? Existing machinery records keep their current type value.",
+    "duplicateLabel": "A machinery type with this label already exists.",
+    "duplicateSlug": "A machinery type with this slug already exists."
   },
   "AdminFleetOptionCatalogs": {
     "title": "Fleet Option Catalogs",

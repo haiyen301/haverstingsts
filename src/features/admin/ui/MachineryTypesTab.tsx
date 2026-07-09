@@ -6,6 +6,8 @@ import { useTranslations } from "next-intl";
 
 import {
   fetchMachineryTypes,
+  findMachineryTypeDuplicate,
+  machineryTypeSlugify,
   removeMachineryType,
   saveMachineryType,
   type MachineryTypeRow,
@@ -108,19 +110,43 @@ export function MachineryTypesTab() {
     }
   };
 
+  const duplicateMessage = (field: "label" | "slug") =>
+    field === "label" ? t("duplicateLabel") : t("duplicateSlug");
+
+  const validateUnique = (
+    label: string,
+    slug: string,
+    excludeId = 0,
+  ): "label" | "slug" | null => findMachineryTypeDuplicate(rows, label, slug, excludeId);
+
   const handleAdd = () => {
-    if (!newName.trim() || busy) return;
+    const label = newName.trim();
+    if (!label || busy) return;
+    const slug = machineryTypeSlugify(label);
+    const duplicate = validateUnique(label, slug);
+    if (duplicate) {
+      setError(duplicateMessage(duplicate));
+      return;
+    }
     void withBusy(async () => {
-      await saveMachineryType({ label: newName.trim(), active: true });
+      await saveMachineryType({ label, active: true });
       setNewName("");
     });
   };
 
   const persistRow = (row: MachineryTypeRow, patch: { label?: string; active?: boolean }) => {
+    const label = (patch.label ?? row.label).trim();
+    if (patch.label != null) {
+      const duplicate = validateUnique(label, row.slug, row.id);
+      if (duplicate) {
+        setError(duplicateMessage(duplicate));
+        return;
+      }
+    }
     void withBusy(async () => {
       await saveMachineryType({
         id: row.id,
-        label: patch.label ?? row.label,
+        label,
         sort_order: row.sort_order,
         active: patch.active ?? row.active,
         slug: row.slug,

@@ -19,6 +19,7 @@ import {
   defectsPreview,
   fetchVehicleInspectionFormOptions,
   fetchVehicleInspections,
+  findVehicleInspectionDuplicate,
   hasDefectsText,
   removeVehicleInspection,
   saveVehicleInspection,
@@ -305,13 +306,30 @@ export function VehicleInspectionsTab() {
       toast.error(t("errors.requiredFields"), { containerId: TOAST_CONTAINER_TOP_RIGHT });
       return;
     }
+
+    const fuelKind = form.fuel_kind.trim() || null;
+    const duplicate = findVehicleInspectionDuplicate(
+      rows,
+      {
+        vehicle_name: vehicleName,
+        vehicle_type: form.vehicle_type,
+        fuel_kind: fuelKind,
+        farm_id: farmId,
+      },
+      editingId ?? 0,
+    );
+    if (duplicate) {
+      toast.error(t("errors.duplicate"), { containerId: TOAST_CONTAINER_TOP_RIGHT });
+      return;
+    }
+
     try {
       setSaving(true);
       const shared = {
         vehicle_name: vehicleName,
         alias_name: form.alias_name.trim() || undefined,
         vehicle_type: form.vehicle_type,
-        fuel_kind: form.fuel_kind.trim() || null,
+        fuel_kind: fuelKind,
         farm_id: farmId,
         registration: form.registration.trim() || undefined,
         last_inspection_date: form.last_inspection_date || undefined,
