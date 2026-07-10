@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, Pencil, Plus, Trash2, Upload, X } from "lucide-react";
+import { toast } from "react-toastify";
 import { useTranslations } from "next-intl";
 import RequireAuth from "@/features/auth/RequireAuth";
 import {
@@ -19,6 +20,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { buildCountrySelectOptions } from "@/shared/lib/harvestReferenceData";
 import { MultiSelect } from "@/shared/ui/multi-select";
+import { Checkbox } from "@/shared/ui/checkbox";
+import { TOAST_CONTAINER_TOP_RIGHT } from "@/shared/ui/AppToasts";
 import { canAccessModule } from "@/shared/auth/permissions";
 import { useAuthUserStore } from "@/shared/store/authUserStore";
 
@@ -41,8 +44,19 @@ type FormState = {
   country_id: string;
 };
 
+type BulkFormState = {
+  updateUom: boolean;
+  uom: string;
+  updateCountry: boolean;
+  country_id: string;
+};
+
 function emptyForm(): FormState {
   return { name: "", uom: "", country_id: "" };
+}
+
+function emptyBulkForm(): BulkFormState {
+  return { updateUom: false, uom: "", updateCountry: false, country_id: "" };
 }
 
 export default function AdminFertilizerProductPage() {
@@ -59,7 +73,10 @@ export default function AdminFertilizerProductPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [form, setForm] = useState<FormState>(emptyForm());
+  const [bulkForm, setBulkForm] = useState<BulkFormState>(emptyBulkForm());
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
   const loadRows = useCallback(async () => {
     setLoading(true);
@@ -90,6 +107,21 @@ export default function AdminFertilizerProductPage() {
     }
     return map;
   }, [countryOptions]);
+
+  const bulkCountryOptions = useMemo(
+    () => buildCountrySelectOptions(countries, null),
+    [countries],
+  );
+
+  const showSelection = canEdit || canDelete;
+  const selectedCount = selectedIds.size;
+  const selectedRows = useMemo(
+    () => rows.filter((row) => selectedIds.has(Number(row.id))),
+    [rows, selectedIds],
+  );
+  const allRowsSelected =
+    rows.length > 0 && rows.every((row) => selectedIds.has(Number(row.id)));
+  const someRowsSelected = rows.some((row) => selectedIds.has(Number(row.id)));
 
   useEffect(() => {
     void loadRows();
@@ -143,6 +175,165 @@ export default function AdminFertilizerProductPage() {
     }
   };
 
+  const clearSelection = () => {
+    setSelectedIds(new Set());
+  };
+
+  const toggleRowSelection = (id: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAllRows = () => {
+    if (allRowsSelected) {
+      clearSelection();
+      return;
+    }
+    setSelectedIds(new Set(rows.map((row) => Number(row.id))));
+  };
+
+  const openBulkEdit = () => {
+    if (selectedCount === 0) return;
+    setBulkForm(emptyBulkForm());
+    setError(null);
+    setBulkOpen(true);
+  };
+
+  const handleBulkSave = async () => {
+    if (selectedCount === 0) return;
+    if (!bulkForm.updateUom && !bulkForm.updateCountry) {
+      setError(t("errors.bulkNoFields"));
+      return;
+    }
+
+    try {
+      setSaving(true);
+      setError(null);
+
+      let saved = 0;
+      let failed = 0;
+      const updatedById = new Map<number, FertilizerProductRow>();
+
+      for (const row of selectedRows) {
+        const id = Number(row.id);
+        if (!Number.isFinite(id) || id <= 0) {
+          failed += 1;
+          continue;
+        }
+
+        const name = String(row.name ?? "").trim();
+        if (!name) {
+          failed += 1;
+          continue;
+        }
+
+        const nextUom = bulkForm.updateUom ? bulkForm.uom.trim() : String(row.uom ?? "").trim();
+        const nextCountryId = bulkForm.updateCountry
+          ? bulkForm.country_id
+            ? Number(bulkForm.country_id)
+            : null
+          : row.country_id
+            ? Number(row.country_id)
+            : null;
+
+        try {
+          const result = await saveFertilizerProduct({
+            id,
+            name,
+            uom: nextUom,
+            country_id: nextCountryId,
+          });
+          updatedById.set(id, result);
+          saved += 1;
+        } catch {
+          failed += 1;
+        }
+      }
+
+      if (saved > 0) {
+        setRows((prev) =>
+          sortFertilizerProductRowsByName(
+            prev.map((row) => updatedById.get(Number(row.id)) ?? row),
+          ),
+        );
+      }
+
+      if (failed > 0) {
+        const message = t("bulkEditPartial", { saved, failed });
+        setError(message);
+        toast.error(message, { containerId: TOAST_CONTAINER_TOP_RIGHT });
+      } else {
+        toast.success(t("bulkEditSuccess", { count: saved }), {
+          containerId: TOAST_CONTAINER_TOP_RIGHT,
+        });
+        setBulkOpen(false);
+        setBulkForm(emptyBulkForm());
+        clearSelection();
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t("errors.save"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedCount === 0) return;
+    if (!window.confirm(t("bulkDeleteConfirm", { count: selectedCount }))) return;
+
+    try {
+      setSaving(true);
+      setError(null);
+
+      let deleted = 0;
+      let failed = 0;
+      const deletedIds = new Set<number>();
+
+      for (const row of selectedRows) {
+        const id = Number(row.id);
+        if (!Number.isFinite(id) || id <= 0) {
+          failed += 1;
+          continue;
+        }
+        try {
+          await removeFertilizerProduct(id);
+          deletedIds.add(id);
+          deleted += 1;
+        } catch {
+          failed += 1;
+        }
+      }
+
+      if (deleted > 0) {
+        setRows((prev) => prev.filter((row) => !deletedIds.has(Number(row.id))));
+        setSelectedIds((prev) => {
+          const next = new Set(prev);
+          for (const id of deletedIds) next.delete(id);
+          return next;
+        });
+      }
+
+      if (failed > 0) {
+        const message = t("bulkDeletePartial", { deleted, failed });
+        setError(message);
+        toast.error(message, { containerId: TOAST_CONTAINER_TOP_RIGHT });
+      } else {
+        toast.success(t("bulkDeleteSuccess", { count: deleted }), {
+          containerId: TOAST_CONTAINER_TOP_RIGHT,
+        });
+        clearSelection();
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t("errors.delete"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleDelete = async (row: FertilizerProductRow) => {
     const id = Number(row.id);
     if (!Number.isFinite(id) || id <= 0) return;
@@ -152,6 +343,12 @@ export default function AdminFertilizerProductPage() {
       setError(null);
       await removeFertilizerProduct(id);
       setRows((prev) => prev.filter((r) => Number(r.id) !== id));
+      setSelectedIds((prev) => {
+        if (!prev.has(id)) return prev;
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : t("errors.delete"));
     } finally {
@@ -195,12 +392,64 @@ export default function AdminFertilizerProductPage() {
           {loading ? <p className="text-sm text-muted-foreground">{t("loading")}</p> : null}
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
+          {showSelection && selectedCount > 0 ? (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-muted/20 px-4 py-3">
+              <span className="text-sm text-muted-foreground">
+                {t("selectedCount", { count: selectedCount })}
+              </span>
+              {canEdit ? (
+                <button
+                  type="button"
+                  className={btnOutline}
+                  disabled={saving}
+                  onClick={openBulkEdit}
+                >
+                  <Pencil className="h-4 w-4" />
+                  {t("bulkEdit", { count: selectedCount })}
+                </button>
+              ) : null}
+              {canDelete ? (
+                <button
+                  type="button"
+                  className={cn(
+                    btnOutline,
+                    "border-destructive/40 text-destructive hover:bg-destructive/10",
+                  )}
+                  disabled={saving}
+                  onClick={() => void handleBulkDelete()}
+                >
+                  <Trash2 className="h-4 w-4" />
+                  {t("bulkDelete", { count: selectedCount })}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className={btnOutline}
+                disabled={saving}
+                onClick={clearSelection}
+              >
+                {t("clearSelection")}
+              </button>
+            </div>
+          ) : null}
+
           <Card>
             <CardContent className="p-0">
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[420px] text-sm">
                   <thead>
                     <tr className="border-b border-border bg-muted/30">
+                      {showSelection ? (
+                        <th className="w-10 px-3 py-3">
+                          <Checkbox
+                            checked={allRowsSelected}
+                            indeterminate={someRowsSelected && !allRowsSelected}
+                            disabled={loading || saving || rows.length === 0}
+                            onChange={toggleSelectAllRows}
+                            aria-label={t("toggleAll")}
+                          />
+                        </th>
+                      ) : null}
                       <th className="px-4 py-3 text-left font-medium">{t("table.name")}</th>
                       <th className="px-4 py-3 text-left font-medium">{t("table.country")}</th>
                       <th className="px-4 py-3 text-left font-medium">{t("table.uom")}</th>
@@ -208,11 +457,27 @@ export default function AdminFertilizerProductPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map((row) => (
+                    {rows.map((row) => {
+                      const rowId = Number(row.id);
+                      const isSelected = selectedIds.has(rowId);
+                      return (
                       <tr
                         key={row.id}
-                        className="border-b border-border last:border-b-0 transition-colors hover:bg-muted/30"
+                        className={cn(
+                          "border-b border-border last:border-b-0 transition-colors hover:bg-muted/30",
+                          isSelected && "bg-primary/5",
+                        )}
                       >
+                        {showSelection ? (
+                          <td className="px-3 py-3">
+                            <Checkbox
+                              checked={isSelected}
+                              disabled={loading || saving}
+                              onChange={() => toggleRowSelection(rowId)}
+                              aria-label={t("toggleRow", { name: row.name })}
+                            />
+                          </td>
+                        ) : null}
                         <td className="px-4 py-3 font-medium">{row.name}</td>
                         <td className="px-4 py-3 text-muted-foreground">
                           {row.country_name?.trim() ||
@@ -254,10 +519,14 @@ export default function AdminFertilizerProductPage() {
                           </div>
                         </td>
                       </tr>
-                    ))}
+                    );
+                    })}
                     {!loading && rows.length === 0 ? (
                       <tr>
-                        <td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">
+                        <td
+                          colSpan={showSelection ? 5 : 4}
+                          className="px-4 py-8 text-center text-muted-foreground"
+                        >
                           {t("empty")}
                         </td>
                       </tr>
@@ -277,6 +546,103 @@ export default function AdminFertilizerProductPage() {
           countries={countries}
           canImport={canCreate}
         />
+
+        {bulkOpen ? (
+          <Modal
+            title={t("bulkEditTitle", { count: selectedCount })}
+            onClose={() => {
+              if (saving) return;
+              setBulkOpen(false);
+              setBulkForm(emptyBulkForm());
+            }}
+          >
+            <p className="text-sm text-muted-foreground">{t("bulkEditHint")}</p>
+
+            <div className="rounded-lg border border-border bg-muted/20 px-3 py-2 text-sm">
+              {selectedRows.map((row) => row.name).join(", ")}
+            </div>
+
+            <label className="flex items-start gap-3 rounded-lg border border-border p-3">
+              <Checkbox
+                checked={bulkForm.updateUom}
+                disabled={saving}
+                onChange={(e) =>
+                  setBulkForm((prev) => ({ ...prev, updateUom: e.target.checked }))
+                }
+                rootClassName="mt-0.5"
+              />
+              <div className="min-w-0 flex-1 space-y-2">
+                <span className="text-sm font-medium">{t("bulkUpdateUom")}</span>
+                <input
+                  className={inputClass}
+                  value={bulkForm.uom}
+                  placeholder={t("form.uomPlaceholder")}
+                  disabled={saving || !bulkForm.updateUom}
+                  onChange={(e) => setBulkForm((prev) => ({ ...prev, uom: e.target.value }))}
+                />
+              </div>
+            </label>
+
+            <label className="flex items-start gap-3 rounded-lg border border-border p-3">
+              <Checkbox
+                checked={bulkForm.updateCountry}
+                disabled={saving}
+                onChange={(e) =>
+                  setBulkForm((prev) => ({ ...prev, updateCountry: e.target.checked }))
+                }
+                rootClassName="mt-0.5"
+              />
+              <div className="min-w-0 flex-1 space-y-2">
+                <span className="text-sm font-medium">{t("bulkUpdateCountry")}</span>
+                <MultiSelect
+                  options={[
+                    { value: "", label: t("form.countryGlobal") },
+                    ...bulkCountryOptions.map((country) => ({
+                      value: country.id,
+                      label: country.name,
+                    })),
+                  ]}
+                  values={bulkForm.country_id ? [bulkForm.country_id] : []}
+                  onChange={(next) =>
+                    setBulkForm((prev) => ({
+                      ...prev,
+                      country_id: next[0]?.trim() ? next[0] : "",
+                    }))
+                  }
+                  multi={false}
+                  placeholder={t("form.countryGlobal")}
+                  className={selectClass}
+                  rightIcon={selectChevron}
+                  showSelectedChipsInPopover={false}
+                  selectionSummary="full"
+                  disabled={saving || !bulkForm.updateCountry}
+                />
+              </div>
+            </label>
+
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                className={btnOutline}
+                onClick={() => {
+                  if (saving) return;
+                  setBulkOpen(false);
+                  setBulkForm(emptyBulkForm());
+                }}
+              >
+                {t("cancel")}
+              </button>
+              <button
+                type="button"
+                className={btnPrimary}
+                disabled={saving}
+                onClick={() => void handleBulkSave()}
+              >
+                {saving ? t("saving") : t("bulkSave", { count: selectedCount })}
+              </button>
+            </div>
+          </Modal>
+        ) : null}
 
         {open ? (
           <Modal
