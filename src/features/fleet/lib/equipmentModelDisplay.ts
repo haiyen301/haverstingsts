@@ -47,3 +47,11 @@ export function equipmentCardModelTitle(item: {
   const first = String(item.model ?? "").split("\n")[0]?.trim();
   return first || "—";
 }
+
+/** Secondary line under equipment title: type and brand. */
+export function equipmentTypeBrandLine(type: string, brand: string): string {
+  const typeLabel = String(type ?? "").trim();
+  const brandLabel = String(brand ?? "").trim();
+  if (typeLabel && brandLabel) return `${typeLabel} · ${brandLabel}`;
+  return typeLabel || brandLabel || "—";
+}

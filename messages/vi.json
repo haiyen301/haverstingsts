@@ -3403,5 +3403,30 @@
     "deleteDescription": "Xóa “{name}” khỏi danh mục? Bản ghi máy hiện có vẫn giữ giá trị loại cũ.",
     "duplicateLabel": "Tên loại máy này đã tồn tại.",
     "duplicateSlug": "Slug này đã được dùng cho loại máy khác."
+  },
+  "Equipment": {
+    "form": {
+      "brand": "Hãng",
+      "hoursBetweenServiceHint": "Chu kỳ bảo trì của máy này — bao nhiêu giờ chạy giữa mỗi lần service."
+    },
+    "card": {
+      "serviceIn": "Còn {hours} giờ đến bảo trì",
+      "serviceOverdue": "Quá hạn bảo trì",
+      "noServiceRecorded": "Chưa ghi nhận service",
+      "hrsTotal": "giờ tổng",
+      "last": "Lần cuối",
+      "next": "Lần tới"
+    }
+  },
+  "EquipmentDetail": {
+    "noServiceRecorded": "Chưa ghi nhận service",
+    "serviceOverdue": "Quá hạn bảo trì",
+    "hoursUntil": "Còn {hours} giờ đến bảo trì",
+    "hoursSinceLastService": "{hours} giờ kể từ lần service cuối",
+    "hoursAtServiceHint": "Tổng số giờ trên đồng hồ máy lúc bảo trì.",
+    "hoursAtServicePlaceholder": "vd. 1850",
+    "table": {
+      "hoursAtService": "Đồng hồ lúc bảo trì"
+    }
   }
 }

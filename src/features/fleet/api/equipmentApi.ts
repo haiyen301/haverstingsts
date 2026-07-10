@@ -88,6 +88,7 @@ export type EquipmentRow = {
   status: EquipmentStatus | string;
   hours_used?: number | string;
   hours_between_service?: number | string | null;
+  hours_at_last_service?: number | string | null;
   last_service_date?: string | null;
   next_service_due?: string | null;
   notes?: string | null;

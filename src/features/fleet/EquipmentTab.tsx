@@ -14,7 +14,9 @@ import {
 import { useMachineryTypes } from "@/features/fleet/hooks/useMachineryTypes";
 import {
   equipmentCardModelTitle,
+  equipmentTypeBrandLine,
 } from "@/features/fleet/lib/equipmentModelDisplay";
+import { calcEquipmentServiceInterval } from "@/features/fleet/lib/equipmentServiceInterval";
 import { EquipmentFormDialog } from "@/features/fleet/ui/EquipmentFormDialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -38,11 +40,6 @@ function equipmentStatusKey(status: string): "operational" | "maintenance" | "ou
   if (status === "Under Maintenance") return "maintenance";
   if (status === "Out of Service" || status === "Retired") return "outOfService";
   return "operational";
-}
-
-function num(v: unknown): number {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : 0;
 }
 
 export function EquipmentTab() {
@@ -214,13 +211,7 @@ export function EquipmentTab() {
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {filtered.map((eq) => {
             const statusKey = equipmentStatusKey(String(eq.status));
-            const hoursBetween = num(eq.hours_between_service) || 250;
-            const hoursUsed = num(eq.hours_used);
-            const hoursUntilService = hoursBetween - (hoursUsed % hoursBetween);
-            const serviceProgress = Math.min(
-              100,
-              Math.round(((hoursBetween - hoursUntilService) / hoursBetween) * 100),
-            );
+            const interval = calcEquipmentServiceInterval(eq);
             return (
               <Card
                 key={eq.id}
@@ -246,14 +237,15 @@ export function EquipmentTab() {
                       ) : null}
                       <div>
                         <p className="text-sm font-semibold">
-                          {eq.brand}{" "}
                           {equipmentCardModelTitle({
                             model_short: eq.model_short,
                             equipment_name: eq.equipment_name,
                             model: eq.model,
                           })}
                         </p>
-                        <p className="text-xs text-muted-foreground">{eq.type}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {equipmentTypeBrandLine(eq.type, eq.brand)}
+                        </p>
                       </div>
                     </div>
                     <span className={cn("rounded px-2 py-0.5 text-xs font-medium", statusBadgeClass[statusKey])}>
@@ -268,13 +260,26 @@ export function EquipmentTab() {
                   </div>
                   <div>
                     <div className="mb-1 flex justify-between text-xs">
-                      <span className="text-muted-foreground">{t("card.serviceIn", { hours: hoursUntilService })}</span>
+                      <span className="text-muted-foreground">
+                        {!interval.hasServiceBaseline
+                          ? t("card.noServiceRecorded")
+                          : interval.isOverdue
+                            ? t("card.serviceOverdue")
+                            : t("card.serviceIn", { hours: interval.hoursUntilService })}
+                      </span>
                       <span className="font-medium">
-                        {formatNumber(hoursUsed, { maximumFractionDigits: 2 })} {t("card.hrsTotal")}
+                        {formatNumber(interval.hoursUsed, { maximumFractionDigits: 2 })}{" "}
+                        {t("card.hrsTotal")}
                       </span>
                     </div>
                     <div className="h-2 overflow-hidden rounded-full bg-muted">
-                      <div className="h-full rounded-full bg-primary" style={{ width: `${serviceProgress}%` }} />
+                      <div
+                        className={cn(
+                          "h-full rounded-full",
+                          interval.isOverdue ? "bg-amber-500" : "bg-primary",
+                        )}
+                        style={{ width: `${interval.serviceProgress}%` }}
+                      />
                     </div>
                   </div>
                   <div className="flex justify-between text-xs text-muted-foreground">
@@ -288,7 +293,16 @@ export function EquipmentTab() {
                     </span>
                   </div>
                   {eq.notes ? (
-                    <p className="rounded bg-amber-50 px-2 py-1 text-xs text-amber-900">{eq.notes}</p>
+                    <p
+                      className={cn(
+                        "rounded px-2 py-1 text-xs",
+                        statusKey === "outOfService"
+                          ? "bg-red-50 text-red-900"
+                          : "bg-amber-50 text-amber-900",
+                      )}
+                    >
+                      {eq.notes}
+                    </p>
                   ) : null}
                 </CardContent>
               </Card>
@@ -312,7 +326,7 @@ export function EquipmentTab() {
         title={t("deleteConfirmTitle")}
         message={t("deleteConfirmMessage", {
           name: deleteTarget
-            ? `${deleteTarget.brand} ${confirmDeleteLabel}`.trim()
+            ? `${confirmDeleteLabel}${deleteTarget.brand ? ` (${deleteTarget.brand})` : ""}`.trim()
             : "",
         })}
         cancelLabel={tCommon("cancel")}

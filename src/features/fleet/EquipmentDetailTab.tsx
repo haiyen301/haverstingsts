@@ -37,6 +37,7 @@ import { FLEET_OPTION_CATALOG_KEYS } from "@/features/fleet/api/fleetOptionCatal
 import { fetchStaffOptions } from "@/features/fleet/api/machineryApi";
 import { useFleetOptionCatalog } from "@/features/fleet/hooks/useFleetOptionCatalog";
 import { equipmentCardModelTitle } from "@/features/fleet/lib/equipmentModelDisplay";
+import { calcEquipmentServiceInterval } from "@/features/fleet/lib/equipmentServiceInterval";
 import { EquipmentFormDialog } from "@/features/fleet/ui/EquipmentFormDialog";
 import { canAccessModule } from "@/shared/auth/permissions";
 import { Card, CardContent } from "@/components/ui/card";
@@ -101,11 +102,6 @@ function equipmentStatusKey(status: string): "operational" | "maintenance" | "ou
   if (status === "Under Maintenance") return "maintenance";
   if (status === "Out of Service" || status === "Retired") return "outOfService";
   return "operational";
-}
-
-function num(v: unknown): number {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : 0;
 }
 
 function serviceTypeBadgeClass(type: string): string {
@@ -193,13 +189,7 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
     outOfService: "bg-red-100 text-red-800",
   };
 
-  const hoursBetween = num(eq?.hours_between_service) || 250;
-  const hoursUsed = num(eq?.hours_used);
-  const hoursUntilService = hoursBetween - (hoursUsed % hoursBetween);
-  const serviceProgress = Math.min(
-    100,
-    Math.round(((hoursBetween - hoursUntilService) / hoursBetween) * 100),
-  );
+  const interval = calcEquipmentServiceInterval(eq ?? {});
 
   const titleModel = useMemo(() => {
     if (!eq) return "";
@@ -211,9 +201,13 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
   }, [eq]);
 
   const openAddLog = () => {
+    const meterReading =
+      eq && Number(eq.hours_used) > 0
+        ? formatDecimalInputFromValue(eq.hours_used)
+        : "";
     setLogForm({
       ...emptyServiceLogForm(),
-      hours_at_service: eq ? formatDecimalInputFromValue(eq.hours_used) : "",
+      hours_at_service: meterReading,
       performed_by_user_id: eq?.assigned_to_user_id ? String(eq.assigned_to_user_id) : "",
     });
     setLogFormOpen(true);
@@ -334,7 +328,7 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
       return {
         title: t("deleteEquipmentConfirmTitle"),
         message: t("deleteEquipmentConfirmMessage", {
-          name: eq ? `${eq.brand} ${titleModel}`.trim() : "",
+          name: eq ? `${titleModel}${eq.brand ? ` (${eq.brand})` : ""}`.trim() : "",
         }),
       };
     }
@@ -370,9 +364,7 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
         </button>
         <div className="flex-1">
           <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-2xl font-semibold">
-              {eq.brand} {titleModel}
-            </h1>
+            <h1 className="text-2xl font-semibold">{titleModel}</h1>
             <span className={cn("rounded px-2 py-0.5 text-xs font-medium", statusBadgeClass[statusKey])}>
               {tEq(`status.${statusKey}`)}
             </span>
@@ -407,7 +399,18 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
         ) : null}
       </div>
 
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
+        <Card>
+          <CardContent className="flex items-center gap-3 p-4">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
+              <Tag className="h-4 w-4 text-primary" />
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">{tEq("form.brand")}</p>
+              <p className="text-sm font-semibold">{eq.brand || "—"}</p>
+            </div>
+          </CardContent>
+        </Card>
         <Card>
           <CardContent className="flex items-center gap-3 p-4">
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
@@ -449,34 +452,48 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
             <div>
               <p className="text-xs text-muted-foreground">{t("hoursUsed")}</p>
               <p className="text-sm font-semibold">
-                {formatNumber(hoursUsed, { maximumFractionDigits: 2 })} {t("hrs")}
+                {formatNumber(interval.hoursUsed, { maximumFractionDigits: 2 })} {t("hrs")}
               </p>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {eq.model ? (
-        <Card>
-          <CardContent className="p-4">
-            <p className="mb-2 text-xs font-medium text-muted-foreground">{tEq("form.model")}</p>
-            <pre className="whitespace-pre-wrap font-mono text-xs leading-relaxed text-foreground">
-              {eq.model}
-            </pre>
-          </CardContent>
-        </Card>
-      ) : null}
-
       <Card>
         <CardContent className="space-y-3 p-5">
           <p className="text-base font-semibold">{t("serviceInterval")}</p>
           <div className="flex justify-between text-sm">
-            <span className="text-muted-foreground">{t("everyHours", { hours: hoursBetween })}</span>
-            <span className="font-medium">{t("hoursUntil", { hours: hoursUntilService })}</span>
+            <span className="text-muted-foreground">
+              {t("everyHours", { hours: interval.hoursBetween })}
+            </span>
+            <span className="font-medium">
+              {!interval.hasServiceBaseline
+                ? t("noServiceRecorded")
+                : interval.isOverdue
+                  ? t("serviceOverdue")
+                  : t("hoursUntil", { hours: interval.hoursUntilService })}
+            </span>
           </div>
           <div className="h-2 overflow-hidden rounded-full bg-muted">
-            <div className="h-full rounded-full bg-primary" style={{ width: `${serviceProgress}%` }} />
+            <div
+              className={cn(
+                "h-full rounded-full",
+                interval.isOverdue ? "bg-amber-500" : "bg-primary",
+              )}
+              style={{ width: `${interval.serviceProgress}%` }}
+            />
           </div>
+          {!interval.hasServiceBaseline ? (
+            <p className="text-xs text-muted-foreground">{t("noServiceRecorded")}</p>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              {t("hoursSinceLastService", {
+                hours: formatNumber(interval.hoursSinceLastService, {
+                  maximumFractionDigits: 2,
+                }),
+              })}
+            </p>
+          )}
           <div className="flex justify-between text-xs text-muted-foreground">
             <span className="inline-flex items-center gap-1">
               <Wrench className="h-3 w-3" />
@@ -488,7 +505,16 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
             </span>
           </div>
           {eq.notes ? (
-            <p className="rounded bg-amber-50 px-2 py-1 text-xs text-amber-900">{eq.notes}</p>
+            <p
+              className={cn(
+                "rounded px-2 py-1 text-xs",
+                statusKey === "outOfService"
+                  ? "bg-red-50 text-red-900"
+                  : "bg-amber-50 text-amber-900",
+              )}
+            >
+              {eq.notes}
+            </p>
           ) : null}
         </CardContent>
       </Card>
@@ -515,7 +541,7 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
                     <th className="pb-2 pr-3 font-medium">{t("table.date")}</th>
                     <th className="pb-2 pr-3 font-medium">{t("table.type")}</th>
                     <th className="pb-2 pr-3 font-medium">{t("table.description")}</th>
-                    <th className="pb-2 pr-3 text-right font-medium">{t("table.hours")}</th>
+                    <th className="pb-2 pr-3 text-right font-medium">{t("table.hoursAtService")}</th>
                     <th className="pb-2 pr-3 text-right font-medium">{t("table.cost")}</th>
                     <th className="pb-2 pr-3 font-medium">{t("table.performedBy")}</th>
                     {canManageLogs ? (
@@ -607,7 +633,8 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
                   </span>
                 </div>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  {eq.brand} {titleModel}
+                  {titleModel}
+                  {eq.brand ? ` · ${eq.brand}` : ""}
                   {eq.engine_code ? ` · ${eq.engine_code}` : ""}
                 </p>
               </div>
@@ -640,7 +667,7 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
                   <Hash className="h-4 w-4 text-primary" />
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground">{t("table.hours")}</p>
+                  <p className="text-xs text-muted-foreground">{t("table.hoursAtService")}</p>
                   <p className="text-sm font-semibold">
                     {formatNumber(selectedLog.hours_at_service, { maximumFractionDigits: 2 })}{" "}
                     {t("hrs")}
@@ -751,11 +778,13 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
                 </select>
               </label>
               <label className="block space-y-1">
-                <span className="text-xs font-medium">{t("table.hours")}</span>
+                <span className="text-xs font-medium">{t("table.hoursAtService")}</span>
+                <p className="text-xs text-muted-foreground">{t("hoursAtServiceHint")}</p>
                 <input
                   type="text"
                   inputMode="decimal"
                   className={inputClass}
+                  placeholder={t("hoursAtServicePlaceholder")}
                   value={logForm.hours_at_service}
                   disabled={saving}
                   onChange={(e) =>

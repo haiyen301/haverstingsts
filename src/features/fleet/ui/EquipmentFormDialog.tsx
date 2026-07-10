@@ -17,6 +17,10 @@ import { fetchStaffOptions } from "@/features/fleet/api/machineryApi";
 import { useScopedFarmSelectOptions } from "@/shared/store/farmUserScope";
 import { TOAST_CONTAINER_TOP_RIGHT } from "@/shared/ui/AppToasts";
 import { MultiSelect } from "@/shared/ui/multi-select";
+import {
+  formatDecimalInput,
+  parseDecimalField,
+} from "@/shared/lib/format/number";
 
 const inputClass =
   "flex h-9 w-full min-w-0 rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground shadow-sm outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/35";
@@ -26,6 +30,8 @@ const btnPrimary =
   "inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50";
 const btnOutline =
   "inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md border border-input bg-background px-4 py-2 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+const textareaClass =
+  "flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground shadow-sm outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/35";
 const btnGhost =
   "inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 
@@ -41,6 +47,8 @@ type FormState = {
   type: string;
   engine_code: string;
   hours_between_service: string;
+  hours_used: string;
+  notes: string;
   farm_id: string;
   assigned_to_user_id: string;
   status: EquipmentStatus;
@@ -53,6 +61,8 @@ function emptyForm(typeDefault = "", farmId = ""): FormState {
     type: typeDefault,
     engine_code: "",
     hours_between_service: "250",
+    hours_used: "",
+    notes: "",
     farm_id: farmId,
     assigned_to_user_id: "",
     status: "Active",
@@ -66,6 +76,8 @@ function equipmentToForm(eq: EquipmentRow): FormState {
     type: eq.type,
     engine_code: String(eq.engine_code ?? ""),
     hours_between_service: String(eq.hours_between_service ?? "250"),
+    hours_used: eq.hours_used != null && eq.hours_used !== "" ? String(eq.hours_used) : "",
+    notes: String(eq.notes ?? ""),
     farm_id: String(eq.farm_id),
     assigned_to_user_id: eq.assigned_to_user_id ? String(eq.assigned_to_user_id) : "",
     status: (eq.status as EquipmentStatus) || "Active",
@@ -162,6 +174,12 @@ export function EquipmentFormDialog({ open, onClose, onSaved, equipment = null }
 
     try {
       setSaving(true);
+      const hoursUsed = form.hours_used.trim() ? parseDecimalField(form.hours_used) : undefined;
+      if (form.hours_used.trim() && !Number.isFinite(hoursUsed)) {
+        toast.error(t("errors.invalidNumber"), { containerId: TOAST_CONTAINER_TOP_RIGHT });
+        return;
+      }
+
       const row = await saveEquipment({
         id: equipment?.id,
         brand_id: brandId,
@@ -175,6 +193,8 @@ export function EquipmentFormDialog({ open, onClose, onSaved, equipment = null }
         hours_between_service: form.hours_between_service
           ? Number(form.hours_between_service)
           : undefined,
+        hours_used: Number.isFinite(hoursUsed) ? hoursUsed : undefined,
+        notes: form.notes.trim(),
         status: form.status,
       });
       toast.success(isEdit ? t("updated") : t("saved"), {
@@ -274,6 +294,20 @@ export function EquipmentFormDialog({ open, onClose, onSaved, equipment = null }
             />
           </label>
           <label className="block space-y-1">
+            <span className="text-xs font-medium">{t("form.hoursUsed")}</span>
+            <input
+              type="text"
+              inputMode="decimal"
+              className={inputClass}
+              placeholder={t("form.hoursUsedPlaceholder")}
+              value={form.hours_used}
+              disabled={saving}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, hours_used: formatDecimalInput(e.target.value) }))
+              }
+            />
+          </label>
+          <label className="block space-y-1">
             <span className="text-xs font-medium">{t("form.farm")} *</span>
             <select
               className={selectClass}
@@ -322,6 +356,16 @@ export function EquipmentFormDialog({ open, onClose, onSaved, equipment = null }
               maxSelections={1}
               selectionSummary="full"
               showSelectedChipsInPopover={false}
+            />
+          </label>
+          <label className="col-span-1 block space-y-1 sm:col-span-2">
+            <span className="text-xs font-medium">{t("form.notes")}</span>
+            <textarea
+              className={textareaClass}
+              placeholder={t("form.notesPlaceholder")}
+              value={form.notes}
+              disabled={saving}
+              onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
             />
           </label>
         </div>

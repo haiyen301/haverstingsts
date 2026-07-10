@@ -3794,6 +3794,8 @@
     },
     "card": {
       "serviceIn": "Service in {hours} hrs",
+      "serviceOverdue": "Service overdue",
+      "noServiceRecorded": "No service recorded yet",
       "hrsTotal": "hrs total",
       "last": "Last",
       "next": "Next"
@@ -3807,6 +3809,11 @@
       "engineCodePlaceholder": "e.g. KR-2000-A",
       "hoursBetweenService": "Hours Between Service",
       "hoursBetweenServicePlaceholder": "e.g. 250",
+      "hoursBetweenServiceHint": "Maintenance interval for this machine — how many running hours between each service.",
+      "hoursUsed": "Current Hour Meter",
+      "hoursUsedPlaceholder": "e.g. 2000",
+      "notes": "Notes",
+      "notesPlaceholder": "e.g. Hydraulic system overhaul needed",
       "farm": "Location",
       "status": "Status",
       "pic": "STS PIC",
@@ -3821,7 +3828,8 @@
       "load": "Failed to load equipment.",
       "save": "Failed to register equipment.",
       "delete": "Failed to delete equipment.",
-      "requiredFields": "Brand, type and location are required."
+      "requiredFields": "Brand, type and location are required.",
+      "invalidNumber": "Enter a valid number (e.g. 1,234.56)."
     }
   },
   "EquipmentDetail": {
@@ -3843,6 +3851,11 @@
     "serviceInterval": "Service Interval",
     "everyHours": "Every {hours} hours",
     "hoursUntil": "{hours} hrs until next service",
+    "serviceOverdue": "Service overdue",
+    "noServiceRecorded": "No service recorded yet",
+    "hoursSinceLastService": "{hours} hrs since last service",
+    "hoursAtServiceHint": "Total reading on the machine hour meter when this service was done.",
+    "hoursAtServicePlaceholder": "e.g. 1850",
     "serviceHistory": "Service History",
     "addService": "Add Service",
     "addServiceTitle": "Add Service Record",
@@ -3861,6 +3874,7 @@
       "type": "Type",
       "description": "Description",
       "hours": "Hours",
+      "hoursAtService": "Hour meter reading",
       "cost": "Cost",
       "performedBy": "Performed By",
       "actions": "Actions"
