@@ -174,8 +174,10 @@ export function EquipmentFormDialog({ open, onClose, onSaved, equipment = null }
 
     try {
       setSaving(true);
-      const hoursUsed = form.hours_used.trim() ? parseDecimalField(form.hours_used) : undefined;
-      if (form.hours_used.trim() && !Number.isFinite(hoursUsed)) {
+      const hoursUsed = !isEdit && form.hours_used.trim()
+        ? parseDecimalField(form.hours_used)
+        : undefined;
+      if (!isEdit && form.hours_used.trim() && !Number.isFinite(hoursUsed)) {
         toast.error(t("errors.invalidNumber"), { containerId: TOAST_CONTAINER_TOP_RIGHT });
         return;
       }
@@ -193,7 +195,7 @@ export function EquipmentFormDialog({ open, onClose, onSaved, equipment = null }
         hours_between_service: form.hours_between_service
           ? Number(form.hours_between_service)
           : undefined,
-        hours_used: Number.isFinite(hoursUsed) ? hoursUsed : undefined,
+        hours_used: !isEdit && Number.isFinite(hoursUsed) ? hoursUsed : undefined,
         notes: form.notes.trim(),
         status: form.status,
       });
@@ -293,20 +295,23 @@ export function EquipmentFormDialog({ open, onClose, onSaved, equipment = null }
               onChange={(e) => setForm((f) => ({ ...f, hours_between_service: e.target.value }))}
             />
           </label>
-          <label className="block space-y-1">
-            <span className="text-xs font-medium">{t("form.hoursUsed")}</span>
-            <input
-              type="text"
-              inputMode="decimal"
-              className={inputClass}
-              placeholder={t("form.hoursUsedPlaceholder")}
-              value={form.hours_used}
-              disabled={saving}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, hours_used: formatDecimalInput(e.target.value) }))
-              }
-            />
-          </label>
+          {!isEdit ? (
+            <label className="block space-y-1">
+              <span className="text-xs font-medium">{t("form.hoursUsed")}</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                className={inputClass}
+                placeholder={t("form.hoursUsedPlaceholder")}
+                value={form.hours_used}
+                disabled={saving}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, hours_used: formatDecimalInput(e.target.value) }))
+                }
+              />
+              <span className="text-[11px] text-muted-foreground">{t("form.hoursUsedCreateHint")}</span>
+            </label>
+          ) : null}
           <label className="block space-y-1">
             <span className="text-xs font-medium">{t("form.farm")} *</span>
             <select

@@ -26,9 +26,23 @@ export type EquipmentServiceLog = {
   performed_by_name?: string | null;
 };
 
+export type EquipmentHourMeterReading = {
+  id: number;
+  equipment_id: number;
+  reading_date?: string | null;
+  hours_reading?: number | string;
+  previous_hours?: number | string | null;
+  notes?: string | null;
+  created_by?: number | null;
+  created_by_name?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
 export type EquipmentDetail = {
   equipment: EquipmentRow;
   service_logs: EquipmentServiceLog[];
+  hour_meter_readings?: EquipmentHourMeterReading[];
   service_types: string[];
 };
 
@@ -191,6 +205,37 @@ export async function removeEquipmentServiceLog(
   equipmentId: number,
 ): Promise<{ equipment: EquipmentRow | null }> {
   return stsProxyPostJson(STS_API_PATHS.equipmentRemoveServiceLog, {
+    id,
+    equipment_id: equipmentId,
+  });
+}
+
+export type EquipmentHourMeterUpdatePayload = {
+  id?: number;
+  equipment_id: number;
+  hours_reading: number;
+  reading_date?: string;
+  notes?: string;
+};
+
+export async function updateEquipmentHourMeter(
+  payload: EquipmentHourMeterUpdatePayload,
+): Promise<{
+  equipment: EquipmentRow | null;
+  reading?: EquipmentHourMeterReading;
+  hour_meter_readings?: EquipmentHourMeterReading[];
+}> {
+  return stsProxyPostJson(STS_API_PATHS.equipmentUpdateHourMeter, payload);
+}
+
+export async function removeEquipmentHourMeterReading(
+  id: number,
+  equipmentId: number,
+): Promise<{
+  equipment: EquipmentRow | null;
+  hour_meter_readings?: EquipmentHourMeterReading[];
+}> {
+  return stsProxyPostJson(STS_API_PATHS.equipmentRemoveHourMeterReading, {
     id,
     equipment_id: equipmentId,
   });

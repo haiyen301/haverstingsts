@@ -114,6 +114,8 @@ export const STS_API_PATHS = {
   equipmentDetail: "/api/equipment/detail",
   equipmentSaveServiceLog: "/api/equipment/save_service_log",
   equipmentRemoveServiceLog: "/api/equipment/remove_service_log",
+  equipmentUpdateHourMeter: "/api/equipment/update_hour_meter",
+  equipmentRemoveHourMeterReading: "/api/equipment/remove_hour_meter_reading",
   equipmentCategoryConfig: "/api/equipment/category_config",
   equipmentSaveCategory: "/api/equipment/save_category",
   fleetItemCategoriesConfig: "/api/fleet_item_categories/category_config",

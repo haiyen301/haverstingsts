@@ -292,15 +292,9 @@ export function EquipmentTab() {
                       {t("card.next")}: {formatDateDisplay(eq.next_service_due)}
                     </span>
                   </div>
-                  {eq.notes ? (
-                    <p
-                      className={cn(
-                        "rounded px-2 py-1 text-xs",
-                        statusKey === "outOfService"
-                          ? "bg-red-50 text-red-900"
-                          : "bg-amber-50 text-amber-900",
-                      )}
-                    >
+                  {statusKey === "outOfService" &&
+                  String(eq.notes ?? "").trim() !== "" ? (
+                    <p className="rounded px-2 py-1 text-xs bg-red-50 text-red-900">
                       {eq.notes}
                     </p>
                   ) : null}

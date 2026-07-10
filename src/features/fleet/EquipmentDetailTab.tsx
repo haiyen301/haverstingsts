@@ -26,9 +26,12 @@ import {
   fetchEquipmentDetail,
   formatEquipmentCost,
   removeEquipment,
+  removeEquipmentHourMeterReading,
   removeEquipmentServiceLog,
   saveEquipmentServiceLog,
+  updateEquipmentHourMeter,
   type EquipmentDetail,
+  type EquipmentHourMeterReading,
   type EquipmentRow,
   type EquipmentServiceLog,
   type EquipmentServiceLogType,
@@ -117,7 +120,8 @@ type Props = {
 
 type DeleteConfirmTarget =
   | { kind: "equipment" }
-  | { kind: "serviceLog"; log: EquipmentServiceLog };
+  | { kind: "serviceLog"; log: EquipmentServiceLog }
+  | { kind: "hourMeterReading"; reading: EquipmentHourMeterReading };
 
 export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" }: Props) {
   const t = useTranslations("EquipmentDetail");
@@ -128,7 +132,6 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
   const canEdit = canAccessModule(user, "equipment", "edit");
   const canCreate = canAccessModule(user, "equipment", "create");
   const canDelete = canAccessModule(user, "equipment", "delete");
-  const canManageLogs = canEdit || canDelete;
   const { values: catalogServiceTypes } = useFleetOptionCatalog(
     FLEET_OPTION_CATALOG_KEYS.equipmentServiceTypes,
   );
@@ -141,6 +144,15 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
   const [logFormOpen, setLogFormOpen] = useState(false);
   const [logForm, setLogForm] = useState<ServiceLogForm>(emptyServiceLogForm());
   const [editEquipmentOpen, setEditEquipmentOpen] = useState(false);
+  const [hourMeterOpen, setHourMeterOpen] = useState(false);
+  const [hourMeterListOpen, setHourMeterListOpen] = useState(false);
+  const [selectedReading, setSelectedReading] = useState<EquipmentHourMeterReading | null>(null);
+  const [hourMeterForm, setHourMeterForm] = useState({
+    id: undefined as number | undefined,
+    hours_reading: "",
+    reading_date: "",
+    notes: "",
+  });
   const [deleteConfirm, setDeleteConfirm] = useState<DeleteConfirmTarget | null>(null);
   const [deleting, setDeleting] = useState(false);
 
@@ -180,6 +192,7 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
 
   const eq = detail?.equipment ?? null;
   const logs = detail?.service_logs ?? [];
+  const hourMeterReadings = detail?.hour_meter_readings ?? [];
   const serviceTypes = detail?.service_types?.length ? detail.service_types : catalogServiceTypes;
 
   const statusKey = eq ? equipmentStatusKey(String(eq.status)) : "operational";
@@ -190,6 +203,12 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
   };
 
   const interval = calcEquipmentServiceInterval(eq ?? {});
+  const hasServiceLogs = logs.length > 0;
+  const canUpdateHourMeter = canEdit && hasServiceLogs;
+  const outOfServiceReason =
+    statusKey === "outOfService"
+      ? String(logs[0]?.description ?? "").trim()
+      : "";
 
   const titleModel = useMemo(() => {
     if (!eq) return "";
@@ -211,6 +230,104 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
       performed_by_user_id: eq?.assigned_to_user_id ? String(eq.assigned_to_user_id) : "",
     });
     setLogFormOpen(true);
+  };
+
+  const openHourMeter = (reading?: EquipmentHourMeterReading | null) => {
+    const today = new Date();
+    const ymd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+    if (reading) {
+      setHourMeterForm({
+        id: reading.id,
+        hours_reading: formatDecimalInputFromValue(reading.hours_reading),
+        reading_date: String(reading.reading_date ?? "").slice(0, 10) || ymd,
+        notes: String(reading.notes ?? ""),
+      });
+      setSelectedReading(null);
+    } else {
+      setHourMeterForm({
+        id: undefined,
+        hours_reading: "",
+        reading_date: ymd,
+        notes: "",
+      });
+    }
+    setHourMeterOpen(true);
+  };
+
+  const handleSaveHourMeter = async () => {
+    if (!hourMeterForm.hours_reading.trim()) {
+      toast.error(t("errors.hourMeterRequired"), { containerId: TOAST_CONTAINER_TOP_RIGHT });
+      return;
+    }
+    const hoursReading = parseDecimalField(hourMeterForm.hours_reading);
+    if (!Number.isFinite(hoursReading)) {
+      toast.error(t("errors.invalidNumber"), { containerId: TOAST_CONTAINER_TOP_RIGHT });
+      return;
+    }
+    const isEdit = hourMeterForm.id != null && hourMeterForm.id > 0;
+    const current = Number(eq?.hours_used ?? 0);
+    if (!isEdit && hoursReading + 0.0001 < current) {
+      toast.error(t("errors.hourMeterTooLow"), { containerId: TOAST_CONTAINER_TOP_RIGHT });
+      return;
+    }
+
+    try {
+      setSaving(true);
+      const result = await updateEquipmentHourMeter({
+        id: hourMeterForm.id,
+        equipment_id: equipmentId,
+        hours_reading: hoursReading,
+        reading_date: hourMeterForm.reading_date.trim() || undefined,
+        notes: hourMeterForm.notes.trim() || undefined,
+      });
+      setDetail((prev) =>
+        prev
+          ? {
+              ...prev,
+              equipment: (result.equipment as EquipmentRow) ?? prev.equipment,
+              hour_meter_readings:
+                result.hour_meter_readings ?? prev.hour_meter_readings ?? [],
+            }
+          : prev,
+      );
+      toast.success(t("hourMeterSaved"), { containerId: TOAST_CONTAINER_TOP_RIGHT });
+      setHourMeterOpen(false);
+      setSelectedReading(null);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t("errors.save"), {
+        containerId: TOAST_CONTAINER_TOP_RIGHT,
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleRemoveHourMeterReading = async (reading: EquipmentHourMeterReading) => {
+    try {
+      setDeleting(true);
+      const result = await removeEquipmentHourMeterReading(reading.id, equipmentId);
+      setDetail((prev) =>
+        prev
+          ? {
+              ...prev,
+              equipment: (result.equipment as EquipmentRow) ?? prev.equipment,
+              hour_meter_readings:
+                result.hour_meter_readings ??
+                (prev.hour_meter_readings ?? []).filter((r) => r.id !== reading.id),
+            }
+          : prev,
+      );
+      setSelectedReading(null);
+      setHourMeterOpen(false);
+      setDeleteConfirm(null);
+      toast.success(t("hourMeterDeleted"), { containerId: TOAST_CONTAINER_TOP_RIGHT });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t("errors.delete"), {
+        containerId: TOAST_CONTAINER_TOP_RIGHT,
+      });
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const openEditLog = (log: EquipmentServiceLog) => {
@@ -332,6 +449,17 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
         }),
       };
     }
+    if (deleteConfirm.kind === "hourMeterReading") {
+      return {
+        title: t("deleteHourMeterConfirmTitle"),
+        message: t("deleteHourMeterConfirmMessage", {
+          date: formatDateDisplay(deleteConfirm.reading.reading_date),
+          hours: formatNumber(deleteConfirm.reading.hours_reading, {
+            maximumFractionDigits: 2,
+          }),
+        }),
+      };
+    }
     return {
       title: t("deleteServiceConfirmTitle"),
       message: t("deleteServiceConfirmMessage", {
@@ -449,7 +577,7 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
               <Hash className="h-4 w-4 text-primary" />
             </div>
-            <div>
+            <div className="min-w-0 flex-1">
               <p className="text-xs text-muted-foreground">{t("hoursUsed")}</p>
               <p className="text-sm font-semibold">
                 {formatNumber(interval.hoursUsed, { maximumFractionDigits: 2 })} {t("hrs")}
@@ -461,7 +589,19 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
 
       <Card>
         <CardContent className="space-y-3 p-5">
-          <p className="text-base font-semibold">{t("serviceInterval")}</p>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-base font-semibold">{t("serviceInterval")}</p>
+            {hasServiceLogs ? (
+              <button
+                type="button"
+                className={cn(btnOutline, "h-8")}
+                onClick={() => setHourMeterListOpen(true)}
+              >
+                <Hash className="h-3.5 w-3.5" />
+                {t("hourMeterHistory")}
+              </button>
+            ) : null}
+          </div>
           <div className="flex justify-between text-sm">
             <span className="text-muted-foreground">
               {t("everyHours", { hours: interval.hoursBetween })}
@@ -504,16 +644,9 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
               {tEq("card.next")}: {formatDateDisplay(eq.next_service_due)}
             </span>
           </div>
-          {eq.notes ? (
-            <p
-              className={cn(
-                "rounded px-2 py-1 text-xs",
-                statusKey === "outOfService"
-                  ? "bg-red-50 text-red-900"
-                  : "bg-amber-50 text-amber-900",
-              )}
-            >
-              {eq.notes}
+          {outOfServiceReason ? (
+            <p className="rounded px-2 py-1 text-xs bg-red-50 text-red-900">
+              {outOfServiceReason}
             </p>
           ) : null}
         </CardContent>
@@ -522,7 +655,14 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
       <Card>
         <CardContent className="p-5">
           <div className="mb-4 flex items-center justify-between gap-3">
-            <p className="text-base font-semibold">{t("serviceHistory")}</p>
+            <div>
+              <p className="text-base font-semibold">{t("serviceHistory")}</p>
+              {hasServiceLogs ? (
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {t("serviceHistoryCount", { count: String(logs.length) })}
+                </p>
+              ) : null}
+            </div>
             {canCreate ? (
               <button type="button" className={btnPrimary} onClick={openAddLog}>
                 <Plus className="h-4 w-4" />
@@ -532,85 +672,62 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
           </div>
 
           {logs.length === 0 ? (
-            <p className="py-4 text-center text-sm text-muted-foreground">{t("noServiceRecords")}</p>
+            <div className="rounded-lg border border-dashed border-border bg-muted/20 px-4 py-10 text-center">
+              <Wrench className="mx-auto h-8 w-8 text-muted-foreground/70" />
+              <p className="mt-3 text-sm font-medium text-foreground">{t("noServiceRecords")}</p>
+              <p className="mx-auto mt-1 max-w-md text-xs text-muted-foreground">
+                {t("noServiceRecordsHint")}
+              </p>
+            </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b text-left text-xs text-muted-foreground">
-                    <th className="pb-2 pr-3 font-medium">{t("table.date")}</th>
-                    <th className="pb-2 pr-3 font-medium">{t("table.type")}</th>
-                    <th className="pb-2 pr-3 font-medium">{t("table.description")}</th>
-                    <th className="pb-2 pr-3 text-right font-medium">{t("table.hoursAtService")}</th>
-                    <th className="pb-2 pr-3 text-right font-medium">{t("table.cost")}</th>
-                    <th className="pb-2 pr-3 font-medium">{t("table.performedBy")}</th>
-                    {canManageLogs ? (
-                      <th className="pb-2 text-right font-medium">{t("table.actions")}</th>
-                    ) : null}
-                  </tr>
-                </thead>
-                <tbody>
-                  {logs.map((log) => (
-                    <tr
-                      key={log.id}
-                      className="cursor-pointer border-b last:border-0 hover:bg-muted/40"
-                      onClick={() => setSelectedLog(log)}
-                    >
-                      <td className="py-3 pr-3">{formatDateDisplay(log.service_date)}</td>
-                      <td className="py-3 pr-3">
-                        <span
-                          className={cn(
-                            "rounded px-2 py-0.5 text-xs font-medium",
-                            serviceTypeBadgeClass(String(log.service_type)),
-                          )}
-                        >
-                          {log.service_type}
-                        </span>
-                      </td>
-                      <td className="max-w-[280px] truncate py-3 pr-3">{log.description || "—"}</td>
-                      <td className="py-3 pr-3 text-right">
-                        {formatNumber(log.hours_at_service, { maximumFractionDigits: 2 })}
-                      </td>
-                      <td className="py-3 pr-3 text-right">{formatEquipmentCost(log.cost)}</td>
-                      <td className="py-3 pr-3">{log.performed_by_name || "—"}</td>
-                      {canManageLogs ? (
-                        <td className="py-3">
-                          <div className="flex items-center justify-end gap-1">
-                            {canEdit ? (
-                              <button
-                                type="button"
-                                className={btnGhost}
-                                disabled={saving}
-                                aria-label={t("editService")}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  openEditLog(log);
-                                }}
-                              >
-                                <Pencil className="h-3.5 w-3.5" />
-                              </button>
-                            ) : null}
-                            {canDelete ? (
-                              <button
-                                type="button"
-                                className={cn(btnGhost, "text-destructive hover:bg-destructive/10")}
-                                disabled={saving}
-                                aria-label={t("deleteService")}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setDeleteConfirm({ kind: "serviceLog", log });
-                                }}
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
-                            ) : null}
-                          </div>
-                        </td>
-                      ) : null}
+            <div className="overflow-hidden rounded-lg border border-border">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
+                      <th className="px-3 py-2.5 font-medium">{t("table.date")}</th>
+                      <th className="px-3 py-2.5 font-medium">{t("table.type")}</th>
+                      <th className="px-3 py-2.5 font-medium">{t("table.description")}</th>
+                      <th className="px-3 py-2.5 text-right font-medium">{t("table.hoursAtService")}</th>
+                      <th className="px-3 py-2.5 text-right font-medium">{t("table.cost")}</th>
+                      <th className="px-3 py-2.5 font-medium">{t("table.performedBy")}</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {logs.map((log) => (
+                      <tr
+                        key={log.id}
+                        className="cursor-pointer border-b last:border-0 hover:bg-muted/30"
+                        onClick={() => setSelectedLog(log)}
+                      >
+                        <td className="whitespace-nowrap px-3 py-3 font-medium">
+                          {formatDateDisplay(log.service_date)}
+                        </td>
+                        <td className="px-3 py-3">
+                          <span
+                            className={cn(
+                              "inline-flex rounded px-2 py-0.5 text-xs font-medium",
+                              serviceTypeBadgeClass(String(log.service_type)),
+                            )}
+                          >
+                            {log.service_type}
+                          </span>
+                        </td>
+                        <td className="max-w-[280px] truncate px-3 py-3 text-muted-foreground">
+                          {log.description || "—"}
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-3 text-right tabular-nums">
+                          {formatNumber(log.hours_at_service, { maximumFractionDigits: 2 })}
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-3 text-right tabular-nums">
+                          {formatEquipmentCost(log.cost)}
+                        </td>
+                        <td className="px-3 py-3">{log.performed_by_name || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </CardContent>
@@ -870,6 +987,283 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
         </div>
       ) : null}
 
+      {hourMeterListOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="flex max-h-[85vh] w-full max-w-4xl flex-col overflow-hidden rounded-lg border border-border bg-background shadow-lg">
+            <div className="flex shrink-0 items-start justify-between gap-3 border-b px-5 py-4">
+              <div>
+                <h2 className="text-lg font-semibold">{t("hourMeterHistory")}</h2>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {t("hourMeterHistoryCount", { count: String(hourMeterReadings.length) })}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                {canUpdateHourMeter ? (
+                  <button
+                    type="button"
+                    className={btnPrimary}
+                    onClick={() => openHourMeter()}
+                  >
+                    <Plus className="h-4 w-4" />
+                    {t("updateHourMeter")}
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className={btnGhost}
+                  onClick={() => setHourMeterListOpen(false)}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-auto p-5">
+              {hourMeterReadings.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-border bg-muted/20 px-4 py-10 text-center">
+                  <Hash className="mx-auto h-7 w-7 text-muted-foreground/70" />
+                  <p className="mt-2 text-sm font-medium">{t("noHourMeterReadings")}</p>
+                  <p className="mx-auto mt-1 max-w-md text-xs text-muted-foreground">
+                    {t("noHourMeterReadingsHint")}
+                  </p>
+                </div>
+              ) : (
+                <div className="overflow-hidden rounded-lg border border-border">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="sticky top-0 bg-muted/40">
+                        <tr className="border-b text-left text-xs text-muted-foreground">
+                          <th className="px-3 py-2.5 font-medium">{t("readingDate")}</th>
+                          <th className="px-3 py-2.5 text-right font-medium">{t("newHourMeter")}</th>
+                          <th className="px-3 py-2.5 text-right font-medium">{t("previousHourMeter")}</th>
+                          <th className="px-3 py-2.5 font-medium">{t("hourMeterNotes")}</th>
+                          <th className="px-3 py-2.5 font-medium">{t("recordedBy")}</th>
+                          <th className="px-3 py-2.5 text-right font-medium">{t("table.actions")}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {hourMeterReadings.map((reading) => (
+                          <tr
+                            key={reading.id}
+                            className="cursor-pointer border-b last:border-0 hover:bg-muted/30"
+                            onClick={() => setSelectedReading(reading)}
+                          >
+                            <td className="whitespace-nowrap px-3 py-3 font-medium">
+                              {formatDateDisplay(reading.reading_date)}
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-3 text-right tabular-nums">
+                              {formatNumber(reading.hours_reading, {
+                                maximumFractionDigits: 2,
+                              })}
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-3 text-right tabular-nums text-muted-foreground">
+                              {reading.previous_hours != null
+                                ? formatNumber(reading.previous_hours, {
+                                    maximumFractionDigits: 2,
+                                  })
+                                : "—"}
+                            </td>
+                            <td className="max-w-[220px] truncate px-3 py-3 text-muted-foreground">
+                              {reading.notes || "—"}
+                            </td>
+                            <td className="px-3 py-3">{reading.created_by_name || "—"}</td>
+                            <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
+                              <div className="flex items-center justify-end gap-0.5">
+                                {canEdit ? (
+                                  <button
+                                    type="button"
+                                    className={btnGhost}
+                                    disabled={saving}
+                                    aria-label={t("editHourMeter")}
+                                    title={t("editHourMeter")}
+                                    onClick={() => openHourMeter(reading)}
+                                  >
+                                    <Pencil className="h-3.5 w-3.5" />
+                                  </button>
+                                ) : null}
+                                {canDelete ? (
+                                  <button
+                                    type="button"
+                                    className={cn(
+                                      btnGhost,
+                                      "text-destructive hover:bg-destructive/10",
+                                    )}
+                                    disabled={saving}
+                                    aria-label={t("deleteHourMeter")}
+                                    title={t("deleteHourMeter")}
+                                    onClick={() =>
+                                      setDeleteConfirm({
+                                        kind: "hourMeterReading",
+                                        reading,
+                                      })
+                                    }
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                ) : null}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {selectedReading ? (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-lg rounded-lg border border-border bg-background p-6 shadow-lg">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-xl font-semibold">{t("hourMeterReading")}</h2>
+                <p className="mt-1 text-sm text-muted-foreground">{titleModel}</p>
+              </div>
+              <button type="button" className={btnGhost} onClick={() => setSelectedReading(null)}>
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-xs text-muted-foreground">{t("readingDate")}</p>
+                <p className="text-sm font-semibold">
+                  {formatDateDisplay(selectedReading.reading_date)}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">{t("newHourMeter")}</p>
+                <p className="text-sm font-semibold">
+                  {formatNumber(selectedReading.hours_reading, { maximumFractionDigits: 2 })}{" "}
+                  {t("hrs")}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">{t("previousHourMeter")}</p>
+                <p className="text-sm font-semibold">
+                  {selectedReading.previous_hours != null
+                    ? `${formatNumber(selectedReading.previous_hours, { maximumFractionDigits: 2 })} ${t("hrs")}`
+                    : "—"}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">{t("recordedBy")}</p>
+                <p className="text-sm font-semibold">{selectedReading.created_by_name || "—"}</p>
+              </div>
+              <div className="col-span-2">
+                <p className="text-xs text-muted-foreground">{t("hourMeterNotes")}</p>
+                <p className="mt-1 rounded-md bg-muted/50 p-3 text-sm text-muted-foreground">
+                  {selectedReading.notes || "—"}
+                </p>
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end gap-2">
+              {canEdit ? (
+                <button
+                  type="button"
+                  className={btnOutline}
+                  onClick={() => openHourMeter(selectedReading)}
+                >
+                  <Pencil className="h-4 w-4" />
+                  {t("editHourMeter")}
+                </button>
+              ) : null}
+              {canDelete ? (
+                <button
+                  type="button"
+                  className={cn(btnOutline, "text-destructive hover:bg-destructive/10")}
+                  disabled={saving || deleting}
+                  onClick={() =>
+                    setDeleteConfirm({ kind: "hourMeterReading", reading: selectedReading })
+                  }
+                >
+                  <Trash2 className="h-4 w-4" />
+                  {t("deleteHourMeter")}
+                </button>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {hourMeterOpen ? (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-lg border border-border bg-background p-6 shadow-lg">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">
+                {hourMeterForm.id ? t("editHourMeterTitle") : t("updateHourMeterTitle")}
+              </h2>
+              <button type="button" className={btnGhost} onClick={() => setHourMeterOpen(false)}>
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <p className="mt-2 text-sm text-muted-foreground">{t("updateHourMeterHint")}</p>
+            <div className="mt-4 space-y-3">
+              {!hourMeterForm.id ? (
+                <div className="rounded-md bg-muted/50 px-3 py-2 text-sm">
+                  <span className="text-muted-foreground">{t("currentHourMeter")}: </span>
+                  <span className="font-semibold">
+                    {formatNumber(interval.hoursUsed, { maximumFractionDigits: 2 })} {t("hrs")}
+                  </span>
+                </div>
+              ) : null}
+              <label className="block space-y-1">
+                <span className="text-xs font-medium">{t("newHourMeter")} *</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  className={inputClass}
+                  placeholder={t("newHourMeterPlaceholder")}
+                  value={hourMeterForm.hours_reading}
+                  disabled={saving}
+                  onChange={(e) =>
+                    setHourMeterForm((f) => ({
+                      ...f,
+                      hours_reading: formatDecimalInput(e.target.value),
+                    }))
+                  }
+                />
+              </label>
+              <label className="block space-y-1">
+                <span className="text-xs font-medium">{t("readingDate")}</span>
+                <DatePicker
+                  value={hourMeterForm.reading_date}
+                  onChange={(v) => setHourMeterForm((f) => ({ ...f, reading_date: v }))}
+                  className="h-9 w-full rounded-md text-sm shadow-sm"
+                  disabled={saving}
+                />
+              </label>
+              <label className="block space-y-1">
+                <span className="text-xs font-medium">{t("hourMeterNotes")}</span>
+                <textarea
+                  className={textareaClass}
+                  placeholder={t("hourMeterNotesPlaceholder")}
+                  value={hourMeterForm.notes}
+                  disabled={saving}
+                  onChange={(e) => setHourMeterForm((f) => ({ ...f, notes: e.target.value }))}
+                />
+              </label>
+            </div>
+            <div className="mt-6 flex justify-end gap-2">
+              <button type="button" className={btnOutline} onClick={() => setHourMeterOpen(false)}>
+                {tEq("cancel")}
+              </button>
+              <button
+                type="button"
+                className={btnPrimary}
+                disabled={saving}
+                onClick={() => void handleSaveHourMeter()}
+              >
+                {t("saveHourMeter")}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <ConfirmDeleteDialog
         open={deleteConfirm != null && deleteDialogCopy != null}
         title={deleteDialogCopy?.title ?? tCommon("confirmDeleteTitle")}
@@ -885,6 +1279,10 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
           if (!deleteConfirm || deleting) return;
           if (deleteConfirm.kind === "equipment") {
             void handleDeleteEquipment();
+            return;
+          }
+          if (deleteConfirm.kind === "hourMeterReading") {
+            void handleRemoveHourMeterReading(deleteConfirm.reading);
             return;
           }
           void handleRemoveLog(deleteConfirm.log);

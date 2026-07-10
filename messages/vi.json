@@ -3407,7 +3407,8 @@
   "Equipment": {
     "form": {
       "brand": "Hãng",
-      "hoursBetweenServiceHint": "Chu kỳ bảo trì của máy này — bao nhiêu giờ chạy giữa mỗi lần service."
+      "hoursBetweenServiceHint": "Chu kỳ bảo trì của máy này — bao nhiêu giờ chạy giữa mỗi lần service.",
+      "hoursUsedCreateHint": "Số giờ ban đầu khi đăng ký máy. Sau này cập nhật bằng Cập nhật đồng hồ trên trang chi tiết."
     },
     "card": {
       "serviceIn": "Còn {hours} giờ đến bảo trì",
@@ -3425,8 +3426,42 @@
     "hoursSinceLastService": "{hours} giờ kể từ lần service cuối",
     "hoursAtServiceHint": "Tổng số giờ trên đồng hồ máy lúc bảo trì.",
     "hoursAtServicePlaceholder": "vd. 1850",
+    "updateHourMeter": "Cập nhật đồng hồ",
+    "updateHourMeterTitle": "Cập nhật đồng hồ giờ",
+    "editHourMeterTitle": "Sửa lần ghi đồng hồ",
+    "editHourMeter": "Sửa",
+    "deleteHourMeter": "Xóa",
+    "hourMeterReading": "Lần ghi đồng hồ",
+    "hourMeterHistory": "Lịch sử đồng hồ giờ",
+    "hourMeterHistoryCount": "{count} lần ghi",
+    "noHourMeterReadings": "Chưa có lần ghi đồng hồ.",
+    "noHourMeterReadingsHint": "Ghi số giờ hiện tại giữa các lần service để theo dõi tiến độ bảo trì.",
+    "previousHourMeter": "Số giờ trước đó",
+    "recordedBy": "Người ghi",
+    "hourMeterDeleted": "Đã xóa lần ghi đồng hồ",
+    "deleteHourMeterConfirmTitle": "Xóa lần ghi đồng hồ?",
+    "deleteHourMeterConfirmMessage": "Xóa lần ghi ngày {date} ({hours} giờ)? Đây là xóa mềm.",
+    "updateHourMeterHint": "Nhập số giờ hiện tại trên máy. Tiến độ bảo trì sẽ tăng mà không reset mốc lần service cuối.",
+    "currentHourMeter": "Đồng hồ hiện tại",
+    "newHourMeter": "Số giờ trên đồng hồ",
+    "newHourMeterPlaceholder": "vd. 2200",
+    "readingDate": "Ngày ghi nhận",
+    "hourMeterNotes": "Ghi chú",
+    "hourMeterNotesPlaceholder": "Ghi chú (tuỳ chọn)",
+    "hourMeterSaved": "Đã cập nhật đồng hồ",
+    "saveHourMeter": "Lưu số giờ",
+    "serviceHistory": "Lịch sử bảo trì",
+    "serviceHistoryCount": "{count} bản ghi",
+    "viewService": "Xem",
+    "noServiceRecords": "Chưa có bản ghi service.",
+    "noServiceRecordsHint": "Thêm lần service đầu để đặt mốc bảo trì. Sau đó mới cập nhật đồng hồ giữa các lần service.",
     "table": {
-      "hoursAtService": "Đồng hồ lúc bảo trì"
+      "hoursAtService": "Đồng hồ lúc bảo trì",
+      "actions": "Thao tác"
+    },
+    "errors": {
+      "hourMeterRequired": "Nhập số giờ mới trên đồng hồ.",
+      "hourMeterTooLow": "Số giờ mới phải lớn hơn hoặc bằng đồng hồ hiện tại."
     }
   }
 }
