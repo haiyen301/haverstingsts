@@ -211,12 +211,17 @@ function shouldSkipVehicleRow(label: string): boolean {
   if (!text) return true;
   if (isDateHeaderLabel(label)) return true;
   if (text.startsWith("diary fuel")) return true;
-  if (text === "mechanical") return true;
+  // "Mechanical" is a real petrol equipment row in the diary — do not skip it.
   if (isStockImportRowLabel(label)) return true;
   if (text.includes("remaining") || text.includes("tồn")) return true;
   if (text.includes("total amount")) return true;
   if (text === "tổng sl" || text === "total qty") return true;
   return false;
+}
+
+/** End of equipment list for the current fuel section (Import diesel / Import gasoline). */
+function isSectionEndLabel(label: string): boolean {
+  return isStockImportRowLabel(label);
 }
 
 function isStockImportRowLabel(label: string): boolean {
@@ -310,7 +315,14 @@ function parseDiarySheet(ws: ExcelJS.Worksheet): FuelUsageImportRawEntry[] {
       const label = cellText(ws.getCell(row, 1).value);
       const section = sectionForLabel(label);
       if (section) {
+        // Start equipment range: máy dầu/diesel … or Máy Xăng/Petro …
         currentSection = section;
+        row += 1;
+        continue;
+      }
+      // End equipment range at Import diesel / Ngày nhập xăng/Import gasoline.
+      if (isSectionEndLabel(label)) {
+        currentSection = null;
         row += 1;
         continue;
       }

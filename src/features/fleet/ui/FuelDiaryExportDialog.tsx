@@ -259,21 +259,21 @@ export function FuelDiaryExportDialog({
               formatSelectedCount={(count) => t("export.farmsSelected", { count })}
             />
           </label>
-          <div className="grid grid-cols-2 gap-3">
-            <label className="space-y-1">
+          <div className="grid w-full grid-cols-2 gap-3">
+            <label className="flex min-w-0 flex-col gap-1">
               <span className="text-xs font-medium">{t("export.dateFrom")}</span>
               <input
                 type="date"
-                className={inputClass}
+                className={cn(inputClass, "block max-w-none [&::-webkit-date-and-time-value]:text-left")}
                 value={dateFrom}
                 onChange={(e) => setDateFrom(e.target.value)}
               />
             </label>
-            <label className="space-y-1">
+            <label className="flex min-w-0 flex-col gap-1">
               <span className="text-xs font-medium">{t("export.dateTo")}</span>
               <input
                 type="date"
-                className={inputClass}
+                className={cn(inputClass, "block max-w-none [&::-webkit-date-and-time-value]:text-left")}
                 value={dateTo}
                 onChange={(e) => setDateTo(e.target.value)}
               />
