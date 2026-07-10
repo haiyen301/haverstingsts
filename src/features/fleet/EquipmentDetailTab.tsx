@@ -132,6 +132,7 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
   const canEdit = canAccessModule(user, "equipment", "edit");
   const canCreate = canAccessModule(user, "equipment", "create");
   const canDelete = canAccessModule(user, "equipment", "delete");
+  const canManageRows = canEdit || canDelete;
   const { values: catalogServiceTypes } = useFleetOptionCatalog(
     FLEET_OPTION_CATALOG_KEYS.equipmentServiceTypes,
   );
@@ -204,7 +205,7 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
 
   const interval = calcEquipmentServiceInterval(eq ?? {});
   const hasServiceLogs = logs.length > 0;
-  const canUpdateHourMeter = canEdit && hasServiceLogs;
+  const canUpdateHourMeter = canCreate && hasServiceLogs;
   const outOfServiceReason =
     statusKey === "outOfService"
       ? String(logs[0]?.description ?? "").trim()
@@ -220,6 +221,7 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
   }, [eq]);
 
   const openAddLog = () => {
+    if (!canCreate) return;
     const meterReading =
       eq && Number(eq.hours_used) > 0
         ? formatDecimalInputFromValue(eq.hours_used)
@@ -233,6 +235,11 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
   };
 
   const openHourMeter = (reading?: EquipmentHourMeterReading | null) => {
+    if (reading) {
+      if (!canEdit) return;
+    } else if (!canUpdateHourMeter) {
+      return;
+    }
     const today = new Date();
     const ymd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
     if (reading) {
@@ -255,6 +262,8 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
   };
 
   const handleSaveHourMeter = async () => {
+    const isEdit = hourMeterForm.id != null && hourMeterForm.id > 0;
+    if (isEdit ? !canEdit : !canCreate) return;
     if (!hourMeterForm.hours_reading.trim()) {
       toast.error(t("errors.hourMeterRequired"), { containerId: TOAST_CONTAINER_TOP_RIGHT });
       return;
@@ -264,7 +273,6 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
       toast.error(t("errors.invalidNumber"), { containerId: TOAST_CONTAINER_TOP_RIGHT });
       return;
     }
-    const isEdit = hourMeterForm.id != null && hourMeterForm.id > 0;
     const current = Number(eq?.hours_used ?? 0);
     if (!isEdit && hoursReading + 0.0001 < current) {
       toast.error(t("errors.hourMeterTooLow"), { containerId: TOAST_CONTAINER_TOP_RIGHT });
@@ -331,12 +339,15 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
   };
 
   const openEditLog = (log: EquipmentServiceLog) => {
+    if (!canEdit) return;
     setLogForm(serviceLogToForm(log));
     setSelectedLog(null);
     setLogFormOpen(true);
   };
 
   const handleSaveLog = async () => {
+    const isEdit = logForm.id != null && logForm.id > 0;
+    if (isEdit ? !canEdit : !canCreate) return;
     if (!logForm.service_date.trim()) {
       toast.error(t("errors.requiredFields"), { containerId: TOAST_CONTAINER_TOP_RIGHT });
       return;
@@ -691,6 +702,9 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
                       <th className="px-3 py-2.5 text-right font-medium">{t("table.hoursAtService")}</th>
                       <th className="px-3 py-2.5 text-right font-medium">{t("table.cost")}</th>
                       <th className="px-3 py-2.5 font-medium">{t("table.performedBy")}</th>
+                      {canManageRows ? (
+                        <th className="px-3 py-2.5 text-right font-medium">{t("table.actions")}</th>
+                      ) : null}
                     </tr>
                   </thead>
                   <tbody>
@@ -723,6 +737,41 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
                           {formatEquipmentCost(log.cost)}
                         </td>
                         <td className="px-3 py-3">{log.performed_by_name || "—"}</td>
+                        {canManageRows ? (
+                          <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex items-center justify-end gap-0.5">
+                              {canEdit ? (
+                                <button
+                                  type="button"
+                                  className={btnGhost}
+                                  disabled={saving}
+                                  aria-label={t("editService")}
+                                  title={t("editService")}
+                                  onClick={() => openEditLog(log)}
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </button>
+                              ) : null}
+                              {canDelete ? (
+                                <button
+                                  type="button"
+                                  className={cn(
+                                    btnGhost,
+                                    "text-destructive hover:bg-destructive/10",
+                                  )}
+                                  disabled={saving || deleting}
+                                  aria-label={t("deleteService")}
+                                  title={t("deleteService")}
+                                  onClick={() =>
+                                    setDeleteConfirm({ kind: "serviceLog", log })
+                                  }
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              ) : null}
+                            </div>
+                          </td>
+                        ) : null}
                       </tr>
                     ))}
                   </tbody>
@@ -1038,7 +1087,9 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
                           <th className="px-3 py-2.5 text-right font-medium">{t("previousHourMeter")}</th>
                           <th className="px-3 py-2.5 font-medium">{t("hourMeterNotes")}</th>
                           <th className="px-3 py-2.5 font-medium">{t("recordedBy")}</th>
-                          <th className="px-3 py-2.5 text-right font-medium">{t("table.actions")}</th>
+                          {canManageRows ? (
+                            <th className="px-3 py-2.5 text-right font-medium">{t("table.actions")}</th>
+                          ) : null}
                         </tr>
                       </thead>
                       <tbody>
@@ -1067,42 +1118,44 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
                               {reading.notes || "—"}
                             </td>
                             <td className="px-3 py-3">{reading.created_by_name || "—"}</td>
-                            <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
-                              <div className="flex items-center justify-end gap-0.5">
-                                {canEdit ? (
-                                  <button
-                                    type="button"
-                                    className={btnGhost}
-                                    disabled={saving}
-                                    aria-label={t("editHourMeter")}
-                                    title={t("editHourMeter")}
-                                    onClick={() => openHourMeter(reading)}
-                                  >
-                                    <Pencil className="h-3.5 w-3.5" />
-                                  </button>
-                                ) : null}
-                                {canDelete ? (
-                                  <button
-                                    type="button"
-                                    className={cn(
-                                      btnGhost,
-                                      "text-destructive hover:bg-destructive/10",
-                                    )}
-                                    disabled={saving}
-                                    aria-label={t("deleteHourMeter")}
-                                    title={t("deleteHourMeter")}
-                                    onClick={() =>
-                                      setDeleteConfirm({
-                                        kind: "hourMeterReading",
-                                        reading,
-                                      })
-                                    }
-                                  >
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                  </button>
-                                ) : null}
-                              </div>
-                            </td>
+                            {canManageRows ? (
+                              <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
+                                <div className="flex items-center justify-end gap-0.5">
+                                  {canEdit ? (
+                                    <button
+                                      type="button"
+                                      className={btnGhost}
+                                      disabled={saving}
+                                      aria-label={t("editHourMeter")}
+                                      title={t("editHourMeter")}
+                                      onClick={() => openHourMeter(reading)}
+                                    >
+                                      <Pencil className="h-3.5 w-3.5" />
+                                    </button>
+                                  ) : null}
+                                  {canDelete ? (
+                                    <button
+                                      type="button"
+                                      className={cn(
+                                        btnGhost,
+                                        "text-destructive hover:bg-destructive/10",
+                                      )}
+                                      disabled={saving}
+                                      aria-label={t("deleteHourMeter")}
+                                      title={t("deleteHourMeter")}
+                                      onClick={() =>
+                                        setDeleteConfirm({
+                                          kind: "hourMeterReading",
+                                          reading,
+                                        })
+                                      }
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </button>
+                                  ) : null}
+                                </div>
+                              </td>
+                            ) : null}
                           </tr>
                         ))}
                       </tbody>

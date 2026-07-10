@@ -17,7 +17,7 @@ export default async function AdminEquipmentCategoryLayout({
   }
   const acl = await fetchTrustedAclByToken(token);
   if (!userIdIsPrivilegedAdmin(acl?.userId)) {
-    redirect("/admin/fleet/machinery");
+    redirect("/admin/fleet/machinery-types");
   }
   return <>{children}</>;
 }

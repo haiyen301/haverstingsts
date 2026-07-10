@@ -610,11 +610,12 @@ export function DashboardLayout({
           },
           {
             key: "fleet-admin",
-            path: "/admin/fleet/machinery",
+            path: "/admin/fleet/machinery-types",
             icon: Tractor,
             label: tn("fleetMechanicalAdmin"),
             isActive: (p) => p.startsWith("/admin/fleet"),
             tabs: [
+              // TODO: tạm ẩn — chưa dùng (Machinery register page)
               // {
               //   value: "machinery",
               //   label: tn("adminMachinery"),

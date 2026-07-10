@@ -1,15 +1,6 @@
-"use client";
+import { redirect } from "next/navigation";
 
-import RequireAuth from "@/features/auth/RequireAuth";
-import { MachinerySettingsTab } from "@/features/admin/ui/MachinerySettingsTab";
-import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
-
+/** TODO: tạm ẩn — chưa dùng. Redirect tới Machinery Types. */
 export default function AdminMachineryPage() {
-  return (
-    <RequireAuth>
-      <DashboardLayout>
-        <MachinerySettingsTab />
-      </DashboardLayout>
-    </RequireAuth>
-  );
+  redirect("/admin/fleet/machinery-types");
 }

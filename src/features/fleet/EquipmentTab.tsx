@@ -235,6 +235,20 @@ export function EquipmentTab() {
                           <Pencil className="h-4 w-4 text-muted-foreground" />
                         </button>
                       ) : null}
+                      {canDelete ? (
+                        <button
+                          type="button"
+                          className={cn(btnGhost, "h-9 w-9 shrink-0 text-destructive hover:bg-destructive/10")}
+                          aria-label={t("deleteConfirmTitle")}
+                          disabled={deleting}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeleteTarget(eq);
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      ) : null}
                       <div>
                         <p className="text-sm font-semibold">
                           {equipmentCardModelTitle({
