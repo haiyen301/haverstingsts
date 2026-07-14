@@ -21,7 +21,6 @@ import {
   type FarmZoneReferenceRow,
   type KeyAreaReferenceRow,
 } from "@/shared/lib/harvestReferenceData";
-import { canViewAllModuleData } from "@/shared/auth/permissions";
 import { stsProxyGetWithParams, stsProxyGetWithParamsOptional } from "@/shared/api/stsProxyClient";
 
 export const HARVESTING_REFERENCE_PERSIST_KEY = "sts-harvesting-reference-v2";
@@ -88,8 +87,10 @@ const empty = {
   /** Regrowth rule rows from `/api/regrowth_rules`. */
   regrowthRules: [] as RegrowthRuleRow[],
   farms: [] as unknown[],
-  /** Project catalog for forms/export — full list only when user has view-all on projects. */
+  /** View-all project catalog (`react_get_all_projects`, still role-aware on server). */
   allProjects: [] as unknown[],
+  /** Harvest create/edit only — all `deleted=0` via `react_get_all_projects_for_harvest`. */
+  allProjectsForHarvest: [] as unknown[],
   /** Projects visible for the current user role (farm / plan / creator scope). */
   roleVisibleProjects: [] as unknown[],
   /**
@@ -120,8 +121,10 @@ export type HarvestingDataState = {
   keyAreas: KeyAreaReferenceRow[];
   regrowthRules: RegrowthRuleRow[];
   farms: unknown[];
-  /** Project catalog (`react_get_all_projects` when view-all, else role-scoped `/api/projects`). */
+  /** View-all project catalog (`react_get_all_projects`). */
   allProjects: unknown[];
+  /** Harvest create/edit only — unscoped active projects. */
+  allProjectsForHarvest: unknown[];
   /** Role-scoped projects (`GET /api/projects` → `filterVisibleProjectsForUser`). */
   roleVisibleProjects: unknown[];
   /** @deprecated Alias of `roleVisibleProjects`. */
@@ -160,9 +163,12 @@ export type HarvestingDataState = {
   setRegrowthRules: (regrowthRules: RegrowthRuleRow[]) => void;
   setFarms: (farms: unknown[]) => void;
   setAllProjects: (allProjects: unknown[]) => void;
+  setAllProjectsForHarvest: (allProjectsForHarvest: unknown[]) => void;
   setRoleVisibleProjects: (roleVisibleProjects: unknown[]) => void;
   /** @deprecated Use `setRoleVisibleProjects`. */
   setProjects: (projects: unknown[]) => void;
+  /** Loads unscoped project list for harvest create/edit only. */
+  fetchAllProjectsForHarvest: (force?: boolean) => Promise<void>;
   setStaffs: (staffs: unknown[]) => void;
   setCountries: (countries: unknown[]) => void;
   setActiveCountries: (activeCountries: unknown[]) => void;
@@ -225,6 +231,7 @@ type PersistedHarvestReferenceSlice = Pick<
   | "regrowthRules"
   | "farms"
   | "allProjects"
+  | "allProjectsForHarvest"
   | "roleVisibleProjects"
   | "projects"
   | "staffs"
@@ -251,6 +258,7 @@ export const useHarvestingDataStore = create<HarvestingDataState>()(
   setRegrowthRules: (regrowthRules) => set({ regrowthRules }),
   setFarms: (farms) => set({ farms }),
   setAllProjects: (allProjects) => set({ allProjects }),
+  setAllProjectsForHarvest: (allProjectsForHarvest) => set({ allProjectsForHarvest }),
   setRoleVisibleProjects: (roleVisibleProjects) =>
     set({ roleVisibleProjects, projects: roleVisibleProjects }),
   setProjects: (projects) => set({ projects, roleVisibleProjects: projects }),
@@ -301,6 +309,10 @@ export const useHarvestingDataStore = create<HarvestingDataState>()(
 
   upsertProjectInList: (project) => {
     const allProjects = upsertProjectInArray(get().allProjects, project);
+    const allProjectsForHarvest = upsertProjectInArray(
+      get().allProjectsForHarvest,
+      project,
+    );
     const p = project as Record<string, unknown>;
     const id = String(p?.id ?? "").trim();
     const prevRoleVisible = get().roleVisibleProjects;
@@ -313,9 +325,33 @@ export const useHarvestingDataStore = create<HarvestingDataState>()(
       roleIdx >= 0 ? upsertProjectInArray(prevRoleVisible, project) : prevRoleVisible;
     set({
       allProjects,
+      allProjectsForHarvest,
       roleVisibleProjects,
       projects: roleVisibleProjects,
     });
+  },
+
+  fetchAllProjectsForHarvest: async (force = false) => {
+    if (!force && get().allProjectsForHarvest.length > 0) return;
+    const refParams: Record<string, string | number | undefined> = {};
+    if (typeof window !== "undefined") {
+      const { getSessionUser } = await import("@/shared/store/authUserStore");
+      const uid = getSessionUser()?.id;
+      if (uid != null && Number.isFinite(Number(uid)) && Number(uid) > 0) {
+        refParams.react_client_user_id = Number(uid);
+      }
+    }
+    try {
+      const rows = await stsProxyGetWithParamsOptional(
+        STS_API_PATHS.projectsAllForHarvest,
+        refParams,
+      );
+      if (rows != null) {
+        set({ allProjectsForHarvest: asArray(rows) });
+      }
+    } catch {
+      /* optional: harvest form falls back to role-scoped list */
+    }
   },
 
   fetchAllHarvestingReferenceData: async (force = false) => {
@@ -474,6 +510,7 @@ export const useHarvestingDataStore = create<HarvestingDataState>()(
         regrowthRules: state.regrowthRules,
         farms: state.farms,
         allProjects: state.allProjects,
+        allProjectsForHarvest: state.allProjectsForHarvest,
         roleVisibleProjects: state.roleVisibleProjects,
         projects: state.projects,
         staffs: state.staffs,

@@ -22,8 +22,10 @@ export const STS_API_PATHS = {
   farmsRemove: "/api/farms/remove",
   /** Role-scoped list (`Projects::index` → `filterVisibleProjectsForUser`). */
   projects: "/api/projects",
-  /** Role-scoped list (`GET /api/projects` → `filterVisibleProjectsForUser`). */
+  /** View-all / form catalog still role-aware (`filterVisibleProjectsForUser`). */
   projectsAll: "/api/projects/react_get_all_projects",
+  /** Harvest create/edit only — all `deleted=0`, no role filter. */
+  projectsAllForHarvest: "/api/projects/react_get_all_projects_for_harvest",
   countries: "/api/countries",
   countriesSave: "/api/countries/save",
   products: "/api/items",

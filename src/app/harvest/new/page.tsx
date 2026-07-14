@@ -45,7 +45,7 @@ import {
 import { STS_API_PATHS } from "@/shared/api/stsApiPaths";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { useAuthUserStore } from "@/shared/store/authUserStore";
-import { projectCatalogForUser } from "@/shared/lib/projectCatalog";
+import { projectCatalogForHarvestForm } from "@/shared/lib/projectCatalog";
 import {
   filterFarmZoneRowsByFarmId,
   findProjectRowBySelectId,
@@ -1291,20 +1291,19 @@ function HarvestInputPageInner() {
   const canDeleteCurrentHarvest = Boolean(editId) && canDeleteHarvest;
   const farms = useHarvestingDataStore((s) => s.farms);
   const staffs = useHarvestingDataStore((s) => s.staffs);
-  const allProjectsStore = useHarvestingDataStore((s) => s.allProjects);
+  const allProjectsForHarvest = useHarvestingDataStore(
+    (s) => s.allProjectsForHarvest,
+  );
   const roleVisibleProjects = useHarvestingDataStore((s) => s.roleVisibleProjects);
   const projectsScoped = useHarvestingDataStore((s) => s.projects);
   const projectCatalog = useMemo(
     () =>
-      projectCatalogForUser(
-        {
-          allProjects: allProjectsStore,
-          roleVisibleProjects,
-          projects: projectsScoped,
-        },
-        user,
-      ),
-    [allProjectsStore, projectsScoped, roleVisibleProjects, user],
+      projectCatalogForHarvestForm({
+        allProjectsForHarvest,
+        roleVisibleProjects,
+        projects: projectsScoped,
+      }),
+    [allProjectsForHarvest, projectsScoped, roleVisibleProjects],
   );
   const products = useHarvestingDataStore((s) => s.products);
   const farmZones = useHarvestingDataStore((s) => s.farmZones);
@@ -1314,6 +1313,9 @@ function HarvestInputPageInner() {
   const fetchAllHarvestingReferenceData = useHarvestingDataStore(
     (s) => s.fetchAllHarvestingReferenceData,
   );
+  const fetchAllProjectsForHarvest = useHarvestingDataStore(
+    (s) => s.fetchAllProjectsForHarvest,
+  );
   const pickGrassesForHarvestGrassSelect = useHarvestingDataStore(
     (s) => s.pickGrassesForHarvestGrassSelect,
   );
@@ -1321,7 +1323,8 @@ function HarvestInputPageInner() {
   useEffect(() => {
     if (accessDenied) return;
     void fetchAllHarvestingReferenceData();
-  }, [accessDenied, fetchAllHarvestingReferenceData]);
+    void fetchAllProjectsForHarvest();
+  }, [accessDenied, fetchAllHarvestingReferenceData, fetchAllProjectsForHarvest]);
 
   const projectOptions = useMemo(
     () => mapRowsToSelectOptions(projectCatalog as unknown[], "title"),
