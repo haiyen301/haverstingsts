@@ -271,12 +271,17 @@ export function kpiTrendBucketModeForRange(startYmd: string, endYmd: string): Kp
 
 /** Approximate month span for forecast subtitle / chart density. */
 export function forecastSpanMonthsFromFilter(filter: KpiDeliveryDateFilter): number {
+  if (filter.preset === "next1Month") return 1;
+  if (filter.preset === "next3Months") return 3;
+  if (filter.preset === "next6Months") return 6;
+  if (filter.preset === "next12Months") return 12;
+
   const { start, end } = kpiDateRangeFromFilter(filter);
   const s = ymdToLocalDate(start);
   const e = ymdToLocalDate(end);
   if (!s || !e) return 3;
-  const months = (e.getFullYear() - s.getFullYear()) * 12 + (e.getMonth() - s.getMonth());
-  return Math.max(1, months);
+  const spanDays = Math.round((e.getTime() - s.getTime()) / 86400000) + 1;
+  return Math.max(1, Math.round(spanDays / 30.44));
 }
 
 export function kpiPresetToLegacyPeriod(preset: KpiDatePreset): KpiDeliveryPeriod | null {

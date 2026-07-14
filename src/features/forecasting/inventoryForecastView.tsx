@@ -1246,28 +1246,29 @@ function sumZoneCapacityM2AtDate(
 }
 
 function collectForecastChartDateYmds(
-  today: Date,
+  rangeStart: Date,
   horizonEnd: Date,
   overridesByZone: Record<string, InventoryAvailableOverrideEntry>,
   farmProductFilter: (farmId: number, productId: number) => boolean,
 ): string[] {
   const dates = new Set<string>();
-  const spanMonths = Math.max(
-    1,
-    (horizonEnd.getFullYear() - today.getFullYear()) * 12 +
-      (horizonEnd.getMonth() - today.getMonth()),
-  );
-  const totalWeeks = Math.max(1, Math.round(spanMonths * 4.33));
+  const start = rangeStart <= horizonEnd ? rangeStart : horizonEnd;
+  const end = rangeStart <= horizonEnd ? horizonEnd : rangeStart;
 
-  for (let w = 0; w < totalWeeks; w++) {
-    dates.add(ymdFromDate(addDays(today, w * 7)));
+  // Weekly ticks across the selected filter window (not always from "today").
+  let cursor = start;
+  while (cursor <= end) {
+    dates.add(ymdFromDate(cursor));
+    cursor = addDays(cursor, 7);
   }
+  dates.add(ymdFromDate(start));
+  dates.add(ymdFromDate(end));
 
   for (const entry of Object.values(overridesByZone)) {
     if (!farmProductFilter(entry.farmId, entry.grassId)) continue;
     const ymd = normalizeInventoryBalanceDateYmd(entry.date);
     const d = parseYmdLocal(ymd);
-    if (!d || d < today || d > horizonEnd) continue;
+    if (!d || d < start || d > end) continue;
     dates.add(ymd);
   }
 
@@ -1503,6 +1504,11 @@ export function InventoryForecast({
     },
     [hiddenGrassIdSet, scopeIds, debouncedFarmIds, debouncedFarmIdSet, debouncedGrassIds, debouncedGrassIdSet],
   );
+
+  const forecastHorizonStart = useMemo(() => {
+    const startYmd = forecastDateRange.start;
+    return parseYmdLocal(startYmd) ?? getForecastToday();
+  }, [forecastDateRange.start]);
 
   const forecastHorizonEnd = useMemo(() => {
     const endYmd = forecastDateRange.end;
@@ -1763,7 +1769,7 @@ export function InventoryForecast({
   const forecastData = useMemo<ForecastPoint[]>(() => {
     const today = getForecastToday();
     const chartDates = collectForecastChartDateYmds(
-      today,
+      forecastHorizonStart,
       forecastHorizonEnd,
       overridesByZone,
       farmProductFilter,
@@ -1825,6 +1831,7 @@ export function InventoryForecast({
       };
     });
   }, [
+    forecastHorizonStart,
     forecastHorizonEnd,
     rollingByDate,
     rollingDailyByFarmProduct,
@@ -1943,9 +1950,8 @@ export function InventoryForecast({
   ]);
 
   const forecastBySeries = useMemo<SeriesPoint[]>(() => {
-    const today = getForecastToday();
     const chartDates = collectForecastChartDateYmds(
-      today,
+      forecastHorizonStart,
       forecastHorizonEnd,
       overridesByZone,
       farmProductFilter,
@@ -2033,6 +2039,7 @@ export function InventoryForecast({
 
     return points;
   }, [
+    forecastHorizonStart,
     forecastHorizonEnd,
     rollingDailyByFarmProduct,
     farmProductKgPerM2,
@@ -2063,7 +2070,7 @@ export function InventoryForecast({
   );
 
   const upcomingHarvests = useMemo(() => {
-    const today = getForecastToday();
+    const start = forecastHorizonStart;
     const end = forecastHorizonEnd;
     const result = filteredRows
       .filter((h) => {
@@ -2082,7 +2089,7 @@ export function InventoryForecast({
           // }
           return false;
         }
-        const inRange = d >= today && d <= end;
+        const inRange = d >= start && d <= end;
         if (DEBUG_UPCOMING_FILTER) {
           // console.log(
           //   inRange
@@ -2251,7 +2258,7 @@ export function InventoryForecast({
       // );
     }
     return mergedUpcoming;
-  }, [filteredRows, forecastHorizonEnd, t, zoneLabel, zoneConfigSnapshot]);
+  }, [filteredRows, forecastHorizonStart, forecastHorizonEnd, t, zoneLabel, zoneConfigSnapshot]);
 
   const upcomingHarvestTotalKg = useMemo(
     () => upcomingHarvests.reduce((sum, h) => sum + h.qty, 0),
@@ -2267,6 +2274,7 @@ export function InventoryForecast({
 
   const regrowthEvents = useMemo(() => {
     const today = getForecastToday();
+    const start = forecastHorizonStart;
     const end = forecastHorizonEnd;
     const candidates = filteredRows
       .map((h) => {
@@ -2332,8 +2340,9 @@ export function InventoryForecast({
     const finalEvents: RegrowthFinalLine[] = [];
 
     for (const ev of candidates) {
-      // Same horizon as charts + upcoming harvests: today .. forecastHorizonEnd
-      if (ev.dateObj <= today || ev.dateObj > end) continue;
+      // Same window as charts + upcoming harvests: filter range (never before today).
+      if (ev.dateObj < start || ev.dateObj > end) continue;
+      if (ev.dateObj <= today) continue;
 
       finalEvents.push({
         planId: ev.planId,
@@ -2529,6 +2538,7 @@ export function InventoryForecast({
   }, [
     filteredRows,
     rollingDailyByFarmProduct,
+    forecastHorizonStart,
     forecastHorizonEnd,
     regrowthConfig,
     t,

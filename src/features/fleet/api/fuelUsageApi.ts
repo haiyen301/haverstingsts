@@ -14,6 +14,8 @@ export type FuelUsageRow = {
   litres: number | string;
   remaining_litres?: number | string | null;
   cost_per_litre?: number | string | null;
+  /** auto = from latest import unit price; manual = user entered */
+  cost_mode?: "auto" | "manual" | string | null;
   odometer_km?: number | null;
   operator_id?: number | string | null;
   purpose?: string | null;
@@ -30,7 +32,9 @@ export type FuelUsageSavePayload = {
   vehicle_inspection_id: number;
   vehicle_type?: string;
   litres: number;
-  cost_per_litre?: number;
+  /** Omit to let server auto-fill from latest import. */
+  cost_per_litre?: number | null;
+  cost_mode?: "auto" | "manual";
   odometer_km?: number;
   operator_id?: number;
   purpose?: string;
@@ -54,6 +58,30 @@ export async function saveFuelUsage(
   return stsProxyPostJson<FuelUsageRow>(STS_API_PATHS.fuelUsageSave, payload);
 }
 
+export type FuelUsageSuggestCostResult = {
+  cost_per_litre: number | null;
+  cost_mode: "auto" | null;
+  import: {
+    import_id: number;
+    import_date: string;
+    import_qty: number;
+    import_amount: number;
+    unit_cost: number;
+  } | null;
+};
+
+export async function suggestFuelUsageCost(params: {
+  farm_id: number;
+  fuel_date: string;
+  fuel_kind?: string;
+  vehicle_inspection_id?: number;
+}): Promise<FuelUsageSuggestCostResult> {
+  return stsProxyGetWithParams<FuelUsageSuggestCostResult>(
+    STS_API_PATHS.fuelUsageSuggestCost,
+    params,
+  );
+}
+
 export async function removeFuelUsage(id: number): Promise<void> {
   await stsProxyPostJson(STS_API_PATHS.fuelUsageRemove, { id });
 }
@@ -62,14 +90,14 @@ export type FuelUsageImportEntryPayload = {
   fuel_date: string;
   vehicle_inspection_id: number;
   vehicle_type?: string;
-  fuel_kind?: "diesel" | "petrol";
+  fuel_kind?: string;
   litres: number;
   odometer_km?: number;
 };
 
 export type FuelStockImportEntryPayload = {
   balance_date: string;
-  fuel_kind: "diesel" | "petrol";
+  fuel_kind: string;
   import_qty: number;
 };
 

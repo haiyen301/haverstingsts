@@ -324,10 +324,24 @@ export function rowsToMockHarvestRows(
         zoneConfigs,
         priorUsedKgByZoneBucket: prior,
       });
-      fragments.forEach((frag, idx) => {
+      const effectiveFragments =
+        fragments.length > 0
+          ? fragments
+          : m.inventoryKg > 0
+            ? [
+                {
+                  zone: String(m.zone ?? "").trim(),
+                  inventoryKg: m.inventoryKg,
+                  zoneMaxInventoryKg: 0,
+                  inventoryIsCapped: false,
+                },
+              ]
+            : [];
+      if (effectiveFragments.length === 0) continue;
+      effectiveFragments.forEach((frag, idx) => {
         const row: ForecastHarvestRow = {
           ...m,
-          id: fragments.length === 1 ? m.id : `${m.id}~z${idx}`,
+          id: effectiveFragments.length === 1 ? m.id : `${m.id}~z${idx}`,
           zone: frag.zone,
           inventoryKg: frag.inventoryKg,
           inventoryIsCapped: frag.inventoryIsCapped,
@@ -339,7 +353,12 @@ export function rowsToMockHarvestRows(
         };
         list.push(row);
       });
-      recordFragmentsOnUsedByFarmProduct(usedByFarmProduct, m.farmId, m.productId, fragments);
+      recordFragmentsOnUsedByFarmProduct(
+        usedByFarmProduct,
+        m.farmId,
+        m.productId,
+        effectiveFragments,
+      );
     } else {
       const { quantityKg, isCapped, maxInventoryKgUsed } = convertPlanRowQuantityToKgFromZones({
         rawPlanRow: r,

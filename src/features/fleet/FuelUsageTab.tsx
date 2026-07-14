@@ -27,11 +27,13 @@ import {
   fuelUsageVehicleLabel,
   removeFuelUsage,
   saveFuelUsage,
+  suggestFuelUsageCost,
   type FuelUsageRow,
 } from "@/features/fleet/api/fuelUsageApi";
 import { FLEET_OPTION_CATALOG_KEYS } from "@/features/fleet/api/fleetOptionCatalogApi";
 import { useFleetOptionCatalog } from "@/features/fleet/hooks/useFleetOptionCatalog";
-import { FuelStockLedgerPanel } from "@/features/fleet/FuelStockLedgerPanel";
+import { FuelStockLedgerPanel, type FuelStockBalanceResumeState } from "@/features/fleet/FuelStockLedgerPanel";
+import { FuelStockImportDialog } from "@/features/fleet/ui/FuelStockImportDialog";
 import { FuelDiaryExportDialog } from "@/features/fleet/ui/FuelDiaryExportDialog";
 import { FuelUsageImportDialog } from "@/features/fleet/ui/FuelUsageImportDialog";
 import { FuelUsageBalanceBreakdownPanel } from "@/features/fleet/ui/FuelUsageBalanceBreakdownPanel";
@@ -236,12 +238,16 @@ export function FuelUsageTab() {
     preset: "lastMonth",
   });
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [form, setForm] = useState<EntryForm>(() => emptyForm());
+  const [costManuallyEdited, setCostManuallyEdited] = useState(false);
+  const [costSuggestHint, setCostSuggestHint] = useState<string | null>(null);
   const [balanceOpen, setBalanceOpen] = useState(false);
+  const [stockImportOpen, setStockImportOpen] = useState(false);
+  const [balanceResume, setBalanceResume] = useState<FuelStockBalanceResumeState | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
-  const [editingId, setEditingId] = useState<number | null>(null);
   const [listVisibleCount, setListVisibleCount] = useState(USAGE_LIST_PAGE_SIZE);
-  const [form, setForm] = useState<EntryForm>(() => emptyForm());
   const [stockReloadToken, setStockReloadToken] = useState(0);
   const [selectedFuelKinds, setSelectedFuelKinds] = useState<string[]>([]);
   const [vehicleSearch, setVehicleSearch] = useState("");
@@ -437,6 +443,66 @@ export function FuelUsageTab() {
     });
   }, [dialogOpen, form.vehicle_inspection_id, vehicleTypeForInspection, fuelKindForInspection]);
 
+  useEffect(() => {
+    if (!dialogOpen || costManuallyEdited) return;
+    const farmId = Number(form.farm_id);
+    const fuelDate = form.fuel_date.trim();
+    const fuelKind = form.fuel_kind.trim();
+    const vehicleInspectionId = Number(form.vehicle_inspection_id);
+    if (
+      !Number.isFinite(farmId) ||
+      farmId <= 0 ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(fuelDate) ||
+      (!fuelKind && !(Number.isFinite(vehicleInspectionId) && vehicleInspectionId > 0))
+    ) {
+      setCostSuggestHint(null);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const result = await suggestFuelUsageCost({
+            farm_id: farmId,
+            fuel_date: fuelDate,
+            fuel_kind: fuelKind || undefined,
+            vehicle_inspection_id:
+              Number.isFinite(vehicleInspectionId) && vehicleInspectionId > 0
+                ? vehicleInspectionId
+                : undefined,
+          });
+          if (cancelled || costManuallyEdited) return;
+          if (result.cost_per_litre != null && Number.isFinite(Number(result.cost_per_litre))) {
+            setForm((f) => ({
+              ...f,
+              cost_per_litre: formatDecimalInputFromValue(result.cost_per_litre),
+            }));
+            setCostSuggestHint(t("dialog.costPerLitreAutoHint"));
+          } else {
+            setForm((f) => ({ ...f, cost_per_litre: "" }));
+            setCostSuggestHint(t("dialog.costPerLitreNoImport"));
+          }
+        } catch {
+          if (!cancelled) setCostSuggestHint(null);
+        }
+      })();
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [
+    dialogOpen,
+    costManuallyEdited,
+    form.farm_id,
+    form.fuel_date,
+    form.fuel_kind,
+    form.vehicle_inspection_id,
+    t,
+  ]);
+
   const filtered = useMemo(() => {
     const q = vehicleSearch.trim().toLowerCase();
     return entries.filter((row) => {
@@ -495,6 +561,8 @@ export function FuelUsageTab() {
 
   const openCreate = () => {
     setEditingId(null);
+    setCostManuallyEdited(false);
+    setCostSuggestHint(null);
     setForm(emptyForm(farmOptions[0]?.id ?? ""));
     setDialogOpen(true);
   };
@@ -502,7 +570,14 @@ export function FuelUsageTab() {
   const openEdit = (row: FuelUsageRow) => {
     const vehicleInspectionId = String(row.vehicle_inspection_id);
     const typeFromVehicle = vehicleTypeForInspection(vehicleInspectionId);
+    const isManual = String(row.cost_mode ?? "").toLowerCase() === "manual";
     setEditingId(Number(row.id));
+    setCostManuallyEdited(isManual);
+    setCostSuggestHint(
+      isManual
+        ? t("dialog.costPerLitreManualHint")
+        : null,
+    );
     setForm({
       fuel_date: String(row.fuel_date).slice(0, 10),
       farm_id: String(row.farm_id),
@@ -521,6 +596,8 @@ export function FuelUsageTab() {
   const closeDialog = () => {
     setDialogOpen(false);
     setEditingId(null);
+    setCostManuallyEdited(false);
+    setCostSuggestHint(null);
   };
 
   const handleVehicleChange = (vehicleInspectionId: string) => {
@@ -590,18 +667,26 @@ export function FuelUsageTab() {
     try {
       setSaving(true);
       loadSeqRef.current += 1;
-      await saveFuelUsage({
+      const payload: Parameters<typeof saveFuelUsage>[0] = {
         id: editingId ?? undefined,
         fuel_date: form.fuel_date,
         farm_id: farmId,
         vehicle_inspection_id: vehicleInspectionId,
         vehicle_type: form.vehicle_type,
         litres,
-        cost_per_litre: costPerLitre,
         odometer_km: odometerKm,
         operator_id: form.operator_id ? Number(form.operator_id) : undefined,
         purpose: form.purpose.trim() || undefined,
-      });
+      };
+      if (costManuallyEdited) {
+        payload.cost_mode = "manual";
+        payload.cost_per_litre =
+          costPerLitre !== undefined && Number.isFinite(costPerLitre)
+            ? costPerLitre
+            : null;
+      }
+      // else omit cost → server fills from latest import (auto)
+      await saveFuelUsage(payload);
       toast.success(t("saved"), { containerId: TOAST_CONTAINER_TOP_RIGHT });
       closeDialog();
       setStockReloadToken((n) => n + 1);
@@ -947,11 +1032,21 @@ export function FuelUsageTab() {
             <FuelStockLedgerPanel
               farmOptions={farmOptions.map((f) => ({ id: f.id, label: f.label }))}
               initialFarmId={
-                selectedFarmIds.length === 1 ? selectedFarmIds[0] : farmOptions[0]?.id ?? null
+                balanceResume?.farmId ??
+                (selectedFarmIds.length === 1 ? selectedFarmIds[0] : farmOptions[0]?.id ?? null)
               }
+              resumeState={balanceResume}
               reloadToken={stockReloadToken}
               embedded
-              onClose={() => setBalanceOpen(false)}
+              onClose={() => {
+                setBalanceOpen(false);
+                setBalanceResume(null);
+              }}
+              onRequestStockImport={(resume) => {
+                setBalanceResume(resume);
+                setBalanceOpen(false);
+                setStockImportOpen(true);
+              }}
               onDataChanged={() => {
                 setStockReloadToken((token) => token + 1);
                 void Promise.all([load(), loadBalanceData()]);
@@ -960,6 +1055,21 @@ export function FuelUsageTab() {
           </div>
         </div>
       ) : null}
+
+      <FuelStockImportDialog
+        open={stockImportOpen}
+        onClose={() => {
+          setStockImportOpen(false);
+          if (balanceResume) {
+            setBalanceOpen(true);
+          }
+        }}
+        farmOptions={farmOptions.map((f) => ({ id: f.id, label: f.label }))}
+        onImported={() => {
+          setStockReloadToken((token) => token + 1);
+          void Promise.all([load(), loadBalanceData()]);
+        }}
+      />
 
       <FuelDiaryExportDialog
         open={exportOpen}
@@ -1094,13 +1204,18 @@ export function FuelUsageTab() {
                   inputMode="decimal"
                   className={inputClass}
                   value={form.cost_per_litre}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    setCostManuallyEdited(true);
+                    setCostSuggestHint(t("dialog.costPerLitreManualHint"));
                     setForm((f) => ({
                       ...f,
                       cost_per_litre: formatDecimalInput(e.target.value),
-                    }))
-                  }
+                    }));
+                  }}
                 />
+                {costSuggestHint ? (
+                  <p className="text-[11px] text-muted-foreground">{costSuggestHint}</p>
+                ) : null}
               </label>
               <label className="space-y-1">
                 <span className="text-xs font-medium">{t("dialog.odometer")}</span>

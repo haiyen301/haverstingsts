@@ -6,7 +6,7 @@ import {
 
 export type FleetStockModule = "fuel" | "fertilizer";
 
-export type FleetFuelStockKey = "diesel" | "petrol";
+export type FleetFuelStockKey = string;
 
 export type FleetStockLedgerRow = {
   id: number;
@@ -17,6 +17,7 @@ export type FleetStockLedgerRow = {
   period_code?: string | null;
   opening_qty?: number | string | null;
   import_qty: number | string;
+  import_amount?: number | string | null;
   usage_qty: number | string;
   remaining_qty: number | string;
   is_opening_anchor?: number | boolean;
@@ -41,6 +42,7 @@ export type FleetStockLedgerSavePayload = {
   stock_key: string;
   opening_qty?: number;
   import_qty?: number;
+  import_amount?: number | null;
   is_opening_anchor?: boolean;
   notes?: string;
 };

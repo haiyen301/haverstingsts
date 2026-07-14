@@ -823,7 +823,7 @@ export function kgPerM2ByNormalizedZoneForFarmProduct(
 /**
  * Chuyển một dòng plan sang kg và tách thành fragment theo zone.
  * - Hàng **đã có zone** (`zone` khác trống sau normalize): một fragment đúng zone đó (hoặc một dòng nếu zone không khớp cấu hình). Overflow so với `max_inventory_kg` được đánh dấu `inventoryIsCapped`, **không** tự chảy sang zone khác ở bước này.
- * - Hàng **không có zone** (ô zone trống sau normalize): gom `requestedKg`, **lần lượt** lấp các zone “thật” (bucket khác `nozone`) theo **headroom** `max_inventory_kg − đã gán` (xem `priorUsedKgByZoneBucket` từ `rowsToMockHarvestRows`); rồi lấp vào bucket `nozone` từ cấu hình (nếu có); phần vượt nữa thành fragment overflow (max fallback), `inventoryIsCapped: true`.
+ * - Hàng **không có zone** (ô zone trống sau normalize): gom `requestedKg`, **lần lượt** lấp các zone “thật” theo headroom (inventory). Phần dư **không gán zone** — vẫn giữ kg để **forecasting farm+grass** trừ harvest; inventory zone path bỏ qua hàng unmapped.
  * - Cấu hình zone trống / `no-zone` / `nozone` trong **zone-config** (cùng farm + grass) gom vào bucket `nozone`
  *   với `max_inventory_kg` và `inventory_kg_per_m2` như mọi zone; phần dư sau khi lấp các zone “thật” sẽ lấp vào bucket này trước, vượt nữa mới ghi thêm fragment overflow (fallback max).
  * - Không có bucket zone nào cho farm+grass: toàn bộ vào `nozone`.
@@ -919,6 +919,18 @@ export function distributePlanRowToZoneFragments(params: {
       remainder -= take;
     }
     if (remainder <= 0) break;
+  }
+
+  // Forecasting is farm+grass: never drop harvest kg when zone headroom is full.
+  // Keep remainder unmapped (empty zone) so farm+product rolling / audit still count it.
+  // Inventory zone rolling skips unmapped rows — zone only matters there.
+  if (remainder > 0) {
+    fragments.push({
+      zone: "",
+      inventoryKg: remainder,
+      zoneMaxInventoryKg: 0,
+      inventoryIsCapped: false,
+    });
   }
 
   return fragments;

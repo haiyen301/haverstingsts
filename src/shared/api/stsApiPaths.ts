@@ -85,6 +85,7 @@ export const STS_API_PATHS = {
   fuelUsage: "/api/fuel_usage",
   fuelUsageSave: "/api/fuel_usage/save",
   fuelUsageRemove: "/api/fuel_usage/remove",
+  fuelUsageSuggestCost: "/api/fuel_usage/suggest_cost",
   fuelUsageDiaryReport: "/api/fuel_usage/diary_report",
   fuelUsageImportBulk: "/api/fuel_usage/import_bulk",
   /** Fleet consumable stock ledger (fuel diesel/petrol, fertilizer by item) */
@@ -92,6 +93,10 @@ export const STS_API_PATHS = {
   fleetStockLedgerSave: "/api/fleet_stock_ledger/save",
   fleetStockLedgerRecalculate: "/api/fleet_stock_ledger/recalculate",
   fleetStockLedgerRemove: "/api/fleet_stock_ledger/remove",
+  fleetFuelImports: "/api/fleet_fuel_imports",
+  fleetFuelImportsSave: "/api/fleet_fuel_imports/save",
+  fleetFuelImportsRemove: "/api/fleet_fuel_imports/remove",
+  fleetFuelImportsImportBulk: "/api/fleet_fuel_imports/import_bulk",
   machinery: "/api/machinery",
   machineryCatalog: "/api/machinery/catalog",
   machinerySave: "/api/machinery/save",

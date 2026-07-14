@@ -42,6 +42,7 @@ export const DEFAULT_EQUIPMENT_SERVICE_TYPES: FleetOption[] = [
 export const DEFAULT_FUEL_TYPES: FleetOption[] = [
   { value: "diesel", label: "Diesel" },
   { value: "petrol", label: "Petrol" },
+  { value: "engine_oil_grease", label: "Engine Oil, Grease" },
 ];
 
 const DEFAULTS: Record<FleetOptionCatalogKey, FleetOption[]> = {

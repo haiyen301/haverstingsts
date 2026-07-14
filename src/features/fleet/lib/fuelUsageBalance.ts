@@ -32,8 +32,19 @@ export function normalizeFuelKind(raw: unknown): string {
   const kind = String(raw ?? "")
     .trim()
     .toLowerCase();
-  if (kind === "diesel" || kind === "petrol") return kind;
-  return "";
+  if (!kind) return "";
+  if (kind === "diesel" || kind === "dầu" || kind === "dau") return "diesel";
+  if (
+    kind === "petrol" ||
+    kind === "petro" ||
+    kind === "gasoline" ||
+    kind === "gas" ||
+    kind === "xăng" ||
+    kind === "xang"
+  ) {
+    return "petrol";
+  }
+  return kind;
 }
 
 export function farmFuelBalanceKey(farmId: number, fuelKind: string): string {

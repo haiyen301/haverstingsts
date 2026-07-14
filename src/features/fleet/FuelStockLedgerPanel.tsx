@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronLeft, Package, Pencil, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, ChevronLeft, Package, Pencil, Plus, Trash2, Upload } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { toast } from "react-toastify";
 
@@ -13,6 +13,13 @@ import {
   type FleetStockLedgerRow,
   type FleetStockModule,
 } from "@/features/fleet/api/fleetStockLedgerApi";
+import {
+  fetchFleetFuelImports,
+  removeFleetFuelImport,
+  saveFleetFuelImport,
+  type FleetFuelImportRow,
+} from "@/features/fleet/api/fleetFuelImportsApi";
+import { FuelStockImportDialog } from "@/features/fleet/ui/FuelStockImportDialog";
 import { FLEET_OPTION_CATALOG_KEYS } from "@/features/fleet/api/fleetOptionCatalogApi";
 import { useFleetOptionCatalog } from "@/features/fleet/hooks/useFleetOptionCatalog";
 import { Card, CardContent } from "@/components/ui/card";
@@ -31,7 +38,7 @@ import {
 import { MultiSelect } from "@/shared/ui/multi-select";
 import { filterStockKeyOptionsForFarmCountry } from "@/features/fertilizer/lib/filterFertilizerProductsForFarm";
 
-const FUEL_KINDS_FALLBACK = ["diesel", "petrol"] as const;
+const FUEL_KINDS_FALLBACK = ["diesel", "petrol", "engine_oil_grease"] as const;
 const OPENING_LIST_PAGE_SIZE = 8;
 
 const inputClass =
@@ -69,6 +76,14 @@ type OpeningConfig = FleetStockLedgerRow & {
 
 type PanelView = "balance" | "configuredOpenings";
 
+export type FuelStockBalanceResumeState = {
+  farmId: string;
+  kind: string;
+  date: string;
+  openingAnchorDate: string;
+  view: "balance" | "configuredOpenings";
+};
+
 export type StockLedgerPanelProps = {
   variant: StockLedgerVariant;
   farmOptions: FuelStockFarmOption[];
@@ -76,11 +91,15 @@ export type StockLedgerPanelProps = {
   quantityUnitSuffix?: string;
   calendarMarkedDateClassName?: string;
   initialFarmId?: string | null;
+  /** Restore panel selection after closing for Excel import. */
+  resumeState?: FuelStockBalanceResumeState | null;
   balanceFrom?: string;
   reloadToken?: number;
   embedded?: boolean;
   onClose?: () => void;
   onDataChanged?: () => void;
+  /** Close balance popup and open Excel import; parent should reopen with resumeState. */
+  onRequestStockImport?: (resume: FuelStockBalanceResumeState) => void;
   /** When set (fertilizer), product keys are filtered by the selected farm's country. */
   farmCountryById?: Map<string, number>;
   productCountryByStockKey?: Map<string, number | null>;
@@ -238,35 +257,46 @@ export function StockLedgerPanel({
   quantityUnitSuffix = "",
   calendarMarkedDateClassName,
   initialFarmId = null,
+  resumeState = null,
   balanceFrom,
   reloadToken = 0,
   embedded = false,
   onClose,
   onDataChanged,
+  onRequestStockImport,
   farmCountryById,
   productCountryByStockKey,
 }: StockLedgerPanelProps) {
   const t = useTranslations(variant === "fuel" ? "FuelUsage" : "FertilizerUsage");
   const ledgerModule: FleetStockModule = variant;
   const stockKeyLabel = variant === "fuel" ? "stock.fuelType" : "stock.product";
-  const [selectedFarmId, setSelectedFarmId] = useState("");
-  const [selectedKind, setSelectedKind] = useState("");
-  const [selectedDate, setSelectedDate] = useState(() =>
-    new Date().toISOString().slice(0, 10),
+  const [selectedFarmId, setSelectedFarmId] = useState(resumeState?.farmId ?? "");
+  const [selectedKind, setSelectedKind] = useState(resumeState?.kind ?? "");
+  const [selectedDate, setSelectedDate] = useState(
+    () => resumeState?.date ?? new Date().toISOString().slice(0, 10),
   );
-  const [selectedOpeningAnchorDate, setSelectedOpeningAnchorDate] = useState("");
+  const [selectedOpeningAnchorDate, setSelectedOpeningAnchorDate] = useState(
+    resumeState?.openingAnchorDate ?? "",
+  );
   const [editingOpeningConfigId, setEditingOpeningConfigId] = useState<number | null>(null);
   const [openingListVisibleCount, setOpeningListVisibleCount] = useState(OPENING_LIST_PAGE_SIZE);
   const [rows, setRows] = useState<FleetStockLedgerRow[]>([]);
   const [openingConfigs, setOpeningConfigs] = useState<OpeningConfig[]>([]);
   const [configsLoading, setConfigsLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [dayLoading, setDayLoading] = useState(false);
   const [openingQty, setOpeningQty] = useState("");
   const [openingDateDraft, setOpeningDateDraft] = useState(() =>
     new Date().toISOString().slice(0, 10),
   );
   const [importDraft, setImportDraft] = useState("");
-  const [view, setView] = useState<PanelView>("balance");
+  const [importAmountDraft, setImportAmountDraft] = useState("");
+  const [importNotesDraft, setImportNotesDraft] = useState("");
+  const [dayImports, setDayImports] = useState<FleetFuelImportRow[]>([]);
+  const [editingImportId, setEditingImportId] = useState<number | null>(null);
+  const [stockImportOpen, setStockImportOpen] = useState(false);
+  const [view, setView] = useState<PanelView>(resumeState?.view ?? "balance");
+  const resumeAppliedRef = useRef(false);
   const [creatingOpening, setCreatingOpening] = useState(false);
   const [editingOpening, setEditingOpening] = useState(false);
   const didAutoSelectConfigRef = useRef(false);
@@ -457,13 +487,29 @@ export function StockLedgerPanel({
     }
   }, [t, ledgerModule]);
 
+  const applyImportDraftsFromRow = useCallback((row: FleetStockLedgerRow | null) => {
+    if (!row) {
+      setImportDraft("");
+      setImportAmountDraft("");
+      return;
+    }
+    setImportDraft(formatDecimalInputFromValue(row.import_qty));
+    setImportAmountDraft(
+      row.import_amount != null && row.import_amount !== ""
+        ? formatDecimalInputFromValue(row.import_amount)
+        : "",
+    );
+  }, []);
+
   const load = useCallback(
     async (options?: { background?: boolean; balanceTo?: string }) => {
       if (!farmId) {
         setRows([]);
+        setDayLoading(false);
         return;
       }
 
+      const background = options?.background ?? false;
       const cacheKey = configKey(farmId, selectedKind, selectedOpeningAnchorDate || effectiveBalanceFrom);
       const cachedRows = rowsCacheRef.current.get(cacheKey);
       const balanceTo = options?.balanceTo ?? recalcToDate;
@@ -472,6 +518,12 @@ export function StockLedgerPanel({
         setRows(cachedRows);
       } else {
         setRows([]);
+      }
+
+      if (!background) {
+        applyImportDraftsFromRow(null);
+        setEditingImportId(null);
+        setDayLoading(true);
       }
 
       const requestId = ++loadRequestIdRef.current;
@@ -513,9 +565,13 @@ export function StockLedgerPanel({
         toast.error(e instanceof Error ? e.message : t("stock.errors.load"), {
           containerId: TOAST_CONTAINER_TOP_RIGHT,
         });
+      } finally {
+        if (requestId === loadRequestIdRef.current && !background) {
+          setDayLoading(false);
+        }
       }
     },
-    [farmId, selectedKind, selectedOpeningAnchorDate, effectiveBalanceFrom, recalcToDate, t],
+    [farmId, selectedKind, selectedOpeningAnchorDate, effectiveBalanceFrom, recalcToDate, t, ledgerModule, applyImportDraftsFromRow],
   );
 
   const applyOpeningConfigSelection = useCallback((config: OpeningConfig) => {
@@ -571,6 +627,30 @@ export function StockLedgerPanel({
     }
   }, [openingConfigs, initialFarmId, applyOpeningConfigSelection]);
 
+  const handleBalanceDateChange = useCallback(
+    (nextDate: string) => {
+      setSelectedDate(nextDate);
+      applyImportDraftsFromRow(null);
+      setEditingImportId(null);
+      setDayLoading(true);
+
+      const today = new Date().toISOString().slice(0, 10);
+      if (nextDate > today) {
+        return;
+      }
+
+      const row = kindRows.find((r) => rowDateYmd(r) === nextDate) ?? null;
+      // Let the loading state paint before filling local values.
+      requestAnimationFrame(() => {
+        if (variant !== "fuel") {
+          applyImportDraftsFromRow(row);
+        }
+        setDayLoading(false);
+      });
+    },
+    [kindRows, applyImportDraftsFromRow, variant],
+  );
+
   const snapshotBalanceSelection = useCallback(() => {
     if (!activeOpeningConfig) return;
     balanceSelectionRef.current = {
@@ -592,8 +672,11 @@ export function StockLedgerPanel({
       selectedKind,
       selectedOpeningAnchorDate || effectiveBalanceFrom,
     );
+    const today = new Date().toISOString().slice(0, 10);
+    const needsForeground =
+      !rowsCacheRef.current.has(cacheKey) || recalcToDate > today;
     void load({
-      background: rowsCacheRef.current.has(cacheKey),
+      background: !needsForeground,
     });
   }, [
     farmId,
@@ -602,6 +685,7 @@ export function StockLedgerPanel({
     effectiveBalanceFrom,
     load,
     activeOpeningConfig,
+    recalcToDate,
   ]);
 
   useEffect(() => {
@@ -638,6 +722,17 @@ export function StockLedgerPanel({
     if (didAutoSelectConfigRef.current) return;
     if (configsLoading || openingConfigs.length === 0 || configuringOpening) return;
 
+    if (resumeState && !resumeAppliedRef.current) {
+      resumeAppliedRef.current = true;
+      didAutoSelectConfigRef.current = true;
+      setSelectedFarmId(resumeState.farmId);
+      setSelectedKind(resumeState.kind);
+      setSelectedDate(resumeState.date);
+      setSelectedOpeningAnchorDate(resumeState.openingAnchorDate);
+      setView(resumeState.view);
+      return;
+    }
+
     const preferred = pickPreferredOpeningConfig(openingConfigs, initialFarmId);
     if (!preferred) return;
 
@@ -649,6 +744,7 @@ export function StockLedgerPanel({
     configuringOpening,
     initialFarmId,
     applyOpeningConfigSelection,
+    resumeState,
   ]);
 
   useEffect(() => {
@@ -744,12 +840,52 @@ export function StockLedgerPanel({
   };
 
   useEffect(() => {
-    if (selectedDayRow) {
-      setImportDraft(formatDecimalInputFromValue(selectedDayRow.import_qty));
+    if (dayLoading) return;
+    if (variant === "fuel") return;
+    applyImportDraftsFromRow(selectedDayRow);
+  }, [selectedDayRow, dayLoading, applyImportDraftsFromRow, variant]);
+
+  const loadDayImports = useCallback(async () => {
+    if (variant !== "fuel" || !farmId || !selectedKind.trim() || !selectedDate) {
+      setDayImports([]);
+      setEditingImportId(null);
       return;
     }
+    try {
+      const rows = await fetchFleetFuelImports({
+        farm_id: farmId,
+        fuel_kind: selectedKind,
+        import_date: selectedDate,
+      });
+      setDayImports(rows);
+    } catch (e) {
+      setDayImports([]);
+      toast.error(e instanceof Error ? e.message : t("stock.errors.load"), {
+        containerId: TOAST_CONTAINER_TOP_RIGHT,
+      });
+    }
+  }, [variant, farmId, selectedKind, selectedDate, t]);
+
+  useEffect(() => {
+    if (variant !== "fuel") return;
+    if (dayLoading) {
+      setDayImports([]);
+      return;
+    }
+    void loadDayImports();
+  }, [variant, dayLoading, loadDayImports]);
+
+  const resetImportForm = useCallback(() => {
     setImportDraft("");
-  }, [selectedDayRow]);
+    setImportAmountDraft("");
+    setImportNotesDraft("");
+    setEditingImportId(null);
+  }, []);
+
+  const dayImportTotalQty = useMemo(
+    () => dayImports.reduce((sum, row) => sum + num(row.import_qty), 0),
+    [dayImports],
+  );
 
   const invalidateRowsCache = useCallback((key?: string) => {
     if (key) {
@@ -819,6 +955,52 @@ export function StockLedgerPanel({
   const handleSaveImport = async () => {
     if (!farmId) return;
     const importQty = parseQty(importDraft);
+    if (variant === "fuel") {
+      if (!Number.isFinite(importQty) || importQty <= 0) {
+        toast.error(t("stock.errors.importInvalid"), { containerId: TOAST_CONTAINER_TOP_RIGHT });
+        return;
+      }
+      const importAmountRaw = importAmountDraft.trim();
+      let importAmount: number | null = null;
+      if (importAmountRaw !== "") {
+        importAmount = parseQty(importAmountDraft);
+        if (!Number.isFinite(importAmount) || importAmount < 0) {
+          toast.error(t("stock.errors.importAmountInvalid"), {
+            containerId: TOAST_CONTAINER_TOP_RIGHT,
+          });
+          return;
+        }
+      }
+      try {
+        setSaving(true);
+        await saveFleetFuelImport({
+          ...(editingImportId ? { id: editingImportId } : {}),
+          farm_id: farmId,
+          fuel_kind: selectedKind,
+          import_date: selectedDate,
+          import_qty: importQty,
+          import_amount: importAmount,
+          notes: importNotesDraft.trim() || undefined,
+        });
+        toast.success(t("stock.importSaved"), { containerId: TOAST_CONTAINER_TOP_RIGHT });
+        resetImportForm();
+        invalidateRowsCache(configKey(farmId, selectedKind, selectedOpeningAnchorDate || selectedDate));
+        await Promise.all([
+          loadOpeningConfigs({ background: true }),
+          load({ background: true }),
+          loadDayImports(),
+        ]);
+        onDataChanged?.();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : t("stock.errors.save"), {
+          containerId: TOAST_CONTAINER_TOP_RIGHT,
+        });
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
+
     if (!Number.isFinite(importQty) || importQty < 0) {
       toast.error(t("stock.errors.importInvalid"), { containerId: TOAST_CONTAINER_TOP_RIGHT });
       return;
@@ -848,6 +1030,43 @@ export function StockLedgerPanel({
     }
   };
 
+  const handleEditFuelImport = (row: FleetFuelImportRow) => {
+    setEditingImportId(Number(row.id));
+    setImportDraft(formatDecimalInputFromValue(row.import_qty));
+    setImportAmountDraft(
+      row.import_amount != null && row.import_amount !== ""
+        ? formatDecimalInputFromValue(row.import_amount)
+        : "",
+    );
+    setImportNotesDraft(String(row.notes ?? "").trim());
+  };
+
+  const handleDeleteFuelImport = async (row: FleetFuelImportRow) => {
+    if (!farmId) return;
+    if (!window.confirm(t("stock.deleteImportConfirm"))) return;
+    try {
+      setSaving(true);
+      await removeFleetFuelImport({ id: Number(row.id) });
+      toast.success(t("stock.importDeleted"), { containerId: TOAST_CONTAINER_TOP_RIGHT });
+      if (editingImportId === Number(row.id)) {
+        resetImportForm();
+      }
+      invalidateRowsCache(configKey(farmId, selectedKind, selectedOpeningAnchorDate || selectedDate));
+      await Promise.all([
+        loadOpeningConfigs({ background: true }),
+        load({ background: true }),
+        loadDayImports(),
+      ]);
+      onDataChanged?.();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : t("stock.errors.delete"), {
+        containerId: TOAST_CONTAINER_TOP_RIGHT,
+      });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const isOpeningDay =
     selectedDayRow != null && isOpeningAnchorRow(selectedDayRow);
 
@@ -865,12 +1084,13 @@ export function StockLedgerPanel({
       toast.success(t("stock.deleted"), { containerId: TOAST_CONTAINER_TOP_RIGHT });
       if (isOpeningDay) {
         setOpeningQty("");
-        setImportDraft("");
+        resetImportForm();
       }
       invalidateRowsCache(configKey(farmId, selectedKind, selectedOpeningAnchorDate || selectedDate));
       await Promise.all([
         loadOpeningConfigs({ background: true }),
         load({ background: true }),
+        variant === "fuel" ? loadDayImports() : Promise.resolve(),
       ]);
       onDataChanged?.();
     } catch (e) {
@@ -1235,7 +1455,7 @@ export function StockLedgerPanel({
           <span className="text-xs font-medium">{t("stock.balanceDate")}</span>
           <DatePicker
             value={selectedDate}
-            onChange={setSelectedDate}
+            onChange={handleBalanceDateChange}
             isMarkedDate={isBalanceMarkedDate}
             markedDateModifierClassName={
               calendarMarkedDateClassName ?? CALENDAR_FUEL_BALANCE_DAY_CLASS
@@ -1260,6 +1480,8 @@ export function StockLedgerPanel({
             <p className="text-sm text-muted-foreground">{t("stock.selectFarm")}</p>
           ) : openingAnchorDate && selectedDate < openingAnchorDate ? (
             <p className="text-sm text-muted-foreground">{t("stock.beforeOpeningDate")}</p>
+          ) : dayLoading ? (
+            <p className="text-sm text-muted-foreground">{t("loading")}</p>
           ) : (
             <div className="space-y-4">
               <p className="text-sm font-medium text-foreground">
@@ -1282,16 +1504,16 @@ export function StockLedgerPanel({
                   </p>
                 </label>
                 <label className="space-y-1">
-                  <span className="text-xs font-medium">{t("stock.import")}</span>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    className={inputClass}
-                    placeholder="0"
-                    value={importDraft}
-                    disabled={saving}
-                    onChange={(e) => setImportDraft(formatDecimalInput(e.target.value))}
-                  />
+                  <span className="text-xs font-medium text-muted-foreground">
+                    {t("stock.importTotal")}
+                  </span>
+                  <p className="text-lg font-semibold">
+                    {variant === "fuel"
+                      ? formatQtyDisplay(dayImportTotalQty, quantityUnitSuffix)
+                      : selectedDayRow
+                        ? formatQtyDisplay(num(selectedDayRow.import_qty), quantityUnitSuffix)
+                        : "—"}
+                  </p>
                 </label>
                 <label className="space-y-1">
                   <span className="text-xs font-medium text-muted-foreground">
@@ -1304,27 +1526,157 @@ export function StockLedgerPanel({
                   </p>
                 </label>
               </div>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  className={btnOutline}
-                  disabled={saving}
-                  onClick={() => void handleSaveImport()}
-                >
-                  {t("stock.saveImport")}
-                </button>
-                {selectedDayRow && rowHasBalanceMarker(selectedDayRow) ? (
-                  <button
-                    type="button"
-                    className={btnDangerOutline}
-                    disabled={saving}
-                    onClick={() => void handleDeleteBalance()}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    {t("stock.deleteBalance")}
-                  </button>
-                ) : null}
-              </div>
+
+              {variant === "fuel" ? (
+                <div className="space-y-3">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="space-y-1">
+                      <span className="text-xs font-medium">{t("stock.import")}</span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        className={inputClass}
+                        placeholder="0"
+                        value={importDraft}
+                        disabled={saving}
+                        onChange={(e) => setImportDraft(formatDecimalInput(e.target.value))}
+                      />
+                    </label>
+                    <label className="space-y-1">
+                      <span className="text-xs font-medium">{t("stock.importAmount")}</span>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          className={`${inputClass} pr-12`}
+                          placeholder="0"
+                          value={importAmountDraft}
+                          disabled={saving}
+                          onChange={(e) =>
+                            setImportAmountDraft(formatDecimalInput(e.target.value))
+                          }
+                        />
+                        <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-muted-foreground">
+                          USD
+                        </span>
+                      </div>
+                    </label>
+                    <label className="space-y-1 sm:col-span-2">
+                      <span className="text-xs font-medium">{t("stock.importNotes")}</span>
+                      <input
+                        type="text"
+                        className={inputClass}
+                        placeholder={t("stock.importNotesPlaceholder")}
+                        value={importNotesDraft}
+                        disabled={saving}
+                        onChange={(e) => setImportNotesDraft(e.target.value)}
+                      />
+                    </label>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      className={btnOutline}
+                      disabled={saving}
+                      onClick={() => void handleSaveImport()}
+                    >
+                      {editingImportId
+                        ? t("stock.updateImport")
+                        : t("stock.saveImport")}
+                    </button>
+                    {editingImportId ? (
+                      <button
+                        type="button"
+                        className={btnOutline}
+                        disabled={saving}
+                        onClick={resetImportForm}
+                      >
+                        {t("stock.cancelEdit")}
+                      </button>
+                    ) : null}
+                  </div>
+
+                  <div className="space-y-2">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      {t("stock.importsForDay")}
+                    </p>
+                    {dayImports.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">{t("stock.noImports")}</p>
+                    ) : (
+                      <ul className="max-h-[7.5rem] overflow-y-auto divide-y divide-border rounded-md border border-border">
+                        {dayImports.map((row) => (
+                          <li
+                            key={row.id}
+                            className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm"
+                          >
+                            <div className="min-w-0">
+                              <span className="font-medium">
+                                {formatQtyDisplay(num(row.import_qty), quantityUnitSuffix)}
+                              </span>
+                              <span className="ml-2 text-muted-foreground">
+                                {row.import_amount != null && row.import_amount !== ""
+                                  ? `${formatNumber(num(row.import_amount), { maximumFractionDigits: 2 })} USD`
+                                  : "—"}
+                              </span>
+                              {row.notes ? (
+                                <p className="mt-0.5 truncate text-xs text-muted-foreground" title={String(row.notes)}>
+                                  {String(row.notes)}
+                                </p>
+                              ) : null}
+                            </div>
+                            <div className="flex shrink-0 gap-1">
+                              <button
+                                type="button"
+                                className={btnIconSm}
+                                disabled={saving}
+                                title={t("stock.editImport")}
+                                onClick={() => handleEditFuelImport(row)}
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                className={btnIconSm}
+                                disabled={saving}
+                                title={t("stock.deleteImport")}
+                                onClick={() => void handleDeleteFuelImport(row)}
+                              >
+                                <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                              </button>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <label className="block max-w-xs space-y-1">
+                    <span className="text-xs font-medium">{t("stock.import")}</span>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      className={inputClass}
+                      placeholder="0"
+                      value={importDraft}
+                      disabled={saving}
+                      onChange={(e) => setImportDraft(formatDecimalInput(e.target.value))}
+                    />
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      className={btnOutline}
+                      disabled={saving}
+                      onClick={() => void handleSaveImport()}
+                    >
+                      {t("stock.saveImport")}
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           )}
         </CardContent>
@@ -1340,6 +1692,30 @@ export function StockLedgerPanel({
 
   const headerActions = (
     <div className="flex shrink-0 items-center gap-2">
+      {variant === "fuel" && view === "balance" && !isFirstTimeSetup ? (
+        <button
+          type="button"
+          className={btnHeaderSm}
+          disabled={saving || configsLoading}
+          onClick={() => {
+            const resume = {
+              farmId: selectedFarmId,
+              kind: selectedKind,
+              date: selectedDate,
+              openingAnchorDate: selectedOpeningAnchorDate,
+              view: "balance" as const,
+            };
+            if (onRequestStockImport) {
+              onRequestStockImport(resume);
+              return;
+            }
+            setStockImportOpen(true);
+          }}
+        >
+          <Upload className="h-3.5 w-3.5" />
+          {t("stock.importExcel")}
+        </button>
+      ) : null}
       {showConfigureOpeningButton ? (
         <button
           type="button"
@@ -1433,6 +1809,23 @@ export function StockLedgerPanel({
           )}
         </>
       )}
+
+      {variant === "fuel" && !onRequestStockImport ? (
+        <FuelStockImportDialog
+          open={stockImportOpen}
+          onClose={() => setStockImportOpen(false)}
+          farmOptions={farmOptions}
+          onImported={() => {
+            invalidateRowsCache();
+            void Promise.all([
+              loadOpeningConfigs({ background: true }),
+              load({ background: true }),
+              loadDayImports(),
+            ]);
+            onDataChanged?.();
+          }}
+        />
+      ) : null}
     </div>
   );
 }
