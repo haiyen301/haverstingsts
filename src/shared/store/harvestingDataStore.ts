@@ -21,6 +21,7 @@ import {
   type FarmZoneReferenceRow,
   type KeyAreaReferenceRow,
 } from "@/shared/lib/harvestReferenceData";
+import { canViewAllModuleData } from "@/shared/auth/permissions";
 import { stsProxyGetWithParams, stsProxyGetWithParamsOptional } from "@/shared/api/stsProxyClient";
 
 export const HARVESTING_REFERENCE_PERSIST_KEY = "sts-harvesting-reference-v2";
