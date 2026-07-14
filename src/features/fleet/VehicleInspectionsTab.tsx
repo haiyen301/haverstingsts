@@ -274,24 +274,7 @@ export function VehicleInspectionsTab() {
   };
 
   const handleFarmChange = (nextFarmId: string) => {
-    setForm((f) => {
-      if (f.farm_id === nextFarmId) return f;
-      const defaultStatus = statuses[0]?.value ?? "pass";
-      return {
-        ...f,
-        farm_id: nextFarmId,
-        vehicle_name: "",
-        alias_name: "",
-        vehicle_type: "",
-        fuel_kind: "",
-        registration: "",
-        last_inspection_date: "",
-        next_due_date: "",
-        status: defaultStatus,
-        defects: "",
-        notes: "",
-      };
-    });
+    setForm((f) => (f.farm_id === nextFarmId ? f : { ...f, farm_id: nextFarmId }));
   };
 
   const handleSave = async () => {
