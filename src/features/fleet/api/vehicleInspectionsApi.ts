@@ -111,7 +111,7 @@ export function findVehicleInspectionDuplicate(
   }
 
   for (const row of rows) {
-    if (row.id === excludeId) continue;
+    if (Number(row.id) === Number(excludeId)) continue;
     if (Number(row.farm_id) !== farmId) continue;
     if (String(row.vehicle_type ?? "").trim() !== vehicleType) continue;
     if (String(row.vehicle_name ?? "").trim().toLowerCase() !== vehicleName) continue;

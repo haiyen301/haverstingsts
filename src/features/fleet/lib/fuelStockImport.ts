@@ -105,11 +105,16 @@ export function fuelTypeMatchKey(raw: string): string {
 function legacyFuelKindAlias(raw: string): string | null {
   const text = raw.trim().toLowerCase();
   if (!text) return null;
+  // Phan Thiet Excel grades: DO 0,05_II = diesel oil; RON 95_III = petrol
   if (
     text === "diesel" ||
     text.includes("diesel") ||
     text.includes("dầu") ||
-    text.includes("dau")
+    text.includes("dau") ||
+    text.startsWith("do ") ||
+    text.startsWith("do0") ||
+    text.startsWith("do_") ||
+    /^do[\s,._0-9]/.test(text)
   ) {
     return "diesel";
   }
@@ -118,7 +123,8 @@ function legacyFuelKindAlias(raw: string): string | null {
     text.includes("petrol") ||
     text.includes("gasoline") ||
     text.includes("xăng") ||
-    text.includes("xang")
+    text.includes("xang") ||
+    text.includes("ron")
   ) {
     return "petrol";
   }

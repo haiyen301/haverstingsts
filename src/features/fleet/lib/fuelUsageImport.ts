@@ -1,15 +1,28 @@
 import ExcelJS from "exceljs";
 
 import type { VehicleInspectionRow } from "@/features/fleet/api/vehicleInspectionsApi";
+import {
+  isConsumptionReportSheet,
+  parseConsumptionReportSheet,
+} from "@/features/fleet/lib/fuelUsageConsumptionImport";
+import { resolveFuelStockImportFuelKind } from "@/features/fleet/lib/fuelStockImport";
 
 const DAYS_PER_BLOCK = 7;
 const TOTAL_COL_INDEX = 1 + DAYS_PER_BLOCK * 2;
 
-export type FuelUsageImportFuelKind = "diesel" | "petrol";
+export type FuelUsageImportFuelKind = string;
 
 export type FuelUsageImportRawEntry = {
   fuel_date: string;
   vehicle_label: string;
+  /** Optional FA / asset code from Fuel Consumption Report (Phan Thiet). */
+  fa_code?: string;
+  /**
+   * Raw Excel Fuel Type text (e.g. "DO 0,05_II", "RON 95_III") before catalog resolve.
+   * Diary imports may omit this.
+   */
+  fuel_type_raw?: string;
+  /** Catalog value after resolve (typically diesel / petrol). */
   fuel_kind: FuelUsageImportFuelKind;
   litres: number;
   sheet_name: string;
@@ -116,13 +129,85 @@ function parseDateCell(value: ExcelJS.CellValue): string {
   return "";
 }
 
-function normalizeVehicleKey(label: string): string {
+function stripDiacritics(text: string): string {
+  return text.normalize("NFD").replace(/\p{M}/gu, "");
+}
+
+/** Collapse spaces, strip parenthetical trip notes, lowercase. */
+function normalizeForFuzzyMatch(label: string): string {
   return label
     .trim()
     .toLowerCase()
     .replace(/\s*\([^)]*\)\s*/g, " ")
+    .replace(/[^\p{L}\p{N}/]+/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function normalizeVehicleKey(label: string): string {
+  return normalizeForFuzzyMatch(label);
+}
+
+/** Full label + each side of `/` (bilingual PT names), with and without diacritics. */
+function vehicleMatchVariants(label: string): string[] {
+  const base = normalizeForFuzzyMatch(label);
+  if (!base) return [];
+  const parts = [base, ...base.split("/").map((part) => part.trim()).filter(Boolean)];
+  const keys = new Set<string>();
+  for (const part of parts) {
+    if (!part) continue;
+    keys.add(part);
+    const folded = stripDiacritics(part).replace(/\s+/g, " ").trim();
+    if (folded) keys.add(folded);
+  }
+  return Array.from(keys);
+}
+
+function tokenizeMatchKey(key: string): string[] {
+  return key
+    .split(/[\s/]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0);
+}
+
+const SHORT_NOISE_TOKENS = new Set([
+  "may",
+  "máy",
+  "xe",
+  "anh",
+  "tym",
+  "a",
+  "an",
+  "the",
+  "and",
+  "of",
+  "in",
+  "to",
+  "for",
+]);
+
+function isNoiseOnlyTokenMatch(sharedTokens: string[]): boolean {
+  if (sharedTokens.length === 0) return true;
+  if (sharedTokens.length === 1) {
+    const token = sharedTokens[0]!;
+    return token.length < 4 || SHORT_NOISE_TOKENS.has(token) || SHORT_NOISE_TOKENS.has(stripDiacritics(token));
+  }
+  return false;
+}
+
+function normalizeFaCode(code: string): string {
+  return code.trim().toLowerCase().replace(/\s+/g, "");
+}
+
+/** Real FA/asset codes (e.g. TS102) — ignore category fillers like "machine". */
+function isUsableFaCode(code: string): boolean {
+  const fa = normalizeFaCode(code);
+  if (!fa) return false;
+  if (!/[0-9]/.test(fa)) return false;
+  if (fa === "machine" || fa === "motobike" || fa === "mtobike" || fa === "farm") {
+    return false;
+  }
+  return true;
 }
 
 function isDateHeaderLabel(label: string): boolean {
@@ -255,26 +340,146 @@ function vehicleDisplayLabel(row: VehicleInspectionRow): string {
   return alias || name || `#${row.id}`;
 }
 
-function buildVehicleLookup(
+type VehicleMatchCandidate = {
+  vehicle: VehicleInspectionRow;
+  variants: string[];
+  faCode: string | null;
+};
+
+type ScoredVehicleMatch = {
+  vehicle: VehicleInspectionRow;
+  score: number;
+};
+
+function farmVehiclesForMatch(
   vehicles: VehicleInspectionRow[],
   farmId: number,
-): Map<string, VehicleInspectionRow> {
-  const lookup = new Map<string, VehicleInspectionRow>();
+): VehicleMatchCandidate[] {
+  const candidates: VehicleMatchCandidate[] = [];
   for (const vehicle of vehicles) {
     if (Number(vehicle.farm_id) !== farmId) continue;
     const labels = [
       String(vehicle.alias_name ?? "").trim(),
       String(vehicle.vehicle_name ?? "").trim(),
       vehicleDisplayLabel(vehicle),
+      String(vehicle.registration ?? "").trim(),
     ].filter(Boolean);
+    const variantSet = new Set<string>();
     for (const label of labels) {
-      const key = normalizeVehicleKey(label);
-      if (key && !lookup.has(key)) {
-        lookup.set(key, vehicle);
+      for (const variant of vehicleMatchVariants(label)) {
+        variantSet.add(variant);
       }
     }
+    const registration = String(vehicle.registration ?? "").trim();
+    candidates.push({
+      vehicle,
+      variants: Array.from(variantSet),
+      faCode: isUsableFaCode(registration) ? normalizeFaCode(registration) : null,
+    });
   }
-  return lookup;
+  return candidates;
+}
+
+function scoreContainment(excelKey: string, vehicleKey: string): number {
+  if (!excelKey || !vehicleKey) return 0;
+  if (excelKey === vehicleKey) return 100;
+
+  const shorter = excelKey.length <= vehicleKey.length ? excelKey : vehicleKey;
+  const longer = excelKey.length <= vehicleKey.length ? vehicleKey : excelKey;
+  const shortTokens = tokenizeMatchKey(shorter);
+  if (shortTokens.length < 2 && shorter.length < 6) return 0;
+  if (!longer.includes(shorter)) return 0;
+
+  // Prefer longer overlapping substring relative to excel label.
+  const ratio = shorter.length / Math.max(excelKey.length, 1);
+  if (ratio >= 0.85) return 85;
+  if (ratio >= 0.6) return 78;
+  if (shorter.length >= 10 || shortTokens.length >= 2) return 70;
+  return 0;
+}
+
+function scoreTokenOverlap(excelKey: string, vehicleKey: string): number {
+  const excelTokens = tokenizeMatchKey(excelKey).filter(
+    (token) => !SHORT_NOISE_TOKENS.has(token) && !SHORT_NOISE_TOKENS.has(stripDiacritics(token)),
+  );
+  const vehicleTokens = new Set(
+    tokenizeMatchKey(vehicleKey).filter(
+      (token) => !SHORT_NOISE_TOKENS.has(token) && !SHORT_NOISE_TOKENS.has(stripDiacritics(token)),
+    ),
+  );
+  if (excelTokens.length === 0 || vehicleTokens.size === 0) return 0;
+
+  const shared = excelTokens.filter((token) => vehicleTokens.has(token));
+  if (isNoiseOnlyTokenMatch(shared)) return 0;
+
+  const overlap = shared.length / excelTokens.length;
+  if (overlap < 0.7) return 0;
+  if (overlap >= 0.95) return 75;
+  if (overlap >= 0.85) return 70;
+  return 60;
+}
+
+function bestScoreAgainstVariants(excelVariants: string[], vehicleVariants: string[]): number {
+  let best = 0;
+  for (const excelKey of excelVariants) {
+    for (const vehicleKey of vehicleVariants) {
+      if (excelKey === vehicleKey) return 100;
+      best = Math.max(best, scoreContainment(excelKey, vehicleKey));
+      best = Math.max(best, scoreTokenOverlap(excelKey, vehicleKey));
+    }
+  }
+  return best;
+}
+
+function scoreVehicleCandidates(
+  entry: FuelUsageImportRawEntry,
+  candidates: VehicleMatchCandidate[],
+): ScoredVehicleMatch[] {
+  const excelVariants = vehicleMatchVariants(entry.vehicle_label);
+  const entryFa = isUsableFaCode(entry.fa_code ?? "")
+    ? normalizeFaCode(entry.fa_code ?? "")
+    : null;
+
+  const scored: ScoredVehicleMatch[] = [];
+  for (const candidate of candidates) {
+    let score = bestScoreAgainstVariants(excelVariants, candidate.variants);
+    if (entryFa && candidate.faCode && entryFa === candidate.faCode) {
+      score = Math.max(score, 90);
+    }
+    if (score > 0) {
+      scored.push({ vehicle: candidate.vehicle, score });
+    }
+  }
+
+  scored.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return Number(a.vehicle.id) - Number(b.vehicle.id);
+  });
+  return scored;
+}
+
+const MIN_ACCEPT_SCORE = 60;
+const MIN_SCORE_GAP = 15;
+
+/**
+ * Pick a unique clear winner. Reject ties and weak/ambiguous matches
+ * (e.g. bare "TYM" matching TYM 1/2/3).
+ */
+function resolveVehicleFromScores(scored: ScoredVehicleMatch[]): VehicleInspectionRow | null {
+  if (scored.length === 0) return null;
+  const top = scored[0]!;
+  if (top.score < MIN_ACCEPT_SCORE) return null;
+  const second = scored[1];
+  if (second && second.score === top.score) return null;
+  if (second && top.score < 90 && top.score - second.score < MIN_SCORE_GAP) return null;
+  return top.vehicle;
+}
+
+function resolveVehicleForEntry(
+  entry: FuelUsageImportRawEntry,
+  candidates: VehicleMatchCandidate[],
+): VehicleInspectionRow | null {
+  return resolveVehicleFromScores(scoreVehicleCandidates(entry, candidates));
 }
 
 function parseDiarySheet(ws: ExcelJS.Worksheet): FuelUsageImportRawEntry[] {
@@ -430,6 +635,28 @@ export function isFuelDiaryWorkbook(fileName: string): boolean {
   return lower.endsWith(".xlsx") || lower.endsWith(".xls");
 }
 
+export type FuelUsageImportFuelTypeOption = {
+  value: string;
+  label: string;
+};
+
+/**
+ * Resolve entry.fuel_kind against Fleet Option Catalog (fleet_fuel_types).
+ * Uses Excel fuel_type_raw when present (Phan Thiet), else provisional fuel_kind (diary).
+ */
+export function resolveFuelUsageImportFuelKinds(
+  entries: FuelUsageImportRawEntry[],
+  fuelTypeOptions: FuelUsageImportFuelTypeOption[],
+): FuelUsageImportRawEntry[] {
+  return entries.map((entry) => {
+    const raw = String(entry.fuel_type_raw ?? entry.fuel_kind ?? "").trim();
+    if (!raw) return entry;
+    const resolved = resolveFuelStockImportFuelKind(raw, fuelTypeOptions);
+    if (!resolved) return entry;
+    return { ...entry, fuel_kind: resolved };
+  });
+}
+
 export async function parseFuelUsageImportWorkbook(
   buffer: ArrayBuffer,
 ): Promise<FuelUsageImportParseResult> {
@@ -441,6 +668,19 @@ export async function parseFuelUsageImportWorkbook(
   const sheets: FuelUsageImportSheetSummary[] = [];
 
   for (const worksheet of workbook.worksheets) {
+    // Phan Thiet Fuel Consumption Report first (has Month/Tháng title rows).
+    if (isConsumptionReportSheet(worksheet)) {
+      const sheetEntries = parseConsumptionReportSheet(worksheet);
+      if (sheetEntries.length === 0) continue;
+      entries.push(...sheetEntries);
+      sheets.push({
+        sheet_name: worksheet.name,
+        entry_count: sheetEntries.length,
+        stock_import_count: 0,
+      });
+      continue;
+    }
+
     if (!isDiarySheet(worksheet)) continue;
     const sheetEntries = parseDiarySheet(worksheet);
     const sheetStockImports = parseDiaryStockImports(worksheet);
@@ -485,7 +725,7 @@ export function matchFuelUsageImportEntries(
   vehicles: VehicleInspectionRow[],
   farmId: number,
 ): FuelUsageImportMatchResult {
-  const lookup = buildVehicleLookup(vehicles, farmId);
+  const candidates = farmVehiclesForMatch(vehicles, farmId);
   const rows: FuelUsageImportPreviewRow[] = [];
   const unmatchedByKey = new Map<string, string>();
 
@@ -493,11 +733,14 @@ export function matchFuelUsageImportEntries(
     if (isDateHeaderLabel(entry.vehicle_label) || shouldSkipVehicleRow(entry.vehicle_label)) {
       continue;
     }
-    const vehicle = lookup.get(normalizeVehicleKey(entry.vehicle_label)) ?? null;
+    const vehicle = resolveVehicleForEntry(entry, candidates);
     if (!vehicle) {
-      const key = normalizeVehicleKey(entry.vehicle_label);
+      const key =
+        normalizeVehicleKey(entry.vehicle_label) ||
+        normalizeFaCode(entry.fa_code ?? "") ||
+        entry.vehicle_label.trim();
       if (key && !unmatchedByKey.has(key)) {
-        unmatchedByKey.set(key, entry.vehicle_label.trim());
+        unmatchedByKey.set(key, entry.vehicle_label.trim() || entry.fa_code?.trim() || key);
       }
       rows.push({
         ...entry,

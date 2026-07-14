@@ -14,9 +14,12 @@ import {
   isFuelDiaryWorkbook,
   matchFuelUsageImportEntries,
   parseFuelUsageImportWorkbook,
+  resolveFuelUsageImportFuelKinds,
   type FuelUsageImportMatchResult,
   type FuelUsageImportParseResult,
 } from "@/features/fleet/lib/fuelUsageImport";
+import { useFleetOptionCatalog } from "@/features/fleet/hooks/useFleetOptionCatalog";
+import { FLEET_OPTION_CATALOG_KEYS } from "@/features/fleet/api/fleetOptionCatalogApi";
 import { cn } from "@/lib/utils";
 import { formatDateDisplay } from "@/shared/lib/format/date";
 import { formatNumber } from "@/shared/lib/format/number";
@@ -54,6 +57,9 @@ export function FuelUsageImportDialog({
   onImported,
 }: Props) {
   const t = useTranslations("FuelUsage.import");
+  const { options: fuelTypeOptions } = useFleetOptionCatalog(
+    FLEET_OPTION_CATALOG_KEYS.fuelTypes,
+  );
   const [farmId, setFarmId] = useState("");
   const [parsing, setParsing] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -82,8 +88,9 @@ export function FuelUsageImportDialog({
       setMatched(null);
       return;
     }
-    setMatched(matchFuelUsageImportEntries(parsed.entries, vehicles, Number(farmId)));
-  }, [parsed, farmId, vehicles]);
+    const resolvedEntries = resolveFuelUsageImportFuelKinds(parsed.entries, fuelTypeOptions);
+    setMatched(matchFuelUsageImportEntries(resolvedEntries, vehicles, Number(farmId)));
+  }, [parsed, farmId, vehicles, fuelTypeOptions]);
 
   const selectedFarm = useMemo(
     () => farmOptions.find((farm) => farm.id === farmId) ?? null,
