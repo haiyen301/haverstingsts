@@ -90,15 +90,6 @@ export function FuelUsageBalanceBreakdownPanel({
         </button>
       </div>
 
-      {formulaSummary ? (
-        <div className="mb-3 rounded-md border border-border bg-muted/30 px-3 py-2">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            {t("balanceTimeline.formulaTitle")}
-          </p>
-          <p className="mt-1 font-mono text-sm text-foreground">{formulaSummary}</p>
-        </div>
-      ) : null}
-
       <div className="overflow-x-auto">
         <table className="w-full min-w-[640px] text-sm">
           <thead>
