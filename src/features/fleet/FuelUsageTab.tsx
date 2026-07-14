@@ -34,9 +34,13 @@ import { FLEET_OPTION_CATALOG_KEYS } from "@/features/fleet/api/fleetOptionCatal
 import { useFleetOptionCatalog } from "@/features/fleet/hooks/useFleetOptionCatalog";
 import { FuelStockLedgerPanel, type FuelStockBalanceResumeState } from "@/features/fleet/FuelStockLedgerPanel";
 import { FuelStockImportDialog } from "@/features/fleet/ui/FuelStockImportDialog";
-import { FuelDiaryExportDialog } from "@/features/fleet/ui/FuelDiaryExportDialog";
 import { FuelUsageImportDialog } from "@/features/fleet/ui/FuelUsageImportDialog";
 import { FuelUsageBalanceBreakdownPanel } from "@/features/fleet/ui/FuelUsageBalanceBreakdownPanel";
+import {
+  buildFuelUsageDetailExportRows,
+  buildFuelUsageDetailFileName,
+  exportFuelUsageDetailToXlsx,
+} from "@/features/fleet/lib/fuelUsageDetailExport";
 import {
   buildFuelUsageBalanceIndex,
   farmFuelBalanceKey,
@@ -245,13 +249,15 @@ export function FuelUsageTab() {
   const [balanceOpen, setBalanceOpen] = useState(false);
   const [stockImportOpen, setStockImportOpen] = useState(false);
   const [balanceResume, setBalanceResume] = useState<FuelStockBalanceResumeState | null>(null);
-  const [exportOpen, setExportOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [listVisibleCount, setListVisibleCount] = useState(USAGE_LIST_PAGE_SIZE);
   const [stockReloadToken, setStockReloadToken] = useState(0);
   const [selectedFuelKinds, setSelectedFuelKinds] = useState<string[]>([]);
   const [vehicleSearch, setVehicleSearch] = useState("");
   const loadSeqRef = useRef(0);
+  const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
+  const loadMoreLockRef = useRef(false);
 
   const farmNameById = useMemo(() => {
     const map = new Map(scopedFarmNameById);
@@ -533,6 +539,42 @@ export function FuelUsageTab() {
 
   const hasMoreUsageRows = filtered.length > listVisibleCount;
 
+  const loadMoreUsageRows = useCallback(() => {
+    if (loadMoreLockRef.current) return;
+    loadMoreLockRef.current = true;
+    setListVisibleCount((count) => {
+      const next = Math.min(count + USAGE_LIST_PAGE_SIZE, filtered.length);
+      if (next === count) {
+        loadMoreLockRef.current = false;
+        return count;
+      }
+      requestAnimationFrame(() => {
+        loadMoreLockRef.current = false;
+      });
+      return next;
+    });
+  }, [filtered.length]);
+
+  useEffect(() => {
+    setListVisibleCount(USAGE_LIST_PAGE_SIZE);
+    loadMoreLockRef.current = false;
+  }, [selectedFarmIds, selectedFuelKinds, vehicleSearch, hasActiveDateFilter, dateRange.start, dateRange.end]);
+
+  useEffect(() => {
+    const sentinel = loadMoreSentinelRef.current;
+    if (!sentinel || !hasMoreUsageRows || loading) return;
+
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        loadMoreUsageRows();
+      },
+      { root: null, rootMargin: "200px", threshold: 0 },
+    );
+    obs.observe(sentinel);
+    return () => obs.disconnect();
+  }, [hasMoreUsageRows, loadMoreUsageRows, loading, visibleUsageRows.length]);
+
   const balanceBreakdownRow = useMemo(
     () =>
       balanceBreakdownUsageId != null
@@ -552,12 +594,69 @@ export function FuelUsageTab() {
     return fuelTimelineUpToUsageId(timeline, Number(balanceBreakdownRow.id));
   }, [balanceBreakdownRow, balanceIndex.timelinesByFarmFuel]);
 
-  useEffect(() => {
-    setListVisibleCount(USAGE_LIST_PAGE_SIZE);
-  }, [selectedFarmIds, selectedFuelKinds, vehicleSearch, hasActiveDateFilter, dateRange.start, dateRange.end]);
   const totalLitres = filtered.reduce((s, e) => s + num(e.litres), 0);
   const totalCost = filtered.reduce((s, e) => s + lineCost(e), 0);
   const avgPerEntry = filtered.length > 0 ? totalLitres / filtered.length : 0;
+
+  const handleExportDetail = useCallback(async () => {
+    if (exporting) return;
+    if (filtered.length === 0) {
+      toast.error(t("export.errors.empty"), { containerId: TOAST_CONTAINER_TOP_RIGHT });
+      return;
+    }
+    setExporting(true);
+    try {
+      const exportRows = buildFuelUsageDetailExportRows(filtered, {
+        vehicleLabel: (row) => fuelUsageVehicleLabel(row, vehicleLabelByInspectionId),
+        farmLabel: (row) =>
+          String(
+            row.farm_name ?? farmNameById.get(String(row.farm_id)) ?? row.farm_id ?? "",
+          ),
+        fuelKindLabel: (row) =>
+          fuelUsageFuelKindLabel(row.fuel_kind, fuelKindLabelByValue, fuelKindFallback),
+        remainingLitres: (row) => fuelRowRemainingLitres(row, balanceIndex),
+      });
+      await exportFuelUsageDetailToXlsx(
+        exportRows,
+        {
+          date: t("table.date"),
+          vehicle: t("table.vehicle"),
+          farm: t("table.farm"),
+          fuelKind: t("table.fuelKind"),
+          litres: t("table.litres"),
+          remaining: t("table.remaining"),
+          costPerLitre: t("table.costPerLitre"),
+          cost: t("table.cost"),
+          odometer: t("table.odometer"),
+          operator: t("table.operator"),
+          purpose: t("table.purpose"),
+        },
+        buildFuelUsageDetailFileName({
+          dateFrom: hasActiveDateFilter ? dateRange.start : null,
+          dateTo: hasActiveDateFilter ? dateRange.end : null,
+        }),
+      );
+      toast.success(t("export.success", { count: exportRows.length }), {
+        containerId: TOAST_CONTAINER_TOP_RIGHT,
+      });
+    } catch {
+      toast.error(t("export.errors.export"), { containerId: TOAST_CONTAINER_TOP_RIGHT });
+    } finally {
+      setExporting(false);
+    }
+  }, [
+    balanceIndex,
+    dateRange.end,
+    dateRange.start,
+    exporting,
+    farmNameById,
+    filtered,
+    fuelKindFallback,
+    fuelKindLabelByValue,
+    hasActiveDateFilter,
+    t,
+    vehicleLabelByInspectionId,
+  ]);
 
   const openCreate = () => {
     setEditingId(null);
@@ -757,9 +856,14 @@ export function FuelUsageTab() {
             </button>
           ) : null}
           {canExport ? (
-            <button type="button" className={btnOutline} onClick={() => setExportOpen(true)}>
+            <button
+              type="button"
+              className={btnOutline}
+              disabled={exporting || loading}
+              onClick={() => void handleExportDetail()}
+            >
               <Download className="h-4 w-4" />
-              {t("export.button")}
+              {exporting ? t("export.exportExcelPreparing") : t("export.button")}
             </button>
           ) : null}
         </div>
@@ -993,17 +1097,7 @@ export function FuelUsageTab() {
             </div>
           )}
           {!loading && hasMoreUsageRows ? (
-            <div className="border-t border-border px-4 py-3">
-              <button
-                type="button"
-                className={btnOutline}
-                onClick={() =>
-                  setListVisibleCount((count) => count + USAGE_LIST_PAGE_SIZE)
-                }
-              >
-                {t("table.loadMore")}
-              </button>
-            </div>
+            <div ref={loadMoreSentinelRef} className="h-8 w-full" aria-hidden />
           ) : null}
         </CardContent>
       </Card>
@@ -1069,19 +1163,6 @@ export function FuelUsageTab() {
           setStockReloadToken((token) => token + 1);
           void Promise.all([load(), loadBalanceData()]);
         }}
-      />
-
-      <FuelDiaryExportDialog
-        open={exportOpen}
-        onClose={() => setExportOpen(false)}
-        farmOptions={farmOptions.map((f) => ({ id: f.id, label: f.label }))}
-        initialFarmIds={
-          selectedFarmIds.length > 0
-            ? selectedFarmIds
-            : farmOptions.map((farm) => farm.id)
-        }
-        initialDateFrom={hasActiveDateFilter ? dateRange.start : undefined}
-        initialDateTo={hasActiveDateFilter ? dateRange.end : undefined}
       />
 
       <FuelUsageImportDialog

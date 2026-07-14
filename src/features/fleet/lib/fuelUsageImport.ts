@@ -22,6 +22,11 @@ export type FuelUsageImportRawEntry = {
    * Diary imports may omit this.
    */
   fuel_type_raw?: string;
+  /**
+   * From Machine/License Plate parentheses, e.g. "(đi PT mua đồ)" → purpose.
+   * Empty when absent.
+   */
+  purpose?: string | null;
   /** Catalog value after resolve (typically diesel / petrol). */
   fuel_kind: FuelUsageImportFuelKind;
   litres: number;
@@ -133,34 +138,78 @@ function stripDiacritics(text: string): string {
   return text.normalize("NFD").replace(/\p{M}/gu, "");
 }
 
-/** Collapse spaces, strip parenthetical trip notes, lowercase. */
-function normalizeForFuzzyMatch(label: string): string {
-  return label
-    .trim()
-    .toLowerCase()
-    .replace(/\s*\([^)]*\)\s*/g, " ")
+/** Collapse spaces; optionally keep parenthetical content as tokens (vehicle color/id). */
+function normalizeForFuzzyMatch(label: string, keepParenContent = false): string {
+  let text = label.trim().toLowerCase().replace(/\r?\n/g, " ");
+  if (keepParenContent) {
+    // "( wase đỏ )" → " wase đỏ " so colors remain part of the identity key
+    text = text.replace(/\s*\(([^)]*)\)\s*/g, " $1 ");
+    // trailing unclosed "(...."
+    text = text.replace(/\s*\(([^)]*)$/g, " $1");
+  } else {
+    text = text.replace(/\s*\([^)]*\)\s*/g, " ");
+    text = text.replace(/\s*\([^)]*$/g, " ");
+  }
+  return text
     .replace(/[^\p{L}\p{N}/]+/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
 
-function normalizeVehicleKey(label: string): string {
-  return normalizeForFuzzyMatch(label);
-}
+type MatchVariant = {
+  key: string;
+  /** identity = keeps paren color/id; generic = paren stripped (shared across siblings). */
+  kind: "identity" | "generic";
+};
 
-/** Full label + each side of `/` (bilingual PT names), with and without diacritics. */
-function vehicleMatchVariants(label: string): string[] {
-  const base = normalizeForFuzzyMatch(label);
-  if (!base) return [];
+function pushVariantKeys(target: MatchVariant[], base: string, kind: MatchVariant["kind"]): void {
+  if (!base) return;
   const parts = [base, ...base.split("/").map((part) => part.trim()).filter(Boolean)];
-  const keys = new Set<string>();
   for (const part of parts) {
     if (!part) continue;
-    keys.add(part);
+    target.push({ key: part, kind });
     const folded = stripDiacritics(part).replace(/\s+/g, " ").trim();
-    if (folded) keys.add(folded);
+    if (folded && folded !== part) target.push({ key: folded, kind });
   }
-  return Array.from(keys);
+}
+
+function pushKeyVariant(target: MatchVariant[], key: string, kind: MatchVariant["kind"]): void {
+  if (!key) return;
+  target.push({ key, kind });
+  const folded = stripDiacritics(key).replace(/\s+/g, " ").trim();
+  if (folded && folded !== key) target.push({ key: folded, kind });
+}
+
+/** Full label + each side of `/`, identity (keep paren) + generic (strip paren). */
+function vehicleMatchVariants(label: string): MatchVariant[] {
+  const variants: MatchVariant[] = [];
+  const identityBase = normalizeForFuzzyMatch(label, true);
+  const genericBase = normalizeForFuzzyMatch(label, false);
+
+  // Identity: full string only + slash sides that still carry paren tokens (color/id).
+  // Shared slash sides like "xe máy công ty" must NOT be identity or siblings all score 100.
+  pushKeyVariant(variants, identityBase, "identity");
+  const genericParts = new Set(
+    genericBase
+      .split("/")
+      .map((part) => part.trim())
+      .filter(Boolean),
+  );
+  for (const part of identityBase.split("/").map((p) => p.trim()).filter(Boolean)) {
+    if (genericParts.has(part)) continue;
+    pushKeyVariant(variants, part, "identity");
+  }
+
+  pushVariantKeys(variants, genericBase, "generic");
+
+  const byKey = new Map<string, MatchVariant>();
+  for (const variant of variants) {
+    const existing = byKey.get(variant.key);
+    if (!existing || (existing.kind === "generic" && variant.kind === "identity")) {
+      byKey.set(variant.key, variant);
+    }
+  }
+  return Array.from(byKey.values());
 }
 
 function tokenizeMatchKey(key: string): string[] {
@@ -342,7 +391,7 @@ function vehicleDisplayLabel(row: VehicleInspectionRow): string {
 
 type VehicleMatchCandidate = {
   vehicle: VehicleInspectionRow;
-  variants: string[];
+  variants: MatchVariant[];
   faCode: string | null;
 };
 
@@ -364,37 +413,62 @@ function farmVehiclesForMatch(
       vehicleDisplayLabel(vehicle),
       String(vehicle.registration ?? "").trim(),
     ].filter(Boolean);
-    const variantSet = new Set<string>();
+    const byKey = new Map<string, MatchVariant>();
     for (const label of labels) {
       for (const variant of vehicleMatchVariants(label)) {
-        variantSet.add(variant);
+        const existing = byKey.get(variant.key);
+        if (!existing || (existing.kind === "generic" && variant.kind === "identity")) {
+          byKey.set(variant.key, variant);
+        }
       }
     }
     const registration = String(vehicle.registration ?? "").trim();
     candidates.push({
       vehicle,
-      variants: Array.from(variantSet),
+      variants: Array.from(byKey.values()),
       faCode: isUsableFaCode(registration) ? normalizeFaCode(registration) : null,
     });
   }
   return candidates;
 }
 
-function scoreContainment(excelKey: string, vehicleKey: string): number {
-  if (!excelKey || !vehicleKey) return 0;
-  if (excelKey === vehicleKey) return 100;
+function exactMatchScore(kind: MatchVariant["kind"], key: string): number {
+  const tokens = tokenizeMatchKey(key);
+  if (kind === "identity") {
+    if (tokens.length >= 4 || (key.includes("/") && tokens.length >= 3)) return 100;
+    if (tokens.length >= 3) return 95;
+    return 88;
+  }
+  // Generic (paren stripped) — never beat a color/id identity match.
+  if (tokens.length >= 4 || key.includes("/")) return 82;
+  if (tokens.length >= 3) return 78;
+  return 70;
+}
 
-  const shorter = excelKey.length <= vehicleKey.length ? excelKey : vehicleKey;
-  const longer = excelKey.length <= vehicleKey.length ? vehicleKey : excelKey;
+function scoreContainment(
+  excel: MatchVariant,
+  vehicle: MatchVariant,
+): number {
+  if (!excel.key || !vehicle.key) return 0;
+  if (excel.key === vehicle.key) {
+    const kind =
+      excel.kind === "identity" || vehicle.kind === "identity" ? "identity" : "generic";
+    return exactMatchScore(kind, excel.key);
+  }
+
+  const shorter = excel.key.length <= vehicle.key.length ? excel.key : vehicle.key;
+  const longer = excel.key.length <= vehicle.key.length ? vehicle.key : excel.key;
   const shortTokens = tokenizeMatchKey(shorter);
   if (shortTokens.length < 2 && shorter.length < 6) return 0;
   if (!longer.includes(shorter)) return 0;
 
-  // Prefer longer overlapping substring relative to excel label.
-  const ratio = shorter.length / Math.max(excelKey.length, 1);
-  if (ratio >= 0.85) return 85;
-  if (ratio >= 0.6) return 78;
-  if (shorter.length >= 10 || shortTokens.length >= 2) return 70;
+  const ratio = shorter.length / Math.max(excel.key.length, 1);
+  const kind =
+    excel.kind === "identity" || vehicle.kind === "identity" ? "identity" : "generic";
+  const cap = kind === "identity" ? 85 : 72;
+  if (ratio >= 0.85) return Math.min(cap, 85);
+  if (ratio >= 0.6) return Math.min(cap, 78);
+  if (shorter.length >= 10 || shortTokens.length >= 2) return Math.min(cap, 70);
   return 0;
 }
 
@@ -419,13 +493,15 @@ function scoreTokenOverlap(excelKey: string, vehicleKey: string): number {
   return 60;
 }
 
-function bestScoreAgainstVariants(excelVariants: string[], vehicleVariants: string[]): number {
+function bestScoreAgainstVariants(
+  excelVariants: MatchVariant[],
+  vehicleVariants: MatchVariant[],
+): number {
   let best = 0;
-  for (const excelKey of excelVariants) {
-    for (const vehicleKey of vehicleVariants) {
-      if (excelKey === vehicleKey) return 100;
-      best = Math.max(best, scoreContainment(excelKey, vehicleKey));
-      best = Math.max(best, scoreTokenOverlap(excelKey, vehicleKey));
+  for (const excel of excelVariants) {
+    for (const vehicle of vehicleVariants) {
+      best = Math.max(best, scoreContainment(excel, vehicle));
+      best = Math.max(best, scoreTokenOverlap(excel.key, vehicle.key));
     }
   }
   return best;
@@ -539,7 +615,7 @@ function parseDiarySheet(ws: ExcelJS.Worksheet): FuelUsageImportRawEntry[] {
       for (const [col, fuelDate] of dateByCol.entries()) {
         const litres = parseLitres(ws.getCell(row, col).value);
         if (litres == null) continue;
-        const key = `${fuelDate}|${normalizeVehicleKey(label)}|${currentSection}`;
+        const key = `${fuelDate}|${normalizeForFuzzyMatch(label, true)}|${currentSection}`;
         const existing = entryKeyTotals.get(key);
         if (existing) {
           existing.litres = Math.round((existing.litres + litres) * 1000) / 1000;
@@ -561,73 +637,6 @@ function parseDiarySheet(ws: ExcelJS.Worksheet): FuelUsageImportRawEntry[] {
   }
 
   return entries;
-}
-
-function parseDiaryStockImports(ws: ExcelJS.Worksheet): FuelStockImportRawEntry[] {
-  const imports: FuelStockImportRawEntry[] = [];
-  const importKeyTotals = new Map<string, FuelStockImportRawEntry>();
-  const maxRow = Math.max(ws.rowCount, 200);
-  let row = 1;
-
-  while (row <= maxRow) {
-    if (!isDateHeaderRow(ws, row)) {
-      row += 1;
-      continue;
-    }
-
-    const dateRow = row;
-    const dateByCol = new Map<number, string>();
-    for (let col = 2; col <= TOTAL_COL_INDEX; col += 2) {
-      let date = parseDateCell(ws.getCell(dateRow, col).value);
-      if (!date) {
-        date = parseDateCell(ws.getCell(dateRow, col + 1).value);
-      }
-      if (date) dateByCol.set(col, date);
-    }
-
-    if (dateByCol.size === 0) {
-      row += 1;
-      continue;
-    }
-
-    row = dateRow + 2;
-
-    while (row <= maxRow) {
-      if (isDateHeaderRow(ws, row)) {
-        break;
-      }
-
-      const label = cellText(ws.getCell(row, 1).value);
-      const fuelKind = stockImportKindForLabel(label);
-      if (!fuelKind) {
-        row += 1;
-        continue;
-      }
-
-      for (const [col, balanceDate] of dateByCol.entries()) {
-        const importQty = parseLitres(ws.getCell(row, col).value);
-        if (importQty == null) continue;
-        const key = `${balanceDate}|${fuelKind}`;
-        const existing = importKeyTotals.get(key);
-        if (existing) {
-          existing.import_qty = Math.round((existing.import_qty + importQty) * 1000) / 1000;
-          continue;
-        }
-        const entry: FuelStockImportRawEntry = {
-          balance_date: balanceDate,
-          fuel_kind: fuelKind,
-          import_qty: importQty,
-          sheet_name: ws.name,
-        };
-        importKeyTotals.set(key, entry);
-        imports.push(entry);
-      }
-
-      row += 1;
-    }
-  }
-
-  return imports;
 }
 
 export function isFuelDiaryWorkbook(fileName: string): boolean {
@@ -683,14 +692,13 @@ export async function parseFuelUsageImportWorkbook(
 
     if (!isDiarySheet(worksheet)) continue;
     const sheetEntries = parseDiarySheet(worksheet);
-    const sheetStockImports = parseDiaryStockImports(worksheet);
-    if (sheetEntries.length === 0 && sheetStockImports.length === 0) continue;
+    // Skip diary "Import diesel / Import gasoline" qty rows — do not create stock_imports.
+    if (sheetEntries.length === 0) continue;
     entries.push(...sheetEntries);
-    stockImports.push(...sheetStockImports);
     sheets.push({
       sheet_name: worksheet.name,
       entry_count: sheetEntries.length,
-      stock_import_count: sheetStockImports.length,
+      stock_import_count: 0,
     });
   }
 
@@ -736,7 +744,7 @@ export function matchFuelUsageImportEntries(
     const vehicle = resolveVehicleForEntry(entry, candidates);
     if (!vehicle) {
       const key =
-        normalizeVehicleKey(entry.vehicle_label) ||
+        normalizeForFuzzyMatch(entry.vehicle_label, true) ||
         normalizeFaCode(entry.fa_code ?? "") ||
         entry.vehicle_label.trim();
       if (key && !unmatchedByKey.has(key)) {

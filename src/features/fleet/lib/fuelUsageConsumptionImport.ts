@@ -201,9 +201,40 @@ function provisionalFuelKindFromText(
 }
 
 /**
+ * Extract Purpose from Machine/License Plate parentheses:
+ * "Xe máy … (đi PT mua đồ ngày 04/02)" → "đi PT mua đồ ngày 04/02"
+ * Also supports trailing unclosed "(...." segments.
+ */
+export function extractPurposeFromMachineLabel(machineLabel: string): string {
+  const label = machineLabel.replace(/\r?\n/g, " ").trim();
+  if (!label) return "";
+
+  const parts: string[] = [];
+  for (const match of label.matchAll(/\(([^)]*)\)/g)) {
+    const text = String(match[1] ?? "").trim();
+    if (text) parts.push(text);
+  }
+
+  const lastOpen = label.lastIndexOf("(");
+  const lastClose = label.lastIndexOf(")");
+  if (lastOpen >= 0 && lastOpen > lastClose) {
+    const trailing = label
+      .slice(lastOpen + 1)
+      .trim()
+      .replace(/[,\s]+$/g, "");
+    if (trailing && !parts.includes(trailing)) {
+      parts.push(trailing);
+    }
+  }
+
+  return parts.join("; ").trim();
+}
+
+/**
  * Parse Phan Thiet / Fuel Consumption Report sheets (one transaction per row).
  * Skips Carry forward / Purchasing rows. Does not emit stock imports.
  * Stores fuel_type_raw for later catalog resolve (Fleet Option Catalog → fuel types).
+ * Parenthetical notes in Machine/License Plate → purpose.
  */
 export function parseConsumptionReportSheet(ws: ExcelJS.Worksheet): FuelUsageImportRawEntry[] {
   const header = findHeaderRow(ws);
@@ -229,7 +260,8 @@ export function parseConsumptionReportSheet(ws: ExcelJS.Worksheet): FuelUsageImp
     if (!fuelKind) continue;
 
     const faCode = map.faCode != null ? cellText(ws.getCell(row, map.faCode).value) : "";
-    const key = `${fuelDate}|${machineLabel.toLowerCase()}|${faCode.toLowerCase()}|${fuelKind}|${fuelTypeText.toLowerCase()}`;
+    const purpose = extractPurposeFromMachineLabel(machineLabel) || null;
+    const key = `${fuelDate}|${machineLabel.toLowerCase()}|${faCode.toLowerCase()}|${fuelKind}|${fuelTypeText.toLowerCase()}|${(purpose ?? "").toLowerCase()}`;
     const existing = entryKeyTotals.get(key);
     if (existing) {
       existing.litres = Math.round((existing.litres + litres) * 1000) / 1000;
@@ -241,6 +273,7 @@ export function parseConsumptionReportSheet(ws: ExcelJS.Worksheet): FuelUsageImp
       vehicle_label: machineLabel,
       fa_code: faCode || undefined,
       fuel_type_raw: fuelTypeText || undefined,
+      purpose,
       fuel_kind: fuelKind,
       litres,
       sheet_name: ws.name,

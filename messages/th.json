@@ -3196,23 +3196,13 @@
     },
     "export": {
       "button": "ส่งออก",
-      "title": "ส่งออกบันทึกเชื้อเพลิง",
-      "subtitle": "รายงาน PETROL-DIESEL (ยานพาหนะ × วันที่, ดีเซล + เบนซิน, รับเข้า & คงเหลือ)",
-      "dateFrom": "ตั้งแต่วันที่",
-      "dateTo": "ถึงวันที่",
-      "loadingPreview": "กำลังสร้างรายงาน…",
-      "previewReady": "{farm}: {from} → {to} ({rows} แถว)",
-      "download": "ส่งออก",
+      "title": "ส่งออกรายละเอียด fuel usage",
+      "subtitle": "ดาวน์โหลด Excel ตามรายการที่กรองอยู่ คอลัมน์เหมือนตาราง",
       "exportExcelPreparing": "กำลังเตรียมไฟล์ Excel…",
-      "exportGoogleSheetUploading": "กำลังสร้าง Google Sheet…",
-      "exportGoogleSheetOpen": "เปิด Google Sheet",
-      "exportGoogleSheetFailed": "ส่งออก Google Sheet ล้มเหลว",
-      "exportGoogleSheetNotConfigured": "ยังไม่ได้ตั้งค่า Google OAuth บนเซิร์ฟเวอร์",
+      "success": "ส่งออก {count} แถว fuel usage แล้ว",
       "errors": {
-        "load": "สร้างรายงานเชื้อเพลิงไม่สำเร็จ",
         "export": "ส่งออกไม่สำเร็จ",
-        "empty": "ไม่มีข้อมูลในช่วงวันที่ที่เลือก",
-        "farmRequired": "กรุณาเลือกฟาร์ม"
+        "empty": "ไม่มีแถวให้ส่งออกตามตัวกรองปัจจุบัน"
       }
     },
     "import": {
@@ -3227,7 +3217,7 @@
       "emptyHint": "อัปโหลดไฟล์ diary Hoi An หรือ Fuel Consumption Report Phan Thiet เพื่อดูตัวอย่างก่อนนำเข้า",
       "previewTitle": "อ่านไฟล์แล้ว",
       "previewSummary": "{sheets} ชีต, {entries} แถวการใช้ ({ready} พร้อม, {unmatched} ไม่ตรงยานพาหนะ), {stockImports} แถวรับเข้าสต็อก {from} → {to} สำหรับ {farm}",
-      "openingHint": "ยอดเปิด (REMAINING/Tồn วันที่ 01/01/2026) ไม่ถูกนำเข้า — ตั้งค่าด้วยตนเองครั้งเดียวใน Balance",
+      "openingHint": "ยอดเปิด (REMAINING/Tồn) และแถว Import diesel/petrol ไม่ถูกนำเข้า — ตั้งสต็อกใน Balance หรือ Import fuel stock",
       "stockPreviewTitle": "รับเข้าสต็อก ({count})",
       "unmatchedTitle": "ยานพาหนะที่ไม่ตรงในฟาร์มนี้",
       "import": "นำเข้าฐานข้อมูล",
@@ -3238,6 +3228,7 @@
       "colVehicle": "ยานพาหนะ",
       "colFuel": "เชื้อเพลิง",
       "colLitres": "ลิตร",
+      "colPurpose": "วัตถุประสงค์",
       "colImportQty": "รับเข้า (L)",
       "listShowing": "แสดง {shown} จาก {total} รายการ",
       "loadMore": "โหลดเพิ่ม",

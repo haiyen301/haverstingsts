@@ -3271,26 +3271,13 @@
     },
     "export": {
       "button": "Xuất file",
-      "title": "Xuất sổ nhiên liệu",
-      "subtitle": "Báo cáo PETROL-DIESEL (máy × ngày, dầu + xăng, nhập & tồn).",
-      "dateFrom": "Từ ngày",
-      "dateTo": "Đến ngày",
-      "loadingPreview": "Đang tạo báo cáo…",
-      "previewReady": "{farm}: {from} → {to} ({rows} dòng)",
-      "previewFarms": "{count} trang trại",
-      "selectFarms": "Chọn trang trại",
-      "farmsSelected": "Đã chọn {count} trang trại",
-      "download": "Xuất",
+      "title": "Xuất chi tiết fuel usage",
+      "subtitle": "Tải Excel theo danh sách đang filter, cùng các cột như bảng.",
       "exportExcelPreparing": "Đang tạo file Excel…",
-      "exportGoogleSheetUploading": "Đang tạo Google Sheet…",
-      "exportGoogleSheetOpen": "Mở Google Sheet",
-      "exportGoogleSheetFailed": "Xuất Google Sheet thất bại.",
-      "exportGoogleSheetNotConfigured": "Chưa cấu hình Google OAuth trên server.",
+      "success": "Đã xuất {count} dòng fuel usage.",
       "errors": {
-        "load": "Không tạo được báo cáo nhiên liệu.",
         "export": "Xuất file thất bại.",
-        "empty": "Không có dữ liệu cho các trang trại và khoảng ngày đã chọn.",
-        "farmRequired": "Vui lòng chọn ít nhất một trang trại."
+        "empty": "Không có dòng nào để xuất với bộ lọc hiện tại."
       }
     },
     "import": {
@@ -3305,7 +3292,7 @@
       "emptyHint": "Tải file diary Hội An hoặc Fuel Consumption Report Phan Thiết để xem trước trước khi import.",
       "previewTitle": "Đã đọc file",
       "previewSummary": "{sheets} sheet, {entries} dòng sử dụng ({ready} sẵn sàng, {unmatched} không khớp máy), {stockImports} dòng nhập kho từ {from} → {to} cho {farm}.",
-      "openingHint": "Tồn đầu kỳ (REMAINING/Tồn ngày 01/01/2026) không được import — bạn nhập thủ công một lần trong Balance.",
+      "openingHint": "Tồn đầu kỳ (REMAINING/Tồn) và dòng Import diesel/petrol không được import — nhập kho trong Balance hoặc Import fuel stock.",
       "stockPreviewTitle": "Nhập kho nhiên liệu ({count})",
       "unmatchedTitle": "Máy không khớp trong farm này",
       "import": "Import vào database",
@@ -3316,6 +3303,7 @@
       "colVehicle": "Máy",
       "colFuel": "Loại",
       "colLitres": "Lít",
+      "colPurpose": "Mục đích",
       "colImportQty": "Nhập (L)",
       "listShowing": "Hiển thị {shown}/{total} bản ghi",
       "loadMore": "Tải thêm",

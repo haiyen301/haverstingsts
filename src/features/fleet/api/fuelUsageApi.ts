@@ -93,6 +93,8 @@ export type FuelUsageImportEntryPayload = {
   fuel_kind?: string;
   litres: number;
   odometer_km?: number;
+  /** Always empty for Excel import (Hoi An + Phan Thiet). */
+  purpose?: string | null;
 };
 
 export type FuelStockImportEntryPayload = {

@@ -3388,26 +3388,13 @@
     },
     "export": {
       "button": "Export",
-      "title": "Export fuel diary",
-      "subtitle": "PETROL-DIESEL report layout (vehicles × dates, diesel + petrol, import & remaining).",
-      "dateFrom": "From date",
-      "dateTo": "To date",
-      "loadingPreview": "Building report…",
-      "previewReady": "{farm}: {from} → {to} ({rows} rows)",
-      "previewFarms": "{count} farms",
-      "selectFarms": "Select farms",
-      "farmsSelected": "{count} farms selected",
-      "download": "Export",
+      "title": "Export fuel usage detail",
+      "subtitle": "Downloads the current filtered list with the same columns as the table.",
       "exportExcelPreparing": "Preparing Excel file…",
-      "exportGoogleSheetUploading": "Creating spreadsheet on Google Drive…",
-      "exportGoogleSheetOpen": "Open Google Sheet",
-      "exportGoogleSheetFailed": "Google Sheet export failed.",
-      "exportGoogleSheetNotConfigured": "Google OAuth is not configured on this server.",
+      "success": "Exported {count} fuel usage row(s).",
       "errors": {
-        "load": "Failed to build fuel diary report.",
         "export": "Export failed.",
-        "empty": "No data to export for the selected farms and dates.",
-        "farmRequired": "Please select at least one farm."
+        "empty": "No rows to export for the current filters."
       }
     },
     "import": {
@@ -3422,7 +3409,7 @@
       "emptyHint": "Upload a Hoi An diary or Phan Thiet Fuel Consumption Report workbook to preview entries before importing.",
       "previewTitle": "Parsed workbook",
       "previewSummary": "{sheets} sheet(s), {entries} usage row(s) ({ready} ready, {unmatched} unmatched), {stockImports} stock import(s) from {from} → {to} for {farm}.",
-      "openingHint": "Opening balance (REMAINING/Tồn on 01/01/2026) is not imported — set it once manually under Balance.",
+      "openingHint": "Opening balance (REMAINING/Tồn) and Import diesel/petrol rows are not imported — set stock under Balance or Import fuel stock.",
       "stockPreviewTitle": "Stock imports ({count})",
       "unmatchedTitle": "Vehicles not matched in this farm",
       "import": "Import to database",
@@ -3433,6 +3420,7 @@
       "colVehicle": "Vehicle",
       "colFuel": "Fuel",
       "colLitres": "Litres",
+      "colPurpose": "Purpose",
       "colImportQty": "Import (L)",
       "listShowing": "Showing {shown} of {total} record(s)",
       "loadMore": "Load more",

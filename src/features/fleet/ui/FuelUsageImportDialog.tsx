@@ -158,6 +158,7 @@ export function FuelUsageImportDialog({
       vehicle_type: row.vehicle_type,
       fuel_kind: row.fuel_kind,
       litres: row.litres,
+      purpose: row.purpose?.trim() ? row.purpose.trim() : null,
     }));
 
     const stockImports = stockImportRows.map((row) => ({
@@ -387,6 +388,7 @@ export function FuelUsageImportDialog({
                           <th className="px-3 py-2 text-left">{t("colVehicle")}</th>
                           <th className="px-3 py-2 text-left">{t("colFuel")}</th>
                           <th className="px-3 py-2 text-right">{t("colLitres")}</th>
+                          <th className="px-3 py-2 text-left">{t("colPurpose")}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -402,6 +404,9 @@ export function FuelUsageImportDialog({
                             <td className="px-3 py-2 capitalize">{row.fuel_kind}</td>
                             <td className="px-3 py-2 text-right tabular-nums">
                               {formatNumber(row.litres, { maximumFractionDigits: 3 })} L
+                            </td>
+                            <td className="max-w-[180px] truncate px-3 py-2 text-xs text-muted-foreground">
+                              {row.purpose?.trim() || "—"}
                             </td>
                           </tr>
                         ))}
