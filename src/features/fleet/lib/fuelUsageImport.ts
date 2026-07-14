@@ -6,6 +6,7 @@ import {
   parseConsumptionReportSheet,
 } from "@/features/fleet/lib/fuelUsageConsumptionImport";
 import { resolveFuelStockImportFuelKind } from "@/features/fleet/lib/fuelStockImport";
+import { normalizeFuelKind } from "@/features/fleet/lib/fuelUsageBalance";
 
 const DAYS_PER_BLOCK = 7;
 const TOTAL_COL_INDEX = 1 + DAYS_PER_BLOCK * 2;
@@ -519,6 +520,10 @@ function bestScoreAgainstVariants(
   return best;
 }
 
+function vehicleFuelKind(vehicle: VehicleInspectionRow): string {
+  return normalizeFuelKind(vehicle.fuel_kind);
+}
+
 function scoreVehicleCandidates(
   entry: FuelUsageImportRawEntry,
   candidates: VehicleMatchCandidate[],
@@ -527,12 +532,24 @@ function scoreVehicleCandidates(
   const entryFa = isUsableFaCode(entry.fa_code ?? "")
     ? normalizeFaCode(entry.fa_code ?? "")
     : null;
+  const entryFuel = normalizeFuelKind(entry.fuel_kind);
 
   const scored: ScoredVehicleMatch[] = [];
   for (const candidate of candidates) {
+    const candidateFuel = vehicleFuelKind(candidate.vehicle);
+    // Same farm + same name can still be two machines (diesel vs petrol).
+    // Never match across conflicting fuel kinds when both sides are known.
+    if (entryFuel && candidateFuel && entryFuel !== candidateFuel) {
+      continue;
+    }
+
     let score = bestScoreAgainstVariants(excelVariants, candidate.variants);
     if (entryFa && candidate.faCode && entryFa === candidate.faCode) {
       score = Math.max(score, 90);
+    }
+    if (entryFuel && candidateFuel && entryFuel === candidateFuel) {
+      // Prefer the vehicle that shares fuel type over name-only siblings.
+      score += 8;
     }
     if (score > 0) {
       scored.push({ vehicle: candidate.vehicle, score });
@@ -755,12 +772,15 @@ export function matchFuelUsageImportEntries(
     }
     const vehicle = resolveVehicleForEntry(entry, candidates);
     if (!vehicle) {
-      const key =
+      const fuelKey = normalizeFuelKind(entry.fuel_kind) || String(entry.fuel_kind ?? "").trim();
+      const nameKey =
         normalizeForFuzzyMatch(entry.vehicle_label, true) ||
         normalizeFaCode(entry.fa_code ?? "") ||
         entry.vehicle_label.trim();
+      const key = fuelKey ? `${nameKey}|${fuelKey}` : nameKey;
       if (key && !unmatchedByKey.has(key)) {
-        unmatchedByKey.set(key, entry.vehicle_label.trim() || entry.fa_code?.trim() || key);
+        const label = entry.vehicle_label.trim() || entry.fa_code?.trim() || nameKey;
+        unmatchedByKey.set(key, fuelKey ? `${label} [${fuelKey}]` : label);
       }
       rows.push({
         ...entry,

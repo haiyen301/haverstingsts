@@ -35,12 +35,8 @@ import { useFleetOptionCatalog } from "@/features/fleet/hooks/useFleetOptionCata
 import { FuelStockLedgerPanel, type FuelStockBalanceResumeState } from "@/features/fleet/FuelStockLedgerPanel";
 import { FuelStockImportDialog } from "@/features/fleet/ui/FuelStockImportDialog";
 import { FuelUsageImportDialog } from "@/features/fleet/ui/FuelUsageImportDialog";
+import { FuelUsageExportDialog } from "@/features/fleet/ui/FuelUsageExportDialog";
 import { FuelUsageBalanceBreakdownPanel } from "@/features/fleet/ui/FuelUsageBalanceBreakdownPanel";
-import {
-  buildFuelUsageDetailExportRows,
-  buildFuelUsageDetailFileName,
-  exportFuelUsageDetailToXlsx,
-} from "@/features/fleet/lib/fuelUsageDetailExport";
 import {
   buildFuelUsageBalanceIndex,
   farmFuelBalanceKey,
@@ -53,6 +49,7 @@ import {
   fetchFleetStockLedger,
   type FleetStockLedgerRow,
 } from "@/features/fleet/api/fleetStockLedgerApi";
+import { useSearchParams } from "next/navigation";
 import {
   fetchVehicleInspections,
   type VehicleInspectionRow,
@@ -188,6 +185,7 @@ function dedupeFuelUsageRows(rows: FuelUsageRow[]): FuelUsageRow[] {
 
 export function FuelUsageTab() {
   const t = useTranslations("FuelUsage");
+  const searchParams = useSearchParams();
   const user = useAuthUserStore((s) => s.user);
   const canCreate = canAccessModule(user, "fuel_usage", "create");
   const canImport =
@@ -250,7 +248,7 @@ export function FuelUsageTab() {
   const [stockImportOpen, setStockImportOpen] = useState(false);
   const [balanceResume, setBalanceResume] = useState<FuelStockBalanceResumeState | null>(null);
   const [importOpen, setImportOpen] = useState(false);
-  const [exporting, setExporting] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const [listVisibleCount, setListVisibleCount] = useState(USAGE_LIST_PAGE_SIZE);
   const [stockReloadToken, setStockReloadToken] = useState(0);
   const [selectedFuelKinds, setSelectedFuelKinds] = useState<string[]>([]);
@@ -598,65 +596,23 @@ export function FuelUsageTab() {
   const totalCost = filtered.reduce((s, e) => s + lineCost(e), 0);
   const avgPerEntry = filtered.length > 0 ? totalLitres / filtered.length : 0;
 
-  const handleExportDetail = useCallback(async () => {
-    if (exporting) return;
-    if (filtered.length === 0) {
-      toast.error(t("export.errors.empty"), { containerId: TOAST_CONTAINER_TOP_RIGHT });
-      return;
+  const resumeGoogleSheetExport =
+    (searchParams.get("googleSheetExport") ?? "").trim() === "resume";
+  const googleSheetExportError = (searchParams.get("googleSheetError") ?? "").trim();
+
+  const clearGoogleSheetExportQuery = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("googleSheetExport");
+    url.searchParams.delete("googleSheetError");
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+  }, []);
+
+  useEffect(() => {
+    if (resumeGoogleSheetExport || googleSheetExportError) {
+      setExportOpen(true);
     }
-    setExporting(true);
-    try {
-      const exportRows = buildFuelUsageDetailExportRows(filtered, {
-        vehicleLabel: (row) => fuelUsageVehicleLabel(row, vehicleLabelByInspectionId),
-        farmLabel: (row) =>
-          String(
-            row.farm_name ?? farmNameById.get(String(row.farm_id)) ?? row.farm_id ?? "",
-          ),
-        fuelKindLabel: (row) =>
-          fuelUsageFuelKindLabel(row.fuel_kind, fuelKindLabelByValue, fuelKindFallback),
-        remainingLitres: (row) => fuelRowRemainingLitres(row, balanceIndex),
-      });
-      await exportFuelUsageDetailToXlsx(
-        exportRows,
-        {
-          date: t("table.date"),
-          vehicle: t("table.vehicle"),
-          farm: t("table.farm"),
-          fuelKind: t("table.fuelKind"),
-          litres: t("table.litres"),
-          remaining: t("table.remaining"),
-          costPerLitre: t("table.costPerLitre"),
-          cost: t("table.cost"),
-          odometer: t("table.odometer"),
-          operator: t("table.operator"),
-          purpose: t("table.purpose"),
-        },
-        buildFuelUsageDetailFileName({
-          dateFrom: hasActiveDateFilter ? dateRange.start : null,
-          dateTo: hasActiveDateFilter ? dateRange.end : null,
-        }),
-      );
-      toast.success(t("export.success", { count: exportRows.length }), {
-        containerId: TOAST_CONTAINER_TOP_RIGHT,
-      });
-    } catch {
-      toast.error(t("export.errors.export"), { containerId: TOAST_CONTAINER_TOP_RIGHT });
-    } finally {
-      setExporting(false);
-    }
-  }, [
-    balanceIndex,
-    dateRange.end,
-    dateRange.start,
-    exporting,
-    farmNameById,
-    filtered,
-    fuelKindFallback,
-    fuelKindLabelByValue,
-    hasActiveDateFilter,
-    t,
-    vehicleLabelByInspectionId,
-  ]);
+  }, [resumeGoogleSheetExport, googleSheetExportError]);
 
   const openCreate = () => {
     setEditingId(null);
@@ -859,11 +815,11 @@ export function FuelUsageTab() {
             <button
               type="button"
               className={btnOutline}
-              disabled={exporting || loading}
-              onClick={() => void handleExportDetail()}
+              disabled={loading}
+              onClick={() => setExportOpen(true)}
             >
               <Download className="h-4 w-4" />
-              {exporting ? t("export.exportExcelPreparing") : t("export.button")}
+              {t("export.button")}
             </button>
           ) : null}
         </div>
@@ -1179,6 +1135,27 @@ export function FuelUsageTab() {
         }}
       />
 
+      <FuelUsageExportDialog
+        open={exportOpen}
+        onClose={() => {
+          setExportOpen(false);
+          clearGoogleSheetExportQuery();
+        }}
+        farmOptions={farmOptions.map((f) => ({ id: f.id, label: f.label }))}
+        initialFarmIds={selectedFarmIds}
+        initialDateFrom={hasActiveDateFilter ? dateRange.start : ""}
+        initialDateTo={hasActiveDateFilter ? dateRange.end : ""}
+        fuelKindLabelByValue={fuelKindLabelByValue}
+        fuelKindFallback={fuelKindFallback}
+        vehicleLabelByInspectionId={vehicleLabelByInspectionId}
+        resumeGoogleSheetExport={resumeGoogleSheetExport}
+        onResumeHandled={clearGoogleSheetExportQuery}
+      />
+      {googleSheetExportError ? (
+        <p className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+          {googleSheetExportError}
+        </p>
+      ) : null}
       {dialogOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-lg border border-border bg-background p-6 shadow-lg">

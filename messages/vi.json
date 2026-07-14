@@ -3271,13 +3271,51 @@
     },
     "export": {
       "button": "Xuất file",
-      "title": "Xuất chi tiết fuel usage",
-      "subtitle": "Tải Excel theo danh sách đang filter, cùng các cột như bảng.",
+      "title": "Xuất fuel usage",
+      "subtitle": "Chọn farm, khoảng ngày, loại dữ liệu (chi tiết sử dụng, import, opening balance) và định dạng file.",
       "exportExcelPreparing": "Đang tạo file Excel…",
       "success": "Đã xuất {count} dòng fuel usage.",
+      "successFull": "Đã xuất {usage} dòng usage, {imports} lần import, {openings} opening balance.",
+      "selectFarm": "Farm",
+      "dateFrom": "Từ ngày",
+      "dateTo": "Đến ngày",
+      "notes": "Ghi chú",
+      "kindsTitle": "Nội dung xuất",
+      "kinds": {
+        "usage": "Chi tiết sử dụng",
+        "usageHint": "Các dòng đổ nhiên liệu (máy, lít, giá, tồn).",
+        "imports": "Nhập kho (import)",
+        "importsHint": "Từng lần nhập riêng (số L, tiền trước thuế, đơn giá).",
+        "openings": "Opening balance",
+        "openingsHint": "Số opening đã cấu hình theo farm và loại nhiên liệu."
+      },
+      "sheets": {
+        "usage": "Usage",
+        "imports": "Imports",
+        "openings": "Opening balances"
+      },
+      "importCols": {
+        "date": "Ngày",
+        "line": "Lần # (cùng ngày)",
+        "farm": "Farm",
+        "fuelKind": "Loại nhiên liệu",
+        "importQty": "Nhập (L)",
+        "importAmount": "Tiền trước thuế (USD)",
+        "unitCost": "Đơn giá ($/L)",
+        "notes": "Ghi chú"
+      },
+      "openingCols": {
+        "date": "Ngày opening",
+        "farm": "Farm",
+        "fuelKind": "Loại nhiên liệu",
+        "openingQty": "Opening (L)"
+      },
       "errors": {
         "export": "Xuất file thất bại.",
-        "empty": "Không có dòng nào để xuất với bộ lọc hiện tại."
+        "empty": "Không có dòng nào để xuất với bộ lọc hiện tại.",
+        "selectFarm": "Vui lòng chọn ít nhất một farm.",
+        "invalidDates": "Khoảng Từ ngày / Đến ngày không hợp lệ.",
+        "selectKind": "Vui lòng chọn ít nhất một loại dữ liệu."
       }
     },
     "import": {

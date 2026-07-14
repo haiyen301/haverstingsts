@@ -18,8 +18,11 @@ export type FleetFuelImportRow = {
 
 export type FleetFuelImportListParams = {
   farm_id?: number;
+  farm_ids?: string;
   fuel_kind?: string;
   import_date?: string;
+  import_from?: string;
+  import_to?: string;
 };
 
 export type FleetFuelImportSavePayload = {

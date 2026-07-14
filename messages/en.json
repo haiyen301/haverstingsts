@@ -3388,13 +3388,51 @@
     },
     "export": {
       "button": "Export",
-      "title": "Export fuel usage detail",
-      "subtitle": "Downloads the current filtered list with the same columns as the table.",
+      "title": "Export fuel usage",
+      "subtitle": "Choose farms, date range, which data to include (usage detail, imports, opening balances), and file format.",
       "exportExcelPreparing": "Preparing Excel file…",
       "success": "Exported {count} fuel usage row(s).",
+      "successFull": "Exported {usage} usage, {imports} import line(s), {openings} opening balance(s).",
+      "selectFarm": "Farm",
+      "dateFrom": "From date",
+      "dateTo": "To date",
+      "notes": "Notes",
+      "kindsTitle": "Include",
+      "kinds": {
+        "usage": "Usage detail",
+        "usageHint": "Fuel usage rows (vehicles, litres, cost, remaining).",
+        "imports": "Stock imports",
+        "importsHint": "Each import line separately (qty, pre-tax amount, unit cost).",
+        "openings": "Opening balances",
+        "openingsHint": "Configured opening quantity per farm and fuel type."
+      },
+      "sheets": {
+        "usage": "Usage",
+        "imports": "Imports",
+        "openings": "Opening balances"
+      },
+      "importCols": {
+        "date": "Date",
+        "line": "Line # (same day)",
+        "farm": "Farm",
+        "fuelKind": "Fuel type",
+        "importQty": "Import (L)",
+        "importAmount": "Pre-tax amount (USD)",
+        "unitCost": "Unit cost ($/L)",
+        "notes": "Notes"
+      },
+      "openingCols": {
+        "date": "Opening date",
+        "farm": "Farm",
+        "fuelKind": "Fuel type",
+        "openingQty": "Opening (L)"
+      },
       "errors": {
         "export": "Export failed.",
-        "empty": "No rows to export for the current filters."
+        "empty": "No rows to export for the current filters.",
+        "selectFarm": "Please select at least one farm.",
+        "invalidDates": "Please choose a valid From / To date range.",
+        "selectKind": "Please select at least one export type."
       }
     },
     "import": {
