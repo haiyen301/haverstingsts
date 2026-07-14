@@ -437,6 +437,9 @@ function exactMatchScore(kind: MatchVariant["kind"], key: string): number {
   if (kind === "identity") {
     if (tokens.length >= 4 || (key.includes("/") && tokens.length >= 3)) return 100;
     if (tokens.length >= 3) return 95;
+    // Exact full-label match (e.g. "John Deere") must beat longer siblings
+    // that merely contain this string as a prefix ("John Deere 1200A").
+    if (tokens.length >= 2) return 100;
     return 88;
   }
   // Generic (paren stripped) — never beat a color/id identity match.
@@ -462,6 +465,15 @@ function scoreContainment(
   if (shortTokens.length < 2 && shorter.length < 6) return 0;
   if (!longer.includes(shorter)) return 0;
 
+  // Excel is a prefix of a longer vehicle label ("John Deere" ⊂ "John Deere 1200A").
+  // That is weak evidence — never compete with an exact match on the shorter name.
+  const excelIsPrefixOfVehicle = excel.key.length < vehicle.key.length && longer === vehicle.key;
+  if (excelIsPrefixOfVehicle) {
+    if (shortTokens.length >= 2 || shorter.length >= 10) return 55;
+    return 0;
+  }
+
+  // Vehicle is contained in a longer Excel label (purpose / trip notes on import).
   const ratio = shorter.length / Math.max(excel.key.length, 1);
   const kind =
     excel.kind === "identity" || vehicle.kind === "identity" ? "identity" : "generic";
