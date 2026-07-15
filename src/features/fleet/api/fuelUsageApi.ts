@@ -136,9 +136,9 @@ export function fuelUsageVehicleLabel(
   const alias = String(row.alias_name ?? "").trim();
   const name = String(row.vehicle_name ?? "").trim();
   if (alias && name && alias !== name) {
-    return `${alias} (${name})`;
+    return `${name} (${alias})`;
   }
-  const fromRow = alias || name;
+  const fromRow = name || alias;
   if (fromRow) return fromRow;
 
   const inspectionId = String(row.vehicle_inspection_id ?? "").trim();
@@ -153,6 +153,47 @@ export function fuelUsageVehicleLabel(
   }
 
   return "—";
+}
+
+/** Primary list line: vehicle name only (no alias in parentheses). */
+export function fuelUsageVehiclePrimaryName(
+  row: Pick<FuelUsageRow, "vehicle_name" | "alias_name" | "vehicle_inspection_id">,
+  lookupByInspectionId?: ReadonlyMap<string, string> | Record<string, string>,
+): string {
+  const name = String(row.vehicle_name ?? "").trim();
+  if (name) return name;
+
+  const inspectionId = String(row.vehicle_inspection_id ?? "").trim();
+  if (inspectionId && lookupByInspectionId) {
+    let resolved: string | undefined;
+    if (lookupByInspectionId instanceof Map) {
+      resolved = lookupByInspectionId.get(inspectionId);
+    } else {
+      resolved = (lookupByInspectionId as Record<string, string>)[inspectionId];
+    }
+    if (resolved) {
+      // Lookup may be "Name (alias)" — take the name part before " (".
+      const paren = resolved.indexOf(" (");
+      return paren > 0 ? resolved.slice(0, paren) : resolved;
+    }
+  }
+
+  const alias = String(row.alias_name ?? "").trim();
+  return alias || "—";
+}
+
+/** Secondary list line: "Type - Alias" or just "Type" when no distinct alias. */
+export function fuelUsageVehicleTypeAliasLine(
+  row: Pick<FuelUsageRow, "vehicle_type" | "vehicle_name" | "alias_name">,
+): string {
+  const type = String(row.vehicle_type ?? "").trim();
+  const alias = String(row.alias_name ?? "").trim();
+  const name = String(row.vehicle_name ?? "").trim();
+  const showAlias = Boolean(alias && alias !== name);
+  if (type && showAlias) return `${type} - ${alias}`;
+  if (type) return type;
+  if (showAlias) return alias;
+  return "";
 }
 
 export function fuelUsageFuelKindLabel(

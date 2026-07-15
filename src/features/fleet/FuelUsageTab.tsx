@@ -25,6 +25,8 @@ import {
   fetchFuelUsage,
   fuelUsageFuelKindLabel,
   fuelUsageVehicleLabel,
+  fuelUsageVehiclePrimaryName,
+  fuelUsageVehicleTypeAliasLine,
   removeFuelUsage,
   saveFuelUsage,
   suggestFuelUsageCost,
@@ -162,9 +164,22 @@ function inspectionVehicleLabel(row: VehicleInspectionRow): string {
   const alias = String(row.alias_name ?? "").trim();
   const name = String(row.vehicle_name ?? "").trim();
   if (alias && name && alias !== name) {
-    return `${alias} (${name})`;
+    return `${name} (${alias})`;
   }
-  return alias || name || `#${row.id}`;
+  return name || alias || `#${row.id}`;
+}
+
+function inspectionVehicleSelectOption(row: VehicleInspectionRow): {
+  value: string;
+  label: string;
+  subLabel?: string;
+} {
+  const alias = String(row.alias_name ?? "").trim();
+  const name = String(row.vehicle_name ?? "").trim();
+  const label = name || alias || `#${row.id}`;
+  const subLabel =
+    alias && name && alias !== name ? `(${alias})` : undefined;
+  return { value: String(row.id), label, subLabel };
 }
 
 function dedupeFuelUsageRows(rows: FuelUsageRow[]): FuelUsageRow[] {
@@ -307,11 +322,7 @@ export function FuelUsageTab() {
   }, [form.farm_id, vehicles]);
 
   const vehicleSelectOptions = useMemo(
-    () =>
-      formVehicles.map((vehicle) => ({
-        value: String(vehicle.id),
-        label: inspectionVehicleLabel(vehicle),
-      })),
+    () => formVehicles.map((vehicle) => inspectionVehicleSelectOption(vehicle)),
     [formVehicles],
   );
 
@@ -942,11 +953,14 @@ export function FuelUsageTab() {
                       <td className="px-4 py-3">
                         <div>
                           <p className="font-medium">
-                            {fuelUsageVehicleLabel(e, vehicleLabelByInspectionId)}
+                            {fuelUsageVehiclePrimaryName(e, vehicleLabelByInspectionId)}
                           </p>
-                          {e.vehicle_type ? (
-                            <p className="text-xs text-muted-foreground">{e.vehicle_type}</p>
-                          ) : null}
+                          {(() => {
+                            const secondary = fuelUsageVehicleTypeAliasLine(e);
+                            return secondary ? (
+                              <p className="text-xs text-muted-foreground">{secondary}</p>
+                            ) : null;
+                          })()}
                         </div>
                       </td>
                       <td className="px-4 py-3">

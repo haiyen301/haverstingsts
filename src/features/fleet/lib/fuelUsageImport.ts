@@ -385,9 +385,9 @@ function vehicleDisplayLabel(row: VehicleInspectionRow): string {
   const alias = String(row.alias_name ?? "").trim();
   const name = String(row.vehicle_name ?? "").trim();
   if (alias && name && alias !== name) {
-    return `${alias} (${name})`;
+    return `${name} (${alias})`;
   }
-  return alias || name || `#${row.id}`;
+  return name || alias || `#${row.id}`;
 }
 
 type VehicleMatchCandidate = {

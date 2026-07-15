@@ -21,11 +21,19 @@ function MultiSelectOptionLabel({
   trigger?: boolean;
 }) {
   if (!option.subLabel) {
+    if (trigger) {
+      return (
+        <TruncatedText
+          text={option.label}
+          className="min-w-0 flex-1 pr-2 text-sm"
+        />
+      );
+    }
+    // Dropdown list: wrap so long labels like "vehicle (alias)" stay readable.
     return (
-      <TruncatedText
-        text={option.label}
-        className={cn("min-w-0 flex-1 pr-2", trigger && "text-sm")}
-      />
+      <span className="min-w-0 flex-1 pr-2 text-sm whitespace-normal wrap-break-word">
+        {option.label}
+      </span>
     );
   }
 
@@ -327,7 +335,7 @@ export function MultiSelect({
       <PopoverContent
         align="start"
         className={cn(
-          "w-(--radix-popover-trigger-width) p-2",
+          "min-w-(--radix-popover-trigger-width) w-max p-2",
           options.some((opt) => opt.subLabel)
             ? "max-w-[min(560px,calc(100vw-1.5rem))]"
             : "max-w-[min(420px,calc(100vw-1.5rem))]",
