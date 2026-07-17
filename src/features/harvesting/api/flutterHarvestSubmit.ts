@@ -92,16 +92,24 @@ function parsePositiveNumber(raw: string): number {
 }
 
 /**
- * When harvest area (m²) is empty, auto-fill from `quantity` and mark the row with `auto_harvest_area`.
- * Idempotent when `harvestedArea` is already set.
+ * Resolve `harvested_area` for submit:
+ * - Always keep a positive user-entered value (Sprig, Sod, and Sod→Sprig).
+ * - When empty: Sod falls back to `quantity` (+ `auto_harvest_area` status).
+ * - When empty: Sprig / Sod→Sprig leave area unset here (caller may pre-fill via yield formula).
  */
 export function resolveHarvestedAreaForSubmit(
   harvestedArea: string | undefined,
   quantity: string,
   harvestType?: string,
 ): { harvestedArea: string | undefined; status?: string } {
+  // Manual entry wins for every harvest type (including sod_to_sprig).
+  const existing = parsePositiveNumber(harvestedArea ?? "");
+  if (existing > 0) {
+    return { harvestedArea: stripCommas(harvestedArea ?? "") };
+  }
+
   const loadType = normalizeHarvestTypeStorageKey(harvestType);
-  // Sprig / sod→sprig quantity is kg — do not copy into harvested_area (m²).
+  // Sprig / Sod→Sprig quantity is kg — never copy kg into harvested_area (m²).
   if (loadType === "sprig" || loadType === "sod_to_sprig") {
     return { harvestedArea: undefined };
   }
@@ -109,7 +117,7 @@ export function resolveHarvestedAreaForSubmit(
   if (parsePositiveNumber(qty) <= 0) {
     return { harvestedArea: undefined };
   }
-  // Business rule: for Sod (M2), harvested_area must match quantity.
+  // Sod (M2): auto-fill from quantity only when harvested_area was left empty.
   if (loadType === "sod") {
     return {
       harvestedArea: qty,
@@ -117,10 +125,6 @@ export function resolveHarvestedAreaForSubmit(
     };
   }
 
-  const existing = parsePositiveNumber(harvestedArea ?? "");
-  if (existing > 0) {
-    return { harvestedArea: stripCommas(harvestedArea ?? "") };
-  }
   return {
     harvestedArea: qty,
     status: AUTO_HARVEST_AREA_STATUS,
