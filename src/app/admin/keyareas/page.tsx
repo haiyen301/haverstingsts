@@ -25,6 +25,7 @@ import { DashboardLayout } from "@/widgets/layout/DashboardLayout";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { useModuleAccess } from "@/shared/auth/useModuleAccess";
 
 const inputClass =
   "flex h-9 w-full min-w-0 rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground shadow-sm outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/35";
@@ -80,6 +81,7 @@ function DropInsertionLine({ colSpan }: { colSpan: number }) {
 
 export default function AdminKeyAreasPage() {
   const t = useTranslations("AdminKeyAreas");
+  const { canCreate, canEdit, canDelete } = useModuleAccess("admin_key_areas");
   const fetchAllHarvestingReferenceData = useHarvestingDataStore(
     (s) => s.fetchAllHarvestingReferenceData,
   );
@@ -297,6 +299,7 @@ export default function AdminKeyAreasPage() {
   );
 
   const busy = saving || reordering;
+  const canReorder = canEdit && !busy;
 
   return (
     <RequireAuth>
@@ -308,15 +311,17 @@ export default function AdminKeyAreasPage() {
               <p className="mt-1 text-sm text-muted-foreground">{t("description")}</p>
               <p className="mt-1 text-xs text-muted-foreground">{t("dragHint")}</p>
             </div>
-            <button
-              type="button"
-              className={btnPrimary}
-              onClick={openCreate}
-              disabled={busy}
-            >
-              <Plus className="h-4 w-4" />
-              {t("add")}
-            </button>
+            {canCreate ? (
+              <button
+                type="button"
+                className={btnPrimary}
+                onClick={openCreate}
+                disabled={busy}
+              >
+                <Plus className="h-4 w-4" />
+                {t("add")}
+              </button>
+            ) : null}
           </div>
 
           {loading ? <p className="text-sm text-muted-foreground">{t("loading")}</p> : null}
@@ -359,7 +364,7 @@ export default function AdminKeyAreasPage() {
                         >
                           <td className="w-10 px-2 py-3 text-center align-middle">
                             <div
-                              draggable={!busy}
+                              draggable={canReorder}
                               role="button"
                               tabIndex={0}
                               aria-label={t("table.dragRowAria", { title: row.title })}
@@ -368,7 +373,7 @@ export default function AdminKeyAreasPage() {
                               onDragEnd={handleDragEnd}
                               className={cn(
                                 "inline-flex touch-manipulation rounded-md p-1.5 text-muted-foreground",
-                                busy
+                                busy || !canEdit
                                   ? "cursor-not-allowed opacity-40"
                                   : "cursor-grab hover:bg-muted active:cursor-grabbing",
                               )}
@@ -381,27 +386,35 @@ export default function AdminKeyAreasPage() {
                             {row.sort_order ?? 0}
                           </td>
                           <td className="px-4 py-3">
-                            <div className="flex items-center justify-end gap-1">
-                              <button
-                                type="button"
-                                className={btnGhost}
-                                disabled={busy}
-                                onClick={() => openEdit(row)}
-                              >
-                                <Pencil className="h-3.5 w-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                className={cn(
-                                  btnGhost,
-                                  "text-destructive hover:bg-destructive/10",
-                                )}
-                                disabled={busy}
-                                onClick={() => void handleDelete(row)}
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
-                            </div>
+                            {canEdit || canDelete ? (
+                              <div className="flex items-center justify-end gap-1">
+                                {canEdit ? (
+                                  <button
+                                    type="button"
+                                    className={btnGhost}
+                                    disabled={busy}
+                                    onClick={() => openEdit(row)}
+                                  >
+                                    <Pencil className="h-3.5 w-3.5" />
+                                  </button>
+                                ) : null}
+                                {canDelete ? (
+                                  <button
+                                    type="button"
+                                    className={cn(
+                                      btnGhost,
+                                      "text-destructive hover:bg-destructive/10",
+                                    )}
+                                    disabled={busy}
+                                    onClick={() => void handleDelete(row)}
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                ) : null}
+                              </div>
+                            ) : (
+                              <span className="block text-right text-muted-foreground">—</span>
+                            )}
                           </td>
                         </tr>
                       </Fragment>

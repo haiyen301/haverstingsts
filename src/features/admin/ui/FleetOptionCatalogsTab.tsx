@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { ConfirmDeleteDialog } from "@/shared/ui/ConfirmDeleteDialog";
+import { useModuleAccess } from "@/shared/auth/useModuleAccess";
 
 const inputClass =
   "flex h-9 w-full min-w-0 rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground shadow-sm outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/35 disabled:cursor-not-allowed disabled:opacity-50";
@@ -85,6 +86,7 @@ function CatalogSection({
 }) {
   const t = useTranslations("AdminFleetOptionCatalogs");
   const tCommon = useTranslations("Common");
+  const { canCreate, canEdit, canDelete } = useModuleAccess("admin_fleet_option_catalogs");
   const [rows, setRows] = useState<FleetOptionCatalogRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -180,50 +182,52 @@ function CatalogSection({
 
         {!loading ? (
           <>
-            <div className="rounded-lg border border-border/70 bg-muted/20 p-3">
-              <div
-                className={cn(
-                  "grid gap-2",
-                  showValueColumn ? "sm:grid-cols-[1fr_1fr_auto]" : "sm:grid-cols-[1fr_auto]",
-                )}
-              >
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-muted-foreground">{t("colLabel")}</label>
-                  <input
-                    className={inputClass}
-                    placeholder={t("newLabelPlaceholder")}
-                    value={newLabel}
-                    disabled={busy}
-                    onChange={(e) => setNewLabel(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && handleAdd()}
-                  />
-                </div>
-                {showValueColumn ? (
+            {canCreate ? (
+              <div className="rounded-lg border border-border/70 bg-muted/20 p-3">
+                <div
+                  className={cn(
+                    "grid gap-2",
+                    showValueColumn ? "sm:grid-cols-[1fr_1fr_auto]" : "sm:grid-cols-[1fr_auto]",
+                  )}
+                >
                   <div className="space-y-1">
-                    <label className="text-xs font-medium text-muted-foreground">{t("colValue")}</label>
+                    <label className="text-xs font-medium text-muted-foreground">{t("colLabel")}</label>
                     <input
                       className={inputClass}
-                      placeholder={t("newValuePlaceholder")}
-                      value={newValue}
+                      placeholder={t("newLabelPlaceholder")}
+                      value={newLabel}
                       disabled={busy}
-                      onChange={(e) => setNewValue(e.target.value)}
+                      onChange={(e) => setNewLabel(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && handleAdd()}
                     />
                   </div>
-                ) : null}
-                <div className="flex items-end">
-                  <button
-                    type="button"
-                    className={cn(btnPrimary, "w-full sm:w-auto")}
-                    disabled={busy || !newLabel.trim()}
-                    onClick={handleAdd}
-                  >
-                    <Plus className="h-4 w-4" />
-                    {t("add")}
-                  </button>
+                  {showValueColumn ? (
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-muted-foreground">{t("colValue")}</label>
+                      <input
+                        className={inputClass}
+                        placeholder={t("newValuePlaceholder")}
+                        value={newValue}
+                        disabled={busy}
+                        onChange={(e) => setNewValue(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && handleAdd()}
+                      />
+                    </div>
+                  ) : null}
+                  <div className="flex items-end">
+                    <button
+                      type="button"
+                      className={cn(btnPrimary, "w-full sm:w-auto")}
+                      disabled={busy || !newLabel.trim()}
+                      onClick={handleAdd}
+                    >
+                      <Plus className="h-4 w-4" />
+                      {t("add")}
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
+            ) : null}
 
             <div className="overflow-hidden rounded-lg border border-border">
               <table className="w-full caption-bottom text-sm">
@@ -282,64 +286,74 @@ function CatalogSection({
                       <td className="px-4 py-2.5 align-middle">
                         <CatalogSwitch
                           checked={row.active !== false}
-                          disabled={busy}
+                          disabled={busy || !canEdit}
                           onCheckedChange={(active) => persistRow(row, { active })}
                         />
                       </td>
                       <td className="px-4 py-2.5 align-middle">
-                        <div className="flex items-center justify-end gap-0.5">
-                          {editId === row.id ? (
-                            <>
-                              <button
-                                type="button"
-                                className={btnSm}
-                                disabled={busy}
-                                onClick={() => setEditId(null)}
-                              >
-                                {tCommon("cancel")}
-                              </button>
-                              <button
-                                type="button"
-                                className={btnSm}
-                                disabled={busy || !editLabel.trim()}
-                                onClick={() => {
-                                  persistRow(row, {
-                                    label: editLabel.trim(),
-                                    value: editValue.trim() || row.value,
-                                  });
-                                  setEditId(null);
-                                }}
-                              >
-                                {tCommon("save")}
-                              </button>
-                            </>
-                          ) : (
-                            <>
-                              <button
-                                type="button"
-                                className={btnIcon}
-                                disabled={busy}
-                                aria-label={tCommon("edit")}
-                                onClick={() => {
-                                  setEditId(row.id);
-                                  setEditLabel(row.label);
-                                  setEditValue(row.value);
-                                }}
-                              >
-                                <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
-                              </button>
-                              <button
-                                type="button"
-                                className={cn(btnIcon, "hover:border-destructive/30 hover:bg-destructive/10")}
-                                disabled={busy}
-                                aria-label={tCommon("delete")}
-                                onClick={() => setDeleteTarget(row)}
-                              >
-                                <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                              </button>
-                            </>
-                          )}
-                        </div>
+                        {canEdit || canDelete ? (
+                          <div className="flex items-center justify-end gap-0.5">
+                            {editId === row.id ? (
+                              <>
+                                <button
+                                  type="button"
+                                  className={btnSm}
+                                  disabled={busy}
+                                  onClick={() => setEditId(null)}
+                                >
+                                  {tCommon("cancel")}
+                                </button>
+                                {canEdit ? (
+                                  <button
+                                    type="button"
+                                    className={btnSm}
+                                    disabled={busy || !editLabel.trim()}
+                                    onClick={() => {
+                                      persistRow(row, {
+                                        label: editLabel.trim(),
+                                        value: editValue.trim() || row.value,
+                                      });
+                                      setEditId(null);
+                                    }}
+                                  >
+                                    {tCommon("save")}
+                                  </button>
+                                ) : null}
+                              </>
+                            ) : (
+                              <>
+                                {canEdit ? (
+                                  <button
+                                    type="button"
+                                    className={btnIcon}
+                                    disabled={busy}
+                                    aria-label={tCommon("edit")}
+                                    onClick={() => {
+                                      setEditId(row.id);
+                                      setEditLabel(row.label);
+                                      setEditValue(row.value);
+                                    }}
+                                  >
+                                    <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
+                                  </button>
+                                ) : null}
+                                {canDelete ? (
+                                  <button
+                                    type="button"
+                                    className={cn(btnIcon, "hover:border-destructive/30 hover:bg-destructive/10")}
+                                    disabled={busy}
+                                    aria-label={tCommon("delete")}
+                                    onClick={() => setDeleteTarget(row)}
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                                  </button>
+                                ) : null}
+                              </>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="block text-right text-muted-foreground">—</span>
+                        )}
                       </td>
                     </tr>
                   ))}

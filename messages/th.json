@@ -611,6 +611,8 @@
     "periodQuarter": "ไตรมาสที่แล้ว",
     "periodYear": "ปีที่แล้ว",
     "periodThisWeek": "สัปดาห์นี้",
+    "periodThisMonth": "เดือนนี้",
+    "periodThisQuarter": "ไตรมาสนี้",
     "periodNextWeek": "สัปดาห์หน้า",
     "periodNextMonth": "เดือนหน้า",
     "periodNextQuarter": "ไตรมาสหน้า",
@@ -1370,7 +1372,7 @@
     "harvestedAreaHintM2": "เท่ากับปริมาณเมื่อหน่วยเป็น M2 (อ่านอย่างเดียว เหมือน Flutter)",
     "harvestedAreaPlaceholderKg": "กรอกพื้นที่เก็บเกี่ยว",
     "harvestedAreaHintKg": "จำเป็นเมื่อมีวันที่เก็บเกี่ยวจริงและหน่วยเป็น Kg (ต้องมากกว่า 0)",
-    "harvestedAreaFormulaHint": "Sprig / Sod→Sprig: พื้นที่เก็บเกี่ยว (m²) = ปริมาณ (kg) ÷ ผลผลิต (kg/m²) จาก Zone Configuration (ฟาร์ม + ชนิดหญ้า) หากยังไม่เลือกฟาร์มหรือชนิดหญ้า ใช้ปริมาณเป็นพื้นที่เก็บเกี่ยว",
+    "harvestedAreaFormulaHint": "Sprig / Sod→Sprig: เมื่อบันทึก estimate โดยเว้นช่องนี้ว่าง พื้นที่เก็บเกี่ยว (m²) = ปริมาณ (kg) ÷ ผลผลิต (kg/m²) จาก Zone Configuration (ฟาร์ม + ชนิดหญ้า) Sod: พื้นที่เก็บเกี่ยว = ปริมาณ",
     "harvestedAreaFormulaTooltip": "พื้นที่เก็บเกี่ยว (m²) = {quantity} kg ÷ {yield} kg/m² (Yield Zone Configuration) = {area} m²",
     "harvestedAreaQuantityFallbackTooltip": "Sprig / Sod→Sprig: หากยังไม่เลือกฟาร์มหรือชนิดหญ้า พื้นที่เก็บเกี่ยว (m²) = ปริมาณ (kg) — หา Yield Zone Configuration ไม่ได้",
     "harvestedAreaQuantityFallbackTooltipWithValues": "ยังไม่ได้เลือกฟาร์มหรือชนิดหญ้า — พื้นที่เก็บเกี่ยว (m²) = ปริมาณ: {quantity} m²",
@@ -2866,6 +2868,11 @@
     "filters": {
       "allFarms": "ทุกฟาร์ม",
       "allTime": "ตลอดเวลา",
+      "today": "วันนี้",
+      "thisWeek": "สัปดาห์นี้",
+      "thisMonth": "เดือนนี้",
+      "thisQuarter": "ไตรมาสนี้",
+      "lastWeek": "สัปดาห์ที่แล้ว",
       "lastMonth": "เดือนที่แล้ว",
       "lastQuarter": "ไตรมาสที่แล้ว",
       "lastYear": "ปีที่แล้ว"
@@ -2923,6 +2930,7 @@
       "byGrass": "การใช้ตามประเภทหญ้า",
       "byZone": "การใช้ตามโซน",
       "amount": "ปริมาณ",
+      "itemCount": "{count} รายการ · เลื่อนเพื่อดูทั้งหมด",
       "empty": "ไม่มีการใช้ในช่วงนี้"
     },
     "table": {
@@ -2931,6 +2939,8 @@
       "grass": "หญ้า",
       "zone": "โซน",
       "product": "ผลิตภัณฑ์",
+      "uom": "หน่วย",
+      "images": "รูปภาพ",
       "type": "ประเภท",
       "consumption": "การใช้",
       "transferTo": "โอนไป → {farm}",
@@ -2990,8 +3000,75 @@
       "aliasTitlePlaceholder": "เช่น ถุง NPK สีเหลือง",
       "selectOperator": "เลือกผู้ปฏิบัติงาน",
       "noProductsHint": "เพิ่มผลิตภัณฑ์ใน Admin → Settings → Items",
+      "uom": "หน่วย",
+      "images": "รูปภาพ",
+      "addImages": "เพิ่มรูปภาพ",
+      "removeImage": "ลบรูปภาพ",
       "cancel": "ยกเลิก",
       "save": "บันทึก"
+    },
+    "import": {
+      "button": "นำเข้าข้อมูล",
+      "title": "นำเข้าข้อมูลการใช้ปุ๋ย",
+      "subtitle": "อัปโหลดไฟล์ Excel/CSV ชื่อผลิตภัณฑ์จะถูกจับคู่โดยอัตโนมัติ",
+      "close": "ปิด",
+      "uploadFile": "อัปโหลด Excel",
+      "uploadImages": "เลือกไฟล์รูป",
+      "downloadTemplate": "ดาวน์โหลดเทมเพลต",
+      "fileLabel": "ไฟล์",
+      "imagesSelected": "เลือกไฟล์รูปแล้ว {count} ไฟล์",
+      "imagesHint": "ในคอลัมน์ images ของ Excel ให้ใส่พาธใต้ fertilizer_usage (เช่น 07/1784276782_file….jpeg คั่นหลายไฟล์ด้วย ;) เลือกไฟล์รูปที่นี่ หรือวางไว้ที่ files/timeline_files/fertilizer_usage/07/ — ระบบจับคู่ตามชื่อไฟล์แล้วสร้างพาธ",
+      "imagesMatch": "ตรง {found}/{total}",
+      "imagesMissingShort": "ขาด {count} ในเครื่อง",
+      "emptyHint": "เลือกไฟล์ .xlsx, .xls หรือ .csv เพื่อดูตัวอย่างข้อมูลก่อนนำเข้า",
+      "importing": "กำลังนำเข้า…",
+      "confirmImport": "นำเข้า {count} แถว",
+      "loadMore": "โหลดเพิ่ม",
+      "matchedScore": "ตรงกัน {score}%",
+      "success": "นำเข้า {created} แถว ข้าม {skipped} แถว",
+      "successWithImages": "นำเข้า {created} แถว ข้าม {skipped} อัปโหลดรูป {images} ไฟล์",
+      "successGeneric": "นำเข้าข้อมูลเสร็จสิ้น",
+      "filters": {
+        "all": "ทั้งหมด",
+        "ready": "พร้อม",
+        "invalid": "ข้าม"
+      },
+      "status": {
+        "ready": "พร้อม",
+        "invalid": "ข้าม"
+      },
+      "table": {
+        "row": "แถว",
+        "status": "สถานะ",
+        "date": "วันที่",
+        "farm": "ฟาร์ม",
+        "grass": "หญ้า",
+        "zone": "โซน",
+        "product": "ผลิตภัณฑ์",
+        "uom": "หน่วย",
+        "amount": "ปริมาณ",
+        "images": "รูปภาพ",
+        "transfer": "โอนไป",
+        "operator": "ผู้ปฏิบัติงาน",
+        "reason": "เหตุผล",
+        "empty": "ไม่มีแถวให้แสดง"
+      },
+      "reasons": {
+        "dateInvalid": "วันที่ไม่ถูกต้องหรือขาดหาย",
+        "farmNotFound": "ไม่พบฟาร์ม",
+        "grassNotFound": "ไม่พบประเภทหญ้า",
+        "zoneNotFound": "ไม่พบโซนของฟาร์มนี้",
+        "productNotFound": "ไม่พบผลิตภัณฑ์ที่ตรงกันในแคตตาล็อก",
+        "amountInvalid": "ปริมาณต้องเป็นตัวเลขมากกว่า 0",
+        "transferFarmInvalid": "ฟาร์มปลายทางไม่ถูกต้องหรือซ้ำกับฟาร์มต้นทาง"
+      },
+      "errors": {
+        "parse": "อ่านไฟล์ไม่สำเร็จ",
+        "emptySheet": "ไฟล์ไม่มีชีต",
+        "noRows": "ไม่พบแถวข้อมูล",
+        "missingColumns": "ขาดคอลัมน์ที่จำเป็น (date, farm, product, amount)",
+        "import": "นำเข้าข้อมูลไม่สำเร็จ"
+      }
     },
     "errors": {
       "load": "โหลดข้อมูลการใช้ปุ๋ยไม่สำเร็จ",
@@ -3076,7 +3153,25 @@
       "thisWeek": "สัปดาห์นี้",
       "thisMonth": "เดือนนี้",
       "thisQuarter": "ไตรมาสนี้",
+      "lastWeek": "สัปดาห์ที่แล้ว",
+      "lastMonth": "เดือนที่แล้ว",
+      "lastQuarter": "ไตรมาสที่แล้ว",
       "searchVehicle": "ค้นหายานพาหนะ…"
+    },
+    "tabs": {
+      "vehicle": "ตามยานพาหนะ",
+      "fuel": "ตามประเภทเชื้อเพลิง",
+      "farm": "ตามฟาร์ม",
+      "type": "ตามประเภทเครื่อง"
+    },
+    "charts": {
+      "byVehicle": "การใช้ตามยานพาหนะ",
+      "byFuel": "การใช้ตามประเภทเชื้อเพลิง",
+      "byFarm": "การใช้ตามฟาร์ม",
+      "byType": "การใช้ตามประเภทเครื่อง",
+      "litres": "ลิตร",
+      "itemCount": "{count} รายการ · เลื่อนเพื่อดูทั้งหมด",
+      "empty": "ไม่มีการใช้ในช่วงนี้"
     },
     "table": {
       "date": "วันที่",

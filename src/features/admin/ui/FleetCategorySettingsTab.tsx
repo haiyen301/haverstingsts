@@ -28,6 +28,7 @@ import {
 } from "@/shared/lib/itemCategoryPath";
 import { TOAST_CONTAINER_TOP_RIGHT } from "@/shared/ui/AppToasts";
 import { MultiSelect } from "@/shared/ui/multi-select";
+import { useModuleAccess } from "@/shared/auth/useModuleAccess";
 
 const btnPrimary =
   "inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
@@ -115,6 +116,7 @@ type ModuleSectionProps = {
   categories: FleetCategoryOption[];
   state: ModuleState;
   saving: boolean;
+  canEdit: boolean;
   onSelectedChange: (ids: string[]) => void;
   onExcludedChange?: (ids: string[]) => void;
   onSave: () => void;
@@ -131,6 +133,7 @@ function ModuleSection({
   categories,
   state,
   saving,
+  canEdit,
   onSelectedChange,
   onExcludedChange,
   onSave,
@@ -188,7 +191,7 @@ function ModuleSection({
             placeholder={t("selectPlaceholder")}
             className={formSelectClass}
             rightIcon={selectChevron}
-            disabled={saving}
+            disabled={saving || !canEdit}
             multi
             selectionSummary="count"
             formatSelectedCount={(count) => t("selectedCount", { count })}
@@ -207,7 +210,7 @@ function ModuleSection({
               placeholder={t("selectExcludedPlaceholder")}
               className={formSelectClass}
               rightIcon={selectChevron}
-              disabled={saving}
+              disabled={saving || !canEdit}
               multi
               selectionSummary="count"
               formatSelectedCount={(count) => t("selectedCount", { count })}
@@ -221,7 +224,7 @@ function ModuleSection({
         <button
           type="button"
           className={btnPrimary}
-          disabled={saving || !isDirty || state.selectedIds.length === 0}
+          disabled={saving || !canEdit || !isDirty || state.selectedIds.length === 0}
           onClick={onSave}
         >
           {saving ? tCommon("saving") : tCommon("save")}
@@ -253,6 +256,7 @@ const emptyModuleState = (): ModuleState => ({
 
 export function FleetCategorySettingsTab() {
   const t = useTranslations("AdminFleetCategories");
+  const { canEdit } = useModuleAccess("admin_equipment_category");
   const [loading, setLoading] = useState(true);
   const [savingModule, setSavingModule] = useState<FleetCategoryModule | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -349,6 +353,7 @@ export function FleetCategorySettingsTab() {
             categories={sortedCategories}
             state={equipment}
             saving={savingModule === "equipment"}
+            canEdit={canEdit}
             onSelectedChange={(ids) => setEquipment((s) => ({ ...s, selectedIds: ids }))}
             onSave={() =>
               void handleSave("equipment", equipment.selectedIds, [], setEquipment)

@@ -31,6 +31,8 @@ export const STS_PUBLIC_PATHS = {
   systemImages: "/files/system",
   reactHarvesting: "/files/timeline_files/react_harvesting",
   customerVisit: "/files/timeline_files/customer_visit",
+  /** Fertilizer usage image uploads (month subfolders inside). */
+  fertilizerUsageImages: "/files/timeline_files/fertilizer_usage",
   /** Flutter Android APK builds copied to STSPortal `assets/apk/` */
   apkAssets: "/assets/apk",
 } as const;
@@ -54,7 +56,7 @@ function fileNameFromHarvestingUrl(url: string): string | null {
  * files live under `06/1781850409_file....jpg` on disk.
  */
 export function ensureHarvestStoredFileName(fileName: string): string {
-  let text = fileName.trim();
+  const text = fileName.trim();
   if (!text) return "";
 
   if (/^https?:\/\//i.test(text)) {
@@ -63,7 +65,7 @@ export function ensureHarvestStoredFileName(fileName: string): string {
     return text;
   }
 
-  let normalized = text.replace(/\\/g, "/");
+  const normalized = text.replace(/\\/g, "/");
   for (const prefix of [
     "/files/timeline_files/harvesting/",
     "files/timeline_files/harvesting/",
@@ -177,3 +179,22 @@ export function resolveHarvestDisplayUrl(fileNameOrUrl: string): string {
 
 /** Flutter `harvestingImgUrl` path segment: `/files/timeline_files/harvesting` */
 export const HARVESTING_TIMELINE_PATH = STS_PUBLIC_PATHS.harvestingImages;
+
+/**
+ * Build browser URL for a fertilizer usage image `file_name`
+ * (stored as `<month>/<timestamp>_file...jpg` under
+ * `files/timeline_files/fertilizer_usage/`).
+ */
+export function resolveFertilizerUsageImageUrl(fileNameOrUrl: string): string {
+  const s = fileNameOrUrl.trim();
+  if (!s) return "";
+  if (/^https?:\/\//i.test(s)) return s;
+
+  const domain = getStsDomainUrl();
+  const relative = s.replace(/^\/+/, "");
+  if (relative.startsWith("files/timeline_files/fertilizer_usage/")) {
+    return domain ? `${domain}/${relative}` : `/${relative}`;
+  }
+  const base = `${domain}${STS_PUBLIC_PATHS.fertilizerUsageImages}`;
+  return `${base}/${relative}`;
+}

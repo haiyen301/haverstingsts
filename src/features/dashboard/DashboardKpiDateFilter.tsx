@@ -113,6 +113,10 @@ export function DashboardKpiDateFilter({
         return t("Dashboard.periodYear");
       case "thisWeek":
         return t("Dashboard.periodThisWeek");
+      case "thisMonth":
+        return t("Dashboard.periodThisMonth");
+      case "thisQuarter":
+        return t("Dashboard.periodThisQuarter");
       case "nextWeek":
         return t("Dashboard.periodNextWeek");
       case "nextMonth":

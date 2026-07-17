@@ -12,6 +12,8 @@ export type KpiDatePreset =
   | "lastQuarter"
   | "lastYear"
   | "thisWeek"
+  | "thisMonth"
+  | "thisQuarter"
   | "nextWeek"
   | "nextMonth"
   | "nextQuarter"
@@ -52,19 +54,27 @@ export const KPI_DATE_PRESET_SCHEDULE: readonly KpiDatePreset[] = [
   "custom",
 ] as const;
 
-/** Fertilizer usage — historical windows + all time + custom. */
+/** Fertilizer usage — calendar + rolling last windows + all time + custom. */
 export const KPI_DATE_PRESET_FERTILIZER: readonly KpiDatePreset[] = [
   "all",
+  "today",
+  "thisWeek",
+  "thisMonth",
+  "thisQuarter",
+  "lastWeek",
   "lastMonth",
   "lastQuarter",
   "lastYear",
   "custom",
 ] as const;
 
-/** Fleet fuel usage — all time + rolling today/week/month/quarter + custom range. */
+/** Fleet fuel usage — calendar + rolling last windows + all time + custom. */
 export const KPI_DATE_PRESET_FUEL: readonly KpiDatePreset[] = [
   "all",
   "today",
+  "thisWeek",
+  "thisMonth",
+  "thisQuarter",
   "lastWeek",
   "lastMonth",
   "lastQuarter",
@@ -234,6 +244,10 @@ export function kpiDateRangeFromFilter(filter: KpiDeliveryDateFilter): {
       return { start: periodStartYmd("year"), end: today };
     case "thisWeek":
       return calendarWeekRangeYmd(0);
+    case "thisMonth":
+      return calendarMonthRangeYmd(0);
+    case "thisQuarter":
+      return calendarQuarterRangeYmd(0);
     case "nextWeek":
       return calendarWeekRangeYmd(1);
     case "nextMonth":

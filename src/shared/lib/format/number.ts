@@ -57,6 +57,47 @@ export function normalizedDecimalApiString(
 }
 
 /**
+ * Format decimal text for inputs where comma is only a thousands separator and dot
+ * is the only decimal separator. Does not convert commas into decimals while typing.
+ */
+export function formatDecimalInputCommaThousands(raw: string): string {
+  const text = raw.replace(/[^\d.,]/g, "");
+  if (!text) return "";
+
+  const dotIdx = text.indexOf(".");
+  const hasDot = dotIdx >= 0;
+
+  let intPart = "";
+  let decPart = "";
+  let trailingDot = false;
+
+  if (hasDot) {
+    intPart = text.slice(0, dotIdx).replace(/,/g, "");
+    const afterDot = text.slice(dotIdx + 1).replace(/[.,]/g, "");
+    trailingDot = text.endsWith(".") && afterDot === "";
+    decPart = afterDot;
+  } else {
+    intPart = text.replace(/,/g, "");
+  }
+
+  if (!intPart && !hasDot) return "";
+  if (!intPart && hasDot) intPart = "0";
+
+  // Leading zero: integer is only `0`; further integer digits require a decimal point first.
+  if (intPart.length > 1 && intPart[0] === "0") {
+    if (!hasDot) return "0";
+    intPart = "0";
+  } else if (intPart.length > 1) {
+    intPart = intPart.replace(/^0+/, "") || "0";
+  }
+
+  const formattedInt = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  if (!hasDot) return formattedInt;
+  if (trailingDot && !decPart) return `${formattedInt}.`;
+  return decPart ? `${formattedInt}.${decPart}` : formattedInt;
+}
+
+/**
  * Format decimal text for inputs: `,` groups thousands, `.` separates decimals.
  * Preserves in-progress typing such as `123.` or `.5`.
  */

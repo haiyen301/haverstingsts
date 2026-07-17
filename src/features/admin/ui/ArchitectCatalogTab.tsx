@@ -13,6 +13,7 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { ConfirmDeleteDialog } from "@/shared/ui/ConfirmDeleteDialog";
+import { useModuleAccess } from "@/shared/auth/useModuleAccess";
 
 const segment = "architect" as const;
 
@@ -84,6 +85,7 @@ function CatalogSwitch({
 export function ArchitectCatalogTab() {
   const t = useTranslations("AdminFormCatalog");
   const tCommon = useTranslations("Common");
+  const { canCreate, canEdit, canDelete } = useModuleAccess("admin_architects");
   const [rows, setRows] = useState<ProjectFormCatalogRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -174,22 +176,24 @@ export function ArchitectCatalogTab() {
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
       {!loading ? (
         <>
-          <Card>
-            <CardContent className="flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:gap-2">
-              <input
-                className={inputClass}
-                placeholder={t("architectNewPlaceholder")}
-                value={newName}
-                disabled={busy}
-                onChange={(e) => setNewName(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleAdd()}
-              />
-              <button type="button" className={btnPrimary} disabled={busy} onClick={handleAdd}>
-                <Plus className="h-4 w-4" />
-                {t("add")}
-              </button>
-            </CardContent>
-          </Card>
+          {canCreate ? (
+            <Card>
+              <CardContent className="flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:gap-2">
+                <input
+                  className={inputClass}
+                  placeholder={t("architectNewPlaceholder")}
+                  value={newName}
+                  disabled={busy}
+                  onChange={(e) => setNewName(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleAdd()}
+                />
+                <button type="button" className={btnPrimary} disabled={busy} onClick={handleAdd}>
+                  <Plus className="h-4 w-4" />
+                  {t("add")}
+                </button>
+              </CardContent>
+            </Card>
+          ) : null}
           <Card>
             <CardContent className="p-0">
               <div className="overflow-x-auto">
@@ -232,7 +236,7 @@ export function ArchitectCatalogTab() {
                             <div className="flex items-center gap-2">
                               <CatalogSwitch
                                 checked={active}
-                                disabled={busy}
+                                disabled={busy || !canEdit}
                                 onCheckedChange={(v) => persistRow(row, { active: v })}
                               />
                               <span className="text-xs text-muted-foreground">
@@ -244,7 +248,7 @@ export function ArchitectCatalogTab() {
                             <input
                               className={cn(inputClass, "h-8 max-w-[160px]")}
                               placeholder={t("odooPlaceholder")}
-                              disabled={busy}
+                              disabled={busy || !canEdit}
                               value={row.odoo_id ?? ""}
                               onChange={(e) =>
                                 setRows((prev) =>
@@ -255,59 +259,69 @@ export function ArchitectCatalogTab() {
                             />
                           </td>
                           <td className="p-2 px-4 text-right align-middle">
-                            <div className="flex items-center justify-end gap-1">
-                              {isEditing ? (
-                                <>
-                                  <button
-                                    type="button"
-                                    className={btnSm}
-                                    disabled={busy}
-                                    onClick={() => {
-                                      if (!editVal.trim()) return;
-                                      setEditKey(null);
-                                      persistRow(row, {
-                                        label: "",
-                                        value: applyTitleToValue(row.value, editVal.trim()),
-                                      });
-                                    }}
-                                  >
-                                    {t("save")}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className={cn(btnSm, "border-transparent shadow-none hover:bg-muted")}
-                                    disabled={busy}
-                                    onClick={() => setEditKey(null)}
-                                  >
-                                    {t("cancel")}
-                                  </button>
-                                </>
-                              ) : (
-                                <>
-                                  <button
-                                    type="button"
-                                    className={btnGhost}
-                                    disabled={busy}
-                                    onClick={() => {
-                                      setEditKey(row.id);
-                                      setEditVal(
-                                        firstPlainLineFromValue(row.value ?? row.label) || catalogDisplayName(row),
-                                      );
-                                    }}
-                                  >
-                                    <Pencil className="h-3.5 w-3.5" />
-                                  </button>
-                                  <button
-                                    type="button"
-                                    className={cn(btnGhost, "text-destructive")}
-                                    disabled={busy}
-                                    onClick={() => setDeleteTarget(row)}
-                                  >
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                  </button>
-                                </>
-                              )}
-                            </div>
+                            {canEdit || canDelete ? (
+                              <div className="flex items-center justify-end gap-1">
+                                {isEditing ? (
+                                  <>
+                                    {canEdit ? (
+                                      <button
+                                        type="button"
+                                        className={btnSm}
+                                        disabled={busy}
+                                        onClick={() => {
+                                          if (!editVal.trim()) return;
+                                          setEditKey(null);
+                                          persistRow(row, {
+                                            label: "",
+                                            value: applyTitleToValue(row.value, editVal.trim()),
+                                          });
+                                        }}
+                                      >
+                                        {t("save")}
+                                      </button>
+                                    ) : null}
+                                    <button
+                                      type="button"
+                                      className={cn(btnSm, "border-transparent shadow-none hover:bg-muted")}
+                                      disabled={busy}
+                                      onClick={() => setEditKey(null)}
+                                    >
+                                      {t("cancel")}
+                                    </button>
+                                  </>
+                                ) : (
+                                  <>
+                                    {canEdit ? (
+                                      <button
+                                        type="button"
+                                        className={btnGhost}
+                                        disabled={busy}
+                                        onClick={() => {
+                                          setEditKey(row.id);
+                                          setEditVal(
+                                            firstPlainLineFromValue(row.value ?? row.label) || catalogDisplayName(row),
+                                          );
+                                        }}
+                                      >
+                                        <Pencil className="h-3.5 w-3.5" />
+                                      </button>
+                                    ) : null}
+                                    {canDelete ? (
+                                      <button
+                                        type="button"
+                                        className={cn(btnGhost, "text-destructive")}
+                                        disabled={busy}
+                                        onClick={() => setDeleteTarget(row)}
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                      </button>
+                                    ) : null}
+                                  </>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
                           </td>
                         </tr>
                       );

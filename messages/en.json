@@ -644,6 +644,8 @@
     "periodQuarter": "Last quarter",
     "periodYear": "Last year",
     "periodThisWeek": "This week",
+    "periodThisMonth": "This month",
+    "periodThisQuarter": "This quarter",
     "periodNextWeek": "Next week",
     "periodNextMonth": "Next month",
     "periodNextQuarter": "Next quarter",
@@ -1529,7 +1531,7 @@
     "harvestedAreaHintM2": "Same as quantity when UOM is M2.",
     "harvestedAreaPlaceholderKg": "Enter harvested area",
     "harvestedAreaHintKg": "Required when Actual Harvest Date is filled and UOM is Kg (must be greater than 0).",
-    "harvestedAreaFormulaHint": "Sprig / Sod→Sprig: harvest area (m²) = quantity (kg) ÷ Yield (kg/m²) from Zone Configuration (farm + grass). If farm or grass is not selected, harvest area defaults to quantity.",
+    "harvestedAreaFormulaHint": "Sprig / Sod→Sprig: when saving an estimate with this field empty, harvest area (m²) = quantity (kg) ÷ Yield (kg/m²) from Zone Configuration (farm + grass). Sod: harvest area = quantity.",
     "harvestedAreaFormulaTooltip": "Harvest area (m²) = {quantity} kg ÷ {yield} kg/m² (Zone Configuration yield) = {area} m²",
     "harvestedAreaQuantityFallbackTooltip": "Sprig / Sod→Sprig: if farm or grass type is not selected, harvest area (m²) defaults to quantity (kg) — Zone Configuration yield cannot be resolved.",
     "harvestedAreaQuantityFallbackTooltipWithValues": "No farm or grass selected — harvest area (m²) = quantity: {quantity} m²",
@@ -3035,6 +3037,11 @@
     "filters": {
       "allFarms": "All Farms",
       "allTime": "All Time",
+      "today": "Today",
+      "thisWeek": "This Week",
+      "thisMonth": "This Month",
+      "thisQuarter": "This Quarter",
+      "lastWeek": "Last Week",
       "lastMonth": "Last Month",
       "lastQuarter": "Last Quarter",
       "lastYear": "Last Year"
@@ -3092,6 +3099,7 @@
       "byGrass": "Usage by Grass Type",
       "byZone": "Usage by Zone",
       "amount": "Amount",
+      "itemCount": "{count} items · scroll to see all",
       "empty": "No usage in this period"
     },
     "table": {
@@ -3100,6 +3108,8 @@
       "grass": "Grass",
       "zone": "Zone",
       "product": "Product",
+      "uom": "UOM",
+      "images": "Images",
       "type": "Type",
       "consumption": "Consumption",
       "transferTo": "Transfer → {farm}",
@@ -3159,8 +3169,75 @@
       "aliasTitlePlaceholder": "e.g. NPK yellow bag",
       "selectOperator": "Select operator",
       "noProductsHint": "Add products in Admin → Settings → Items.",
+      "uom": "UOM",
+      "images": "Images",
+      "addImages": "Add images",
+      "removeImage": "Remove image",
       "cancel": "Cancel",
       "save": "Save"
+    },
+    "import": {
+      "button": "Import",
+      "title": "Import Fertilizer Usage",
+      "subtitle": "Upload an Excel/CSV file with usage rows. Product names are matched automatically.",
+      "close": "Close",
+      "uploadFile": "Upload Excel",
+      "uploadImages": "Select images",
+      "downloadTemplate": "Download template",
+      "fileLabel": "File",
+      "imagesSelected": "{count} image file(s) selected",
+      "imagesHint": "In the Excel images column, write paths under fertilizer_usage (e.g. 07/1784276782_file….jpeg; multiple files separated by ;). Select those image files here, or place them under files/timeline_files/fertilizer_usage/07/ — the import matches by file name and attaches the path.",
+      "imagesMatch": "{found}/{total} matched",
+      "imagesMissingShort": "{count} missing locally",
+      "emptyHint": "Choose an .xlsx, .xls or .csv file to preview the rows before importing.",
+      "importing": "Importing…",
+      "confirmImport": "Import {count} rows",
+      "loadMore": "Load more",
+      "matchedScore": "match {score}%",
+      "success": "Imported {created} rows, skipped {skipped}.",
+      "successWithImages": "Imported {created} rows, skipped {skipped}. Uploaded {images} image(s).",
+      "successGeneric": "Import finished.",
+      "filters": {
+        "all": "All",
+        "ready": "Ready",
+        "invalid": "Skipped"
+      },
+      "status": {
+        "ready": "Ready",
+        "invalid": "Skipped"
+      },
+      "table": {
+        "row": "Row",
+        "status": "Status",
+        "date": "Date",
+        "farm": "Farm",
+        "grass": "Grass",
+        "zone": "Zone",
+        "product": "Product",
+        "uom": "UOM",
+        "amount": "Amount",
+        "images": "Images",
+        "transfer": "Transfer to",
+        "operator": "Operator",
+        "reason": "Reason",
+        "empty": "No rows to display."
+      },
+      "reasons": {
+        "dateInvalid": "Invalid or missing date.",
+        "farmNotFound": "Farm not found.",
+        "grassNotFound": "Grass type not found.",
+        "zoneNotFound": "Zone not found for this farm.",
+        "productNotFound": "No matching product in the catalog.",
+        "amountInvalid": "Amount must be a number greater than 0.",
+        "transferFarmInvalid": "Transfer farm not found or same as source farm."
+      },
+      "errors": {
+        "parse": "Could not read the file.",
+        "emptySheet": "The file has no sheets.",
+        "noRows": "No data rows found.",
+        "missingColumns": "Required columns are missing (date, farm, product, amount).",
+        "import": "Import failed."
+      }
     },
     "errors": {
       "load": "Failed to load fertilizer usage.",
@@ -3245,7 +3322,25 @@
       "thisWeek": "This Week",
       "thisMonth": "This Month",
       "thisQuarter": "This Quarter",
+      "lastWeek": "Last Week",
+      "lastMonth": "Last Month",
+      "lastQuarter": "Last Quarter",
       "searchVehicle": "Search vehicles…"
+    },
+    "tabs": {
+      "vehicle": "By Vehicle",
+      "fuel": "By Fuel Type",
+      "farm": "By Farm",
+      "type": "By Type"
+    },
+    "charts": {
+      "byVehicle": "Usage by Vehicle",
+      "byFuel": "Usage by Fuel Type",
+      "byFarm": "Usage by Farm",
+      "byType": "Usage by Type",
+      "litres": "Litres",
+      "itemCount": "{count} items · scroll to see all",
+      "empty": "No usage in this period"
     },
     "table": {
       "date": "Date",

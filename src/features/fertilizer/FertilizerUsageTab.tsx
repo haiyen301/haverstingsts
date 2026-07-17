@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlignLeft, ArrowDown, ChevronDown, Download, FlaskConical, Info, Layers, MapPin, Package, Pencil, Plus, Sprout, Trash2 } from "lucide-react";
+import { AlignLeft, ArrowDown, ChevronDown, Download, FlaskConical, ImagePlus, Info, Layers, MapPin, Package, Pencil, Plus, Sprout, Trash2, Upload, X } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { toast } from "react-toastify";
@@ -21,10 +21,17 @@ import {
 } from "@/features/admin/api/adminApi";
 import {
   fetchFertilizerUsage,
+  parseFertilizerUsageImages,
   removeFertilizerUsage,
   saveFertilizerUsage,
+  uploadFertilizerUsageImages,
+  type FertilizerUsageImage,
   type FertilizerUsageRow,
 } from "@/features/fertilizer/api/fertilizerUsageApi";
+import { resolveFertilizerUsageImageUrl } from "@/shared/config/stsUrls";
+import { FertilizerUsageImportDialog } from "@/features/fertilizer/ui/FertilizerUsageImportDialog";
+import { Fancybox } from "@fancyapps/ui";
+import "@fancyapps/ui/dist/fancybox/fancybox.css";
 import {
   FARM_ALIAS_CONTEXT,
   farmAliasesByRefId,
@@ -82,6 +89,9 @@ import { filterFertilizerProductsForFarm } from "@/features/fertilizer/lib/filte
 
 const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const CHART_FILL = "hsl(152,55%,36%)";
+const CHART_ROW_HEIGHT = 32;
+const CHART_MIN_HEIGHT = 300;
+const CHART_MAX_VIEWPORT = 420;
 
 const inputClass =
   "flex h-9 w-full min-w-0 rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground shadow-sm outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/35";
@@ -187,6 +197,26 @@ function num(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+/** Number of thumbnails shown inline in the usage table before a `+N` badge. */
+const USAGE_IMAGE_PREVIEW_COUNT = 2;
+
+/** Open a Fancybox gallery for all images of a usage row, starting at the clicked image. */
+function openUsageImagesFancybox(
+  images: FertilizerUsageImage[],
+  startIndex: number,
+): void {
+  const items = images
+    .map((image) => resolveFertilizerUsageImageUrl(image.file_name))
+    .filter((url) => url.trim())
+    .map((url) => ({ src: url, type: "image" as const }));
+  if (items.length === 0) return;
+  Fancybox.show(items, {
+    startIndex: Math.min(Math.max(startIndex, 0), items.length - 1),
+    Carousel: { infinite: false },
+    mainClass: "fertilizer-usage-fancybox",
+  });
+}
+
 function staffDisplayName(row: Record<string, unknown>): string {
   const firstName = String(row.first_name ?? "").trim();
   const lastName = String(row.last_name ?? "").trim();
@@ -246,6 +276,7 @@ export function FertilizerUsageTab() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [balanceOpen, setBalanceOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const resumeGoogleSheetExport =
     (searchParams.get("googleSheetExport") ?? "").trim() === "resume";
   const [stockReloadToken, setStockReloadToken] = useState(0);
@@ -254,6 +285,9 @@ export function FertilizerUsageTab() {
   const [farmAliasesByItemId, setFarmAliasesByItemId] = useState<Map<number, string>>(
     () => new Map(),
   );
+  const [existingImages, setExistingImages] = useState<FertilizerUsageImage[]>([]);
+  const [removedImages, setRemovedImages] = useState<string[]>([]);
+  const [newImages, setNewImages] = useState<{ file: File; url: string }[]>([]);
   const [listVisibleCount, setListVisibleCount] = useState(USAGE_LIST_PAGE_SIZE);
 
   const farmNameById = useMemo(() => {
@@ -268,6 +302,21 @@ export function FertilizerUsageTab() {
 
   const dateRange = useMemo(() => kpiDateRangeFromFilter(kpiDateFilter), [kpiDateFilter]);
   const hasActiveDateFilter = kpiDateFilter.preset !== FERTILIZER_DATE_FILTER_BASELINE;
+
+  const fertilizerPresetLabelMap = useMemo(
+    (): Partial<Record<KpiDatePreset, string>> => ({
+      all: t("filters.allTime"),
+      today: t("filters.today"),
+      thisWeek: t("filters.thisWeek"),
+      thisMonth: t("filters.thisMonth"),
+      thisQuarter: t("filters.thisQuarter"),
+      lastWeek: t("filters.lastWeek"),
+      lastMonth: t("filters.lastMonth"),
+      lastQuarter: t("filters.lastQuarter"),
+      lastYear: t("filters.lastYear"),
+    }),
+    [t],
+  );
 
   const grassNameById = useMemo(() => {
     const map = new Map<string, string>();
@@ -651,9 +700,45 @@ export function FertilizerUsageTab() {
     }).map((o) => ({ id: o.value, title: o.label }));
   }, [form.farm_id, form.grass_id, grasses, zoneConfigurations]);
 
+  const resetImageState = useCallback(() => {
+    setNewImages((images) => {
+      for (const image of images) URL.revokeObjectURL(image.url);
+      return [];
+    });
+    setExistingImages([]);
+    setRemovedImages([]);
+  }, []);
+
+  const addNewImages = (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const additions = Array.from(files).map((file) => ({
+      file,
+      url: URL.createObjectURL(file),
+    }));
+    setNewImages((current) => [...current, ...additions]);
+  };
+
+  const removeNewImage = (url: string) => {
+    setNewImages((current) => {
+      const target = current.find((image) => image.url === url);
+      if (target) URL.revokeObjectURL(target.url);
+      return current.filter((image) => image.url !== url);
+    });
+  };
+
+  const removeExistingImage = (fileName: string) => {
+    setExistingImages((current) =>
+      current.filter((image) => image.file_name !== fileName),
+    );
+    setRemovedImages((current) =>
+      current.includes(fileName) ? current : [...current, fileName],
+    );
+  };
+
   const openCreate = () => {
     setEditingId(null);
     setForm(emptyForm(farmOptions[0]?.id ?? ""));
+    resetImageState();
     setDialogOpen(true);
   };
 
@@ -679,12 +764,15 @@ export function FertilizerUsageTab() {
       notes: String(row.notes ?? ""),
       alias_title: String(row.alias_name ?? ""),
     });
+    resetImageState();
+    setExistingImages(parseFertilizerUsageImages(row.images));
     setDialogOpen(true);
   };
 
   const closeDialog = () => {
     setDialogOpen(false);
     setEditingId(null);
+    resetImageState();
   };
 
   const selectProduct = (itemId: string) => {
@@ -731,7 +819,7 @@ export function FertilizerUsageTab() {
     }
     try {
       setSaving(true);
-      await saveFertilizerUsage({
+      const savedRow = await saveFertilizerUsage({
         id: editingId ?? undefined,
         applied_date: form.applied_date,
         farm_id: farmId,
@@ -747,6 +835,18 @@ export function FertilizerUsageTab() {
         notes: form.notes.trim() || undefined,
         alias_title: form.alias_title.trim(),
       });
+      const savedId = editingId ?? Number(savedRow?.id);
+      if (
+        Number.isFinite(savedId) &&
+        savedId > 0 &&
+        (newImages.length > 0 || removedImages.length > 0)
+      ) {
+        await uploadFertilizerUsageImages({
+          id: savedId,
+          files: newImages.map((image) => image.file),
+          imagesRemoved: removedImages,
+        });
+      }
       toast.success(t("saved"), { containerId: TOAST_CONTAINER_TOP_RIGHT });
       closeDialog();
       setStockReloadToken((n) => n + 1);
@@ -781,6 +881,10 @@ export function FertilizerUsageTab() {
   };
 
   const activeChart = breakdownViews[breakdownTab];
+  const chartInnerHeight = Math.max(
+    CHART_MIN_HEIGHT,
+    activeChart.data.length * CHART_ROW_HEIGHT,
+  );
 
   const filterTriggerIcon = (
     <>
@@ -805,6 +909,12 @@ export function FertilizerUsageTab() {
             <button type="button" className={btnPrimary} onClick={openCreate}>
               <Plus className="h-4 w-4" />
               {t("logApplication")}
+            </button>
+          ) : null}
+          {canCreate ? (
+            <button type="button" className={btnOutline} onClick={() => setImportOpen(true)}>
+              <Upload className="h-4 w-4" />
+              {t("import.button")}
             </button>
           ) : null}
           <button type="button" className={btnOutline} onClick={() => setBalanceOpen(true)}>
@@ -876,6 +986,7 @@ export function FertilizerUsageTab() {
           onChange={setKpiDateFilter}
           presets={KPI_DATE_PRESET_FERTILIZER}
           baselinePreset={FERTILIZER_DATE_FILTER_BASELINE}
+          presetLabelMap={fertilizerPresetLabelMap}
           className="shrink-0"
         />
       </div>
@@ -895,22 +1006,39 @@ export function FertilizerUsageTab() {
         </div>
         <Card>
           <CardContent className="p-5">
-            <h3 className="mb-4 text-sm font-semibold">{activeChart.title}</h3>
+            <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+              <h3 className="text-sm font-semibold">{activeChart.title}</h3>
+              {activeChart.data.length > 0 ? (
+                <span className="text-xs text-muted-foreground">
+                  {t("charts.itemCount", { count: activeChart.data.length })}
+                </span>
+              ) : null}
+            </div>
             {activeChart.data.some((d) => d.amount > 0) ? (
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={activeChart.data} layout="vertical" margin={{ left: 24 }}>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                  <XAxis type="number" tick={{ fontSize: 12 }} />
-                  <YAxis type="category" dataKey="name" tick={{ fontSize: 12 }} width={90} />
-                  <Tooltip
-                    formatter={(v: number) => [
-                      formatNumber(v, { maximumFractionDigits: 3 }),
-                      t("charts.amount"),
-                    ]}
-                  />
-                  <Bar dataKey="amount" fill={CHART_FILL} radius={[0, 4, 4, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+              <div
+                className="overflow-y-auto pr-1"
+                style={{ maxHeight: CHART_MAX_VIEWPORT }}
+              >
+                <ResponsiveContainer width="100%" height={chartInnerHeight}>
+                  <BarChart
+                    data={activeChart.data}
+                    layout="vertical"
+                    margin={{ left: 24 }}
+                    barCategoryGap={6}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                    <XAxis type="number" tick={{ fontSize: 12 }} />
+                    <YAxis type="category" dataKey="name" tick={{ fontSize: 12 }} width={90} />
+                    <Tooltip
+                      formatter={(v: number) => [
+                        formatNumber(v, { maximumFractionDigits: 3 }),
+                        t("charts.amount"),
+                      ]}
+                    />
+                    <Bar dataKey="amount" fill={CHART_FILL} radius={[0, 4, 4, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
             ) : (
               <p className="py-10 text-center text-sm text-muted-foreground">{t("charts.empty")}</p>
             )}
@@ -932,6 +1060,8 @@ export function FertilizerUsageTab() {
                     <th className="px-4 py-3 text-left font-medium">{t("table.grass")}</th>
                     <th className="px-4 py-3 text-left font-medium">{t("table.zone")}</th>
                     <th className="px-4 py-3 text-left font-medium">{t("table.product")}</th>
+                    <th className="px-4 py-3 text-left font-medium">{t("table.uom")}</th>
+                    <th className="px-4 py-3 text-left font-medium">{t("table.images")}</th>
                     <th className="px-4 py-3 text-left font-medium">{t("table.type")}</th>
                     <th className="px-4 py-3 text-left font-medium">{t("table.amount")}</th>
                     <th className="px-4 py-3 text-right font-medium">{t("table.remaining")}</th>
@@ -961,6 +1091,53 @@ export function FertilizerUsageTab() {
                       </td>
                       <td className="px-4 py-3 font-medium">
                         {productLabel(e, productById)}
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {String(
+                          e.product_unit ??
+                            productById.get(Number(e.item_id))?.uom ??
+                            "",
+                        ).trim() || "—"}
+                      </td>
+                      <td className="px-4 py-3">
+                        {(() => {
+                          const rowImages = parseFertilizerUsageImages(e.images);
+                          if (rowImages.length === 0) {
+                            return <span className="text-muted-foreground">—</span>;
+                          }
+                          const previewImages = rowImages.slice(0, USAGE_IMAGE_PREVIEW_COUNT);
+                          const extraCount = rowImages.length - previewImages.length;
+                          return (
+                            <div className="flex items-center gap-1">
+                              {previewImages.map((image, idx) => {
+                                const isLastPreview = idx === previewImages.length - 1;
+                                const showBadge = isLastPreview && extraCount > 0;
+                                return (
+                                  <button
+                                    key={image.file_name}
+                                    type="button"
+                                    className="relative block h-8 w-8 shrink-0 overflow-hidden rounded border border-border cursor-zoom-in"
+                                    title={image.file_name}
+                                    onClick={() => openUsageImagesFancybox(rowImages, idx)}
+                                  >
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img
+                                      src={resolveFertilizerUsageImageUrl(image.file_name)}
+                                      alt={image.file_name}
+                                      className="h-full w-full object-cover"
+                                      loading="lazy"
+                                    />
+                                    {showBadge ? (
+                                      <span className="absolute inset-0 flex items-center justify-center bg-black/60 text-xs font-semibold text-white">
+                                        +{extraCount}
+                                      </span>
+                                    ) : null}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td className="px-4 py-3 text-muted-foreground">
                         {isTransferUsageRow(e)
@@ -1043,7 +1220,7 @@ export function FertilizerUsageTab() {
                   ))}
                   {filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={canManageRows ? 11 : 10} className="px-4 py-8 text-center text-muted-foreground">
+                      <td colSpan={canManageRows ? 13 : 12} className="px-4 py-8 text-center text-muted-foreground">
                         {t("table.empty")}
                       </td>
                     </tr>
@@ -1079,6 +1256,25 @@ export function FertilizerUsageTab() {
           timeline={balanceBreakdownTimeline}
           highlightUsageId={Number(balanceBreakdownRow.id)}
           onClose={() => setBalanceBreakdownUsageId(null)}
+        />
+      ) : null}
+
+      {canCreate ? (
+        <FertilizerUsageImportDialog
+          open={importOpen}
+          onClose={() => setImportOpen(false)}
+          onImported={() => {
+            setStockReloadToken((n) => n + 1);
+            void Promise.all([load(), loadBalanceData()]);
+          }}
+          farms={farmOptions.map((f) => ({ id: f.id, label: f.label }))}
+          grasses={grasses.map((g) => ({
+            id: String((g as { id?: unknown }).id ?? ""),
+            label: String((g as { title?: unknown }).title ?? ""),
+          }))}
+          products={products}
+          staffs={staffOptions.map((s) => ({ id: s.id, label: s.name }))}
+          farmZones={farmZones}
         />
       ) : null}
 
@@ -1195,18 +1391,30 @@ export function FertilizerUsageTab() {
               </label>
               <label className="col-span-2 space-y-1">
                 <span className="text-xs font-medium">{t("dialog.product")} *</span>
-                <MultiSelect
-                  options={productOptions}
-                  values={form.item_id ? [form.item_id] : []}
-                  onChange={(next) => selectProduct(next[0] ?? "")}
-                  multi={false}
-                  placeholder={t("dialog.selectProduct")}
-                  className={selectClass}
-                  rightIcon={selectChevron}
-                  showSelectedChipsInPopover={false}
-                  selectionSummary="full"
-                  disabled={saving || !form.farm_id}
-                />
+                <div className="flex items-center gap-2">
+                  <div className="min-w-0 flex-1">
+                    <MultiSelect
+                      options={productOptions}
+                      values={form.item_id ? [form.item_id] : []}
+                      onChange={(next) => selectProduct(next[0] ?? "")}
+                      multi={false}
+                      placeholder={t("dialog.selectProduct")}
+                      className={selectClass}
+                      rightIcon={selectChevron}
+                      showSelectedChipsInPopover={false}
+                      selectionSummary="full"
+                      disabled={saving || !form.farm_id}
+                    />
+                  </div>
+                  <span
+                    className="inline-flex h-9 min-w-[64px] shrink-0 items-center justify-center rounded-md border border-input bg-muted/40 px-2 text-xs font-medium text-muted-foreground"
+                    title={t("dialog.uom")}
+                  >
+                    {(form.item_id &&
+                      String(productById.get(Number(form.item_id))?.uom ?? "").trim()) ||
+                      t("dialog.uom")}
+                  </span>
+                </div>
               </label>
               <label className="col-span-2 space-y-1">
                 <span className="text-xs font-medium">{t("dialog.aliasTitle")}</span>
@@ -1317,6 +1525,83 @@ export function FertilizerUsageTab() {
                   onChange={(e) => setForm((f) => ({ ...f, notes: e.target.value }))}
                 />
               </label>
+              <div className="col-span-2 space-y-2">
+                <span className="text-xs font-medium">{t("dialog.images")}</span>
+                <label
+                  className={cn(
+                    "flex h-9 w-full cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed border-input bg-background px-3 text-sm font-medium shadow-sm hover:bg-muted/50",
+                    saving && "pointer-events-none opacity-50",
+                  )}
+                >
+                  <ImagePlus className="h-4 w-4" />
+                  {t("dialog.addImages")}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    className="sr-only"
+                    disabled={saving}
+                    onChange={(e) => {
+                      addNewImages(e.target.files);
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+                {existingImages.length > 0 || newImages.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {existingImages.map((image) => (
+                      <div
+                        key={image.file_name}
+                        className="group relative h-16 w-16 overflow-hidden rounded-md border border-border"
+                      >
+                        <a
+                          href={resolveFertilizerUsageImageUrl(image.file_name)}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={resolveFertilizerUsageImageUrl(image.file_name)}
+                            alt={image.file_name}
+                            className="h-full w-full object-cover"
+                          />
+                        </a>
+                        <button
+                          type="button"
+                          className="absolute right-0.5 top-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition-opacity group-hover:opacity-100"
+                          aria-label={t("dialog.removeImage")}
+                          disabled={saving}
+                          onClick={() => removeExistingImage(image.file_name)}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                    {newImages.map((image) => (
+                      <div
+                        key={image.url}
+                        className="group relative h-16 w-16 overflow-hidden rounded-md border border-primary/40"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={image.url}
+                          alt={image.file.name}
+                          className="h-full w-full object-cover"
+                        />
+                        <button
+                          type="button"
+                          className="absolute right-0.5 top-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition-opacity group-hover:opacity-100"
+                          aria-label={t("dialog.removeImage")}
+                          disabled={saving}
+                          onClick={() => removeNewImage(image.url)}
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
             </div>
             <div className="mt-6 flex justify-end gap-2">
               <button type="button" className={btnOutline} onClick={closeDialog}>

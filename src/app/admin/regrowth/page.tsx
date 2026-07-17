@@ -53,6 +53,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { useModuleAccess } from "@/shared/auth/useModuleAccess";
 
 type SprigBandRow = {
   id: string;
@@ -619,6 +620,8 @@ function BandDropInsertionLine() {
 
 export default function AdminRegrowthPage() {
   const t = useTranslations("AdminRegrowth");
+  const { canCreate, canEdit, canDelete } = useModuleAccess("admin_regrowth");
+  const readOnly = !canEdit;
   const [config, setConfig] = useState<RegrowthFormState>(DEFAULT_REGROWTH);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1126,6 +1129,7 @@ export default function AdminRegrowthPage() {
         <label className="flex items-center gap-2 text-sm font-medium">
           <Checkbox
             checked={value.autoEnabled}
+            disabled={readOnly}
             onChange={(e) => onChange({ autoEnabled: e.target.checked })}
           />
           Auto calculate
@@ -1134,6 +1138,7 @@ export default function AdminRegrowthPage() {
         <label className="flex items-center gap-2 text-sm font-medium">
           <Checkbox
             checked={value.allowAutoUpdateInventory}
+            disabled={readOnly}
             onChange={(e) => onChange({ allowAutoUpdateInventory: e.target.checked })}
           />
           Update inventory
@@ -1142,6 +1147,7 @@ export default function AdminRegrowthPage() {
         <label className="flex items-center gap-2 text-sm font-medium">
           <Checkbox
             checked={value.allowAutoFillHarvestArea}
+            disabled={readOnly}
             onChange={(e) => onChange({ allowAutoFillHarvestArea: e.target.checked })}
           />
           Fill harvest area
@@ -1155,6 +1161,7 @@ export default function AdminRegrowthPage() {
           <select
             className={inputClass}
             value={value.grassCultivarProfileId || ""}
+            disabled={readOnly}
             onChange={(e) => {
               const profileId = Number(e.target.value) || 0;
               const p = autoProfiles.find((x) => x.id === profileId);
@@ -1178,6 +1185,7 @@ export default function AdminRegrowthPage() {
           <select
             className={inputClass}
             value={value.weatherLocationId}
+            disabled={readOnly}
             onChange={(e) => onChange({ weatherLocationId: e.target.value })}
           >
             {WEATHER_LOCATIONS.map((loc) => (
@@ -1192,6 +1200,7 @@ export default function AdminRegrowthPage() {
           <select
             className={inputClass}
             value={value.managementLevel}
+            disabled={readOnly}
             onChange={(e) => onChange({ managementLevel: e.target.value })}
           >
             <option value="low">Low</option>
@@ -1202,22 +1211,22 @@ export default function AdminRegrowthPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
-        <NumberField label="Soil factor" help={AUTO_FIELD_HELP.soilFactor} value={value.soilFactor} onChange={(soilFactor) => onChange({ soilFactor })} step="0.01" />
-        <NumberField label="Drainage score" help={AUTO_FIELD_HELP.drainageScore} value={value.drainageScore} onChange={(drainageScore) => onChange({ drainageScore })} step="0.01" />
-        <NumberField label="Shade %" help={AUTO_FIELD_HELP.shadePercent} value={value.shadePercent} onChange={(shadePercent) => onChange({ shadePercent })} step="1" />
-        <NumberField label="Compaction" help={AUTO_FIELD_HELP.compaction} value={value.compactionScore} onChange={(compactionScore) => onChange({ compactionScore })} step="0.01" />
+        <NumberField label="Soil factor" help={AUTO_FIELD_HELP.soilFactor} value={value.soilFactor} onChange={(soilFactor) => onChange({ soilFactor })} step="0.01" disabled={readOnly} />
+        <NumberField label="Drainage score" help={AUTO_FIELD_HELP.drainageScore} value={value.drainageScore} onChange={(drainageScore) => onChange({ drainageScore })} step="0.01" disabled={readOnly} />
+        <NumberField label="Shade %" help={AUTO_FIELD_HELP.shadePercent} value={value.shadePercent} onChange={(shadePercent) => onChange({ shadePercent })} step="1" disabled={readOnly} />
+        <NumberField label="Compaction" help={AUTO_FIELD_HELP.compaction} value={value.compactionScore} onChange={(compactionScore) => onChange({ compactionScore })} step="0.01" disabled={readOnly} />
       </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
-        <NumberField label="Irrigation mm/week" help={AUTO_FIELD_HELP.irrigation} value={value.irrigationMmPerWeek} onChange={(irrigationMmPerWeek) => onChange({ irrigationMmPerWeek })} step="1" />
-        <NumberField label="Nitrogen kg/ha/month" help={AUTO_FIELD_HELP.nitrogen} value={value.nitrogenKgHaMonth} onChange={(nitrogenKgHaMonth) => onChange({ nitrogenKgHaMonth })} step="1" />
-        <NumberField label="Mowing height mm" help={AUTO_FIELD_HELP.mowingHeight} value={value.mowingHeightMm} onChange={(mowingHeightMm) => onChange({ mowingHeightMm })} step="1" />
-        <NumberField label="Traffic level" help={AUTO_FIELD_HELP.traffic} value={value.trafficLevel} onChange={(trafficLevel) => onChange({ trafficLevel })} step="0.01" />
+        <NumberField label="Irrigation mm/week" help={AUTO_FIELD_HELP.irrigation} value={value.irrigationMmPerWeek} onChange={(irrigationMmPerWeek) => onChange({ irrigationMmPerWeek })} step="1" disabled={readOnly} />
+        <NumberField label="Nitrogen kg/ha/month" help={AUTO_FIELD_HELP.nitrogen} value={value.nitrogenKgHaMonth} onChange={(nitrogenKgHaMonth) => onChange({ nitrogenKgHaMonth })} step="1" disabled={readOnly} />
+        <NumberField label="Mowing height mm" help={AUTO_FIELD_HELP.mowingHeight} value={value.mowingHeightMm} onChange={(mowingHeightMm) => onChange({ mowingHeightMm })} step="1" disabled={readOnly} />
+        <NumberField label="Traffic level" help={AUTO_FIELD_HELP.traffic} value={value.trafficLevel} onChange={(trafficLevel) => onChange({ trafficLevel })} step="0.01" disabled={readOnly} />
       </div>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
-        <NumberField label="Pest/disease risk" help={AUTO_FIELD_HELP.pestDisease} value={value.pestDiseaseRiskScore} onChange={(pestDiseaseRiskScore) => onChange({ pestDiseaseRiskScore })} step="0.01" />
-        <NumberField label="pH" help={AUTO_FIELD_HELP.ph} value={value.phValue ?? 0} onChange={(phValue) => onChange({ phValue })} step="0.1" />
-        <NumberField label="Organic matter %" help={AUTO_FIELD_HELP.organicMatter} value={value.organicMatterPct ?? 0} onChange={(organicMatterPct) => onChange({ organicMatterPct })} step="0.1" />
-        <NumberField label="Mowing / week" help={AUTO_FIELD_HELP.mowingFrequency} value={value.mowingFrequencyPerWeek} onChange={(mowingFrequencyPerWeek) => onChange({ mowingFrequencyPerWeek })} step="0.1" />
+        <NumberField label="Pest/disease risk" help={AUTO_FIELD_HELP.pestDisease} value={value.pestDiseaseRiskScore} onChange={(pestDiseaseRiskScore) => onChange({ pestDiseaseRiskScore })} step="0.01" disabled={readOnly} />
+        <NumberField label="pH" help={AUTO_FIELD_HELP.ph} value={value.phValue ?? 0} onChange={(phValue) => onChange({ phValue })} step="0.1" disabled={readOnly} />
+        <NumberField label="Organic matter %" help={AUTO_FIELD_HELP.organicMatter} value={value.organicMatterPct ?? 0} onChange={(organicMatterPct) => onChange({ organicMatterPct })} step="0.1" disabled={readOnly} />
+        <NumberField label="Mowing / week" help={AUTO_FIELD_HELP.mowingFrequency} value={value.mowingFrequencyPerWeek} onChange={(mowingFrequencyPerWeek) => onChange({ mowingFrequencyPerWeek })} step="0.1" disabled={readOnly} />
       </div>
     </div>
   );
@@ -1278,15 +1287,17 @@ export default function AdminRegrowthPage() {
                     <RotateCcw className="h-4 w-4" />
                     Reset to Defaults
                   </button> */}
-                  <button
-                    type="button"
-                    className={cn(btnSm, "h-9 px-4 text-sm")}
-                    onClick={() => void handleSaveChanges()}
-                    disabled={saving}
-                  >
-                    <Save className="h-4 w-4" />
-                    {saving ? t("saving") : t("saveChanges")}
-                  </button>
+                  {canEdit ? (
+                    <button
+                      type="button"
+                      className={cn(btnSm, "h-9 px-4 text-sm")}
+                      onClick={() => void handleSaveChanges()}
+                      disabled={saving}
+                    >
+                      <Save className="h-4 w-4" />
+                      {saving ? t("saving") : t("saveChanges")}
+                    </button>
+                  ) : null}
                 </div>
               </div>
 
@@ -1304,6 +1315,7 @@ export default function AdminRegrowthPage() {
                         min={1}
                         className={cn(inputClass, "w-24")}
                         value={config.sodDays}
+                        disabled={readOnly}
                         onChange={(e) =>
                           updateSodDays(
                             Math.max(1, Number(e.target.value) || 0),
@@ -1332,6 +1344,7 @@ export default function AdminRegrowthPage() {
                         min={1}
                         className={cn(inputClass, "w-24")}
                         value={config.sodForSprigDays}
+                        disabled={readOnly}
                         onChange={(e) =>
                           updateSodForSprigDays(
                             Math.max(1, Number(e.target.value) || 0),
@@ -1360,6 +1373,7 @@ export default function AdminRegrowthPage() {
                         min={1}
                         className={cn(inputClass, "w-24")}
                         value={config.overrideRecoveryDays}
+                        disabled={readOnly}
                         onChange={(e) =>
                           updateOverrideRecoveryDays(
                             Math.max(1, Number(e.target.value) || 0),
@@ -1436,7 +1450,7 @@ export default function AdminRegrowthPage() {
                             >
                               <td className="w-10 p-2 px-2 align-middle text-center">
                                 <div
-                                  draggable
+                                  draggable={canEdit}
                                   role="button"
                                   tabIndex={0}
                                   aria-label={t("sprigBands.dragRowAria")}
@@ -1445,7 +1459,12 @@ export default function AdminRegrowthPage() {
                                     handleBandDragStart(e, band.id)
                                   }
                                   onDragEnd={handleBandDragEnd}
-                                  className="inline-flex cursor-grab touch-manipulation rounded-md p-1.5 text-muted-foreground hover:bg-muted active:cursor-grabbing"
+                                  className={cn(
+                                    "inline-flex touch-manipulation rounded-md p-1.5 text-muted-foreground",
+                                    canEdit
+                                      ? "cursor-grab hover:bg-muted active:cursor-grabbing"
+                                      : "cursor-not-allowed opacity-40",
+                                  )}
                                 >
                                   <GripVertical className="h-4 w-4 shrink-0" />
                                 </div>
@@ -1474,6 +1493,7 @@ export default function AdminRegrowthPage() {
                                 <select
                                   className={cn(inputClass, "h-8")}
                                   value={band.comparator}
+                                  disabled={readOnly}
                                   onChange={(e) => {
                                     const comparator = e.target
                                       .value as SprigBandRow["comparator"];
@@ -1505,7 +1525,7 @@ export default function AdminRegrowthPage() {
                                             ? t("sprigBands.upperBoundBand")
                                             : t("sprigBands.lastBandAboveThreshold")}
                                         </span>
-                                        {current !== recommended ? (
+                                        {current !== recommended && canEdit ? (
                                           <button
                                             type="button"
                                             className="text-[11px] text-primary hover:underline"
@@ -1539,6 +1559,7 @@ export default function AdminRegrowthPage() {
                                     type="text"
                                     inputMode="decimal"
                                     autoComplete="off"
+                                    disabled={readOnly}
                                     className={cn(
                                       inputClass,
                                       "h-8 w-28 text-right",
@@ -1630,6 +1651,7 @@ export default function AdminRegrowthPage() {
                                     "ml-auto h-8 w-24 text-right",
                                   )}
                                   value={band.regrowthDays}
+                                  disabled={readOnly}
                                   onChange={(e) =>
                                     updateBand(band.id, {
                                       regrowthDays: Math.max(
@@ -1641,15 +1663,17 @@ export default function AdminRegrowthPage() {
                                 />
                               </td>
                               <td className="p-2 px-4 text-right align-middle">
-                                <button
-                                  type="button"
-                                  className={btnGhost}
-                                  onClick={() => deleteBand(band.id)}
-                                  disabled={config.sprigBands.length <= 1}
-                                  title={t("sprigBands.removeBand")}
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </button>
+                                {canDelete ? (
+                                  <button
+                                    type="button"
+                                    className={btnGhost}
+                                    onClick={() => deleteBand(band.id)}
+                                    disabled={config.sprigBands.length <= 1}
+                                    title={t("sprigBands.removeBand")}
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </button>
+                                ) : null}
                               </td>
                             </tr>
                           </Fragment>
@@ -1658,6 +1682,7 @@ export default function AdminRegrowthPage() {
                         bandDropInsertPreview === config.sprigBands.length ? (
                           <BandDropInsertionLine />
                         ) : null}
+                        {canCreate ? (
                         <tr
                           className="border-b border-border bg-muted/30"
                           onDragOver={handleBandDragOverAfterLast}
@@ -1731,6 +1756,7 @@ export default function AdminRegrowthPage() {
                             </button>
                           </td>
                         </tr>
+                        ) : null}
                       </tbody>
                     </table>
                   </div>
@@ -1766,6 +1792,7 @@ export default function AdminRegrowthPage() {
 	                      <select
 	                        className={inputClass}
 	                        value={autoSelectedId}
+	                        disabled={readOnly}
 	                        onChange={(e) => setAutoSelectedId(e.target.value)}
 	                      >
 	                        {autoRows.map((row) => (
@@ -1803,7 +1830,7 @@ export default function AdminRegrowthPage() {
 	                    <button
 	                      type="button"
 	                      className={btnOutline}
-	                      disabled={autoSaving}
+	                      disabled={readOnly || autoSaving}
 	                      onClick={() => void runDailyAutoConfig()}
 	                    >
 	                      <RefreshCw className="h-4 w-4" />
@@ -1812,7 +1839,7 @@ export default function AdminRegrowthPage() {
 	                    <button
 	                      type="button"
 	                      className={btnOutline}
-	                      disabled={autoSaving || !selectedAutoRow}
+	                      disabled={readOnly || autoSaving || !selectedAutoRow}
 	                      onClick={() => void saveSelectedAutoConfig()}
 	                    >
 	                      {t("auto.saveConfig")}
@@ -1820,7 +1847,7 @@ export default function AdminRegrowthPage() {
 	                    <button
 	                      type="button"
 	                      className={cn(btnSm, "h-9 px-4 text-sm")}
-	                      disabled={autoSaving || !selectedAutoRow}
+	                      disabled={readOnly || autoSaving || !selectedAutoRow}
 	                      onClick={() => void calculateSelectedAutoConfig()}
 	                    >
 	                      {t("auto.calculate")}
@@ -1906,12 +1933,14 @@ function NumberField({
   value,
   onChange,
   step = "1",
+  disabled = false,
 }: {
   label: string;
   help?: string;
   value: number;
   onChange: (value: number) => void;
   step?: string;
+  disabled?: boolean;
 }) {
   return (
     <div className="space-y-2">
@@ -1921,6 +1950,7 @@ function NumberField({
         type="number"
         min={0}
         step={step}
+        disabled={disabled}
         value={Number.isFinite(value) ? value : 0}
         onChange={(e) => onChange(toNumber(e.target.value))}
       />

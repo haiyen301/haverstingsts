@@ -611,6 +611,8 @@
     "periodQuarter": "Quý qua",
     "periodYear": "Năm qua",
     "periodThisWeek": "Tuần này",
+    "periodThisMonth": "Tháng này",
+    "periodThisQuarter": "Quý này",
     "periodNextWeek": "Tuần sau",
     "periodNextMonth": "Tháng sau",
     "periodNextQuarter": "Quý sau",
@@ -1427,7 +1429,7 @@
     "harvestedAreaHintM2": "Trùng với số lượng khi đơn vị là M2 (chỉ đọc, giống Flutter).",
     "harvestedAreaPlaceholderKg": "Nhập diện tích thu hoạch",
     "harvestedAreaHintKg": "Bắt buộc khi đã có Ngày thu hoạch thực tế và đơn vị là Kg (phải > 0).",
-    "harvestedAreaFormulaHint": "Sprig / Sod→Sprig: diện tích thu hoạch (m²) = số lượng (kg) ÷ Năng suất (kg/m²) từ Zone Configuration (farm + loại cỏ). Nếu chưa chọn farm hoặc loại cỏ, mặc định diện tích thu hoạch = số lượng.",
+    "harvestedAreaFormulaHint": "Sprig / Sod→Sprig: khi lưu estimate với ô này để trống, diện tích thu hoạch (m²) = số lượng (kg) ÷ Năng suất (kg/m²) từ Zone Configuration (farm + loại cỏ). Sod: diện tích thu hoạch = số lượng.",
     "harvestedAreaFormulaTooltip": "Diện tích thu hoạch (m²) = {quantity} kg ÷ {yield} kg/m² (Yield Zone Configuration) = {area} m²",
     "harvestedAreaQuantityFallbackTooltip": "Sprig / Sod→Sprig: nếu chưa chọn farm hoặc loại cỏ, mặc định diện tích thu hoạch (m²) = số lượng (kg) — không tra được Yield Zone Configuration.",
     "harvestedAreaQuantityFallbackTooltipWithValues": "Chưa chọn farm hoặc loại cỏ — diện tích thu hoạch (m²) = số lượng: {quantity} m²",
@@ -2939,6 +2941,11 @@
     "filters": {
       "allFarms": "Tất cả trang trại",
       "allTime": "Mọi thời điểm",
+      "today": "Hôm nay",
+      "thisWeek": "Tuần này",
+      "thisMonth": "Tháng này",
+      "thisQuarter": "Quý này",
+      "lastWeek": "Tuần qua",
       "lastMonth": "Tháng qua",
       "lastQuarter": "Quý qua",
       "lastYear": "Năm qua"
@@ -2996,6 +3003,7 @@
       "byGrass": "Sử dụng theo loại cỏ",
       "byZone": "Sử dụng theo khu vực",
       "amount": "Lượng",
+      "itemCount": "{count} mục · cuộn để xem tất cả",
       "empty": "Không có sử dụng trong kỳ này"
     },
     "table": {
@@ -3004,6 +3012,8 @@
       "grass": "Cỏ",
       "zone": "Khu vực",
       "product": "Sản phẩm",
+      "uom": "Đơn vị",
+      "images": "Hình ảnh",
       "type": "Loại",
       "consumption": "Tiêu hao",
       "transferTo": "Chuyển → {farm}",
@@ -3063,8 +3073,75 @@
       "aliasTitlePlaceholder": "vd. bao NPK vàng",
       "selectOperator": "Chọn người thực hiện",
       "noProductsHint": "Thêm sản phẩm trong Admin → Settings → Items.",
+      "uom": "Đơn vị",
+      "images": "Hình ảnh",
+      "addImages": "Thêm hình ảnh",
+      "removeImage": "Xóa hình",
       "cancel": "Hủy",
       "save": "Lưu"
+    },
+    "import": {
+      "button": "Nhập dữ liệu",
+      "title": "Nhập dữ liệu bón phân",
+      "subtitle": "Tải lên file Excel/CSV. Tên sản phẩm được dò khớp tự động.",
+      "close": "Đóng",
+      "uploadFile": "Tải Excel",
+      "uploadImages": "Chọn hình ảnh",
+      "downloadTemplate": "Tải file mẫu",
+      "fileLabel": "File",
+      "imagesSelected": "Đã chọn {count} file hình",
+      "imagesHint": "Trong cột images của Excel, ghi đường dẫn trong fertilizer_usage (vd: 07/1784276782_file….jpeg; nhiều file cách nhau bằng ;). Chọn file hình tại đây, hoặc đặt sẵn trong files/timeline_files/fertilizer_usage/07/ — hệ thống dò theo tên file và gắn đường dẫn.",
+      "imagesMatch": "khớp {found}/{total}",
+      "imagesMissingShort": "thiếu {count} local",
+      "emptyHint": "Chọn file .xlsx, .xls hoặc .csv để xem trước dữ liệu trước khi nhập.",
+      "importing": "Đang nhập…",
+      "confirmImport": "Nhập {count} dòng",
+      "loadMore": "Tải thêm",
+      "matchedScore": "khớp {score}%",
+      "success": "Đã nhập {created} dòng, bỏ qua {skipped}.",
+      "successWithImages": "Đã nhập {created} dòng, bỏ qua {skipped}. Đã upload {images} hình.",
+      "successGeneric": "Nhập dữ liệu hoàn tất.",
+      "filters": {
+        "all": "Tất cả",
+        "ready": "Sẵn sàng",
+        "invalid": "Bỏ qua"
+      },
+      "status": {
+        "ready": "Sẵn sàng",
+        "invalid": "Bỏ qua"
+      },
+      "table": {
+        "row": "Dòng",
+        "status": "Trạng thái",
+        "date": "Ngày",
+        "farm": "Trang trại",
+        "grass": "Cỏ",
+        "zone": "Khu vực",
+        "product": "Sản phẩm",
+        "uom": "Đơn vị",
+        "amount": "Lượng",
+        "images": "Hình ảnh",
+        "transfer": "Chuyển đến",
+        "operator": "Người thực hiện",
+        "reason": "Lý do",
+        "empty": "Không có dòng nào."
+      },
+      "reasons": {
+        "dateInvalid": "Ngày không hợp lệ hoặc thiếu.",
+        "farmNotFound": "Không tìm thấy trang trại.",
+        "grassNotFound": "Không tìm thấy loại cỏ.",
+        "zoneNotFound": "Không tìm thấy khu vực của trang trại này.",
+        "productNotFound": "Không tìm thấy sản phẩm khớp trong danh mục.",
+        "amountInvalid": "Lượng phải là số lớn hơn 0.",
+        "transferFarmInvalid": "Trang trại chuyển đến không hợp lệ hoặc trùng trang trại nguồn."
+      },
+      "errors": {
+        "parse": "Không đọc được file.",
+        "emptySheet": "File không có sheet nào.",
+        "noRows": "Không tìm thấy dòng dữ liệu.",
+        "missingColumns": "Thiếu cột bắt buộc (date, farm, product, amount).",
+        "import": "Nhập dữ liệu thất bại."
+      }
     },
     "errors": {
       "load": "Không tải được dữ liệu bón phân.",
@@ -3149,7 +3226,25 @@
       "thisWeek": "Tuần này",
       "thisMonth": "Tháng này",
       "thisQuarter": "Quý này",
+      "lastWeek": "Tuần qua",
+      "lastMonth": "Tháng qua",
+      "lastQuarter": "Quý qua",
       "searchVehicle": "Tìm phương tiện…"
+    },
+    "tabs": {
+      "vehicle": "Theo phương tiện",
+      "fuel": "Theo loại nhiên liệu",
+      "farm": "Theo trang trại",
+      "type": "Theo loại máy"
+    },
+    "charts": {
+      "byVehicle": "Tiêu thụ theo phương tiện",
+      "byFuel": "Tiêu thụ theo loại nhiên liệu",
+      "byFarm": "Tiêu thụ theo trang trại",
+      "byType": "Tiêu thụ theo loại máy",
+      "litres": "Lít",
+      "itemCount": "{count} mục · cuộn để xem tất cả",
+      "empty": "Không có dữ liệu trong kỳ này"
     },
     "table": {
       "date": "Ngày",

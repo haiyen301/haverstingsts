@@ -20,6 +20,15 @@ import {
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { toast } from "react-toastify";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
 import {
   fetchFuelUsage,
@@ -100,9 +109,19 @@ const btnOutline =
   "inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md border border-input bg-background px-4 py-2 text-sm font-medium text-foreground shadow-sm transition-colors hover:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
 const btnGhost =
   "inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50";
+const tabBtn =
+  "inline-flex h-9 items-center justify-center rounded-md px-3 text-sm font-medium transition-colors";
+const tabBtnActive = "bg-muted text-foreground shadow-sm";
+const tabBtnIdle = "text-muted-foreground hover:text-foreground hover:bg-muted/60";
+const CHART_FILL = "hsl(152,55%,36%)";
+const CHART_ROW_HEIGHT = 32;
+const CHART_MIN_HEIGHT = 300;
+const CHART_MAX_VIEWPORT = 420;
 
 const FUEL_DATE_FILTER_BASELINE: KpiDatePreset = "all";
 const USAGE_LIST_PAGE_SIZE = 40;
+
+type BreakdownTab = "vehicle" | "fuel" | "farm" | "type";
 
 type EntryForm = {
   fuel_date: string;
@@ -252,7 +271,7 @@ export function FuelUsageTab() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [kpiDateFilter, setKpiDateFilter] = useState<KpiDeliveryDateFilter>({
-    preset: "lastMonth",
+    preset: "thisMonth",
   });
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -268,6 +287,7 @@ export function FuelUsageTab() {
   const [stockReloadToken, setStockReloadToken] = useState(0);
   const [selectedFuelKinds, setSelectedFuelKinds] = useState<string[]>([]);
   const [vehicleSearch, setVehicleSearch] = useState("");
+  const [breakdownTab, setBreakdownTab] = useState<BreakdownTab>("vehicle");
   const loadSeqRef = useRef(0);
   const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
   const loadMoreLockRef = useRef(false);
@@ -289,9 +309,12 @@ export function FuelUsageTab() {
     (): Partial<Record<KpiDatePreset, string>> => ({
       all: t("filters.allTime"),
       today: t("filters.today"),
-      lastWeek: t("filters.thisWeek"),
-      lastMonth: t("filters.thisMonth"),
-      lastQuarter: t("filters.thisQuarter"),
+      thisWeek: t("filters.thisWeek"),
+      thisMonth: t("filters.thisMonth"),
+      thisQuarter: t("filters.thisQuarter"),
+      lastWeek: t("filters.lastWeek"),
+      lastMonth: t("filters.lastMonth"),
+      lastQuarter: t("filters.lastQuarter"),
     }),
     [t],
   );
@@ -607,6 +630,70 @@ export function FuelUsageTab() {
   const totalCost = filtered.reduce((s, e) => s + lineCost(e), 0);
   const avgPerEntry = filtered.length > 0 ? totalLitres / filtered.length : 0;
 
+  const byVehicle = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const row of filtered) {
+      const name = fuelUsageVehiclePrimaryName(row, vehicleLabelByInspectionId) || "—";
+      map[name] = (map[name] || 0) + num(row.litres);
+    }
+    return Object.entries(map)
+      .map(([name, amount]) => ({ name, amount }))
+      .sort((a, b) => b.amount - a.amount);
+  }, [filtered, vehicleLabelByInspectionId]);
+
+  const byFuel = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const row of filtered) {
+      const name = fuelUsageFuelKindLabel(
+        row.fuel_kind,
+        fuelKindLabelByValue,
+        fuelKindFallback,
+      );
+      map[name] = (map[name] || 0) + num(row.litres);
+    }
+    return Object.entries(map)
+      .map(([name, amount]) => ({ name, amount }))
+      .sort((a, b) => b.amount - a.amount);
+  }, [filtered, fuelKindLabelByValue, fuelKindFallback]);
+
+  const byFarm = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const row of filtered) {
+      const name =
+        row.farm_name ?? farmNameById.get(String(row.farm_id)) ?? String(row.farm_id) ?? "—";
+      map[name] = (map[name] || 0) + num(row.litres);
+    }
+    return Object.entries(map)
+      .map(([name, amount]) => ({ name, amount }))
+      .sort((a, b) => b.amount - a.amount);
+  }, [filtered, farmNameById]);
+
+  const byType = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const row of filtered) {
+      const name = String(row.vehicle_type ?? "").trim() || "—";
+      map[name] = (map[name] || 0) + num(row.litres);
+    }
+    return Object.entries(map)
+      .map(([name, amount]) => ({ name, amount }))
+      .sort((a, b) => b.amount - a.amount);
+  }, [filtered]);
+
+  const breakdownViews: Record<
+    BreakdownTab,
+    { title: string; data: { name: string; amount: number }[] }
+  > = {
+    vehicle: { title: t("charts.byVehicle"), data: byVehicle },
+    fuel: { title: t("charts.byFuel"), data: byFuel },
+    farm: { title: t("charts.byFarm"), data: byFarm },
+    type: { title: t("charts.byType"), data: byType },
+  };
+  const activeChart = breakdownViews[breakdownTab];
+  const chartInnerHeight = Math.max(
+    CHART_MIN_HEIGHT,
+    activeChart.data.length * CHART_ROW_HEIGHT,
+  );
+
   const resumeGoogleSheetExport =
     (searchParams.get("googleSheetExport") ?? "").trim() === "resume";
   const googleSheetExportError = (searchParams.get("googleSheetError") ?? "").trim();
@@ -917,6 +1004,61 @@ export function FuelUsageTab() {
           presetLabelMap={fuelPresetLabelMap}
           className="shrink-0"
         />
+      </div>
+
+      <div className="space-y-4">
+        <div className="inline-flex flex-wrap gap-1 rounded-lg border border-border bg-background p-1">
+          {(["vehicle", "fuel", "farm", "type"] as const).map((key) => (
+            <button
+              key={key}
+              type="button"
+              className={cn(tabBtn, breakdownTab === key ? tabBtnActive : tabBtnIdle)}
+              onClick={() => setBreakdownTab(key)}
+            >
+              {t(`tabs.${key}`)}
+            </button>
+          ))}
+        </div>
+        <Card>
+          <CardContent className="p-5">
+            <div className="mb-4 flex flex-wrap items-baseline justify-between gap-2">
+              <h3 className="text-sm font-semibold">{activeChart.title}</h3>
+              {activeChart.data.length > 0 ? (
+                <span className="text-xs text-muted-foreground">
+                  {t("charts.itemCount", { count: activeChart.data.length })}
+                </span>
+              ) : null}
+            </div>
+            {activeChart.data.some((d) => d.amount > 0) ? (
+              <div
+                className="overflow-y-auto pr-1"
+                style={{ maxHeight: CHART_MAX_VIEWPORT }}
+              >
+                <ResponsiveContainer width="100%" height={chartInnerHeight}>
+                  <BarChart
+                    data={activeChart.data}
+                    layout="vertical"
+                    margin={{ left: 24 }}
+                    barCategoryGap={6}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                    <XAxis type="number" tick={{ fontSize: 12 }} />
+                    <YAxis type="category" dataKey="name" tick={{ fontSize: 12 }} width={110} />
+                    <Tooltip
+                      formatter={(v: number) => [
+                        `${formatNumber(v, { maximumFractionDigits: 3 })} L`,
+                        t("charts.litres"),
+                      ]}
+                    />
+                    <Bar dataKey="amount" fill={CHART_FILL} radius={[0, 4, 4, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            ) : (
+              <p className="py-10 text-center text-sm text-muted-foreground">{t("charts.empty")}</p>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       <Card>

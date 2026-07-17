@@ -19,6 +19,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 import { TOAST_CONTAINER_TOP_RIGHT } from "@/shared/ui/AppToasts";
+import { useModuleAccess } from "@/shared/auth/useModuleAccess";
 
 const inputClass =
   "flex h-9 w-full min-w-0 rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground shadow-sm outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/35";
@@ -48,6 +49,7 @@ function cellText(value: string | null | undefined): string {
 
 export default function AdminFarmsPage() {
   const t = useTranslations("AdminFarms");
+  const { canCreate, canEdit, canDelete } = useModuleAccess("admin_farms");
   const [rows, setRows] = useState<FarmRow[]>([]);
   const [countries, setCountries] = useState<unknown[]>([]);
   const [loading, setLoading] = useState(true);
@@ -191,10 +193,12 @@ export default function AdminFarmsPage() {
             <div>
               <h1 className="text-2xl font-semibold">{t("title")}</h1>
             </div>
-            <button type="button" className={btnPrimary} onClick={openCreate}>
-              <Plus className="h-4 w-4" />
-              {t("add")}
-            </button>
+            {canCreate ? (
+              <button type="button" className={btnPrimary} onClick={openCreate}>
+                <Plus className="h-4 w-4" />
+                {t("add")}
+              </button>
+            ) : null}
           </div>
 
           <div className="flex justify-end">
@@ -233,22 +237,30 @@ export default function AdminFarmsPage() {
                           {cellText(row.country_name)}
                         </td>
                         <td className="px-4 py-3">
-                          <div className="flex items-center justify-end gap-1">
-                            <button type="button" className={btnGhost} onClick={() => openEdit(row)}>
-                              <Pencil className="h-3.5 w-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              className={cn(
-                                btnGhost,
-                                "text-destructive hover:bg-destructive/10",
-                              )}
-                              disabled={saving}
-                              onClick={() => void handleDelete(row)}
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
+                          {canEdit || canDelete ? (
+                            <div className="flex items-center justify-end gap-1">
+                              {canEdit ? (
+                                <button type="button" className={btnGhost} onClick={() => openEdit(row)}>
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </button>
+                              ) : null}
+                              {canDelete ? (
+                                <button
+                                  type="button"
+                                  className={cn(
+                                    btnGhost,
+                                    "text-destructive hover:bg-destructive/10",
+                                  )}
+                                  disabled={saving}
+                                  onClick={() => void handleDelete(row)}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <span className="block text-right text-muted-foreground">—</span>
+                          )}
                         </td>
                       </tr>
                     ))}

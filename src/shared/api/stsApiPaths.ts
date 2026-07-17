@@ -79,6 +79,10 @@ export const STS_API_PATHS = {
   fertilizerUsage: "/api/fertilizer_usage",
   fertilizerUsageSave: "/api/fertilizer_usage/save",
   fertilizerUsageRemove: "/api/fertilizer_usage/remove",
+  /** POST multipart: `id` + `images[]` files (+ optional `images_removed` JSON). */
+  fertilizerUsageUploadFiles: "/api/fertilizer_usage/upload_files",
+  /** POST JSON bulk import: `{ entries: [...] }` (ids resolved on client). */
+  fertilizerUsageImportBulk: "/api/fertilizer_usage/import_bulk",
   /** Farm-specific item/vehicle display aliases */
   farmAliases: "/api/farm_aliases",
   farmAliasesSave: "/api/farm_aliases/save",

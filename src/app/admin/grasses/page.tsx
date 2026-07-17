@@ -21,6 +21,7 @@ import {
 } from "@/features/forecasting/forecastDataSync";
 import { TOAST_CONTAINER_TOP_RIGHT } from "@/shared/ui/AppToasts";
 import { DatePicker } from "@/shared/ui/date-picker";
+import { useModuleAccess } from "@/shared/auth/useModuleAccess";
 
 const inputClass =
   "flex h-9 w-full min-w-0 rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground shadow-sm outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/35";
@@ -85,6 +86,7 @@ function notifyGrassForecastRebuildQueued(t: (key: string) => string): void {
 
 export default function AdminGrassesPage() {
   const t = useTranslations("AdminGrasses");
+  const { canCreate, canEdit, canDelete } = useModuleAccess("admin_grasses");
   const [rows, setRows] = useState<GrassTypeRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -245,10 +247,12 @@ export default function AdminGrassesPage() {
             <div>
               <h1 className="text-2xl font-semibold">{t("title")}</h1>
             </div>
-            <button type="button" className={btnPrimary} onClick={openCreate}>
-              <Plus className="h-4 w-4" />
-              {t("add")}
-            </button>
+            {canCreate ? (
+              <button type="button" className={btnPrimary} onClick={openCreate}>
+                <Plus className="h-4 w-4" />
+                {t("add")}
+              </button>
+            ) : null}
           </div>
 
           {loading ? <p className="text-sm text-muted-foreground">{t("loading")}</p> : null}
@@ -293,28 +297,30 @@ export default function AdminGrassesPage() {
                         <td className="px-4 py-3 whitespace-nowrap">{formatDateCell(row.sales_to)}</td>
                         <td className="px-4 py-3 whitespace-nowrap">
                           <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              role="switch"
-                              aria-checked={isGrassActive(row.status)}
-                              className={cn(
-                                "relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                isGrassActive(row.status)
-                                  ? "bg-lime-500"
-                                  : "bg-muted-foreground/40",
-                                (saving || statusPendingId === Number(row.id)) &&
-                                  "cursor-not-allowed opacity-60",
-                              )}
-                              disabled={saving || statusPendingId === Number(row.id)}
-                              onClick={() => void handleToggleStatus(row)}
-                            >
-                              <span
+                            {canEdit ? (
+                              <button
+                                type="button"
+                                role="switch"
+                                aria-checked={isGrassActive(row.status)}
                                 className={cn(
-                                  "inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform",
-                                  isGrassActive(row.status) ? "translate-x-5" : "translate-x-1",
+                                  "relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                  isGrassActive(row.status)
+                                    ? "bg-lime-500"
+                                    : "bg-muted-foreground/40",
+                                  (saving || statusPendingId === Number(row.id)) &&
+                                    "cursor-not-allowed opacity-60",
                                 )}
-                              />
-                            </button>
+                                disabled={saving || statusPendingId === Number(row.id)}
+                                onClick={() => void handleToggleStatus(row)}
+                              >
+                                <span
+                                  className={cn(
+                                    "inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform",
+                                    isGrassActive(row.status) ? "translate-x-5" : "translate-x-1",
+                                  )}
+                                />
+                              </button>
+                            ) : null}
                             <span
                               className={cn(
                                 "text-xs font-medium",
@@ -332,22 +338,30 @@ export default function AdminGrassesPage() {
                           </div>
                         </td>
                         <td className="px-4 py-3">
-                          <div className="flex items-center justify-end gap-1">
-                            <button type="button" className={btnGhost} onClick={() => openEdit(row)}>
-                              <Pencil className="h-3.5 w-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              className={cn(
-                                btnGhost,
-                                "text-destructive hover:bg-destructive/10",
-                              )}
-                              disabled={saving}
-                              onClick={() => void handleDelete(row)}
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
+                          {canEdit || canDelete ? (
+                            <div className="flex items-center justify-end gap-1">
+                              {canEdit ? (
+                                <button type="button" className={btnGhost} onClick={() => openEdit(row)}>
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </button>
+                              ) : null}
+                              {canDelete ? (
+                                <button
+                                  type="button"
+                                  className={cn(
+                                    btnGhost,
+                                    "text-destructive hover:bg-destructive/10",
+                                  )}
+                                  disabled={saving}
+                                  onClick={() => void handleDelete(row)}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <span className="block text-right text-muted-foreground">—</span>
+                          )}
                         </td>
                       </tr>
                     ))}

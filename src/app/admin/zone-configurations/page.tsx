@@ -43,6 +43,7 @@ import {
   zoneConfigRowVisibleToUser,
 } from "@/shared/auth/privilegedAdminAccess";
 import { useAuthUserStore } from "@/shared/store/authUserStore";
+import { useModuleAccess } from "@/shared/auth/useModuleAccess";
 
 function zoneRowToForecastRow(row: ZoneConfigurationRow): ZoneConfigForecastRow {
   return {
@@ -257,6 +258,7 @@ function formatNumber(value: string | number | null | undefined): string {
 export default function AdminZoneConfigurationsPage() {
   const t = useTranslations("AdminZones");
   const user = useAuthUserStore((s) => s.user);
+  const { canCreate, canEdit, canDelete } = useModuleAccess("admin_zones");
   const [rows, setRows] = useState<ZoneConfigurationRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -589,10 +591,12 @@ export default function AdminZoneConfigurationsPage() {
               <h1 className="text-2xl font-semibold">{t("title")}</h1>
               <p className="mt-1 text-sm text-muted-foreground">{t("description")}</p>
             </div>
-            <button type="button" className={btnPrimary} onClick={openCreate}>
-              <Plus className="h-4 w-4" />
-              {t("addNewZone")}
-            </button>
+            {canCreate ? (
+              <button type="button" className={btnPrimary} onClick={openCreate}>
+                <Plus className="h-4 w-4" />
+                {t("addNewZone")}
+              </button>
+            ) : null}
           </div>
 
           <Card className="border-border/80 shadow-sm">
@@ -719,19 +723,27 @@ export default function AdminZoneConfigurationsPage() {
                         </td>
                         <td className="px-4 py-3 text-right">{formatNumber(row.max_inventory_kg)}</td>
                         <td className="px-4 py-3">
-                          <div className="flex items-center justify-end gap-1">
-                            <button type="button" className={btnGhost} onClick={() => openEdit(row)}>
-                              <Pencil className="h-3.5 w-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              className={cn(btnGhost, "text-destructive")}
-                              disabled={saving}
-                              onClick={() => void handleDelete(row)}
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
+                          {canEdit || canDelete ? (
+                            <div className="flex items-center justify-end gap-1">
+                              {canEdit ? (
+                                <button type="button" className={btnGhost} onClick={() => openEdit(row)}>
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </button>
+                              ) : null}
+                              {canDelete ? (
+                                <button
+                                  type="button"
+                                  className={cn(btnGhost, "text-destructive")}
+                                  disabled={saving}
+                                  onClick={() => void handleDelete(row)}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <span className="block text-right text-muted-foreground">—</span>
+                          )}
                         </td>
                       </tr>
                     ))}

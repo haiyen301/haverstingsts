@@ -14,6 +14,7 @@ import { ActiveStatusSwitch } from "@/features/admin/ui/ActiveStatusSwitch";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
+import { useModuleAccess } from "@/shared/auth/useModuleAccess";
 
 const inputClass =
   "flex h-9 w-full min-w-0 rounded-md border border-input bg-background px-3 py-1 text-sm text-foreground shadow-sm outline-none transition-[color,box-shadow] placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/35 disabled:cursor-not-allowed disabled:opacity-50";
@@ -47,6 +48,7 @@ function EditableColumnLabel({ label, hint }: { label: string; hint: string }) {
 
 export function CountriesCatalogTab() {
   const t = useTranslations("AdminCountries");
+  const { canEdit } = useModuleAccess("admin_countries");
   const [rows, setRows] = useState<CountryRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -286,7 +288,7 @@ export function CountriesCatalogTab() {
                                     <X className="h-4 w-4" />
                                   </button>
                                 </div>
-                              ) : (
+                              ) : canEdit ? (
                                 <button
                                   type="button"
                                   className="group inline-flex max-w-full items-center gap-1.5 text-left text-sm font-medium text-foreground"
@@ -302,6 +304,8 @@ export function CountriesCatalogTab() {
                                     {displayName}
                                   </span>
                                 </button>
+                              ) : (
+                                <span className="text-sm font-medium">{displayName}</span>
                               )}
                             </td>
                             <td className="p-2 px-4 align-middle text-sm text-muted-foreground">
@@ -326,14 +330,14 @@ export function CountriesCatalogTab() {
                               <ActiveStatusSwitch
                                 checked={active}
                                 pending={isPending}
-                                disabled={isPending || isEditing}
+                                disabled={!canEdit || isPending || isEditing}
                                 onCheckedChange={() => void toggleActive(row)}
                                 activeLabel={t("status.active")}
                                 inactiveLabel={t("status.inactive")}
                               />
                             </td>
                             <td className="p-2 px-4 text-right align-middle">
-                              {isEditing ? null : (
+                              {canEdit && !isEditing ? (
                                 <button
                                   type="button"
                                   className={btnGhost}
@@ -344,7 +348,7 @@ export function CountriesCatalogTab() {
                                 >
                                   <Pencil className="h-3.5 w-3.5" />
                                 </button>
-                              )}
+                              ) : null}
                             </td>
                           </tr>
                         );

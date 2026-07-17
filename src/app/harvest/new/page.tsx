@@ -90,6 +90,7 @@ import {
 import { isValidHarvestDateString } from "@/shared/lib/harvestPlanDates";
 import {
   formatDecimalInput,
+  formatDecimalInputCommaThousands,
   stripDecimalGrouping,
 } from "@/shared/lib/format/number";
 
@@ -623,7 +624,7 @@ function normalizeNonNegativeInput(raw: string): string {
 /** Treat `0`, `0.000`, etc. as empty — harvested area has no value until > 0. */
 function formatHarvestedAreaForForm(raw: unknown): string {
   const normalized = normalizeNonNegativeInput(String(raw ?? ""));
-  return normalized ? formatDecimalInput(normalized) : "";
+  return normalized ? formatDecimalInputCommaThousands(normalized) : "";
 }
 
 /** Kg harvest types that auto-compute harvested area (m²) from yield: Sprig and Sod→Sprig. */
@@ -665,16 +666,15 @@ function autoHarvestedAreaStrFromQuantityEdit(
       grass,
       harvestAreaRefYmd,
     );
-    if (!zoneConfig) return "";
-    const areaStr = harvestAreaM2FromKgAndZoneConfig(qtyKg, zoneConfig);
-    if (!areaStr || parseNum(zoneConfig.inventory_kg_per_m2) <= 0) return "";
-    return formatDecimalInput(parseNum(areaStr).toFixed(2));
+    if (zoneConfig) {
+      const areaStr = harvestAreaM2FromKgAndZoneConfig(qtyKg, zoneConfig);
+      if (areaStr && parseNum(zoneConfig.inventory_kg_per_m2) > 0) {
+        return formatDecimalInputCommaThousands(parseNum(areaStr).toFixed(2));
+      }
+    }
   }
 
-  if (!farm || !grass) {
-    return formatDecimalInput(qtyKg.toFixed(2));
-  }
-
+  // Sprig / Sod→Sprig must use the configured yield; never copy kg to m².
   return "";
 }
 
@@ -689,11 +689,13 @@ function estimatedHarvestedAreaFromQuantity(
   actualDate: string,
   zoneConfigRows: ZoneConfigurationRow[],
 ): string {
+  const harvestTypeKey = normalizeHarvestTypeStorageKey(harvestType);
   const uomKey = uom.trim().toLowerCase();
-  if (uomKey === "m2") {
+  if (harvestTypeKey === "sod" && uomKey === "m2") {
     const qty = parseNum(quantity);
-    return qty > 0 ? formatDecimalInput(String(qty)) : "";
+    return qty > 0 ? formatDecimalInputCommaThousands(String(qty)) : "";
   }
+  if (!isKgSprigHarvestType(harvestTypeKey)) return "";
   return autoHarvestedAreaStrFromQuantityEdit(
     quantity,
     uom,
@@ -1559,9 +1561,6 @@ function HarvestInputPageInner() {
     const qtyKg = parseNum(formData.quantity);
     if (qtyKg <= 0) return null;
 
-    const farmId = formData.farm.trim();
-    const grassId = formData.grass.trim();
-
     if (zoneConfigForHarvestArea) {
       const areaStr = harvestAreaM2FromKgAndZoneConfig(
         qtyKg,
@@ -1577,14 +1576,6 @@ function HarvestInputPageInner() {
       };
     }
 
-    if (!farmId || !grassId) {
-      return {
-        harvestedAreaM2: qtyKg,
-        yieldKgPerM2: null,
-        source: "quantity_fallback" as const,
-      };
-    }
-
     return null;
   }, [
     formData.farm,
@@ -1592,36 +1583,6 @@ function HarvestInputPageInner() {
     formData.quantity,
     isKgSprigHarvest,
     zoneConfigForHarvestArea,
-  ]);
-
-  /** Keep estimated harvested area in sync when farm/grass/yield config changes, unless user edited it. */
-  useEffect(() => {
-    if (harvestedAreaManualRef.current) return;
-    if (!formData.quantity.trim() || parseNum(formData.quantity) <= 0) return;
-    const nextArea = estimatedHarvestedAreaFromQuantity(
-      formData.quantity,
-      formData.uom,
-      formData.harvestType,
-      formData.farm,
-      formData.grass,
-      formData.estimatedDate,
-      formData.actualDate,
-      zoneConfigRows,
-    );
-    setFormData((prev) => {
-      if (harvestedAreaManualRef.current) return prev;
-      if (prev.harvestedArea === nextArea) return prev;
-      return { ...prev, harvestedArea: nextArea };
-    });
-  }, [
-    formData.actualDate,
-    formData.estimatedDate,
-    formData.farm,
-    formData.grass,
-    formData.harvestType,
-    formData.quantity,
-    formData.uom,
-    zoneConfigRows,
   ]);
 
   const filteredProjectOptions = useMemo(() => {
@@ -2543,14 +2504,14 @@ function HarvestInputPageInner() {
       harvestedArea: formatHarvestedAreaForForm(formData.harvestedArea),
     };
     const enteredHarvestedArea = normalizedFormData.harvestedArea.trim();
-    // Empty area + Sprig / Sod→Sprig: auto-calc from zone yield (or qty fallback).
-    const autoKgHarvestedArea =
-      !enteredHarvestedArea &&
-      normalizedFormData.uom.trim().toLowerCase() === "kg" &&
-      isKgSprigHarvestType(
-        normalizeHarvestTypeStorageKey(normalizedFormData.harvestType),
-      )
-        ? autoHarvestedAreaStrFromQuantityEdit(
+    // Estimate only (no Actual Date): empty harvested area → auto-fill on save.
+    // Actual harvests require the user to enter harvested area (validated below).
+    const isEstimateOnly =
+      Boolean(normalizedFormData.estimatedDate.trim()) &&
+      !normalizedFormData.actualDate.trim();
+    const autoHarvestedAreaOnSubmit =
+      !enteredHarvestedArea && isEstimateOnly
+        ? estimatedHarvestedAreaFromQuantity(
             normalizedFormData.quantity,
             normalizedFormData.uom,
             normalizedFormData.harvestType,
@@ -2561,11 +2522,18 @@ function HarvestInputPageInner() {
             zoneConfigRows,
           )
         : "";
-    const harvestedAreaResolved = resolveHarvestedAreaForSubmit(
-      enteredHarvestedArea || autoKgHarvestedArea || undefined,
-      normalizedFormData.quantity,
-      normalizedFormData.harvestType,
-    );
+    const harvestedAreaResolved = (() => {
+      const resolved = resolveHarvestedAreaForSubmit(
+        enteredHarvestedArea || autoHarvestedAreaOnSubmit || undefined,
+        normalizedFormData.quantity,
+        normalizedFormData.harvestType,
+      );
+      // Actual harvest: never auto-fill — user must enter harvested area.
+      if (!isEstimateOnly && !enteredHarvestedArea) {
+        return { harvestedArea: undefined as string | undefined };
+      }
+      return resolved;
+    })();
     const submitFormData: HarvestFormState = {
       ...normalizedFormData,
       harvestedArea: harvestedAreaResolved.harvestedArea ?? "",
@@ -2876,9 +2844,6 @@ function HarvestInputPageInner() {
   const harvestedAreaHelpText = (() => {
     if (!isKgSprigHarvest) return t("harvestedAreaHintKg");
 
-    const farmId = formData.farm.trim();
-    const grassId = formData.grass.trim();
-    const noFarmOrGrass = !farmId || !grassId;
     const qty = parseNum(formData.quantity);
 
     if (
@@ -2891,15 +2856,6 @@ function HarvestInputPageInner() {
         yield: autoHarvestAreaInfo.yieldKgPerM2.toFixed(3),
         area: autoHarvestAreaInfo.harvestedAreaM2.toFixed(2),
       });
-    }
-
-    if (noFarmOrGrass || autoHarvestAreaInfo?.source === "quantity_fallback") {
-      if (qty > 0) {
-        return t("harvestedAreaQuantityFallbackTooltipWithValues", {
-          quantity: formatHarvestQuantityDisplay(qty),
-        });
-      }
-      return t("harvestedAreaQuantityFallbackTooltip");
     }
 
     return t("harvestedAreaFormulaHint");
@@ -3345,19 +3301,7 @@ function HarvestInputPageInner() {
                                     prev,
                                     value as HarvestTypeStorageKey,
                                   );
-                                  return {
-                                    ...next,
-                                    harvestedArea: estimatedHarvestedAreaFromQuantity(
-                                      next.quantity,
-                                      next.uom,
-                                      next.harvestType,
-                                      next.farm,
-                                      next.grass,
-                                      next.estimatedDate,
-                                      next.actualDate,
-                                      zoneConfigRows,
-                                    ),
-                                  };
+                                  return next;
                                 });
                                 setFieldErrors((prev) => ({
                                   ...prev,
@@ -3426,22 +3370,7 @@ function HarvestInputPageInner() {
                                 if (formDisabled || !quantityUnitsBasisReady) return;
                                 if (formData.uom === u) return;
                                 harvestedAreaManualRef.current = false;
-                                setFormData((prev) => {
-                                  const next = applyUomConstraint(prev, u);
-                                  return {
-                                    ...next,
-                                    harvestedArea: estimatedHarvestedAreaFromQuantity(
-                                      next.quantity,
-                                      next.uom,
-                                      next.harvestType,
-                                      next.farm,
-                                      next.grass,
-                                      next.estimatedDate,
-                                      next.actualDate,
-                                      zoneConfigRows,
-                                    ),
-                                  };
-                                });
+                                setFormData((prev) => applyUomConstraint(prev, u));
                                 setFieldErrors((prev) => ({
                                   ...prev,
                                   harvestType: undefined,
@@ -3491,25 +3420,10 @@ function HarvestInputPageInner() {
                         onChange={(e) => {
                           const nextValue = formatDecimalInput(e.target.value);
                           if (nextValue.trim().startsWith("-")) return;
-                          setFormData((prev) => {
-                            const next: HarvestFormState = {
-                              ...prev,
-                              quantity: nextValue,
-                            };
-                            if (!harvestedAreaManualRef.current) {
-                              next.harvestedArea = estimatedHarvestedAreaFromQuantity(
-                                nextValue,
-                                prev.uom,
-                                prev.harvestType,
-                                prev.farm,
-                                prev.grass,
-                                prev.estimatedDate,
-                                prev.actualDate,
-                                zoneConfigRows,
-                              );
-                            }
-                            return next;
-                          });
+                          setFormData((prev) => ({
+                            ...prev,
+                            quantity: nextValue,
+                          }));
                           setFieldErrors((prev) => ({
                             ...prev,
                             quantity: undefined,
@@ -3592,13 +3506,11 @@ function HarvestInputPageInner() {
                             autoComplete="off"
                             value={formData.harvestedArea}
                             onChange={(e) => {
-                              const nextValue = formatDecimalInput(e.target.value);
+                              const nextValue = formatDecimalInputCommaThousands(
+                                e.target.value,
+                              );
                               if (nextValue.trim().startsWith("-")) return;
-                              // Any edit (including clear) stops auto-sync until quantity drives a fresh estimate.
                               harvestedAreaManualRef.current = true;
-                              if (!nextValue.trim()) {
-                                harvestedAreaManualRef.current = false;
-                              }
                               setFormData((prev) => ({
                                 ...prev,
                                 harvestedArea: nextValue,
@@ -3629,12 +3541,11 @@ function HarvestInputPageInner() {
                             autoComplete="off"
                             value={formData.harvestedArea}
                             onChange={(e) => {
-                              const nextValue = formatDecimalInput(e.target.value);
+                              const nextValue = formatDecimalInputCommaThousands(
+                                e.target.value,
+                              );
                               if (nextValue.trim().startsWith("-")) return;
                               harvestedAreaManualRef.current = true;
-                              if (!nextValue.trim()) {
-                                harvestedAreaManualRef.current = false;
-                              }
                               setFormData((prev) => ({
                                 ...prev,
                                 harvestedArea: nextValue,
