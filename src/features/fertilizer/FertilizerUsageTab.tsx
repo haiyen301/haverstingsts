@@ -21,7 +21,9 @@ import {
 } from "@/features/admin/api/adminApi";
 import {
   fetchFertilizerUsage,
+  formatFertilizerUsageUserLabels,
   parseFertilizerUsageImages,
+  parseFertilizerUsageUserIds,
   removeFertilizerUsage,
   saveFertilizerUsage,
   uploadFertilizerUsageImages,
@@ -124,7 +126,8 @@ type EntryForm = {
   transfer_to_farm_id: string;
   rate: string;
   rate_uom: string;
-  operator_id: string;
+  sender_user_ids: string[];
+  receiver_user_ids: string[];
   notes: string;
   alias_title: string;
 };
@@ -177,7 +180,8 @@ function emptyForm(farmId = "", grassId = ""): EntryForm {
     transfer_to_farm_id: "",
     rate: "",
     rate_uom: "",
-    operator_id: "",
+    sender_user_ids: [],
+    receiver_user_ids: [],
     notes: "",
     alias_title: "",
   };
@@ -224,15 +228,19 @@ function staffDisplayName(row: Record<string, unknown>): string {
   return fullNameFromParts || String(row.full_name ?? row.name ?? "").trim();
 }
 
-function usageOperatorLabel(
-  row: Pick<FertilizerUsageRow, "operator_id" | "operator_name">,
-  staffNameById: Map<string, string>,
-): string {
-  const joinedName = String(row.operator_name ?? "").trim();
-  if (joinedName) return joinedName;
-  const operatorId = String(row.operator_id ?? "").trim();
-  if (!operatorId) return "—";
-  return staffNameById.get(operatorId) ?? `#${operatorId}`;
+function usagePartyUserIds(
+  row: Pick<FertilizerUsageRow, "sender_user_ids" | "receiver_user_ids" | "operator_id">,
+  field: "sender_user_ids" | "receiver_user_ids",
+): number[] {
+  const ids = parseFertilizerUsageUserIds(row[field]);
+  if (ids.length > 0) return ids;
+  if (field === "receiver_user_ids") {
+    const legacyOperator = Number(row.operator_id ?? 0);
+    if (Number.isFinite(legacyOperator) && legacyOperator > 0) {
+      return [legacyOperator];
+    }
+  }
+  return [];
 }
 
 export function FertilizerUsageTab() {
@@ -356,6 +364,11 @@ export function FertilizerUsageTab() {
     }
     return map;
   }, [staffOptions]);
+
+  const staffSelectOptions = useMemo(
+    () => staffOptions.map((staff) => ({ value: staff.id, label: staff.name })),
+    [staffOptions],
+  );
 
   const farmCountryById = useMemo(() => {
     const map = new Map<string, number>();
@@ -760,7 +773,8 @@ export function FertilizerUsageTab() {
         ? formatDecimalInputFromValue(storedRate)
         : rateFieldsFromProduct(product).rate,
       rate_uom: storedUom || rateFieldsFromProduct(product).rate_uom,
-      operator_id: row.operator_id ? String(row.operator_id) : "",
+      sender_user_ids: usagePartyUserIds(row, "sender_user_ids").map(String),
+      receiver_user_ids: usagePartyUserIds(row, "receiver_user_ids").map(String),
       notes: String(row.notes ?? ""),
       alias_title: String(row.alias_name ?? ""),
     });
@@ -831,7 +845,8 @@ export function FertilizerUsageTab() {
         transfer_to_farm_id: form.is_transfer ? transferToFarmId : null,
         rate: form.rate.trim() ? parseDecimalField(form.rate) : null,
         rate_uom: form.rate_uom.trim() || null,
-        operator_id: form.operator_id ? Number(form.operator_id) : undefined,
+        sender_user_ids: form.sender_user_ids.map(Number).filter((id) => id > 0),
+        receiver_user_ids: form.receiver_user_ids.map(Number).filter((id) => id > 0),
         notes: form.notes.trim() || undefined,
         alias_title: form.alias_title.trim(),
       });
@@ -1066,7 +1081,8 @@ export function FertilizerUsageTab() {
                     <th className="px-4 py-3 text-left font-medium">{t("table.amount")}</th>
                     <th className="px-4 py-3 text-right font-medium">{t("table.remaining")}</th>
                     <th className="px-4 py-3 text-left font-medium">{t("table.rate")}</th>
-                    <th className="px-4 py-3 text-left font-medium">{t("table.operator")}</th>
+                    <th className="px-4 py-3 text-left font-medium">{t("table.sender")}</th>
+                    <th className="px-4 py-3 text-left font-medium">{t("table.receiver")}</th>
                     {canManageRows ? (
                       <th className="px-4 py-3 text-right font-medium">{t("table.actions")}</th>
                     ) : null}
@@ -1187,7 +1203,16 @@ export function FertilizerUsageTab() {
                       </td>
                       <td className="px-4 py-3 tabular-nums">{formatUsageRateDisplay(e)}</td>
                       <td className="px-4 py-3 text-muted-foreground">
-                        {usageOperatorLabel(e, staffNameById)}
+                        {formatFertilizerUsageUserLabels(
+                          usagePartyUserIds(e, "sender_user_ids"),
+                          staffNameById,
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground">
+                        {formatFertilizerUsageUserLabels(
+                          usagePartyUserIds(e, "receiver_user_ids"),
+                          staffNameById,
+                        )}
                       </td>
                       {canManageRows ? (
                         <td className="px-4 py-3">
@@ -1501,20 +1526,33 @@ export function FertilizerUsageTab() {
                   onChange={(e) => setForm((f) => ({ ...f, rate_uom: e.target.value }))}
                 />
               </label>
-              <label className="space-y-1">
-                <span className="text-xs font-medium">{t("dialog.operator")}</span>
-                <select
-                  className={inputClass}
-                  value={form.operator_id}
-                  onChange={(e) => setForm((f) => ({ ...f, operator_id: e.target.value }))}
-                >
-                  <option value="">{t("dialog.selectOperator")}</option>
-                  {staffOptions.map((staff) => (
-                    <option key={staff.id} value={staff.id}>
-                      {staff.name}
-                    </option>
-                  ))}
-                </select>
+              <label className="col-span-2 space-y-1">
+                <span className="text-xs font-medium">{t("dialog.sender")}</span>
+                <MultiSelect
+                  options={staffSelectOptions}
+                  values={form.sender_user_ids}
+                  onChange={(next) => setForm((f) => ({ ...f, sender_user_ids: next }))}
+                  multi
+                  placeholder={t("dialog.selectSender")}
+                  className={selectClass}
+                  rightIcon={selectChevron}
+                  selectionSummary="full"
+                  disabled={saving}
+                />
+              </label>
+              <label className="col-span-2 space-y-1">
+                <span className="text-xs font-medium">{t("dialog.receiver")}</span>
+                <MultiSelect
+                  options={staffSelectOptions}
+                  values={form.receiver_user_ids}
+                  onChange={(next) => setForm((f) => ({ ...f, receiver_user_ids: next }))}
+                  multi
+                  placeholder={t("dialog.selectReceiver")}
+                  className={selectClass}
+                  rightIcon={selectChevron}
+                  selectionSummary="full"
+                  disabled={saving}
+                />
               </label>
               <label className="col-span-2 space-y-1">
                 <span className="text-xs font-medium">{t("dialog.notes")}</span>

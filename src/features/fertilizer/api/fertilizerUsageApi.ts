@@ -30,6 +30,8 @@ export type FertilizerUsageRow = {
   rate_uom?: string | null;
   operator_id?: number | string | null;
   operator_name?: string | null;
+  sender_user_ids?: number[] | string | null;
+  receiver_user_ids?: number[] | string | null;
   notes?: string | null;
   farm_name?: string | null;
   grass_name?: string | null;
@@ -78,6 +80,33 @@ export function parseFertilizerUsageImages(
   return images;
 }
 
+/** Parse stored user-id JSON (or array) into numeric ids. */
+export function parseFertilizerUsageUserIds(value: unknown): number[] {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => Number(item))
+      .filter((id) => Number.isFinite(id) && id > 0);
+  }
+  if (typeof value === "string" && value.trim()) {
+    try {
+      return parseFertilizerUsageUserIds(JSON.parse(value));
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+export function formatFertilizerUsageUserLabels(
+  ids: number[],
+  staffNameById: Map<string, string>,
+): string {
+  if (!ids.length) return "—";
+  return ids
+    .map((id) => staffNameById.get(String(id)) ?? `#${id}`)
+    .join(", ");
+}
+
 export type FertilizerUsageSavePayload = {
   id?: number;
   applied_date: string;
@@ -90,7 +119,8 @@ export type FertilizerUsageSavePayload = {
   transfer_to_farm_id?: number | null;
   rate?: number | null;
   rate_uom?: string | null;
-  operator_id?: number;
+  sender_user_ids?: number[];
+  receiver_user_ids?: number[];
   notes?: string;
   alias_title?: string;
   alias_name?: string;

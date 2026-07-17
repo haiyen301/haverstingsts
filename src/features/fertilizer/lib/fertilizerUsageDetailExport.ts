@@ -2,6 +2,8 @@ import ExcelJS from "exceljs";
 
 import {
   fetchFertilizerUsage,
+  formatFertilizerUsageUserLabels,
+  parseFertilizerUsageUserIds,
   type FertilizerUsageRow,
 } from "@/features/fertilizer/api/fertilizerUsageApi";
 import type { FertilizerBalanceExportFilter } from "@/features/fertilizer/lib/fertilizerBalanceExport";
@@ -25,7 +27,8 @@ export type FertilizerUsageDetailColumnKey =
   | "amount"
   | "remaining"
   | "rate"
-  | "operator"
+  | "sender"
+  | "receiver"
   | "notes";
 
 export type FertilizerUsageDetailLabels = Record<FertilizerUsageDetailColumnKey, string> & {
@@ -43,7 +46,8 @@ const COLUMN_KEYS: FertilizerUsageDetailColumnKey[] = [
   "amount",
   "remaining",
   "rate",
-  "operator",
+  "sender",
+  "receiver",
   "notes",
 ];
 
@@ -95,9 +99,25 @@ function usageTypeLabel(row: FertilizerUsageRow, labels: FertilizerUsageDetailLa
   return labels.transferTo.replace("{farm}", farm);
 }
 
+function usagePartyUserIds(
+  row: Pick<FertilizerUsageRow, "sender_user_ids" | "receiver_user_ids" | "operator_id">,
+  field: "sender_user_ids" | "receiver_user_ids",
+): number[] {
+  const ids = parseFertilizerUsageUserIds(row[field]);
+  if (ids.length > 0) return ids;
+  if (field === "receiver_user_ids") {
+    const legacyOperator = Number(row.operator_id ?? 0);
+    if (Number.isFinite(legacyOperator) && legacyOperator > 0) {
+      return [legacyOperator];
+    }
+  }
+  return [];
+}
+
 export function buildFertilizerUsageDetailMatrix(
   rows: FertilizerUsageRow[],
   labels: FertilizerUsageDetailLabels,
+  staffNameById: Map<string, string> = new Map(),
 ): string[][] {
   const header = COLUMN_KEYS.map((key) => labels[key]);
   const body = rows.map((row) => [
@@ -110,7 +130,8 @@ export function buildFertilizerUsageDetailMatrix(
     formatNumber(Number(row.amount), { maximumFractionDigits: 3 }),
     formatRemainingValue(row),
     formatUsageRateDisplay(row),
-    String(row.operator_name ?? row.operator_id ?? ""),
+    formatFertilizerUsageUserLabels(usagePartyUserIds(row, "sender_user_ids"), staffNameById),
+    formatFertilizerUsageUserLabels(usagePartyUserIds(row, "receiver_user_ids"), staffNameById),
     String(row.notes ?? ""),
   ]);
   return [header, ...body];
@@ -186,7 +207,7 @@ export async function exportFertilizerUsageDetailToXlsx(
   COLUMN_KEYS.forEach((key, index) => {
     const col = ws.getColumn(index + 1);
     if (key === "product" || key === "notes") col.width = 28;
-    else if (key === "farm" || key === "operator") col.width = 18;
+    else if (key === "farm" || key === "sender" || key === "receiver") col.width = 18;
     else col.width = 12;
   });
 
