@@ -689,6 +689,7 @@ function PeopleSection({
   };
 
   const handleToggleStatus = async (id: string) => {
+    if (!canEditPeople) return;
     try {
       setStatusPendingId(id);
       await togglePersonStatus(id);
@@ -880,30 +881,32 @@ function PeopleSection({
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          role="switch"
-                          aria-checked={p.status === "Active"}
-                          className={cn(
-                            "relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                            p.status === "Active"
-                              ? "bg-lime-500"
-                              : "bg-muted-foreground/40",
-                            statusPendingId === p.id &&
-                              "cursor-not-allowed opacity-60",
-                          )}
-                          disabled={statusPendingId === p.id}
-                          onClick={() => void handleToggleStatus(p.id)}
-                        >
-                          <span
+                        {canEditPeople ? (
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={p.status === "Active"}
                             className={cn(
-                              "inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform",
+                              "relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                               p.status === "Active"
-                                ? "translate-x-5"
-                                : "translate-x-1",
+                                ? "bg-lime-500"
+                                : "bg-muted-foreground/40",
+                              statusPendingId === p.id &&
+                                "cursor-not-allowed opacity-60",
                             )}
-                          />
-                        </button>
+                            disabled={statusPendingId === p.id}
+                            onClick={() => void handleToggleStatus(p.id)}
+                          >
+                            <span
+                              className={cn(
+                                "inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform",
+                                p.status === "Active"
+                                  ? "translate-x-5"
+                                  : "translate-x-1",
+                              )}
+                            />
+                          </button>
+                        ) : null}
                         <span
                           className={cn(
                             "text-xs",

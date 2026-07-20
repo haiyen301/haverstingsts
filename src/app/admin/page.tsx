@@ -24,6 +24,7 @@ export default async function AdminPage() {
     { module: "admin_farms", path: "/admin/farms" },
     { module: "admin_machinery_types", path: "/admin/fleet/machinery-types" },
     { module: "admin_zones", path: "/admin/zones" },
+    { module: "admin_zone_configurations", path: "/admin/zone-configurations" },
     { module: "admin_regrowth", path: "/admin/regrowth" },
     { module: "admin_grasses", path: "/admin/grasses" },
     { module: "admin_key_areas", path: "/admin/keyareas" },

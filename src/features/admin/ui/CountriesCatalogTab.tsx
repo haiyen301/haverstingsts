@@ -143,6 +143,7 @@ export function CountriesCatalogTab() {
   };
 
   const toggleActive = async (row: CountryRow) => {
+    if (!canEdit) return;
     const id = Number(row.id);
     const nextActive = !isCountryActive(row);
     try {

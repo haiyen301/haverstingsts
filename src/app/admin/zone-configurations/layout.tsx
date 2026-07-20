@@ -6,6 +6,6 @@ export default async function AdminZoneConfigurationsLayout({
 }: {
   children: ReactNode;
 }) {
-  await requireModuleAccessOr404("admin_zones");
+  await requireModuleAccessOr404("admin_zone_configurations");
   return <>{children}</>;
 }

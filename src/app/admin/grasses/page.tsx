@@ -193,6 +193,7 @@ export default function AdminGrassesPage() {
   };
 
   const handleToggleStatus = async (row: GrassTypeRow) => {
+    if (!canEdit) return;
     const id = Number(row.id);
     if (!Number.isFinite(id) || id <= 0) return;
     const nextStatus = isGrassActive(row.status) ? "inactive" : "active";

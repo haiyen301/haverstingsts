@@ -258,7 +258,7 @@ function formatNumber(value: string | number | null | undefined): string {
 export default function AdminZoneConfigurationsPage() {
   const t = useTranslations("AdminZones");
   const user = useAuthUserStore((s) => s.user);
-  const { canCreate, canEdit, canDelete } = useModuleAccess("admin_zones");
+  const { canCreate, canEdit, canDelete } = useModuleAccess("admin_zone_configurations");
   const [rows, setRows] = useState<ZoneConfigurationRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);

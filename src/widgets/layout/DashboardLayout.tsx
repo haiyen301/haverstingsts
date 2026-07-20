@@ -559,7 +559,7 @@ export function DashboardLayout({
                 label: tn("adminZoneConfiguration"),
                 icon: Sprout,
                 path: "/admin/zone-configurations",
-                module: "admin_zones",
+                module: "admin_zone_configurations",
                 isActive: (p) =>
                   p === "/admin/zone-configurations" || p.startsWith("/admin/zone-configurations/"),
               },
