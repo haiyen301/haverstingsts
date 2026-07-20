@@ -2040,6 +2040,7 @@
     "save": "Lưu",
     "saving": "Đang lưu…",
     "cancel": "Hủy",
+    "search": "Tìm theo tên, quốc gia hoặc đơn vị…",
     "empty": "Chưa có sản phẩm phân bón.",
     "table": {
       "name": "Tên",
@@ -3086,7 +3087,7 @@
     "import": {
       "button": "Nhập dữ liệu",
       "title": "Nhập dữ liệu bón phân",
-      "subtitle": "Tải lên file Excel/CSV. Tên sản phẩm được dò khớp tự động.",
+      "subtitle": "Tải lên file Excel/CSV. Tên sản phẩm và người được dò khớp tự động. Zone: Z1 = Zone 1 (Z2…Zn). Nhiều người Issued by / Received by: cách nhau bằng dấu phẩy.",
       "close": "Đóng",
       "uploadFile": "Tải Excel",
       "uploadImages": "Chọn hình ảnh",
@@ -3125,7 +3126,8 @@
         "amount": "Lượng",
         "images": "Hình ảnh",
         "transfer": "Chuyển đến",
-        "operator": "Người thực hiện",
+        "sender": "Bên giao",
+        "receiver": "Bên nhận",
         "reason": "Lý do",
         "empty": "Không có dòng nào."
       },

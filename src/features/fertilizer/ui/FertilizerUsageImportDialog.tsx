@@ -277,7 +277,8 @@ export function FertilizerUsageImportDialog({
                     <th className="px-3 py-2 text-left font-medium">{t("table.uom")}</th>
                     <th className="px-3 py-2 text-right font-medium">{t("table.amount")}</th>
                     <th className="px-3 py-2 text-left font-medium">{t("table.transfer")}</th>
-                    <th className="px-3 py-2 text-left font-medium">{t("table.operator")}</th>
+                    <th className="px-3 py-2 text-left font-medium">{t("table.sender")}</th>
+                    <th className="px-3 py-2 text-left font-medium">{t("table.receiver")}</th>
                     <th className="px-3 py-2 text-left font-medium">{t("table.reason")}</th>
                   </tr>
                 </thead>
@@ -323,14 +324,20 @@ export function FertilizerUsageImportDialog({
                         {cellText(row.transfer_farm_label)}
                       </td>
                       <td className="px-3 py-2 text-muted-foreground">
-                        {cellText(row.operator_label)}
+                        {cellText(row.issued_by_label)}
+                        {row.people_missing.length > 0 && !row.issued_by_label ? (
+                          <span className="text-amber-700"> —</span>
+                        ) : null}
+                      </td>
+                      <td className="px-3 py-2 text-muted-foreground">
+                        {cellText(row.received_by_label)}
                       </td>
                       <td className="px-3 py-2 text-muted-foreground">{cellText(row.reason)}</td>
                     </tr>
                   ))}
                   {!visibleRows.length ? (
                     <tr>
-                      <td colSpan={12} className="px-3 py-6 text-center text-muted-foreground">
+                      <td colSpan={13} className="px-3 py-6 text-center text-muted-foreground">
                         {t("table.empty")}
                       </td>
                     </tr>

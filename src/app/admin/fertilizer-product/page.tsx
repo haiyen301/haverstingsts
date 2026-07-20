@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, Pencil, Plus, Trash2, Upload, X } from "lucide-react";
+import { ChevronDown, Pencil, Plus, Search, Trash2, Upload, X } from "lucide-react";
 import { toast } from "react-toastify";
 import { useTranslations } from "next-intl";
 import RequireAuth from "@/features/auth/RequireAuth";
@@ -77,6 +77,7 @@ export default function AdminFertilizerProductPage() {
   const [form, setForm] = useState<FormState>(emptyForm());
   const [bulkForm, setBulkForm] = useState<BulkFormState>(emptyBulkForm());
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [search, setSearch] = useState("");
 
   const loadRows = useCallback(async () => {
     setLoading(true);
@@ -119,9 +120,27 @@ export default function AdminFertilizerProductPage() {
     () => rows.filter((row) => selectedIds.has(Number(row.id))),
     [rows, selectedIds],
   );
+  const filteredRows = useMemo(() => {
+    const query = search.trim().toLocaleLowerCase();
+    if (!query) return rows;
+
+    return rows.filter((row) => {
+      const country =
+        row.country_name?.trim() ||
+        (row.country_id
+          ? countryNameById.get(String(row.country_id)) ?? row.country_id
+          : t("table.global"));
+      const searchableText = [row.name, country, row.uom]
+        .map((value) => String(value ?? "").toLocaleLowerCase())
+        .join(" ");
+
+      return searchableText.includes(query);
+    });
+  }, [countryNameById, rows, search, t]);
   const allRowsSelected =
-    rows.length > 0 && rows.every((row) => selectedIds.has(Number(row.id)));
-  const someRowsSelected = rows.some((row) => selectedIds.has(Number(row.id)));
+    filteredRows.length > 0 &&
+    filteredRows.every((row) => selectedIds.has(Number(row.id)));
+  const someRowsSelected = filteredRows.some((row) => selectedIds.has(Number(row.id)));
 
   useEffect(() => {
     void loadRows();
@@ -189,11 +208,15 @@ export default function AdminFertilizerProductPage() {
   };
 
   const toggleSelectAllRows = () => {
-    if (allRowsSelected) {
-      clearSelection();
-      return;
-    }
-    setSelectedIds(new Set(rows.map((row) => Number(row.id))));
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const row of filteredRows) {
+        const id = Number(row.id);
+        if (allRowsSelected) next.delete(id);
+        else next.add(id);
+      }
+      return next;
+    });
   };
 
   const openBulkEdit = () => {
@@ -389,6 +412,20 @@ export default function AdminFertilizerProductPage() {
             ) : null}
           </div>
 
+          <div className="flex justify-start">
+            <div className="relative w-full max-w-xs">
+              <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <input
+                type="search"
+                className={cn(inputClass, "pl-9")}
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder={t("search")}
+                aria-label={t("search")}
+              />
+            </div>
+          </div>
+
           {loading ? <p className="text-sm text-muted-foreground">{t("loading")}</p> : null}
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
@@ -444,7 +481,7 @@ export default function AdminFertilizerProductPage() {
                           <Checkbox
                             checked={allRowsSelected}
                             indeterminate={someRowsSelected && !allRowsSelected}
-                            disabled={loading || saving || rows.length === 0}
+                            disabled={loading || saving || filteredRows.length === 0}
                             onChange={toggleSelectAllRows}
                             aria-label={t("toggleAll")}
                           />
@@ -457,7 +494,7 @@ export default function AdminFertilizerProductPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map((row) => {
+                    {filteredRows.map((row) => {
                       const rowId = Number(row.id);
                       const isSelected = selectedIds.has(rowId);
                       return (
@@ -521,7 +558,7 @@ export default function AdminFertilizerProductPage() {
                       </tr>
                     );
                     })}
-                    {!loading && rows.length === 0 ? (
+                    {!loading && filteredRows.length === 0 ? (
                       <tr>
                         <td
                           colSpan={showSelection ? 5 : 4}

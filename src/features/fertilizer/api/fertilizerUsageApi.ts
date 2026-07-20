@@ -188,6 +188,11 @@ export type FertilizerUsageImportEntryPayload = {
   transfer_to_farm_id?: number | null;
   rate?: number | null;
   rate_uom?: string | null;
+  /** Resolved user ids for Issued by (Excel names → staff match). */
+  sender_user_ids?: number[];
+  /** Resolved user ids for Received by (Excel names → staff match). */
+  receiver_user_ids?: number[];
+  /** @deprecated Prefer receiver_user_ids. */
   operator_id?: number | null;
   notes?: string | null;
   alias_title?: string | null;

@@ -2139,6 +2139,7 @@
     "save": "Save",
     "saving": "Saving…",
     "cancel": "Cancel",
+    "search": "Search by name, country, or UOM…",
     "empty": "No fertilizer products found.",
     "table": {
       "name": "Name",
@@ -3182,7 +3183,7 @@
     "import": {
       "button": "Import",
       "title": "Import Fertilizer Usage",
-      "subtitle": "Upload an Excel/CSV file with usage rows. Product names are matched automatically.",
+      "subtitle": "Upload an Excel/CSV file with usage rows. Product and people names are matched automatically. Zone accepts Z1 for Zone 1 (Z2…Zn). Multiple Issued by / Received by names: separate with commas.",
       "close": "Close",
       "uploadFile": "Upload Excel",
       "uploadImages": "Select images",
@@ -3221,7 +3222,8 @@
         "amount": "Amount",
         "images": "Images",
         "transfer": "Transfer to",
-        "operator": "Operator",
+        "sender": "Issued by",
+        "receiver": "Received by",
         "reason": "Reason",
         "empty": "No rows to display."
       },

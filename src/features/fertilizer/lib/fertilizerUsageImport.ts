@@ -18,6 +18,11 @@ export type FertilizerUsageImportInputRow = {
   amount_raw: string;
   rate_raw: string;
   rate_uom_raw: string;
+  /** Issued by — names separated by `,` or `;`. */
+  issued_by_raw: string;
+  /** Received by — names separated by `,` or `;`. */
+  received_by_raw: string;
+  /** @deprecated Legacy column; merged into received_by when received_by empty. */
   operator_raw: string;
   transfer_farm_raw: string;
   notes_raw: string;
@@ -46,7 +51,12 @@ export type FertilizerUsageImportPreviewRow = {
   amount: number;
   rate: number | null;
   rate_uom: string;
-  operator_label: string;
+  /** Matched Issued by display names. */
+  issued_by_label: string;
+  /** Matched Received by display names. */
+  received_by_label: string;
+  /** Person names declared but not found in staff directory. */
+  people_missing: string[];
   transfer_farm_label: string;
   notes: string;
   alias_title: string;
@@ -115,6 +125,81 @@ export function normalizeMatchText(value: string): string {
     .replace(/đ/g, "d")
     .replace(/[^a-z0-9]+/g, " ")
     .trim();
+}
+
+/**
+ * Extract numeric zone index from Excel values like `Z1`, `Zone 1`, `Zone1`, `khu 2`.
+ * Returns null when the value is not a numbered zone (e.g. `Zone A`).
+ */
+export function extractZoneNumber(raw: string): number | null {
+  const text = normalizeMatchText(raw);
+  if (!text) return null;
+  const spaced = text.replace(/\s+/g, " ");
+  const match =
+    /^(?:z|zone|khu(?:\s*vuc)?)\s*0*(\d+)$/.exec(spaced) ??
+    /^0*(\d+)$/.exec(spaced);
+  if (!match) return null;
+  const n = Number(match[1]);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** Comparable keys so `Z1` matches `Zone 1` / `Zone1` / label containing that number. */
+function zoneMatchKeys(raw: string): Set<string> {
+  const keys = new Set<string>();
+  const norm = normalizeMatchText(raw);
+  if (norm) {
+    keys.add(norm);
+    keys.add(norm.replace(/\s+/g, ""));
+  }
+  const n = extractZoneNumber(raw);
+  if (n != null) {
+    keys.add(`z${n}`);
+    keys.add(`zone${n}`);
+    keys.add(`zone ${n}`);
+    keys.add(`khu ${n}`);
+    keys.add(`khu vuc ${n}`);
+    keys.add(`khuvuc${n}`);
+  }
+  return keys;
+}
+
+function findZoneOption(
+  raw: string,
+  options: [string, string][],
+): { id: string; label: string } | null {
+  const target = raw.trim();
+  if (!target || options.length === 0) return null;
+
+  const targetKeys = zoneMatchKeys(target);
+  const targetNum = extractZoneNumber(target);
+
+  for (const [id, label] of options) {
+    const candidateKeys = new Set([...zoneMatchKeys(label), ...zoneMatchKeys(id)]);
+    for (const key of targetKeys) {
+      if (candidateKeys.has(key)) {
+        return { id, label };
+      }
+    }
+    if (targetNum != null) {
+      const labelNum = extractZoneNumber(label);
+      const idNum = extractZoneNumber(id);
+      if (labelNum === targetNum || idNum === targetNum) {
+        return { id, label };
+      }
+    }
+  }
+
+  let best: { id: string; label: string; score: number } | null = null;
+  for (const [id, label] of options) {
+    const score = Math.max(matchScore(target, label), matchScore(target, id));
+    if (!best || score > best.score) {
+      best = { id, label, score };
+    }
+  }
+  if (best && best.score >= 0.7) {
+    return { id: best.id, label: best.label };
+  }
+  return null;
 }
 
 function bigrams(value: string): Map<string, number> {
@@ -231,6 +316,54 @@ export function importImageLookupKey(name: string): string {
 }
 
 /**
+ * Split Excel person cell into names.
+ * Multiple people: `Anh Thi, Brad Burgess` or `Anh Thi; Brad Burgess`.
+ */
+export function parsePersonNames(raw: string): string[] {
+  const parts = raw
+    .split(/[;,\n|]+/)
+    .map((part) => part.trim().replace(/^["']+|["']+$/g, ""))
+    .filter(Boolean);
+
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const name of parts) {
+    const key = normalizeMatchText(name);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    unique.push(name);
+  }
+  return unique;
+}
+
+/** Resolve Excel person names against staff directory (fuzzy label match). */
+export function resolveImportPeople(
+  raw: string,
+  staffs: FertilizerUsageImportOption[],
+): { ids: number[]; labels: string[]; missing: string[] } {
+  const names = parsePersonNames(raw);
+  const ids: number[] = [];
+  const labels: string[] = [];
+  const missing: string[] = [];
+  const seenIds = new Set<number>();
+
+  for (const name of names) {
+    const match = findExactishOption(name, staffs);
+    if (!match) {
+      missing.push(name);
+      continue;
+    }
+    const id = Number(match.id);
+    if (!Number.isFinite(id) || id <= 0 || seenIds.has(id)) continue;
+    seenIds.add(id);
+    ids.push(id);
+    labels.push(match.label);
+  }
+
+  return { ids, labels, missing };
+}
+
+/**
  * Split Excel `images` cell into declared paths.
  * Supports `07/photo.jpg`, `photo.jpg`, or `photo1.jpg; photo2.jpg`.
  */
@@ -306,6 +439,21 @@ export function parseFertilizerUsageImportWorkbook(
     amount: findHeaderIndex(headers, ["amount", "amountused", "quantity", "soluong", "luongdung"]),
     rate: findHeaderIndex(headers, ["rate", "tile", "lieuluong"]),
     rateUom: findHeaderIndex(headers, ["rateunit", "rateuom", "donvirate", "donvilieuluong"]),
+    issuedBy: findHeaderIndex(headers, [
+      "issuedby",
+      "issued_by",
+      "sender",
+      "bengiao",
+      "nguoigiao",
+      "deliveredby",
+    ]),
+    receivedBy: findHeaderIndex(headers, [
+      "receivedby",
+      "received_by",
+      "receiver",
+      "bennhan",
+      "nguoinhan",
+    ]),
     operator: findHeaderIndex(headers, ["operator", "nguoivanhanh", "nguoithuchien"]),
     transferFarm: findHeaderIndex(headers, [
       "transfertofarm",
@@ -345,6 +493,8 @@ export function parseFertilizerUsageImportWorkbook(
       amount_raw: pick(idx.amount),
       rate_raw: pick(idx.rate),
       rate_uom_raw: pick(idx.rateUom),
+      issued_by_raw: pick(idx.issuedBy),
+      received_by_raw: pick(idx.receivedBy),
       operator_raw: pick(idx.operator),
       transfer_farm_raw: pick(idx.transferFarm),
       notes_raw: pick(idx.notes),
@@ -391,6 +541,11 @@ export function buildFertilizerUsageImportPreview(
       (name) => !imagesByName.has(importImageLookupKey(name)),
     );
 
+    const receivedByRaw = row.received_by_raw.trim() || row.operator_raw.trim();
+    const issuedPeople = resolveImportPeople(row.issued_by_raw, refs.staffs);
+    const receivedPeople = resolveImportPeople(receivedByRaw, refs.staffs);
+    const peopleMissing = [...issuedPeople.missing, ...receivedPeople.missing];
+
     const base: FertilizerUsageImportPreviewRow = {
       row_index: row.row_index,
       status: "invalid",
@@ -405,7 +560,9 @@ export function buildFertilizerUsageImportPreview(
       amount: 0,
       rate: null,
       rate_uom: row.rate_uom_raw,
-      operator_label: row.operator_raw,
+      issued_by_label: issuedPeople.labels.join(", "),
+      received_by_label: receivedPeople.labels.join(", "),
+      people_missing: peopleMissing,
       transfer_farm_label: row.transfer_farm_raw,
       notes: row.notes_raw,
       alias_title: row.alias_raw,
@@ -434,37 +591,12 @@ export function buildFertilizerUsageImportPreview(
     base.grass_label = grass.label;
 
     const zoneOptions = zoneOptionsForFarm(farm.id);
-    let zoneId = "";
-    let zoneLabel = row.zone_raw;
-    const zoneTarget = normalizeMatchText(row.zone_raw);
-    for (const [id, label] of zoneOptions) {
-      if (
-        normalizeMatchText(label) === zoneTarget ||
-        normalizeMatchText(id) === zoneTarget
-      ) {
-        zoneId = id;
-        zoneLabel = label;
-        break;
-      }
-    }
-    if (!zoneId) {
-      // Fuzzy fallback on zone labels.
-      let bestZone: { id: string; label: string; score: number } | null = null;
-      for (const [id, label] of zoneOptions) {
-        const score = matchScore(row.zone_raw, label);
-        if (!bestZone || score > bestZone.score) {
-          bestZone = { id, label, score };
-        }
-      }
-      if (bestZone && bestZone.score >= 0.7) {
-        zoneId = bestZone.id;
-        zoneLabel = bestZone.label;
-      }
-    }
-    if (!zoneId) {
+    const zoneMatch = findZoneOption(row.zone_raw, zoneOptions);
+    if (!zoneMatch) {
       return { ...base, reason: messages.zoneNotFound };
     }
-    base.zone_label = zoneLabel;
+    base.zone_label = zoneMatch.label;
+    const zoneId = zoneMatch.id;
 
     const productMatch = findBestProductMatch(row.product_raw, refs.products);
     if (!productMatch) {
@@ -492,21 +624,19 @@ export function buildFertilizerUsageImportPreview(
       base.transfer_farm_label = transferFarm.label;
     }
 
-    let operatorId: number | null = null;
-    if (row.operator_raw.trim()) {
-      const operator = findExactishOption(row.operator_raw, refs.staffs);
-      if (operator) {
-        operatorId = Number(operator.id);
-        base.operator_label = operator.label;
-      }
-    }
-
     const rate = parseImportNumber(row.rate_raw);
     base.rate = rate != null && rate > 0 ? rate : null;
 
+    const softWarnings: string[] = [];
     // Local missing images are a soft warning — backend may still resolve from disk.
     if (imagesMissing.length > 0 && imagesByName.size > 0) {
-      base.reason = imagesMissing.join(", ");
+      softWarnings.push(imagesMissing.join(", "));
+    }
+    if (peopleMissing.length > 0) {
+      softWarnings.push(peopleMissing.join(", "));
+    }
+    if (softWarnings.length > 0) {
+      base.reason = softWarnings.join("; ");
     }
 
     base.status = "ready";
@@ -521,7 +651,8 @@ export function buildFertilizerUsageImportPreview(
       transfer_to_farm_id: transferToFarmId,
       rate: base.rate,
       rate_uom: row.rate_uom_raw.trim() || null,
-      operator_id: operatorId,
+      sender_user_ids: issuedPeople.ids,
+      receiver_user_ids: receivedPeople.ids,
       notes: row.notes_raw.trim() || null,
       alias_title: row.alias_raw.trim() || null,
       client_row_index: row.row_index,
@@ -559,7 +690,8 @@ export function downloadFertilizerUsageImportTemplate(): void {
       "amount",
       "rate",
       "rate_unit",
-      "operator",
+      "issued_by",
+      "received_by",
       "transfer_to_farm",
       "notes",
       "alias_title",
@@ -569,12 +701,13 @@ export function downloadFertilizerUsageImportTemplate(): void {
       "2026-07-01",
       "Ban Beung",
       "Zoysia",
-      "Zone A",
+      "Z1",
       "NPK 16-16-8",
       "50",
       "30",
       "kg/ha",
-      "",
+      "Anh Thi Nguyen Huynh, Brad Burgess",
+      "Chau Thien Tan Pham",
       "",
       "",
       "NPK yellow bag",
@@ -584,12 +717,13 @@ export function downloadFertilizerUsageImportTemplate(): void {
       "02/07/2026",
       "Ban Beung",
       "Zoysia",
-      "Zone B",
+      "Z2",
       "Urea 46%",
       "25",
       "",
       "",
-      "",
+      "Brad Burgess",
+      "Anh Thi Nguyen Huynh, Chau Thien Tan Pham",
       "Hoi An",
       "Transferred for trial",
       "",
