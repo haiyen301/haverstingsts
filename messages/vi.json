@@ -3586,11 +3586,117 @@
     "duplicateLabel": "Tên loại máy này đã tồn tại.",
     "duplicateSlug": "Slug này đã được dùng cho loại máy khác."
   },
+  "VehicleInspections": {
+    "title": "Kiểm tra phương tiện",
+    "subtitle": "Danh sách kiểm tra trước sử dụng, theo dõi lỗi và lịch bảo trì",
+    "newInspection": "Kiểm tra mới",
+    "loading": "Đang tải…",
+    "search": "Tìm phương tiện…",
+    "saved": "Đã lưu kiểm tra",
+    "updated": "Đã cập nhật kiểm tra",
+    "savedMultiple": "Đã lưu {count} kiểm tra",
+    "deleted": "Đã xóa kiểm tra",
+    "deleteConfirm": "Xóa bản ghi kiểm tra phương tiện này?",
+    "kpi": {
+      "total": "Tổng phương tiện",
+      "passed": "Đạt",
+      "attention": "Cần chú ý",
+      "defects": "Lỗi chưa xử lý"
+    },
+    "filters": {
+      "allFarms": "Tất cả trang trại",
+      "allStatuses": "Tất cả trạng thái"
+    },
+    "status": {
+      "pass": "Đạt",
+      "fail": "Không đạt",
+      "due": "Sắp đến hạn",
+      "overdue": "Quá hạn"
+    },
+    "table": {
+      "vehicle": "Phương tiện",
+      "aliasName": "Tên gọi khác",
+      "type": "Loại",
+      "fuelType": "Loại nhiên liệu",
+      "farm": "Trang trại",
+      "lastInspection": "Lần kiểm tra cuối",
+      "nextDue": "Hạn tiếp theo",
+      "defects": "Lỗi",
+      "status": "Trạng thái",
+      "actions": "Thao tác",
+      "none": "Không có",
+      "empty": "Không có phương tiện nào khớp bộ lọc."
+    },
+    "dialog": {
+      "title": "Kiểm tra mới",
+      "editTitle": "Sửa kiểm tra",
+      "vehicleName": "Tên phương tiện",
+      "vehicleNamePlaceholder": "vd. Máy gặt HV-01",
+      "aliasName": "Tên gọi khác",
+      "aliasNamePlaceholder": "Máy gặt HV-01",
+      "selectFuelType": "Chọn loại nhiên liệu",
+      "type": "Loại",
+      "fuelType": "Loại nhiên liệu",
+      "farm": "Trang trại",
+      "registration": "Biển số / Số đăng ký",
+      "lastInspection": "Lần kiểm tra cuối",
+      "nextDue": "Hạn tiếp theo",
+      "datePlaceholder": "dd/mm/yyyy",
+      "status": "Trạng thái",
+      "defects": "Lỗi",
+      "defectsPlaceholder": "Mô tả lỗi, hư hỏng hoặc vấn đề phát hiện khi kiểm tra…",
+      "selectFarm": "Chọn trang trại",
+      "fuelTypeEmpty": "Mục không có loại nhiên liệu",
+      "cancel": "Hủy",
+      "save": "Lưu"
+    },
+    "fuelKind": {
+      "diesel": "Diesel",
+      "petrol": "Xăng"
+    },
+    "errors": {
+      "load": "Không tải được danh sách kiểm tra phương tiện.",
+      "loadOptions": "Không tải được tùy chọn form kiểm tra.",
+      "save": "Không lưu được kiểm tra.",
+      "delete": "Không xóa được kiểm tra.",
+      "requiredFields": "Phương tiện, loại và trang trại là bắt buộc.",
+      "duplicate": "Đã tồn tại phương tiện cùng tên, loại, loại nhiên liệu và trang trại."
+    }
+  },
   "Equipment": {
-    "form": {
-      "brand": "Hãng",
-      "hoursBetweenServiceHint": "Chu kỳ bảo trì của máy này — bao nhiêu giờ chạy giữa mỗi lần service.",
-      "hoursUsedCreateHint": "Số giờ ban đầu khi đăng ký máy. Sau này cập nhật bằng Cập nhật đồng hồ trên trang chi tiết."
+    "title": "Thiết bị & Cơ điện",
+    "subtitle": "Theo dõi giờ chạy, lịch bảo trì và tình trạng thiết bị",
+    "register": "Đăng ký thiết bị",
+    "registerSubmit": "Đăng ký thiết bị",
+    "createTitle": "Đăng ký thiết bị mới",
+    "editTitle": "Sửa thiết bị",
+    "saveChanges": "Lưu thay đổi",
+    "cancel": "Hủy",
+    "saved": "Đã đăng ký thiết bị",
+    "updated": "Đã cập nhật thiết bị",
+    "deleted": "Đã xóa thiết bị",
+    "deleteEquipment": "Xóa thiết bị",
+    "deleteConfirmTitle": "Xóa thiết bị?",
+    "deleteConfirmMessage": "Gỡ {name} khỏi danh sách thiết bị đang hoạt động? Đây là xóa mềm.",
+    "deleteConfirm": "Xóa bản ghi thiết bị này?",
+    "loading": "Đang tải…",
+    "search": "Tìm thiết bị…",
+    "empty": "Không có thiết bị nào khớp bộ lọc.",
+    "kpi": {
+      "total": "Tổng thiết bị",
+      "operational": "Đang hoạt động",
+      "attention": "Cần chú ý",
+      "farms": "Trang trại phủ sóng"
+    },
+    "filters": {
+      "allFarms": "Tất cả trang trại",
+      "allTypes": "Tất cả loại",
+      "allStatuses": "Tất cả trạng thái"
+    },
+    "status": {
+      "operational": "Đang hoạt động",
+      "maintenance": "Đang bảo trì",
+      "outOfService": "Ngừng hoạt động"
     },
     "card": {
       "serviceIn": "Còn {hours} giờ đến bảo trì",
@@ -3599,6 +3705,38 @@
       "hrsTotal": "giờ tổng",
       "last": "Lần cuối",
       "next": "Lần tới"
+    },
+    "form": {
+      "brand": "Hãng",
+      "type": "Loại",
+      "model": "Model",
+      "modelPlaceholder": "vd. 5075E",
+      "engineCode": "Mã động cơ",
+      "engineCodePlaceholder": "vd. KR-2000-A",
+      "hoursBetweenService": "Giờ giữa các lần bảo trì",
+      "hoursBetweenServicePlaceholder": "vd. 250",
+      "hoursBetweenServiceHint": "Chu kỳ bảo trì của máy này — bao nhiêu giờ chạy giữa mỗi lần service.",
+      "hoursUsed": "Đồng hồ giờ hiện tại",
+      "hoursUsedPlaceholder": "vd. 2000",
+      "hoursUsedCreateHint": "Số giờ ban đầu khi đăng ký máy. Sau này cập nhật bằng Cập nhật đồng hồ trên trang chi tiết.",
+      "notes": "Ghi chú",
+      "notesPlaceholder": "vd. Cần đại tu hệ thống thủy lực",
+      "farm": "Vị trí",
+      "status": "Trạng thái",
+      "pic": "STS PIC",
+      "selectBrand": "Chọn hãng…",
+      "selectType": "Chọn loại",
+      "selectFarm": "Chọn trang trại",
+      "selectPic": "Chọn người phụ trách",
+      "loadingBrands": "Đang tải hãng…",
+      "noBrands": "Không có hãng trong danh mục đã cấu hình. Liên kết hãng với danh mục tại Admin → Cài đặt → Hãng và đặt danh mục tại Admin → Đội xe → Danh mục thiết bị."
+    },
+    "errors": {
+      "load": "Không tải được danh sách thiết bị.",
+      "save": "Không đăng ký được thiết bị.",
+      "delete": "Không xóa được thiết bị.",
+      "requiredFields": "Hãng, loại và vị trí là bắt buộc.",
+      "invalidNumber": "Nhập số hợp lệ (vd. 1,234.56)."
     }
   },
   "EquipmentDetail": {
@@ -3644,6 +3782,39 @@
     "errors": {
       "hourMeterRequired": "Nhập số giờ mới trên đồng hồ.",
       "hourMeterTooLow": "Số giờ mới phải lớn hơn hoặc bằng đồng hồ hiện tại."
+    }
+  },
+  "AdminFleetCategories": {
+    "title": "Danh mục catalog sản phẩm",
+    "subtitle": "Chọn danh mục sản phẩm hiển thị trong bộ chọn cho Thiết bị, Sử dụng phân bón và Kiểm tra phương tiện (Sử dụng nhiên liệu dùng danh sách phương tiện).",
+    "loading": "Đang tải…",
+    "fieldLabel": "Danh mục catalog sản phẩm",
+    "fieldHint": "Danh mục hiển thị dạng đường dẫn đầy đủ (vd. PRODUCTS/MACHINERY/MACHINE). Chọn danh mục cha sẽ bao gồm tất cả danh mục con lồng nhau và sản phẩm của chúng.",
+    "excludedFieldLabel": "Danh mục loại trừ",
+    "excludedFieldHint": "Mục thuộc các danh mục này (và danh mục con) sẽ bị loại khỏi bộ chọn phương tiện dù đã được chọn ở trên.",
+    "selectPlaceholder": "Tìm danh mục…",
+    "selectExcludedPlaceholder": "Tìm danh mục loại trừ…",
+    "selectedCount": "Đã chọn {count}",
+    "currentLabel": "Lựa chọn hiện tại",
+    "currentExcludedLabel": "Danh mục loại trừ hiện tại",
+    "saved": "Đã lưu danh mục",
+    "loadError": "Không tải được cài đặt danh mục.",
+    "requestFailed": "Yêu cầu thất bại.",
+    "fuelUsageNote": "Sử dụng nhiên liệu không có bộ lọc danh mục riêng — nó dùng phương tiện đã đăng ký trong Kiểm tra phương tiện.",
+    "equipment": {
+      "title": "Thiết bị",
+      "hint": "Bộ chọn sản phẩm khi đăng ký thiết bị."
+    },
+    "fertilizerUsage": {
+      "title": "Sử dụng phân bón",
+      "hint": "Bộ chọn sản phẩm cho nhật ký sử dụng phân bón. Cũng điều khiển danh mục nào hỗ trợ tỷ lệ mặc định trong Admin Items."
+    },
+    "vehicleInspection": {
+      "title": "Kiểm tra phương tiện",
+      "hint": "Bộ chọn phương tiện cho kiểm tra và sử dụng nhiên liệu."
+    },
+    "errors": {
+      "required": "Chọn ít nhất một danh mục."
     }
   },
   "AdminFleetOptionCatalogs": {
