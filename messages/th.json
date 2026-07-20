@@ -3399,5 +3399,55 @@
     "deleteDescription": "ลบ “{name}” ออกจากแคตตาล็อกหรือไม่? บันทึกเครื่องจักรที่มีอยู่จะยังคงค่าประเภทเดิม",
     "duplicateLabel": "มีประเภทเครื่องจักรชื่อนี้อยู่แล้ว",
     "duplicateSlug": "Slug นี้ถูกใช้โดยประเภทเครื่องจักรอื่นแล้ว"
+  },
+  "AdminFleetOptionCatalogs": {
+    "title": "แคตตาล็อกตัวเลือกยานพาหนะ",
+    "subtitle": "จัดการสถานะการตรวจสอบ ประเภทบริการอุปกรณ์ และชนิดเชื้อเพลิง",
+    "loading": "กำลังโหลด…",
+    "newLabelPlaceholder": "ชื่อที่แสดง…",
+    "newValuePlaceholder": "ค่าที่จัดเก็บ (ไม่บังคับ)…",
+    "add": "เพิ่มตัวเลือก",
+    "colLabel": "ชื่อ",
+    "colValue": "ค่า",
+    "colActive": "ใช้งาน",
+    "colActions": "การดำเนินการ",
+    "empty": "ยังไม่มีตัวเลือก รัน SQL seeder หรือเพิ่มด้านบน",
+    "loadError": "โหลดตัวเลือกไม่สำเร็จ",
+    "requestFailed": "คำขอล้มเหลว",
+    "deleteTitle": "ลบตัวเลือก",
+    "deleteDescription": "ลบ “{name}”? บันทึกที่มีอยู่จะยังคงค่าที่จัดเก็บไว้",
+    "optionCount": "{count, plural, other {# ตัวเลือก}}",
+    "catalogs": {
+      "fleet_vehicle_inspection_statuses": {
+        "title": "สถานะการตรวจสอบ",
+        "hint": "เมนูสถานะในการตรวจสอบยานพาหนะ"
+      },
+      "fleet_equipment_service_types": {
+        "title": "ประเภทบันทึกบริการ",
+        "hint": "เมนูประเภทเมื่อเพิ่มบันทึกบริการอุปกรณ์"
+      },
+      "fleet_fuel_types": {
+        "title": "ชนิดเชื้อเพลิง",
+        "hint": ""
+      }
+    },
+    "optionLabels": {
+      "fleet_vehicle_inspection_statuses": {
+        "pass": "ผ่าน",
+        "fail": "ไม่ผ่าน",
+        "due": "ใกล้ครบกำหนด",
+        "overdue": "เกินกำหนด"
+      },
+      "fleet_equipment_service_types": {
+        "Scheduled": "ตามกำหนด",
+        "Unscheduled": "นอกกำหนด",
+        "Repair": "ซ่อมแซม"
+      },
+      "fleet_fuel_types": {
+        "diesel": "ดีเซล",
+        "petrol": "เบนซิน",
+        "engine_oil_grease": "น้ำมันเครื่อง จาระบี"
+      }
+    }
   }
 }

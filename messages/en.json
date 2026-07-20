@@ -3869,6 +3869,7 @@
     "loading": "Loading…",
     "search": "Search vehicles…",
     "saved": "Inspection saved",
+    "updated": "Inspection updated",
     "savedMultiple": "{count} inspections saved",
     "deleted": "Inspection removed",
     "deleteConfirm": "Remove this vehicle inspection record?",
@@ -4253,6 +4254,24 @@
       "fleet_fuel_types": {
         "title": "Fuel types",
         "hint": ""
+      }
+    },
+    "optionLabels": {
+      "fleet_vehicle_inspection_statuses": {
+        "pass": "Passed",
+        "fail": "Failed",
+        "due": "Due Soon",
+        "overdue": "Overdue"
+      },
+      "fleet_equipment_service_types": {
+        "Scheduled": "Scheduled",
+        "Unscheduled": "Unscheduled",
+        "Repair": "Repair"
+      },
+      "fleet_fuel_types": {
+        "diesel": "Diesel",
+        "petrol": "Petrol",
+        "engine_oil_grease": "Engine Oil, Grease"
       }
     }
   }

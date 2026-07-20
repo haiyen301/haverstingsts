@@ -43,6 +43,7 @@ import {
 } from "@/features/fleet/api/fuelUsageApi";
 import { FLEET_OPTION_CATALOG_KEYS } from "@/features/fleet/api/fleetOptionCatalogApi";
 import { useFleetOptionCatalog } from "@/features/fleet/hooks/useFleetOptionCatalog";
+import { localizeFleetOptions } from "@/features/fleet/lib/resolveFleetOptionLabel";
 import { FuelStockLedgerPanel, type FuelStockBalanceResumeState } from "@/features/fleet/FuelStockLedgerPanel";
 import { FuelStockImportDialog } from "@/features/fleet/ui/FuelStockImportDialog";
 import { FuelUsageImportDialog } from "@/features/fleet/ui/FuelUsageImportDialog";
@@ -219,6 +220,7 @@ function dedupeFuelUsageRows(rows: FuelUsageRow[]): FuelUsageRow[] {
 
 export function FuelUsageTab() {
   const t = useTranslations("FuelUsage");
+  const tCatalog = useTranslations("AdminFleetOptionCatalogs");
   const searchParams = useSearchParams();
   const user = useAuthUserStore((s) => s.user);
   const canCreate = canAccessModule(user, "fuel_usage", "create");
@@ -232,24 +234,28 @@ export function FuelUsageTab() {
   const { options: fuelTypeOptions } = useFleetOptionCatalog(
     FLEET_OPTION_CATALOG_KEYS.fuelTypes,
   );
+  const localizedFuelTypeOptions = useMemo(
+    () => localizeFleetOptions(fuelTypeOptions, FLEET_OPTION_CATALOG_KEYS.fuelTypes, tCatalog),
+    [fuelTypeOptions, tCatalog],
+  );
   const fuelKindLabelByValue = useMemo(() => {
     const map: Record<string, string> = {};
-    for (const option of fuelTypeOptions) {
+    for (const option of localizedFuelTypeOptions) {
       map[String(option.value).toLowerCase()] = option.label;
     }
     return map;
-  }, [fuelTypeOptions]);
+  }, [localizedFuelTypeOptions]);
   const fuelKindFallback = useMemo(
     () => ({ diesel: t("stock.diesel"), petrol: t("stock.petrol") }),
     [t],
   );
   const fuelKindFilterOptions = useMemo(
     () =>
-      fuelTypeOptions.map((option) => ({
+      localizedFuelTypeOptions.map((option) => ({
         value: String(option.value).toLowerCase(),
         label: option.label,
       })),
-    [fuelTypeOptions],
+    [localizedFuelTypeOptions],
   );
   const farms = useHarvestingDataStore((s) => s.farms);
   const staffs = useHarvestingDataStore((s) => s.staffs);

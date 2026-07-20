@@ -22,6 +22,7 @@ import {
 import { FuelStockImportDialog } from "@/features/fleet/ui/FuelStockImportDialog";
 import { FLEET_OPTION_CATALOG_KEYS } from "@/features/fleet/api/fleetOptionCatalogApi";
 import { useFleetOptionCatalog } from "@/features/fleet/hooks/useFleetOptionCatalog";
+import { resolveFleetOptionLabel } from "@/features/fleet/lib/resolveFleetOptionLabel";
 import { Card, CardContent } from "@/components/ui/card";
 import { formatDateDisplay } from "@/shared/lib/format/date";
 import {
@@ -1831,18 +1832,26 @@ export function StockLedgerPanel({
 }
 
 export function FuelStockLedgerPanel(props: FuelStockLedgerPanelProps) {
+  const tCatalog = useTranslations("AdminFleetOptionCatalogs");
   const { options: fuelTypeOptions, values: fuelKinds } = useFleetOptionCatalog(
     FLEET_OPTION_CATALOG_KEYS.fuelTypes,
   );
   const stockKeyOptions = useMemo(() => {
     const values = fuelKinds.length ? fuelKinds : [...FUEL_KINDS_FALLBACK];
-    return values.map((value) => ({
-      value,
-      label:
-        fuelTypeOptions.find((row) => row.value === value)?.label ??
-        (value === "diesel" ? "Diesel" : value === "petrol" ? "Petrol" : value),
-    }));
-  }, [fuelKinds, fuelTypeOptions]);
+    return values.map((value) => {
+      const fromCatalog = fuelTypeOptions.find((row) => row.value === value)?.label;
+      return {
+        value,
+        label: resolveFleetOptionLabel(
+          tCatalog,
+          FLEET_OPTION_CATALOG_KEYS.fuelTypes,
+          value,
+          fromCatalog ??
+            (value === "diesel" ? "Diesel" : value === "petrol" ? "Petrol" : value),
+        ),
+      };
+    });
+  }, [fuelKinds, fuelTypeOptions, tCatalog]);
 
   return (
     <StockLedgerPanel

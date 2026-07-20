@@ -41,6 +41,7 @@ import { fetchStaffOptions } from "@/features/fleet/api/machineryApi";
 import { useFleetOptionCatalog } from "@/features/fleet/hooks/useFleetOptionCatalog";
 import { equipmentCardModelTitle } from "@/features/fleet/lib/equipmentModelDisplay";
 import { calcEquipmentServiceInterval } from "@/features/fleet/lib/equipmentServiceInterval";
+import { resolveFleetOptionLabel } from "@/features/fleet/lib/resolveFleetOptionLabel";
 import { EquipmentFormDialog } from "@/features/fleet/ui/EquipmentFormDialog";
 import { canAccessModule } from "@/shared/auth/permissions";
 import { Card, CardContent } from "@/components/ui/card";
@@ -127,14 +128,28 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
   const t = useTranslations("EquipmentDetail");
   const tEq = useTranslations("Equipment");
   const tCommon = useTranslations("Common");
+  const tCatalog = useTranslations("AdminFleetOptionCatalogs");
   const router = useRouter();
   const user = useAuthUserStore((s) => s.user);
   const canEdit = canAccessModule(user, "equipment", "edit");
   const canCreate = canAccessModule(user, "equipment", "create");
   const canDelete = canAccessModule(user, "equipment", "delete");
   const canManageRows = canEdit || canDelete;
-  const { values: catalogServiceTypes } = useFleetOptionCatalog(
+  const { values: catalogServiceTypes, options: catalogServiceTypeOptions } = useFleetOptionCatalog(
     FLEET_OPTION_CATALOG_KEYS.equipmentServiceTypes,
+  );
+
+  const serviceTypeLabel = useCallback(
+    (value: string) => {
+      const fromCatalog = catalogServiceTypeOptions.find((o) => o.value === value)?.label;
+      return resolveFleetOptionLabel(
+        tCatalog,
+        FLEET_OPTION_CATALOG_KEYS.equipmentServiceTypes,
+        value,
+        fromCatalog,
+      );
+    },
+    [catalogServiceTypeOptions, tCatalog],
   );
 
   const [detail, setDetail] = useState<EquipmentDetail | null>(null);
@@ -724,7 +739,7 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
                               serviceTypeBadgeClass(String(log.service_type)),
                             )}
                           >
-                            {log.service_type}
+                            {serviceTypeLabel(String(log.service_type))}
                           </span>
                         </td>
                         <td className="max-w-[280px] truncate px-3 py-3 text-muted-foreground">
@@ -795,7 +810,7 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
                       serviceTypeBadgeClass(String(selectedLog.service_type)),
                     )}
                   >
-                    {selectedLog.service_type}
+                    {serviceTypeLabel(String(selectedLog.service_type))}
                   </span>
                 </div>
                 <p className="mt-1 text-sm text-muted-foreground">
@@ -825,7 +840,9 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground">{t("table.type")}</p>
-                  <p className="text-sm font-semibold">{selectedLog.service_type}</p>
+                  <p className="text-sm font-semibold">
+                    {serviceTypeLabel(String(selectedLog.service_type))}
+                  </p>
                 </div>
               </div>
               <div className="flex items-start gap-3">
@@ -938,7 +955,7 @@ export function EquipmentDetailTab({ equipmentId, returnTo = "/fleet/equipment" 
                 >
                   {serviceTypes.map((type) => (
                     <option key={type} value={type}>
-                      {type}
+                      {serviceTypeLabel(type)}
                     </option>
                   ))}
                 </select>

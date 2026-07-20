@@ -33,6 +33,11 @@ import {
 import { fuelUsageFuelKindLabel } from "@/features/fleet/api/fuelUsageApi";
 import { useFleetOptionCatalog } from "@/features/fleet/hooks/useFleetOptionCatalog";
 import { useMachineryTypes } from "@/features/fleet/hooks/useMachineryTypes";
+import {
+  localizeFleetOptions,
+  resolveFleetOptionLabel,
+  type FleetOptionLabelTranslator,
+} from "@/features/fleet/lib/resolveFleetOptionLabel";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { formatDateDisplayDmy } from "@/shared/lib/format/date";
@@ -108,20 +113,20 @@ function emptyForm(farmId = "", defaultStatus = "pass", vehicleTypeDefault = "")
 function statusLabel(
   statuses: InspectionStatusOption[],
   value: string,
-  t: (key: string) => string,
+  tCatalog: FleetOptionLabelTranslator,
 ): string {
   const fromApi = statuses.find((s) => s.value === value)?.label;
-  if (fromApi) return fromApi;
-  const key = `status.${value}`;
-  try {
-    return t(key);
-  } catch {
-    return value;
-  }
+  return resolveFleetOptionLabel(
+    tCatalog,
+    FLEET_OPTION_CATALOG_KEYS.inspectionStatuses,
+    value,
+    fromApi,
+  );
 }
 
 export function VehicleInspectionsTab() {
   const t = useTranslations("VehicleInspections");
+  const tCatalog = useTranslations("AdminFleetOptionCatalogs");
   const user = useAuthUserStore((s) => s.user);
   const canCreate = canAccessModule(user, "vehicle_inspections", "create");
   const canEdit = canAccessModule(user, "vehicle_inspections", "edit");
@@ -131,13 +136,17 @@ export function VehicleInspectionsTab() {
   const { options: fuelTypeOptions } = useFleetOptionCatalog(
     FLEET_OPTION_CATALOG_KEYS.fuelTypes,
   );
+  const localizedFuelTypeOptions = useMemo(
+    () => localizeFleetOptions(fuelTypeOptions, FLEET_OPTION_CATALOG_KEYS.fuelTypes, tCatalog),
+    [fuelTypeOptions, tCatalog],
+  );
   const fuelKindLabelByValue = useMemo(() => {
     const map: Record<string, string> = {};
-    for (const option of fuelTypeOptions) {
+    for (const option of localizedFuelTypeOptions) {
       map[String(option.value).toLowerCase()] = option.label;
     }
     return map;
-  }, [fuelTypeOptions]);
+  }, [localizedFuelTypeOptions]);
   const fuelKindFallback = useMemo(
     () => ({ diesel: t("fuelKind.diesel"), petrol: t("fuelKind.petrol") }),
     [t],
@@ -216,8 +225,12 @@ export function VehicleInspectionsTab() {
   const openDefectsCount = rows.filter((v) => hasDefectsText(v.defects)).length;
 
   const fuelTypeSelectOptions = useMemo(
-    () => fuelTypeOptions.map((option) => ({ value: String(option.value), label: option.label })),
-    [fuelTypeOptions],
+    () =>
+      localizedFuelTypeOptions.map((option) => ({
+        value: String(option.value),
+        label: option.label,
+      })),
+    [localizedFuelTypeOptions],
   );
 
   const farmOptions = useMemo(
@@ -231,8 +244,13 @@ export function VehicleInspectionsTab() {
   );
 
   const statusOptions = useMemo(
-    () => statuses.map((status) => ({ value: status.value, label: status.label })),
-    [statuses],
+    () =>
+      localizeFleetOptions(
+        statuses,
+        FLEET_OPTION_CATALOG_KEYS.inspectionStatuses,
+        tCatalog,
+      ).map((status) => ({ value: status.value, label: status.label })),
+    [statuses, tCatalog],
   );
 
   const openCreate = () => {
@@ -482,7 +500,7 @@ export function VehicleInspectionsTab() {
                         <td className="px-4 py-3">
                           <span className={cn("inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium", sc.className)}>
                             <Icon className="h-3 w-3" />
-                            {statusLabel(statuses, v.status, t)}
+                            {statusLabel(statuses, v.status, tCatalog)}
                           </span>
                         </td>
                         {canManageRows ? (

@@ -13,6 +13,7 @@ import {
   type FleetOptionCatalogRow,
 } from "@/features/fleet/api/fleetOptionCatalogApi";
 import { clearFleetOptionCatalogCache } from "@/features/fleet/hooks/useFleetOptionCatalog";
+import { resolveFleetOptionLabel } from "@/features/fleet/lib/resolveFleetOptionLabel";
 import {
   Card,
   CardContent,
@@ -264,7 +265,9 @@ function CatalogSection({
                             onChange={(e) => setEditLabel(e.target.value)}
                           />
                         ) : (
-                          <span className="font-medium text-foreground">{row.label}</span>
+                          <span className="font-medium text-foreground">
+                            {resolveFleetOptionLabel(t, catalog, row.value, row.label)}
+                          </span>
                         )}
                       </td>
                       {showValueColumn ? (
@@ -376,7 +379,11 @@ function CatalogSection({
         <ConfirmDeleteDialog
           open={deleteTarget != null}
           title={t("deleteTitle")}
-          message={t("deleteDescription", { name: deleteTarget?.label ?? "" })}
+          message={t("deleteDescription", {
+            name: deleteTarget
+              ? resolveFleetOptionLabel(t, catalog, deleteTarget.value, deleteTarget.label)
+              : "",
+          })}
           cancelLabel={tCommon("cancel")}
           confirmLabel={tCommon("delete")}
           deleting={deleting}

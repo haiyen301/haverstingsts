@@ -3644,5 +3644,55 @@
       "hourMeterRequired": "Nhập số giờ mới trên đồng hồ.",
       "hourMeterTooLow": "Số giờ mới phải lớn hơn hoặc bằng đồng hồ hiện tại."
     }
+  },
+  "AdminFleetOptionCatalogs": {
+    "title": "Danh mục tùy chọn đội xe",
+    "subtitle": "Quản lý trạng thái kiểm tra, loại dịch vụ thiết bị và loại nhiên liệu.",
+    "loading": "Đang tải…",
+    "newLabelPlaceholder": "Nhãn hiển thị…",
+    "newValuePlaceholder": "Giá trị lưu (tùy chọn)…",
+    "add": "Thêm tùy chọn",
+    "colLabel": "Nhãn",
+    "colValue": "Giá trị",
+    "colActive": "Kích hoạt",
+    "colActions": "Thao tác",
+    "empty": "Chưa có tùy chọn nào. Chạy SQL seeder hoặc thêm ở trên.",
+    "loadError": "Không tải được danh sách tùy chọn.",
+    "requestFailed": "Yêu cầu thất bại.",
+    "deleteTitle": "Xóa tùy chọn",
+    "deleteDescription": "Xóa “{name}”? Bản ghi hiện có vẫn giữ giá trị đã lưu.",
+    "optionCount": "{count, plural, other {# tùy chọn}}",
+    "catalogs": {
+      "fleet_vehicle_inspection_statuses": {
+        "title": "Trạng thái kiểm tra",
+        "hint": "Dropdown trạng thái trong Kiểm tra phương tiện."
+      },
+      "fleet_equipment_service_types": {
+        "title": "Loại bản ghi dịch vụ",
+        "hint": "Dropdown loại khi thêm bản ghi dịch vụ thiết bị."
+      },
+      "fleet_fuel_types": {
+        "title": "Loại nhiên liệu",
+        "hint": ""
+      }
+    },
+    "optionLabels": {
+      "fleet_vehicle_inspection_statuses": {
+        "pass": "Đạt",
+        "fail": "Không đạt",
+        "due": "Sắp đến hạn",
+        "overdue": "Quá hạn"
+      },
+      "fleet_equipment_service_types": {
+        "Scheduled": "Theo lịch",
+        "Unscheduled": "Ngoài lịch",
+        "Repair": "Sửa chữa"
+      },
+      "fleet_fuel_types": {
+        "diesel": "Dầu diesel",
+        "petrol": "Xăng",
+        "engine_oil_grease": "Dầu máy, mỡ"
+      }
+    }
   }
 }
