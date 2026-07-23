@@ -1112,6 +1112,7 @@ export function StockLedgerPanel({
       rowDateYmd(config),
     );
     const wasSelected = deletedKey === selectedConfigKey;
+    const wasEditing = editingOpeningConfigId === Number(config.id);
 
     try {
       setSaving(true);
@@ -1120,6 +1121,11 @@ export function StockLedgerPanel({
       if (wasSelected) {
         setOpeningQty("");
         setImportDraft("");
+      }
+      if (wasEditing) {
+        setEditingOpening(false);
+        setEditingOpeningConfigId(null);
+        setCreatingOpening(false);
       }
       const allRows = await fetchFleetStockLedger({ module: ledgerModule });
       const nextConfigs = buildOpeningConfigs(allRows);
@@ -1136,6 +1142,7 @@ export function StockLedgerPanel({
       }
       setOpeningListVisibleCount(OPENING_LIST_PAGE_SIZE);
       await load({ background: true });
+      onDataChanged?.();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t("stock.errors.delete"), {
         containerId: TOAST_CONTAINER_TOP_RIGHT,
