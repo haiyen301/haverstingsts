@@ -1163,8 +1163,22 @@ function addMonths(date: Date, months: number): Date {
   return next;
 }
 
-/** Weekly chart dates plus any manual balance dates inside the forecast window. */
+/** Chart dates: denser ticks for short ranges; weekly/biweekly for long horizons. */
 type ChartUnitMode = "sprig" | "sod";
+
+/** Inclusive day span → X-axis step (short custom ranges show every day). */
+function chartTickStepDays(spanDaysInclusive: number): number {
+  if (spanDaysInclusive <= 14) return 1;
+  if (spanDaysInclusive <= 45) return 3;
+  if (spanDaysInclusive <= 120) return 7;
+  return 14;
+}
+
+function inclusiveDaySpan(start: Date, end: Date): number {
+  const ms = end.getTime() - start.getTime();
+  if (!Number.isFinite(ms) || ms < 0) return 0;
+  return Math.round(ms / 86_400_000) + 1;
+}
 
 function sprigSodSegmentClass(active: boolean): string {
   return cn(
@@ -1254,12 +1268,12 @@ function collectForecastChartDateYmds(
   const dates = new Set<string>();
   const start = rangeStart <= horizonEnd ? rangeStart : horizonEnd;
   const end = rangeStart <= horizonEnd ? horizonEnd : rangeStart;
+  const stepDays = chartTickStepDays(inclusiveDaySpan(start, end));
 
-  // Weekly ticks across the selected filter window (not always from "today").
   let cursor = start;
   while (cursor <= end) {
     dates.add(ymdFromDate(cursor));
-    cursor = addDays(cursor, 7);
+    cursor = addDays(cursor, stepDays);
   }
   dates.add(ymdFromDate(start));
   dates.add(ymdFromDate(end));
@@ -1515,7 +1529,7 @@ export function InventoryForecast({
     return parseYmdLocal(endYmd) ?? addMonths(getForecastToday(), forecastSpanMonths);
   }, [forecastDateRange.end, forecastSpanMonths]);
 
-  /** Chart series: inventory_daily_snapshots aggregate (v14 — engine writes past Cap C / future Cap A). */
+  /** Chart series: inventory_daily_snapshots (v14). Filtered farm/grass → Cap A live roll today+. */
   const dbSeries = useForecastDbSeries({
     dateFrom: forecastDateRange.start,
     dateTo: forecastDateRange.end,
@@ -2760,14 +2774,20 @@ export function InventoryForecast({
         <ResponsiveContainer width="100%" height={320}>
           <AreaChart data={forecastData}>
             <CartesianGrid strokeDasharray="3 3" stroke="hsl(214,18%,89%)" />
-            <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={(v) => formatDayMonth(String(v))} />
+            <XAxis
+              dataKey="date"
+              tick={{ fontSize: 11 }}
+              tickFormatter={(v) => formatDayMonth(String(v))}
+              interval={forecastData.length <= 16 ? 0 : "preserveStartEnd"}
+              minTickGap={forecastData.length <= 16 ? 8 : 24}
+            />
             <YAxis
               domain={[0, yAxisMaxForAvailable]}
               tick={{ fontSize: 11 }}
               tickFormatter={(v) => `${(Number(v) / 1000).toFixed(0)}k`}
             />
             <Tooltip
-              content={({ active, payload, label }) => {
+              content={({ active, payload }) => {
                 if (!active || !payload || payload.length === 0) return null;
                 const point = payload.find((item) => item.payload)?.payload as ForecastPoint | undefined;
                 if (!point) return null;
@@ -2872,7 +2892,13 @@ export function InventoryForecast({
         <ResponsiveContainer width="100%" height={320}>
           <AreaChart data={forecastBySeries}>
             <CartesianGrid strokeDasharray="3 3" stroke="hsl(214,18%,89%)" />
-            <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={(v) => formatDayMonth(String(v))} />
+            <XAxis
+              dataKey="date"
+              tick={{ fontSize: 11 }}
+              tickFormatter={(v) => formatDayMonth(String(v))}
+              interval={forecastBySeries.length <= 16 ? 0 : "preserveStartEnd"}
+              minTickGap={forecastBySeries.length <= 16 ? 8 : 24}
+            />
             <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `${(Number(v) / 1000).toFixed(0)}k`} />
             <Tooltip
               content={({ active, payload }) => {

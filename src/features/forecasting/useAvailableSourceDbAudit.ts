@@ -224,6 +224,8 @@ export function useAvailableSourceDbAudit(args: Args) {
           regrowthStats,
           args.farmIds,
           args.grassIds,
+          [],
+          { anchorYmd: anchor },
         );
         setRollingDailyAvailable(dbResult.aggregate);
         setRegrowthStatsByDate(dbResult.regrowthStatsByDate);

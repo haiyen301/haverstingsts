@@ -139,6 +139,7 @@ export function useForecastDbSeries(args: Args) {
             args.farmIds,
             args.grassIds,
             args.permissionScopeFarmIds ?? [],
+            { anchorYmd: anchor },
           ),
         );
       } catch (e) {

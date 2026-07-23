@@ -427,11 +427,17 @@ export function harvestPlanInventoryKgFromRaw(
       zoneConfigs: options.zoneConfigs ?? [],
       buckets: options.buckets,
     });
-    return Math.max(0, rawQty * kgPerM2);
+    return roundHarvestInventoryKg(Math.max(0, rawQty * kgPerM2));
   }
 
-  if (isKgUom(uom)) return Math.max(0, rawQty);
-  return Math.max(0, rawQty);
+  if (isKgUom(uom)) return roundHarvestInventoryKg(Math.max(0, rawQty));
+  return roundHarvestInventoryKg(Math.max(0, rawQty));
+}
+
+/** Parity PHP ForecastHarvestConversion::roundInventoryKg — nearest whole kg. */
+export function roundHarvestInventoryKg(kg: number): number {
+  if (!Number.isFinite(kg) || kg <= 0) return 0;
+  return Math.round(kg);
 }
 
 /** Sod / M²: `harvested_area` (or `quantity` as m²) × zone kg/m². Sprig / Sod→Sprig / UOM kg: plan `quantity` (kg). */
@@ -620,15 +626,15 @@ export function forecastHarvestRowInventoryKg(
   options?: { zoneConfigs?: ZoneConfigurationRow[] },
 ): number {
   const stored = Number.isFinite(row.inventoryKg) ? row.inventoryKg : 0;
-  if (stored > 0) return stored;
+  if (stored > 0) return roundHarvestInventoryKg(stored);
   if (forecastHarvestRowUsesHarvestedAreaForMagnitude(row)) {
     const m2 = forecastHarvestRowEffectiveM2(row, { zoneConfigs: options?.zoneConfigs });
     if (m2 <= 0) return 0;
     const kgPerM2 = resolveForecastHarvestRowInventoryKgPerM2(row, options?.zoneConfigs);
     if (kgPerM2 <= 0) return 0;
-    return Math.max(0, Math.round(m2 * kgPerM2));
+    return roundHarvestInventoryKg(m2 * kgPerM2);
   }
-  return forecastHarvestRowPlanQuantityKg(row);
+  return roundHarvestInventoryKg(forecastHarvestRowPlanQuantityKg(row));
 }
 
 /** Sprig / Kg → cột `quantity`; ngược lại → `harvested_area`. */

@@ -300,6 +300,39 @@
       }
     }
   },
+  "AdminWeatherLocations": {
+    "title": "ตำแหน่งสภาพอากาศ (Open-Meteo)",
+    "description": "ตั้งค่าจุดพยากรณ์ Open-Meteo และเชื่อมแต่ละตำแหน่งกับฟาร์ม ปริมาณฝนบนแดชบอร์ดจะใช้เฉพาะฟาร์มที่ตั้งค่าไว้ที่นี่เท่านั้น",
+    "loading": "กำลังโหลดตำแหน่ง…",
+    "locationsTitle": "ตำแหน่ง",
+    "forecastPoint": "จุดพยากรณ์ Open-Meteo",
+    "farm": "ฟาร์ม",
+    "farmPlaceholder": "— เลือกฟาร์ม —",
+    "farmTaken": "เชื่อมไว้ที่อื่นแล้ว",
+    "noFarmLinked": "ยังไม่ได้เชื่อมฟาร์ม",
+    "geocodePlaceholder": "ชื่อเมืองสำหรับค้นหาพิกัด",
+    "add": "เพิ่มตำแหน่ง",
+    "save": "บันทึก",
+    "verify": "ตรวจสอบ Open-Meteo",
+    "geocode": "ค้นหาจากชื่อ",
+    "locationId": "รหัสตำแหน่ง",
+    "label": "ชื่อ",
+    "countryCode": "รหัสประเทศ",
+    "latitude": "ละติจูด",
+    "longitude": "ลองจิจูด",
+    "timezone": "เขตเวลา",
+    "active": "ใช้งาน",
+    "saved": "บันทึกตำแหน่งแล้ว",
+    "verified": "ตรวจสอบ Open-Meteo แล้ว",
+    "errors": {
+      "load": "โหลดตำแหน่งสภาพอากาศไม่ได้",
+      "save": "บันทึกตำแหน่งไม่ได้",
+      "verify": "ตรวจสอบไม่สำเร็จ",
+      "geocode": "ค้นหาพิกัดไม่สำเร็จ",
+      "requiredFields": "ต้องระบุรหัสตำแหน่งและชื่อ",
+      "coordinatesRequired": "กรอกละติจูดและลองจิจูดที่ถูกต้อง (ใช้ค้นหาพิกัดหรือตรวจสอบ)"
+    }
+  },
   "AdminActivityLog": {
     "title": "บันทึกกิจกรรม",
     "description": "ติดตามการเปลี่ยนแปลงโครงการ การเก็บเกี่ยว สินค้าคงคลัง และการตั้งค่าผู้ดูแลผ่าน STS TURF OPS เฉพาะบัญชีผู้ดูแล 409 เท่านั้นที่ดูได้",
@@ -1666,7 +1699,8 @@
       "allTypes": "All Types",
       "allAccess": "All Access",
       "hasAppLogin": "Has App Login",
-      "directoryOnly": "Directory Only"
+      "directoryOnly": "Directory Only",
+      "allRoles": "All Roles"
     },
     "types": {
       "staff": "STS Staff",
@@ -1682,6 +1716,72 @@
       "access": "Access",
       "status": "Status",
       "actions": "Actions"
+    },
+    "loading": "Loading staff data...",
+    "saving": "Saving...",
+    "lastOnline": "Last online",
+    "lastOnlineNever": "Never",
+    "superAdmin": "Super Admin",
+    "status": {
+      "active": "Active",
+      "inactive": "Inactive"
+    },
+    "dialog": {
+      "close": "Close dialog",
+      "addDescription": "Create a directory entry and optionally enable sign-in.",
+      "editDescription": "Update directory details, app access, and farms where applicable."
+    },
+    "form": {
+      "fullName": "Full Name",
+      "email": "Email",
+      "phone": "Phone",
+      "jobTitle": "Job Title",
+      "company": "Company",
+      "type": "Type",
+      "status": "Status",
+      "odooId": "Odoo ID (optional)",
+      "odooIdPlaceholder": "External res.partner reference",
+      "staffSettings": "Staff Settings",
+      "location": "Location",
+      "locationPlaceholder": "e.g. Semenyih",
+      "eligibleProjectPic": "Eligible as Project PIC",
+      "appAccess": "App Access",
+      "appAccessHint": "Grant a login to use this app.",
+      "superAdmin": "Super Admin",
+      "superAdminHint": "Full access to the app (same as legacy admin account).",
+      "role": "Role",
+      "selectRole": "Select role",
+      "farms": "Farms",
+      "farmsHintPrefix": "Required for non–Super Admin accounts. Saved to",
+      "farmsHintAs": "as",
+      "farmsHintSuffix": "(comma-separated farm ids for SQL IN).",
+      "selectFarms": "Select farms…",
+      "createNewPassword": "Create new password",
+      "password": "Password",
+      "confirmPassword": "Confirm Password",
+      "showPassword": "Show password",
+      "hidePassword": "Hide password",
+      "showConfirmPassword": "Show confirm password",
+      "hideConfirmPassword": "Hide confirm password",
+      "passwordResetEmail": "Password reset email",
+      "passwordResetEmailHint": "Sends the standard reset link and verification code (same as \"Forgot password\" on the login page). The address must already belong to a user in the system—if you changed email here, save the profile first. You can override the recipient by editing the Email field above before sending.",
+      "sending": "Sending…",
+      "sendResetEmail": "Send reset email",
+      "saveChanges": "Save changes",
+      "addPerson": "Add person"
+    },
+    "errors": {
+      "fullNameEmailRequired": "Full Name and Email are required.",
+      "roleRequired": "Please select a role.",
+      "farmRequired": "Please select at least one farm.",
+      "passwordMinLength": "Password must be at least 6 characters.",
+      "passwordMismatch": "Password confirmation does not match.",
+      "saveFailed": "Failed to save person.",
+      "loadFarmsFailed": "Failed to load farms.",
+      "loadStaffFailed": "Failed to load staff list.",
+      "resetEmailRequired": "Enter an email address (you can edit the field above).",
+      "resetEmailSent": "Reset instructions have been sent to that address.",
+      "resetEmailFailed": "Could not send reset email."
     }
   },
   "AdminZoneSetup": {
@@ -3185,13 +3285,32 @@
       "farm": "ฟาร์ม",
       "fuelKind": "ประเภทเชื้อเพลิง",
       "litres": "ลิตร",
+      "remaining": "คงเหลือ (L)",
+      "openingBalance": "ยอดเริ่มต้น",
+      "importStock": "รับเข้า",
       "costPerLitre": "ราคา / ลิตร",
       "cost": "ต้นทุน",
       "odometer": "เลขไมล์",
       "operator": "ผู้ปฏิบัติงาน",
       "purpose": "วัตถุประสงค์",
       "actions": "การดำเนินการ",
-      "empty": "ยังไม่มีรายการเชื้อเพลิง"
+      "empty": "ยังไม่มีรายการเชื้อเพลิง",
+      "loadMore": "โหลดเพิ่ม"
+    },
+    "balanceTimeline": {
+      "title": "ประวัติยอดคงเหลือ",
+      "showBreakdown": "แสดงการคำนวณยอดคงเหลือ",
+      "close": "ปิด",
+      "date": "วันที่",
+      "event": "เหตุการณ์",
+      "change": "เปลี่ยนแปลง",
+      "balance": "คงเหลือ (L)",
+      "opening": "ยอดเริ่มต้น",
+      "import": "รับเข้า",
+      "consumption": "การใช้เชื้อเพลิง",
+      "setBalance": "ตั้งยอดคงเหลือ",
+      "formulaTitle": "สูตรยอดปิด",
+      "formula": "การคำนวณ"
     },
     "dialog": {
       "title": "บันทึกเชื้อเพลิง",
@@ -3381,6 +3500,117 @@
         "qtyInvalid": "ปริมาณต้อง > 0",
         "amountInvalid": "ราคาต้อง ≥ 0"
       }
+    }
+  },
+  "AdminItemCategories": {
+    "title": "หมวดหมู่สินค้า",
+    "subtitle": "จัดกลุ่มสินค้าเป็นหมวดหมู่ (รองรับหมวดหมู่หลัก)",
+    "loading": "กำลังโหลด…",
+    "search": "ค้นหาหมวดหมู่…",
+    "add": "เพิ่มหมวดหมู่",
+    "createTitle": "หมวดหมู่ใหม่",
+    "editTitle": "แก้ไขหมวดหมู่",
+    "save": "บันทึก",
+    "cancel": "ยกเลิก",
+    "saved": "บันทึกหมวดหมู่แล้ว",
+    "deleted": "ลบหมวดหมู่แล้ว",
+    "deleteConfirm": "ลบหมวดหมู่นี้?",
+    "table": {
+      "id": "ID",
+      "title": "ชื่อ",
+      "parent": "หมวดหมู่หลัก",
+      "actions": "การดำเนินการ",
+      "empty": "ไม่พบหมวดหมู่"
+    },
+    "form": {
+      "title": "ชื่อ",
+      "parent": "หมวดหมู่หลัก",
+      "noParent": "— ไม่มีหมวดหมู่หลัก —"
+    },
+    "errors": {
+      "load": "โหลดหมวดหมู่ไม่สำเร็จ",
+      "save": "บันทึกหมวดหมู่ไม่สำเร็จ",
+      "delete": "ลบหมวดหมู่ไม่สำเร็จ",
+      "titleRequired": "กรุณากรอกชื่อ"
+    }
+  },
+  "AdminBrands": {
+    "title": "แบรนด์",
+    "subtitle": "จัดการแบรนด์สินค้าใน sts_brands",
+    "loading": "กำลังโหลด…",
+    "search": "ค้นหาแบรนด์…",
+    "add": "เพิ่มแบรนด์",
+    "createTitle": "แบรนด์ใหม่",
+    "editTitle": "แก้ไขแบรนด์",
+    "save": "บันทึก",
+    "cancel": "ยกเลิก",
+    "saved": "บันทึกแบรนด์แล้ว",
+    "deleted": "ลบแบรนด์แล้ว",
+    "deleteConfirm": "ลบแบรนด์นี้?",
+    "table": {
+      "id": "ID",
+      "name": "ชื่อ",
+      "title": "หัวข้อ",
+      "vendor": "ผู้จำหน่าย",
+      "category": "หมวดหมู่",
+      "actions": "การดำเนินการ",
+      "empty": "ไม่พบแบรนด์"
+    },
+    "form": {
+      "name": "ชื่อแบรนด์",
+      "title": "หัวข้อ",
+      "titlePlaceholder": "ใช้ชื่อเป็นค่าเริ่มต้นหากว่าง",
+      "category": "หมวดหมู่",
+      "categoryNone": "เลือกหมวดหมู่…"
+    },
+    "errors": {
+      "load": "โหลดแบรนด์ไม่สำเร็จ",
+      "save": "บันทึกแบรนด์ไม่สำเร็จ",
+      "delete": "ลบแบรนด์ไม่สำเร็จ",
+      "nameRequired": "กรุณากรอกชื่อแบรนด์"
+    }
+  },
+  "AdminUnitTypes": {
+    "title": "หน่วย",
+    "subtitle": "จัดการหน่วยวัดสำหรับสินค้า",
+    "loading": "กำลังโหลด…",
+    "search": "ค้นหาหน่วย…",
+    "add": "เพิ่มหน่วย",
+    "createTitle": "หน่วยใหม่",
+    "editTitle": "แก้ไขหน่วย",
+    "save": "บันทึก",
+    "cancel": "ยกเลิก",
+    "saved": "บันทึกหน่วยแล้ว",
+    "deleted": "ลบหน่วยแล้ว",
+    "deleteConfirm": "ลบหน่วยนี้?",
+    "table": {
+      "id": "ID",
+      "code": "รหัส",
+      "name": "ชื่อ",
+      "symbol": "สัญลักษณ์",
+      "order": "ลำดับ",
+      "display": "แสดง",
+      "actions": "การดำเนินการ",
+      "empty": "ไม่พบหน่วย",
+      "yes": "ใช่",
+      "no": "ไม่"
+    },
+    "form": {
+      "name": "ชื่อหน่วย",
+      "code": "รหัสหน่วย",
+      "codePlaceholder": "ใช้ชื่อเป็นค่าเริ่มต้นหากว่าง",
+      "symbol": "สัญลักษณ์",
+      "symbolPlaceholder": "ใช้ชื่อเป็นค่าเริ่มต้นหากว่าง",
+      "order": "ลำดับการเรียง",
+      "display": "แสดงในรายการ",
+      "note": "หมายเหตุ"
+    },
+    "errors": {
+      "load": "โหลดหน่วยไม่สำเร็จ",
+      "save": "บันทึกหน่วยไม่สำเร็จ",
+      "delete": "ลบหน่วยไม่สำเร็จ",
+      "nameRequired": "กรุณากรอกชื่อหน่วย",
+      "orderInvalid": "ลำดับการเรียงต้องเป็นตัวเลข"
     }
   },
   "AdminMachineryTypes": {

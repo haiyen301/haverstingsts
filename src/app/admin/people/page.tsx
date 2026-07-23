@@ -242,12 +242,30 @@ function emptyPerson(): PersonForm {
   };
 }
 
-function formatLastOnline(value?: string | null): string {
+function formatLastOnline(value: string | null | undefined, neverLabel: string): string {
   const raw = String(value ?? "").trim();
-  if (!raw) return "Never";
+  if (!raw) return neverLabel;
   const d = new Date(raw);
   if (Number.isNaN(d.getTime())) return raw;
   return d.toLocaleString();
+}
+
+function personTypeLabel(
+  t: ReturnType<typeof useTranslations<"AdminPeople">>,
+  type: PersonType,
+): string {
+  switch (type) {
+    case "staff":
+      return t("types.staff");
+    case "customer_contact":
+      return t("types.customerContact");
+    case "architect":
+      return t("types.architect");
+    case "other":
+      return t("types.other");
+    default:
+      return type;
+  }
 }
 
 export default function AdminPeoplePage() {
@@ -302,7 +320,7 @@ export default function AdminPeoplePage() {
       } catch (error) {
         if (!mounted) return;
         const message =
-          error instanceof Error ? error.message : "Failed to load staff list.";
+          error instanceof Error ? error.message : t("errors.loadStaffFailed");
         setLoadError(message);
         setPeople([]);
       } finally {
@@ -532,7 +550,7 @@ function PeopleSection({
         if (!mounted) return;
         setFarmOptions([]);
         setFarmsLoadError(
-          e instanceof Error ? e.message : "Failed to load farms.",
+          e instanceof Error ? e.message : t("errors.loadFarmsFailed"),
         );
       }
     })();
@@ -613,7 +631,7 @@ function PeopleSection({
     if (!email) {
       setResetEmailFeedback({
         kind: "error",
-        message: "Enter an email address (you can edit the field above).",
+        message: t("errors.resetEmailRequired"),
       });
       return;
     }
@@ -635,14 +653,13 @@ function PeopleSection({
       setResetEmailFeedback({
         kind: "success",
         message:
-          json.message?.trim() ||
-          "Reset instructions have been sent to that address.",
+          json.message?.trim() || t("errors.resetEmailSent"),
       });
     } catch (e) {
       setResetEmailFeedback({
         kind: "error",
         message:
-          e instanceof Error ? e.message : "Could not send reset email.",
+          e instanceof Error ? e.message : t("errors.resetEmailFailed"),
       });
     } finally {
       setResetEmailSending(false);
@@ -651,27 +668,26 @@ function PeopleSection({
 
   const handleSave = async () => {
     if (!form.fullName || !form.email) {
-      // Simple client-side validation; real app should surface toast or error UI.
-      setSaveError("Full Name and Email are required.");
+      setSaveError(t("errors.fullNameEmailRequired"));
       return;
     }
     if (form.hasLogin && !form.isAdmin && !form.roleId) {
-      setSaveError("Please select a role.");
+      setSaveError(t("errors.roleRequired"));
       return;
     }
     if (form.hasLogin && !form.isAdmin && form.farmIds.length === 0) {
-      setSaveError("Please select at least one farm.");
+      setSaveError(t("errors.farmRequired"));
       return;
     }
     if (form.hasLogin) {
       const mustProvidePassword = !editingId || !!form.resetPassword;
       if (mustProvidePassword) {
         if (!form.password || form.password.length < 6) {
-          setSaveError("Password must be at least 6 characters.");
+          setSaveError(t("errors.passwordMinLength"));
           return;
         }
         if (form.password !== form.passwordConfirm) {
-          setSaveError("Password confirmation does not match.");
+          setSaveError(t("errors.passwordMismatch"));
           return;
         }
       }
@@ -682,7 +698,7 @@ function PeopleSection({
       await savePerson(editingId, form);
       setDialogOpen(false);
     } catch (error) {
-      setSaveError(error instanceof Error ? error.message : "Failed to save person.");
+      setSaveError(error instanceof Error ? error.message : t("errors.saveFailed"));
     } finally {
       setSaving(false);
     }
@@ -779,9 +795,9 @@ function PeopleSection({
           onChange={(e) => setRoleFilter(e.target.value)}
           className={cn(inputClass, "w-[220px]")}
         >
-          <option value="all">All Roles</option>
+          <option value="all">{t("filters.allRoles")}</option>
           {people.some((p) => p.isAdmin) ? (
-            <option value="__super_admin__">Super Admin</option>
+            <option value="__super_admin__">{t("superAdmin")}</option>
           ) : null}
           {roleOptions.map((r) => (
             <option key={r.id} value={r.id}>
@@ -838,8 +854,8 @@ function PeopleSection({
                                   badgeBaseClass,
                                   "border-emerald-200 bg-emerald-50 text-emerald-700",
                                 )}
-                                title="Eligible as Project PIC"
-                                aria-label="Eligible as Project PIC"
+                                title={t("form.eligibleProjectPic")}
+                                aria-label={t("form.eligibleProjectPic")}
                               >
                                 PIC
                               </span>
@@ -851,8 +867,8 @@ function PeopleSection({
                         </div>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-sm capitalize">
-                      {p.type.replace("_", " ")}
+                    <td className="px-4 py-3 text-sm">
+                      {personTypeLabel(t, p.type)}
                     </td>
                     <td className="px-4 py-3 text-sm">
                       {p.location || p.company || "—"}
@@ -875,7 +891,7 @@ function PeopleSection({
                           </span>
                         )}
                         <p className="text-xs text-muted-foreground">
-                          Last online: {formatLastOnline(p.lastOnline)}
+                          {t("lastOnline")}: {formatLastOnline(p.lastOnline, t("lastOnlineNever"))}
                         </p>
                       </div>
                     </td>
@@ -916,10 +932,10 @@ function PeopleSection({
                           )}
                         >
                           {statusPendingId === p.id
-                            ? "Saving..."
+                            ? t("saving")
                             : p.status === "Active"
-                              ? "Active"
-                              : "Inactive"}
+                              ? t("status.active")
+                              : t("status.inactive")}
                         </span>
                       </div>
                     </td>
@@ -954,7 +970,7 @@ function PeopleSection({
                       className="px-4 py-8 text-center text-muted-foreground"
                     >
                       {loading
-                        ? "Loading staff data..."
+                        ? t("loading")
                         : loadError
                           ? loadError
                           : t("empty")}
@@ -991,9 +1007,7 @@ function PeopleSection({
                   {editingId ? t("editPerson") : t("addPerson")}
                 </h2>
                 <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                  {editingId
-                    ? "Update directory details, app access, and farms where applicable."
-                    : "Create a directory entry and optionally enable sign-in."}
+                  {editingId ? t("dialog.editDescription") : t("dialog.addDescription")}
                 </p>
               </div>
               <button
@@ -1002,7 +1016,7 @@ function PeopleSection({
                   btnGhost,
                   "h-9 w-9 shrink-0 rounded-full hover:bg-muted",
                 )}
-                aria-label="Close dialog"
+                aria-label={t("dialog.close")}
                 onClick={closePeopleDialog}
               >
                 <X className="h-4 w-4" />
@@ -1012,7 +1026,7 @@ function PeopleSection({
               <div className="grid gap-5">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="col-span-2 space-y-2">
-                    <label className="text-sm font-medium">Full Name *</label>
+                    <label className="text-sm font-medium">{t("form.fullName")} *</label>
                     <input
                       className={inputClass}
                       value={form.fullName}
@@ -1022,7 +1036,7 @@ function PeopleSection({
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-sm font-medium">Email *</label>
+                    <label className="text-sm font-medium">{t("form.email")} *</label>
                     <input
                       className={inputClass}
                       type="email"
@@ -1033,7 +1047,7 @@ function PeopleSection({
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-sm font-medium">Phone</label>
+                    <label className="text-sm font-medium">{t("form.phone")}</label>
                     <input
                       className={inputClass}
                       value={form.phone ?? ""}
@@ -1043,7 +1057,7 @@ function PeopleSection({
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-sm font-medium">Job Title</label>
+                    <label className="text-sm font-medium">{t("form.jobTitle")}</label>
                     <input
                       className={inputClass}
                       value={form.jobTitle ?? ""}
@@ -1053,7 +1067,7 @@ function PeopleSection({
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-sm font-medium">Company</label>
+                    <label className="text-sm font-medium">{t("form.company")}</label>
                     <input
                       className={inputClass}
                       value={form.company ?? ""}
@@ -1063,7 +1077,7 @@ function PeopleSection({
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-sm font-medium">Type *</label>
+                    <label className="text-sm font-medium">{t("form.type")} *</label>
                     <select
                       className={inputClass}
                       value={form.type}
@@ -1074,14 +1088,14 @@ function PeopleSection({
                         }))
                       }
                     >
-                      <option value="staff">STS Staff</option>
-                      <option value="customer_contact">Customer Contact</option>
-                      <option value="architect">Architect</option>
-                      <option value="other">Other</option>
+                      <option value="staff">{t("types.staff")}</option>
+                      <option value="customer_contact">{t("types.customerContact")}</option>
+                      <option value="architect">{t("types.architect")}</option>
+                      <option value="other">{t("types.other")}</option>
                     </select>
                   </div>
                   <div className="space-y-2">
-                    <label className="text-sm font-medium">Status</label>
+                    <label className="text-sm font-medium">{t("form.status")}</label>
                     <select
                       className={inputClass}
                       value={form.status}
@@ -1092,17 +1106,17 @@ function PeopleSection({
                         }))
                       }
                     >
-                      <option value="Active">Active</option>
-                      <option value="Inactive">Inactive</option>
+                      <option value="Active">{t("status.active")}</option>
+                      <option value="Inactive">{t("status.inactive")}</option>
                     </select>
                   </div>
                   <div className="col-span-2 space-y-2">
                     <label className="text-sm font-medium">
-                      Odoo ID (optional)
+                      {t("form.odooId")}
                     </label>
                     <input
                       className={inputClass}
-                      placeholder="External res.partner reference"
+                      placeholder={t("form.odooIdPlaceholder")}
                       value={form.odooId ?? ""}
                       onChange={(e) =>
                         setForm((f) => ({
@@ -1116,13 +1130,13 @@ function PeopleSection({
 
                 {form.type === "staff" ? (
                   <div className="space-y-3 rounded-lg border border-border bg-muted/30 p-4">
-                    <p className="text-sm font-medium">Staff Settings</p>
+                    <p className="text-sm font-medium">{t("form.staffSettings")}</p>
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <label className="text-sm font-medium">Location</label>
+                        <label className="text-sm font-medium">{t("form.location")}</label>
                         <input
                           className={inputClass}
-                          placeholder="e.g. Semenyih"
+                          placeholder={t("form.locationPlaceholder")}
                           value={form.location ?? ""}
                           onChange={(e) =>
                             setForm((f) => ({ ...f, location: e.target.value }))
@@ -1130,7 +1144,7 @@ function PeopleSection({
                         />
                       </div>
                       <label className="mt-7 flex h-10 cursor-pointer items-center justify-between rounded-md border border-input px-3">
-                        <span className="text-sm">Eligible as Project PIC</span>
+                        <span className="text-sm">{t("form.eligibleProjectPic")}</span>
                         <Checkbox
                           checked={!!form.isStsPic}
                           onChange={(e) =>
@@ -1153,9 +1167,9 @@ function PeopleSection({
                 <div className="space-y-3 rounded-lg border border-border p-4">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="text-sm font-medium">App Access</p>
+                      <p className="text-sm font-medium">{t("form.appAccess")}</p>
                       <p className="text-xs text-muted-foreground">
-                        Grant a login to use this app.
+                        {t("form.appAccessHint")}
                       </p>
                     </div>
                     <label className="relative inline-flex cursor-pointer items-center">
@@ -1180,9 +1194,9 @@ function PeopleSection({
                   {form.hasLogin ? (
                     <div className="space-y-3">
                       <div className="space-y-2">
-                        <label className="text-sm font-medium">Super Admin</label>
+                        <label className="text-sm font-medium">{t("form.superAdmin")}</label>
                         <p className="text-xs text-muted-foreground">
-                          Full access to the app (same as legacy admin account).
+                          {t("form.superAdminHint")}
                         </p>
                         <button
                           type="button"
@@ -1208,14 +1222,14 @@ function PeopleSection({
                                 : "border-input bg-card text-foreground shadow-sm",
                             )}
                           >
-                            Super Admin
+                            {t("form.superAdmin")}
                           </span>
                           {form.isAdmin ? <CheckBadge /> : null}
                         </button>
                       </div>
                       {!form.isAdmin ? (
                       <div className="space-y-2">
-                        <label className="text-sm font-medium">Role *</label>
+                        <label className="text-sm font-medium">{t("form.role")} *</label>
                         <select
                           className={inputClass}
                           value={form.roleId ?? ""}
@@ -1232,7 +1246,7 @@ function PeopleSection({
                           }}
                         >
                           <option value="" disabled>
-                            Select role
+                            {t("form.selectRole")}
                           </option>
                           {roleOptions.map((r) => (
                             <option key={r.id} value={r.id}>
@@ -1244,12 +1258,12 @@ function PeopleSection({
                       ) : null}
                       {!form.isAdmin && form.roleId ? (
                         <div className="space-y-2">
-                          <label className="text-sm font-medium">Farms *</label>
+                          <label className="text-sm font-medium">{t("form.farms")} *</label>
                           <p className="text-xs text-muted-foreground">
-                            Required for non–Super Admin accounts. Saved to{" "}
-                            <code className="text-xs">sts_users_meta</code> as{" "}
+                            {t("form.farmsHintPrefix")}{" "}
+                            <code className="text-xs">sts_users_meta</code> {t("form.farmsHintAs")}{" "}
                             <code className="text-xs">farm_user_id</code>{" "}
-                            (comma-separated farm ids for SQL IN).
+                            {t("form.farmsHintSuffix")}
                           </p>
                           {farmsLoadError ? (
                             <p className="text-xs text-destructive">
@@ -1262,7 +1276,7 @@ function PeopleSection({
                             onChange={(next) =>
                               setForm((f) => ({ ...f, farmIds: next }))
                             }
-                            placeholder="Select farms…"
+                            placeholder={t("form.selectFarms")}
                             showFullSelectedLabels
                             className={cn(farmSelectTriggerClass)}
                             rightIcon={farmSelectChevron}
@@ -1272,7 +1286,7 @@ function PeopleSection({
                       ) : null}
                       {editingId ? (
                         <label className="flex h-10 cursor-pointer items-center justify-between rounded-md border border-input px-3">
-                          <span className="text-sm">Create new password</span>
+                          <span className="text-sm">{t("form.createNewPassword")}</span>
                           <Checkbox
                             checked={!!form.resetPassword}
                             onChange={(e) =>
@@ -1294,7 +1308,7 @@ function PeopleSection({
                       {!editingId || form.resetPassword ? (
                         <div className="grid grid-cols-2 gap-4">
                           <div className="space-y-2">
-                            <label className="text-sm font-medium">Password *</label>
+                            <label className="text-sm font-medium">{t("form.password")} *</label>
                             <div className="relative">
                               <input
                                 type={showPassword ? "text" : "password"}
@@ -1309,7 +1323,7 @@ function PeopleSection({
                                 type="button"
                                 onClick={() => setShowPassword((prev) => !prev)}
                                 className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                                aria-label={showPassword ? "Hide password" : "Show password"}
+                                aria-label={showPassword ? t("form.hidePassword") : t("form.showPassword")}
                               >
                                 {showPassword ? (
                                   <EyeOff className="h-4 w-4" />
@@ -1320,7 +1334,7 @@ function PeopleSection({
                             </div>
                           </div>
                           <div className="space-y-2">
-                            <label className="text-sm font-medium">Confirm Password *</label>
+                            <label className="text-sm font-medium">{t("form.confirmPassword")} *</label>
                             <div className="relative">
                               <input
                                 type={showPasswordConfirm ? "text" : "password"}
@@ -1342,8 +1356,8 @@ function PeopleSection({
                                 className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                                 aria-label={
                                   showPasswordConfirm
-                                    ? "Hide confirm password"
-                                    : "Show confirm password"
+                                    ? t("form.hideConfirmPassword")
+                                    : t("form.showConfirmPassword")
                                 }
                               >
                                 {showPasswordConfirm ? (
@@ -1358,13 +1372,9 @@ function PeopleSection({
                       ) : null}
                       {editingId ? (
                         <div className="space-y-2 rounded-lg border border-dashed border-border/90 bg-muted/25 p-3">
-                          <p className="text-sm font-medium">Password reset email</p>
+                          <p className="text-sm font-medium">{t("form.passwordResetEmail")}</p>
                           <p className="text-xs leading-relaxed text-muted-foreground">
-                            Sends the standard reset link and verification code (same as
-                            &quot;Forgot password&quot; on the login page). The address must
-                            already belong to a user in the system—if you changed email here,
-                            save the profile first. You can override the recipient by editing
-                            the Email field above before sending.
+                            {t("form.passwordResetEmailHint")}
                           </p>
                           <button
                             type="button"
@@ -1375,12 +1385,12 @@ function PeopleSection({
                             {resetEmailSending ? (
                               <>
                                 <Loader2 className="h-4 w-4 animate-spin" />
-                                Sending…
+                                {t("form.sending")}
                               </>
                             ) : (
                               <>
                                 <Mail className="h-4 w-4" />
-                                Send reset email
+                                {t("form.sendResetEmail")}
                               </>
                             )}
                           </button>
@@ -1413,7 +1423,7 @@ function PeopleSection({
                   className={btnOutline}
                   onClick={closePeopleDialog}
                 >
-                  Cancel
+                  {tCommon("cancel")}
                 </button>
                 <button
                   type="button"
@@ -1422,10 +1432,10 @@ function PeopleSection({
                   disabled={saving}
                 >
                   {saving
-                    ? "Saving..."
+                    ? t("saving")
                     : editingId
-                      ? "Save changes"
-                      : "Add person"}
+                      ? t("form.saveChanges")
+                      : t("form.addPerson")}
                 </button>
               </div>
             </div>

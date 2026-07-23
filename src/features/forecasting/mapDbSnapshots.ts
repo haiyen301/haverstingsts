@@ -65,15 +65,64 @@ function sumZoneSnapshotsByDate(
   return byDate;
 }
 
+/**
+ * Filtered forecasting chart (today+): Cap A live roll — parity PHP
+ * ForecastAvailableSourceAudit when farm/grass filters are on.
+ *
+ * Zone rows store Cap C (per-zone). Summing them under-counts when a zone is at
+ * Cap C and rejects regrowth that Cap A (farm+grass pool) would still accept.
+ * Past days (&lt; anchor) keep Σ zone Cap C (v14).
+ */
+export function applyFilteredForecastingCapALiveRoll(
+  byDate: Map<string, RollingDailyAvailableDay>,
+  anchorYmd: string,
+): Map<string, RollingDailyAvailableDay> {
+  const anchor = String(anchorYmd ?? "").slice(0, 10);
+  if (!anchor || byDate.size === 0) return byDate;
+
+  const dates = Array.from(byDate.keys()).sort((a, b) => a.localeCompare(b));
+  let rollingKg: number | null = null;
+
+  for (const date of dates) {
+    const day = byDate.get(date);
+    if (!day) continue;
+
+    if (date < anchor) {
+      // Past: leave Σ zone Cap C; next today+ day re-opens from that day's previous.
+      rollingKg = null;
+      continue;
+    }
+
+    const openingKg =
+      rollingKg !== null ? rollingKg : Math.max(0, day.previousAvailableKg);
+    const rawKg = Math.max(0, openingKg + day.regrowthKg - day.harvestKg);
+    const cap = Math.max(0, day.capacityCapKg);
+    const availableKg = cap > 0 ? Math.min(rawKg, cap) : rawKg;
+
+    day.previousAvailableKg = openingKg;
+    day.beforeHarvestKg = openingKg + day.regrowthKg;
+    day.rawAvailableKg = rawKg;
+    // Engine / audit display: whole kg (e.g. 95,364 not 95,364.18).
+    day.availableKg = Math.round(availableKg);
+    day.overlimitKg = Math.max(0, rawKg - (cap > 0 ? cap : rawKg));
+    rollingKg = availableKg;
+  }
+
+  return byDate;
+}
+
 export function aggregateSnapshotsByDate(
   rows: DbSnapshotRow[],
   farmIdSet: Set<string>,
   grassIdSet: Set<string>,
   permissionScopeFarmIds: Set<string> = new Set(),
+  options?: { anchorYmd?: string; applyCapALiveRoll?: boolean },
 ): Map<string, RollingDailyAvailableDay> {
   const byDate = new Map<string, RollingDailyAvailableDay>();
   const useChartAggregateOnly = farmIdSet.size === 0 && grassIdSet.size === 0;
   const hasPermissionFarmScope = permissionScopeFarmIds.size > 0;
+  const applyCapA =
+    Boolean(options?.applyCapALiveRoll) && Boolean(options?.anchorYmd);
 
   if (useChartAggregateOnly) {
     if (!hasPermissionFarmScope) {
@@ -86,8 +135,11 @@ export function aggregateSnapshotsByDate(
       }
       if (byDate.size > 0) return byDate;
     }
-    // farm_user_id scope: parity forecast_audit filtered calendar (sum zone rows).
-    return sumZoneSnapshotsByDate(rows, permissionScopeFarmIds);
+    // farm_user_id scope: sum zone rows, then Cap A live roll for today+ (parity audit).
+    const scoped = sumZoneSnapshotsByDate(rows, permissionScopeFarmIds);
+    return applyCapA
+      ? applyFilteredForecastingCapALiveRoll(scoped, options!.anchorYmd!)
+      : scoped;
   }
 
   for (const row of rows) {
@@ -102,13 +154,16 @@ export function aggregateSnapshotsByDate(
     mergeRollingDay(byDate, date, mapDbSnapshotToRollingDay(row));
   }
 
-  return byDate;
+  return applyCapA
+    ? applyFilteredForecastingCapALiveRoll(byDate, options!.anchorYmd!)
+    : byDate;
 }
 
 export function buildFarmProductMapFromSnapshots(
   rows: DbSnapshotRow[],
   farmIdSet: Set<string>,
   grassIdSet: Set<string>,
+  options?: { anchorYmd?: string; applyCapALiveRoll?: boolean },
 ): Map<string, Map<string, RollingDailyAvailableDay>> {
   const out = new Map<string, Map<string, RollingDailyAvailableDay>>();
 
@@ -143,6 +198,12 @@ export function buildFarmProductMapFromSnapshots(
     existing.overlimitKg += mapped.overlimitKg;
   }
 
+  if (options?.applyCapALiveRoll && options.anchorYmd) {
+    for (const dateMap of out.values()) {
+      applyFilteredForecastingCapALiveRoll(dateMap, options.anchorYmd);
+    }
+  }
+
   return out;
 }
 
@@ -158,17 +219,27 @@ export function buildDbDailySeriesResult(
   farmIds: string[],
   grassIds: string[],
   permissionScopeFarmIds: string[] = [],
+  options?: { anchorYmd?: string },
 ): DbDailySeriesResult {
   const farmIdSet = new Set(farmIds);
   const grassIdSet = new Set(grassIds);
   const permissionScope = new Set(
     permissionScopeFarmIds.map((x) => String(x).trim()).filter(Boolean),
   );
+  // Filtered (or permission-scoped) series: Cap A live roll for today+ — parity forecast_audit.
+  const applyCapALiveRoll =
+    Boolean(options?.anchorYmd) &&
+    (farmIdSet.size > 0 || grassIdSet.size > 0 || permissionScope.size > 0);
+  const rollOpts = {
+    anchorYmd: options?.anchorYmd,
+    applyCapALiveRoll,
+  };
   const byDate = aggregateSnapshotsByDate(
     snapshotRows,
     farmIdSet,
     grassIdSet,
     permissionScope,
+    rollOpts,
   );
   const aggregate = Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date));
   const effectiveFarmScope =
@@ -177,6 +248,7 @@ export function buildDbDailySeriesResult(
     snapshotRows,
     effectiveFarmScope,
     grassIdSet,
+    rollOpts,
   );
   const regrowthStatsByDate = new Map(Object.entries(regrowthStats));
 

@@ -1821,7 +1821,8 @@
       "allTypes": "All Types",
       "allAccess": "All Access",
       "hasAppLogin": "Has App Login",
-      "directoryOnly": "Directory Only"
+      "directoryOnly": "Directory Only",
+      "allRoles": "All Roles"
     },
     "types": {
       "staff": "STS Staff",
@@ -1837,6 +1838,72 @@
       "access": "Access",
       "status": "Status",
       "actions": "Actions"
+    },
+    "loading": "Loading staff data...",
+    "saving": "Saving...",
+    "lastOnline": "Last online",
+    "lastOnlineNever": "Never",
+    "superAdmin": "Super Admin",
+    "status": {
+      "active": "Active",
+      "inactive": "Inactive"
+    },
+    "dialog": {
+      "close": "Close dialog",
+      "addDescription": "Create a directory entry and optionally enable sign-in.",
+      "editDescription": "Update directory details, app access, and farms where applicable."
+    },
+    "form": {
+      "fullName": "Full Name",
+      "email": "Email",
+      "phone": "Phone",
+      "jobTitle": "Job Title",
+      "company": "Company",
+      "type": "Type",
+      "status": "Status",
+      "odooId": "Odoo ID (optional)",
+      "odooIdPlaceholder": "External res.partner reference",
+      "staffSettings": "Staff Settings",
+      "location": "Location",
+      "locationPlaceholder": "e.g. Semenyih",
+      "eligibleProjectPic": "Eligible as Project PIC",
+      "appAccess": "App Access",
+      "appAccessHint": "Grant a login to use this app.",
+      "superAdmin": "Super Admin",
+      "superAdminHint": "Full access to the app (same as legacy admin account).",
+      "role": "Role",
+      "selectRole": "Select role",
+      "farms": "Farms",
+      "farmsHintPrefix": "Required for non–Super Admin accounts. Saved to",
+      "farmsHintAs": "as",
+      "farmsHintSuffix": "(comma-separated farm ids for SQL IN).",
+      "selectFarms": "Select farms…",
+      "createNewPassword": "Create new password",
+      "password": "Password",
+      "confirmPassword": "Confirm Password",
+      "showPassword": "Show password",
+      "hidePassword": "Hide password",
+      "showConfirmPassword": "Show confirm password",
+      "hideConfirmPassword": "Hide confirm password",
+      "passwordResetEmail": "Password reset email",
+      "passwordResetEmailHint": "Sends the standard reset link and verification code (same as \"Forgot password\" on the login page). The address must already belong to a user in the system—if you changed email here, save the profile first. You can override the recipient by editing the Email field above before sending.",
+      "sending": "Sending…",
+      "sendResetEmail": "Send reset email",
+      "saveChanges": "Save changes",
+      "addPerson": "Add person"
+    },
+    "errors": {
+      "fullNameEmailRequired": "Full Name and Email are required.",
+      "roleRequired": "Please select a role.",
+      "farmRequired": "Please select at least one farm.",
+      "passwordMinLength": "Password must be at least 6 characters.",
+      "passwordMismatch": "Password confirmation does not match.",
+      "saveFailed": "Failed to save person.",
+      "loadFarmsFailed": "Failed to load farms.",
+      "loadStaffFailed": "Failed to load staff list.",
+      "resetEmailRequired": "Enter an email address (you can edit the field above).",
+      "resetEmailSent": "Reset instructions have been sent to that address.",
+      "resetEmailFailed": "Could not send reset email."
     }
   },
   "AdminZoneSetup": {
