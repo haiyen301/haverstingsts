@@ -24,9 +24,11 @@ export function normalizeDecimalTyping(raw: string): string {
   if (commaIdx >= 0 && !text.slice(commaIdx + 1).includes(",")) {
     const intPart = text.slice(0, commaIdx).replace(/,/g, "");
     const decPart = text.slice(commaIdx + 1);
+    // Live thousands formatting inserts a comma every 3 digits (`1,111` → type 1 → `1,1111`).
+    // Treat 3+ digits after a single comma as grouping, not a decimal (avoids `1.1111` / `3.0011`).
     const looksLikeThousands =
-      intPart.length >= 1 && decPart.length === 3 && /^\d+$/.test(decPart);
-    if (decPart.length > 0 && decPart.length <= 4 && !looksLikeThousands) {
+      intPart.length >= 1 && decPart.length >= 3 && /^\d+$/.test(decPart);
+    if (decPart.length > 0 && decPart.length <= 2 && !looksLikeThousands) {
       return `${intPart}.${decPart}`;
     }
   }
