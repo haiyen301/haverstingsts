@@ -55,9 +55,9 @@
     "inventory": "Inventory",
     "stockSummary": "Stock Summary",
     "comingSoon": "Coming soon",
-    "vehicleInspections": "Vehicle Inspections",
+    "vehicleInspections": "Equipment",
     "fuelUsage": "Fuel Usage",
-    "equipment": "Equipment",
+    "equipment": "Vehicle Inspections",
     "userManagement": "User Management",
     "turfOperations": "Turf Operations",
     "fleetMechanicalAdmin": "Fleet & Mechanical",
@@ -2726,9 +2726,9 @@
       "harvest_schedule": "Harvest Schedule",
       "harvests": "Harvests",
       "fertilizer_usage": "Fertilizer Usage",
-      "vehicle_inspections": "Vehicle Inspections",
+      "vehicle_inspections": "Equipment",
       "fuel_usage": "Fuel Usage",
-      "equipment": "Equipment & Mechanical",
+      "equipment": "Vehicle Inspections",
       "admin_people": "Admin — People",
       "admin_project_types": "Admin — Project Types",
       "admin_architects": "Admin — Architects",
@@ -3931,18 +3931,18 @@
     }
   },
   "VehicleInspections": {
-    "title": "Vehicle Inspections",
+    "title": "Equipment",
     "subtitle": "Pre-use checklists, defect tracking, and maintenance scheduling",
-    "newInspection": "New Inspection",
+    "newInspection": "New Equipment",
     "loading": "Loading…",
-    "search": "Search vehicles…",
-    "saved": "Inspection saved",
-    "updated": "Inspection updated",
-    "savedMultiple": "{count} inspections saved",
-    "deleted": "Inspection removed",
-    "deleteConfirm": "Remove this vehicle inspection record?",
+    "search": "Search equipment…",
+    "saved": "Equipment saved",
+    "updated": "Equipment updated",
+    "savedMultiple": "{count} equipment saved",
+    "deleted": "Equipment removed",
+    "deleteConfirm": "Remove this equipment record?",
     "kpi": {
-      "total": "Total Vehicles",
+      "total": "Total Equipment",
       "passed": "Passed",
       "attention": "Attention Needed",
       "defects": "Open Defects"
@@ -3958,7 +3958,7 @@
       "overdue": "Overdue"
     },
     "table": {
-      "vehicle": "Vehicle",
+      "vehicle": "Equipment",
       "aliasName": "Alias name",
       "type": "Type",
       "fuelType": "Fuel type",
@@ -3969,12 +3969,12 @@
       "status": "Status",
       "actions": "Actions",
       "none": "None",
-      "empty": "No vehicles match your filters."
+      "empty": "No equipment matches your filters."
     },
     "dialog": {
-      "title": "New Inspection",
-      "editTitle": "Edit Inspection",
-      "vehicleName": "Vehicle name",
+      "title": "New Equipment",
+      "editTitle": "Edit Equipment",
+      "vehicleName": "Equipment name",
       "vehicleNamePlaceholder": "e.g. Harvester HV-01",
       "aliasName": "Alias name",
       "aliasNamePlaceholder": "Harvester HV-01",
@@ -3988,7 +3988,7 @@
       "datePlaceholder": "dd/mm/yyyy",
       "status": "Status",
       "defects": "Defects",
-      "defectsPlaceholder": "Describe defects, damage, or issues found during inspection…",
+      "defectsPlaceholder": "Describe defects, damage, or issues found…",
       "selectFarm": "Select farm",
       "fuelTypeEmpty": "No fuel type on item",
       "cancel": "Cancel",
@@ -3999,35 +3999,35 @@
       "petrol": "Petrol"
     },
     "errors": {
-      "load": "Failed to load vehicle inspections.",
-      "loadOptions": "Failed to load inspection form options.",
-      "save": "Failed to save inspection.",
-      "delete": "Failed to remove inspection.",
-      "requiredFields": "Vehicle, type and farm are required.",
-      "duplicate": "A vehicle with the same name, type, fuel type, and farm already exists."
+      "load": "Failed to load equipment.",
+      "loadOptions": "Failed to load equipment form options.",
+      "save": "Failed to save equipment.",
+      "delete": "Failed to remove equipment.",
+      "requiredFields": "Equipment, type and farm are required.",
+      "duplicate": "Equipment with the same name, type, fuel type, and farm already exists."
     }
   },
   "Equipment": {
-    "title": "Equipment & Mechanical",
-    "subtitle": "Track equipment hours, maintenance schedules, and availability",
-    "register": "Register Equipment",
-    "registerSubmit": "Register Equipment",
-    "createTitle": "Register New Equipment",
-    "editTitle": "Edit Equipment",
+    "title": "Vehicle Inspections",
+    "subtitle": "Track vehicle inspection hours, maintenance schedules, and availability",
+    "register": "Register Vehicle Inspection",
+    "registerSubmit": "Register Vehicle Inspection",
+    "createTitle": "Register New Vehicle Inspection",
+    "editTitle": "Edit Vehicle Inspection",
     "saveChanges": "Save Changes",
     "cancel": "Cancel",
-    "saved": "Equipment registered",
-    "updated": "Equipment updated",
-    "deleted": "Equipment removed",
-    "deleteEquipment": "Delete Equipment",
-    "deleteConfirmTitle": "Delete equipment?",
-    "deleteConfirmMessage": "Remove {name} from the active equipment list? This is a soft delete.",
-    "deleteConfirm": "Delete this equipment record?",
+    "saved": "Vehicle inspection registered",
+    "updated": "Vehicle inspection updated",
+    "deleted": "Vehicle inspection removed",
+    "deleteEquipment": "Delete Vehicle Inspection",
+    "deleteConfirmTitle": "Delete vehicle inspection?",
+    "deleteConfirmMessage": "Remove {name} from the active vehicle inspection list? This is a soft delete.",
+    "deleteConfirm": "Delete this vehicle inspection record?",
     "loading": "Loading…",
-    "search": "Search equipment…",
-    "empty": "No equipment matches your filters.",
+    "search": "Search vehicle inspections…",
+    "empty": "No vehicle inspections match your filters.",
     "kpi": {
-      "total": "Total Equipment",
+      "total": "Total Vehicle Inspections",
       "operational": "Operational",
       "attention": "Needs Attention",
       "farms": "Farms Covered"
@@ -4062,7 +4062,7 @@
       "hoursBetweenServiceHint": "Maintenance interval for this machine — how many running hours between each service.",
       "hoursUsed": "Current Hour Meter",
       "hoursUsedPlaceholder": "e.g. 2000",
-      "hoursUsedCreateHint": "Initial reading when registering. Later updates use Update Hour Meter on the equipment detail page.",
+      "hoursUsedCreateHint": "Initial reading when registering. Later updates use Update Hour Meter on the vehicle inspection detail page.",
       "notes": "Notes",
       "notesPlaceholder": "e.g. Hydraulic system overhaul needed",
       "farm": "Location",
@@ -4073,27 +4073,27 @@
       "selectFarm": "Select farm",
       "selectPic": "Select person in charge",
       "loadingBrands": "Loading brands…",
-      "noBrands": "No brands in configured categories. Link brands to categories in Admin → Settings → Brands and set categories in Admin → Fleet → Equipment Category."
+      "noBrands": "No brands in configured categories. Link brands to categories in Admin → Settings → Brands and set categories in Admin → Fleet → Catalog categories."
     },
     "errors": {
-      "load": "Failed to load equipment.",
-      "save": "Failed to register equipment.",
-      "delete": "Failed to delete equipment.",
+      "load": "Failed to load vehicle inspections.",
+      "save": "Failed to register vehicle inspection.",
+      "delete": "Failed to delete vehicle inspection.",
       "requiredFields": "Brand, type and location are required.",
       "invalidNumber": "Enter a valid number (e.g. 1,234.56)."
     }
   },
   "EquipmentDetail": {
     "back": "Back",
-    "editEquipment": "Edit Equipment",
-    "deleteEquipment": "Delete Equipment",
-    "deleteEquipmentConfirmTitle": "Delete equipment?",
-    "deleteEquipmentConfirmMessage": "Remove {name} from the active equipment list? This is a soft delete.",
+    "editEquipment": "Edit Vehicle Inspection",
+    "deleteEquipment": "Delete Vehicle Inspection",
+    "deleteEquipmentConfirmTitle": "Delete vehicle inspection?",
+    "deleteEquipmentConfirmMessage": "Remove {name} from the active vehicle inspection list? This is a soft delete.",
     "deleteServiceConfirmTitle": "Delete service record?",
     "deleteServiceConfirmMessage": "Remove the service record from {date}? This is a soft delete.",
-    "deleteEquipmentConfirm": "Delete this equipment record?",
-    "deleted": "Equipment removed",
-    "notFound": "Equipment not found.",
+    "deleteEquipmentConfirm": "Delete this vehicle inspection record?",
+    "deleted": "Vehicle inspection removed",
+    "notFound": "Vehicle inspection not found.",
     "engineCode": "Engine Code",
     "location": "Location",
     "pic": "STS PIC",
@@ -4158,10 +4158,10 @@
       "actions": "Actions"
     },
     "errors": {
-      "load": "Failed to load equipment detail.",
+      "load": "Failed to load vehicle inspection detail.",
       "save": "Failed to save service record.",
       "delete": "Failed to delete service record.",
-      "deleteEquipment": "Failed to delete equipment.",
+      "deleteEquipment": "Failed to delete vehicle inspection.",
       "requiredFields": "Service date is required.",
       "invalidNumber": "Enter a valid number (e.g. 1,234.56).",
       "hourMeterRequired": "Enter the new hour meter reading.",
@@ -4170,7 +4170,7 @@
   },
   "AdminFleetCategories": {
     "title": "Product catalog categories",
-    "subtitle": "Choose which product categories appear in pickers for Equipment, Fertilizer Usage, and Vehicle Inspections (Fuel Usage uses the vehicle list).",
+    "subtitle": "Choose which product categories appear in pickers for Vehicle Inspections, Fertilizer Usage, and Equipment (Fuel Usage uses the equipment list).",
     "loading": "Loading…",
     "fieldLabel": "Product catalog categories",
     "fieldHint": "Categories are shown as full paths (e.g. PRODUCTS/MACHINERY/MACHINE). Selecting a parent includes all nested subcategories and their products.",
@@ -4184,18 +4184,18 @@
     "saved": "Categories saved",
     "loadError": "Failed to load category settings.",
     "requestFailed": "Request failed.",
-    "fuelUsageNote": "Fuel Usage does not have its own category filter — it uses vehicles registered under Vehicle Inspections.",
+    "fuelUsageNote": "Fuel Usage does not have its own category filter — it uses equipment registered under Equipment.",
     "equipment": {
-      "title": "Equipment",
-      "hint": "Product picker when registering equipment units."
+      "title": "Vehicle Inspections",
+      "hint": "Product picker when registering vehicle inspections."
     },
     "fertilizerUsage": {
       "title": "Fertilizer usage",
       "hint": "Product picker for fertilizer usage logs. Also controls which categories support default rate in Admin Items."
     },
     "vehicleInspection": {
-      "title": "Vehicle inspections",
-      "hint": "Vehicle picker for inspections and fuel usage."
+      "title": "Equipment",
+      "hint": "Equipment picker for equipment and fuel usage."
     },
     "errors": {
       "required": "Select at least one category."
@@ -4313,11 +4313,11 @@
     "catalogs": {
       "fleet_vehicle_inspection_statuses": {
         "title": "Inspection statuses",
-        "hint": "Status dropdown in Vehicle Inspections."
+        "hint": "Status dropdown in Equipment."
       },
       "fleet_equipment_service_types": {
         "title": "Service record types",
-        "hint": "Type dropdown when adding equipment service records."
+        "hint": "Type dropdown when adding vehicle inspection service records."
       },
       "fleet_fuel_types": {
         "title": "Fuel types",

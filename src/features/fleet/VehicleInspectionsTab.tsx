@@ -90,10 +90,6 @@ type FormState = {
   notes: string;
 };
 
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
 function emptyForm(farmId = "", defaultStatus = "pass", vehicleTypeDefault = ""): FormState {
   return {
     vehicle_name: "",
@@ -102,7 +98,7 @@ function emptyForm(farmId = "", defaultStatus = "pass", vehicleTypeDefault = "")
     fuel_kind: "",
     farm_id: farmId,
     registration: "",
-    last_inspection_date: todayIso(),
+    last_inspection_date: "",
     next_due_date: "",
     status: defaultStatus,
     defects: "",
