@@ -214,6 +214,11 @@ export const STS_API_PATHS = {
   forecastRegrowthStats: "/api/forecast/regrowth_stats",
   /** POST queue forward/full rebuild. */
   forecastRebuild: "/api/forecast/rebuild",
+  /** GET/POST Harvesting app update acknowledgements stored in sts_settings. */
+  harvestAppUpdate: "/api/harvest_app_update",
+  harvestAppUpdateSave: "/api/harvest_app_update/save",
+  harvestAppUpdateAdmin: "/api/harvest_app_update/admin",
+  harvestAppUpdateAdminRemove: "/api/harvest_app_update/admin_remove",
   /** POST mechanism-specific snapshot queue (harvest_plan, project_pace, …). */
   forecastSnapshotUpdate: "/api/forecast/snapshot_update",
   /** GET forecast queue depth / processing state. */

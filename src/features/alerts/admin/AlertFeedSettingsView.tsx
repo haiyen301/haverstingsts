@@ -34,6 +34,7 @@ import { useModuleAccess } from "@/shared/auth/useModuleAccess";
 import { Checkbox } from "@/shared/ui/checkbox";
 import { Card, CardContent } from "@/components/ui/card";
 import { fetchRoles, type RoleRow } from "@/features/admin/api/rolesApi";
+import { HarvestAppUpdateAckTab } from "@/features/alerts/admin/HarvestAppUpdateAckTab";
 import { useHarvestingDataStore } from "@/shared/store/harvestingDataStore";
 
 function slugFromTitle(title: string): string {
@@ -301,6 +302,7 @@ export function AlertFeedSettingsView() {
     href: "",
   });
   const [composeRecipient, setComposeRecipient] = useState<AlertRecipientRule>({ mode: "self" });
+  const [settingsTab, setSettingsTab] = useState<"feed" | "appUpdate">("feed");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -561,6 +563,35 @@ export function AlertFeedSettingsView() {
         </div>
       </div>
 
+      <div className="flex gap-2 border-b border-border">
+        <button
+          type="button"
+          onClick={() => setSettingsTab("feed")}
+          className={
+            settingsTab === "feed"
+              ? "border-b-2 border-primary px-3 py-2 text-sm font-semibold text-foreground"
+              : "px-3 py-2 text-sm font-medium text-muted-foreground"
+          }
+        >
+          {t("tabFeed")}
+        </button>
+        <button
+          type="button"
+          onClick={() => setSettingsTab("appUpdate")}
+          className={
+            settingsTab === "appUpdate"
+              ? "border-b-2 border-primary px-3 py-2 text-sm font-semibold text-foreground"
+              : "px-3 py-2 text-sm font-medium text-muted-foreground"
+          }
+        >
+          {t("tabAppUpdate")}
+        </button>
+      </div>
+
+      {settingsTab === "appUpdate" ? <HarvestAppUpdateAckTab /> : null}
+
+      {settingsTab === "feed" ? (
+      <>
       <section className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-lg font-semibold">{t("sectionCategories")}</h2>
@@ -871,6 +902,8 @@ export function AlertFeedSettingsView() {
           </Card>
         )}
       </section>
+      </>
+      ) : null}
     </div>
   );
 }

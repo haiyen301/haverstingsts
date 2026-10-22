@@ -5,6 +5,11 @@ import { useTranslations } from "next-intl";
 import { toast } from "react-toastify";
 
 import {
+  fetchHarvestAppUpdateStatus,
+  saveHarvestAppUpdateChoice,
+  type HarvestAppUpdateStatus,
+} from "@/features/alerts/harvestAppUpdateApi";
+import {
   getAndroidApkDeployTierFromEnv,
   getAndroidApkDownloadUrl,
   getIosTestFlightUrlForHost,
@@ -14,29 +19,40 @@ import { useAuthUserStore } from "@/shared/store/authUserStore";
 import { TOAST_CONTAINER_TOP_RIGHT } from "@/shared/ui/AppToasts";
 import { AppStoreBadgeButton } from "@/widgets/layout/AppStoreBadgeButton";
 
-/** Bump this when a new Harvesting app build should ask everyone again. */
-export const HARVEST_APP_UPDATE_VERSION = "2026-10-22";
-
-const ACK_KEY = "stsrenew-harvest-app-update-ack";
-const DISMISS_KEY = "stsrenew-harvest-app-update-dismissed";
 const TOAST_ID = "harvest-app-update";
+const LOGIN_EPOCH_KEY = "stsrenew-login-epoch";
+const LATER_LOGIN_KEY = "stsrenew-harvest-app-update-later-login";
+const LATER_WINDOW_MS =  60 * 1000;
+
+export function startNewLoginEpoch(): void {
+  try {
+    const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+    sessionStorage.setItem(LOGIN_EPOCH_KEY, id);
+  } catch {
+    // Private mode can block storage. The notice then shows on the next visit.
+  }
+}
 
 type HarvestAppUpdateToastProps = {
   message: string;
   confirmLabel: string;
+  laterLabel: string;
   androidHref: string;
   iosHref: string;
   showAndroid: boolean;
   onConfirm: () => void;
+  onLater: () => void;
 };
 
 function HarvestAppUpdateToast({
   message,
   confirmLabel,
+  laterLabel,
   androidHref,
   iosHref,
   showAndroid,
   onConfirm,
+  onLater,
 }: HarvestAppUpdateToastProps) {
   const androidApkTier = getAndroidApkDeployTierFromEnv();
   const showLinks = Boolean(iosHref) || (showAndroid && Boolean(androidHref));
@@ -45,7 +61,7 @@ function HarvestAppUpdateToast({
     <div className="flex flex-col gap-3 pr-1">
       <p className="text-sm leading-snug">{message}</p>
       {showLinks ? (
-        <div className="flex flex-col items-start gap-2">
+        <div className="flex flex-nowrap items-center gap-2">
           {showAndroid && androidHref ? (
             <AppStoreBadgeButton
               href={androidHref}
@@ -59,48 +75,71 @@ function HarvestAppUpdateToast({
           ) : null}
         </div>
       ) : null}
-      <button
-        type="button"
-        onClick={onConfirm}
-        className="w-full rounded-lg bg-button-primary py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#196A40]"
-      >
-        {confirmLabel}
-      </button>
+      <div className="flex flex-nowrap items-center gap-2">
+        <button
+          type="button"
+          onClick={onConfirm}
+          className="min-w-0 flex-1 rounded-lg bg-button-primary px-2 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#196A40]"
+        >
+          {confirmLabel}
+        </button>
+        <button
+          type="button"
+          onClick={onLater}
+          className="min-w-0 flex-1 rounded-lg border border-white/30 px-2 py-2.5 text-sm font-medium text-current transition-colors hover:bg-white/10"
+        >
+          {laterLabel}
+        </button>
+      </div>
     </div>
   );
 }
 
-function hasAcknowledged(): boolean {
+function readStorage(key: string): string {
   try {
-    return localStorage.getItem(ACK_KEY) === HARVEST_APP_UPDATE_VERSION;
+    return sessionStorage.getItem(key) ?? "";
   } catch {
-    return false;
+    return "";
   }
 }
 
-function hasDismissedThisSession(): boolean {
+function writeStorage(key: string, value: string): void {
   try {
-    return sessionStorage.getItem(DISMISS_KEY) === HARVEST_APP_UPDATE_VERSION;
+    sessionStorage.setItem(key, value);
   } catch {
-    return false;
+    // Private mode can block storage.
   }
 }
 
-function rememberSessionDismiss(): void {
+function removeStorage(key: string): void {
   try {
-    sessionStorage.setItem(DISMISS_KEY, HARVEST_APP_UPDATE_VERSION);
+    sessionStorage.removeItem(key);
   } catch {
-    // Private mode can block storage. The toast still closes for this view.
+    // Ignore storage failures.
   }
 }
 
-function rememberAcknowledgement(): void {
-  try {
-    localStorage.setItem(ACK_KEY, HARVEST_APP_UPDATE_VERSION);
-  } catch {
-    // Fall back to the session flag so the notice stays closed in this tab.
-  }
-  rememberSessionDismiss();
+function ensureLoginEpoch(): string {
+  const existing = readStorage(LOGIN_EPOCH_KEY);
+  if (existing) return existing;
+  startNewLoginEpoch();
+  return readStorage(LOGIN_EPOCH_KEY);
+}
+
+function hoursSinceLater(laterAt: string | null): number | null {
+  if (!laterAt) return null;
+  const laterMs = Date.parse(laterAt);
+  if (!Number.isFinite(laterMs)) return null;
+  return Date.now() - laterMs;
+}
+
+/** Hide only inside the same login, and only until 8 hours after the click. */
+function laterStillHidesToast(laterAt: string | null): boolean {
+  const elapsed = hoursSinceLater(laterAt);
+  if (elapsed == null || elapsed >= LATER_WINDOW_MS) return false;
+  const epoch = readStorage(LOGIN_EPOCH_KEY);
+  const boundEpoch = readStorage(LATER_LOGIN_KEY);
+  return epoch !== "" && epoch === boundEpoch;
 }
 
 export function HarvestAppUpdateNotice() {
@@ -111,7 +150,8 @@ export function HarvestAppUpdateNotice() {
   const [iosHref, setIosHref] = useState("");
   const [showAndroid, setShowAndroid] = useState(false);
   const [ready, setReady] = useState(false);
-  const hideWithoutSessionDismiss = useRef(false);
+  const hadUser = useRef(false);
+  const reopenTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const androidHref = getAndroidApkDownloadUrl();
 
   useEffect(() => {
@@ -122,49 +162,116 @@ export function HarvestAppUpdateNotice() {
   }, []);
 
   useEffect(() => {
-    if (!user) {
-      if (toast.isActive(TOAST_ID)) {
-        hideWithoutSessionDismiss.current = true;
-        toast.dismiss(TOAST_ID);
-      }
+    if (user) {
+      hadUser.current = true;
       return;
     }
-    if (!sessionConfirmed || !ready || hasAcknowledged() || hasDismissedThisSession()) return;
-    if (toast.isActive(TOAST_ID)) return;
+    if (!hadUser.current) return;
+    hadUser.current = false;
+    removeStorage(LATER_LOGIN_KEY);
+    if (toast.isActive(TOAST_ID)) toast.dismiss(TOAST_ID);
+  }, [user]);
 
-    const confirm = () => {
-      rememberAcknowledgement();
-      toast.dismiss(TOAST_ID);
+  useEffect(() => {
+    if (!sessionConfirmed || !ready) return;
+    let cancelled = false;
+
+    const clearReopenTimer = () => {
+      if (reopenTimer.current) {
+        clearTimeout(reopenTimer.current);
+        reopenTimer.current = null;
+      }
     };
 
-    toast.info(
-      <HarvestAppUpdateToast
-        message={t("message")}
-        confirmLabel={t("confirm")}
-        androidHref={androidHref}
-        iosHref={iosHref}
-        showAndroid={showAndroid}
-        onConfirm={confirm}
-      />,
-      {
-        containerId: TOAST_CONTAINER_TOP_RIGHT,
-        className: "!max-w-[calc(100vw-1.5rem)] !rounded-lg !text-sm !shadow-lg",
-        toastId: TOAST_ID,
-        autoClose: false,
-        closeOnClick: false,
-        draggable: false,
-        hideProgressBar: true,
-        icon: false,
-        onClose: () => {
-          if (hideWithoutSessionDismiss.current) {
-            hideWithoutSessionDismiss.current = false;
-            return;
-          }
-          rememberSessionDismiss();
+    const showToast = () => {
+      if (cancelled || toast.isActive(TOAST_ID)) return;
+
+      const confirm = () => {
+        void saveHarvestAppUpdateChoice("confirm")
+          .then(() => {
+            removeStorage(LATER_LOGIN_KEY);
+            toast.dismiss(TOAST_ID);
+          })
+          .catch(() => {
+            // Keep the toast open when the server did not store the confirmation.
+          });
+      };
+
+      const later = () => {
+        void saveHarvestAppUpdateChoice("later")
+          .then((status) => {
+            const elapsed = hoursSinceLater(status.laterAt);
+            if (status.laterAt && elapsed != null && elapsed < LATER_WINDOW_MS) {
+              writeStorage(LATER_LOGIN_KEY, ensureLoginEpoch());
+            }
+            toast.dismiss(TOAST_ID);
+            armReopen(status);
+          })
+          .catch(() => {
+            // Keep the toast open when the postpone was not stored.
+          });
+      };
+
+      toast.info(
+        <HarvestAppUpdateToast
+          message={t("message")}
+          confirmLabel={t("confirm")}
+          laterLabel={t("later")}
+          androidHref={androidHref}
+          iosHref={iosHref}
+          showAndroid={showAndroid}
+          onConfirm={confirm}
+          onLater={later}
+        />,
+        {
+          containerId: TOAST_CONTAINER_TOP_RIGHT,
+          className: "!w-full !max-w-none !rounded-lg !text-sm !shadow-lg",
+          toastId: TOAST_ID,
+          autoClose: false,
+          closeOnClick: false,
+          closeButton: false,
+          draggable: false,
+          hideProgressBar: true,
+          icon: false,
         },
-      },
-    );
-  }, [androidHref, iosHref, ready, sessionConfirmed, showAndroid, t, user]);
+      );
+    };
+
+    const armReopen = (status: HarvestAppUpdateStatus) => {
+      clearReopenTimer();
+      if (!status.laterAt || !laterStillHidesToast(status.laterAt)) return;
+      const laterMs = Date.parse(status.laterAt);
+      const wait = laterMs + LATER_WINDOW_MS - Date.now();
+      if (wait <= 0) {
+        removeStorage(LATER_LOGIN_KEY);
+        showToast();
+        return;
+      }
+      reopenTimer.current = setTimeout(() => {
+        removeStorage(LATER_LOGIN_KEY);
+        showToast();
+      }, wait);
+    };
+
+    void fetchHarvestAppUpdateStatus()
+      .then((status) => {
+        if (cancelled || status.confirmed) return;
+        ensureLoginEpoch();
+        if (laterStillHidesToast(status.laterAt)) {
+          armReopen(status);
+          return;
+        }
+        showToast();
+      })
+      .catch(() => {
+        // Leave the notice hidden when the setting cannot be read.
+      });
+
+    return () => {
+      cancelled = true;
+      clearReopenTimer();
+    };
+  }, [androidHref, iosHref, ready, sessionConfirmed, showAndroid, t]);
 
   return null;
 }

@@ -25,6 +25,7 @@ import {
 } from "@/shared/auth/maintenanceReturnPath";
 import { refreshAuthUserFromServer } from "@/shared/auth/refreshAuthUserFromServer";
 import { useAuthUserStore } from "@/shared/store/authUserStore";
+import { startNewLoginEpoch } from "@/widgets/system/HarvestAppUpdateNotice";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
 
 type LoginResponse =
@@ -146,6 +147,8 @@ export default function LoginForm() {
       } else {
         clearRememberedCredentials();
       }
+
+      startNewLoginEpoch();
 
       const returnPath = getMaintenanceReturnPath();
       if (returnPath) clearMaintenanceReturnPath();

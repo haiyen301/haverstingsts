@@ -12,6 +12,7 @@ import {
   type SessionUser,
 } from "@/shared/lib/sessionUser";
 import { useAuthUserStore } from "@/shared/store/authUserStore";
+import { startNewLoginEpoch } from "@/widgets/system/HarvestAppUpdateNotice";
 import { useAppTranslations } from "@/shared/i18n/useAppTranslations";
 
 export default function RegisterForm() {
@@ -103,6 +104,7 @@ export default function RegisterForm() {
         setError(t("registerTokenMissing"));
         return;
       }
+      startNewLoginEpoch();
       router.replace("/dashboard");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t("registerFailed"));

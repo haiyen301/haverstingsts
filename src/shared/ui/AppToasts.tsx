@@ -44,7 +44,7 @@ export function AppToasts() {
         pauseOnHover
         theme={themeProp}
         toastClassName={TOAST_CLASS}
-        style={{ zIndex: 10000 }}
+        style={{ zIndex: 10000, width: "min(28rem, calc(100vw - 1.5rem))" }}
       />
     </>
   );

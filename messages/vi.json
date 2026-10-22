@@ -34,7 +34,8 @@
   },
   "HarvestAppUpdate": {
     "message": "Vui lòng cập nhật app Harvesting trên điện thoại lên phiên bản mới.",
-    "confirm": "Tôi đã cập nhật app"
+    "confirm": "Tôi đã cập nhật app",
+    "later": "Tôi sẽ cập nhật sau"
   },
   "AppHeader": {
     "alertsBell": "Cảnh báo của tôi",
@@ -437,6 +438,21 @@
     "description": "Tạo danh mục hiển thị trên My Alerts, gán từng màn hình harvest/project với một danh mục, rồi soạn nội dung kiểu push (ảnh thu nhỏ, nội dung, hàng ảnh, kênh).",
     "hint": "Danh mục và ánh xạ màn hình tự lưu sau vài giây khi bạn thay đổi. File cấu hình: data/alert-feed-config.json trên máy chủ Next. Bản ghi cảnh báo vẫn lưu qua STSPortal /api/alerts/save.",
     "viewFeed": "Mở Cảnh báo của tôi",
+    "tabFeed": "Feed",
+    "tabAppUpdate": "Cập nhật app",
+    "ackConfirmedTitle": "User đã xác nhận cập nhật app",
+    "ackConfirmedHelp": "Id được lưu trong bảng sts_settings, khóa harvest_app_update_ack. Những user này sẽ không thấy thông báo cập nhật app cho đến khi bạn xóa họ khỏi danh sách.",
+    "ackLaterTitle": "User chọn cập nhật sau",
+    "ackLaterHelp": "Thông báo hiện lại ở lần đăng nhập sau, hoặc sau 8 tiếng nếu họ vẫn đang đăng nhập.",
+    "ackEmpty": "Chưa có ai xác nhận.",
+    "ackLaterEmpty": "Chưa có ai chọn cập nhật sau.",
+    "ackUser": "User",
+    "ackUserId": "Id user",
+    "ackWhen": "Thời gian",
+    "ackRemove": "Xóa",
+    "ackRemoved": "Đã xóa. User này sẽ thấy thông báo lại.",
+    "ackRemoveFailed": "Không xóa được user này.",
+    "ackLoadFailed": "Không tải được danh sách xác nhận.",
     "loading": "Đang tải…",
     "saving": "Đang lưu…",
     "saveLayout": "Lưu danh mục & ánh xạ màn hình",

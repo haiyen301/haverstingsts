@@ -34,7 +34,8 @@
   },
   "HarvestAppUpdate": {
     "message": "Please update the Harvesting app on your phone to the latest version.",
-    "confirm": "I've updated the app"
+    "confirm": "I've updated the app",
+    "later": "I'll update later"
   },
   "AppHeader": {
     "alertsBell": "My Alerts",
@@ -437,6 +438,21 @@
     "description": "Define feed categories, map harvest/project screens to a category, then compose push-style alerts (thumbnail, body, optional image row, channels).",
     "hint": "Categories and route mapping save automatically a moment after you change them. Layout is stored in data/alert-feed-config.json on the Next server. Alert rows use STSPortal /api/alerts/save.",
     "viewFeed": "Open My Alerts (feed)",
+    "tabFeed": "Feed",
+    "tabAppUpdate": "App update",
+    "ackConfirmedTitle": "Users who confirmed the app update",
+    "ackConfirmedHelp": "These user ids are stored in sts_settings under harvest_app_update_ack. They will not see the Harvesting app update notice again until you remove them.",
+    "ackLaterTitle": "Users who chose update later",
+    "ackLaterHelp": "The notice returns on their next login, or after 8 hours if they stay signed in.",
+    "ackEmpty": "No one has confirmed yet.",
+    "ackLaterEmpty": "No one has postponed the update.",
+    "ackUser": "User",
+    "ackUserId": "User id",
+    "ackWhen": "Time",
+    "ackRemove": "Remove",
+    "ackRemoved": "Removed. That user will see the notice again.",
+    "ackRemoveFailed": "Could not remove this user.",
+    "ackLoadFailed": "Could not load app update confirmations.",
     "loading": "Loading configuration…",
     "saving": "Saving…",
     "saveLayout": "Save categories & routes",
