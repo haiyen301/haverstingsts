@@ -32,6 +32,10 @@
   "DeploymentBanner": {
     "testServerMessage": "Đây là server TEST"
   },
+  "HarvestAppUpdate": {
+    "message": "Vui lòng cập nhật app Harvesting trên điện thoại lên phiên bản mới.",
+    "confirm": "Tôi đã cập nhật app"
+  },
   "AppHeader": {
     "alertsBell": "Cảnh báo của tôi",
     "alertsBellUnread": "Cảnh báo của tôi, {count} chưa đọc",

@@ -7,7 +7,7 @@ import { useTheme } from "@/shared/theme/ThemeProvider";
 
 const TOAST_CLASS = "!rounded-lg !text-sm !shadow-lg";
 
-/** Top-right container — forecast rebuild / important admin notices. */
+/** Top-right container — forecast rebuild / important admin notices, and the Harvesting app update notice. */
 export const TOAST_CONTAINER_TOP_RIGHT = "top-right";
 
 /** Global toast host — call `toast.*` from any client component. */

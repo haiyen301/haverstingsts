@@ -5,6 +5,7 @@ import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages } from "next-intl/server";
 import { ThemeProvider } from "@/shared/theme/ThemeProvider";
 import { AppToasts } from "@/shared/ui/AppToasts";
+import { HarvestAppUpdateNotice } from "@/widgets/system/HarvestAppUpdateNotice";
 import { AuthUserSync } from "@/features/auth/AuthUserSync";
 import { MaintenanceGate } from "@/widgets/system/MaintenanceGate";
 import { TestServerBanner } from "@/widgets/system/TestServerBanner";
@@ -71,6 +72,7 @@ export default async function RootLayout({
             </Suspense>
             {children}
             <AppToasts />
+            <HarvestAppUpdateNotice />
           </ThemeProvider>
         </NextIntlClientProvider>
       </body>

@@ -32,6 +32,10 @@
   "DeploymentBanner": {
     "testServerMessage": "This is the TEST server"
   },
+  "HarvestAppUpdate": {
+    "message": "Please update the Harvesting app on your phone to the latest version.",
+    "confirm": "I've updated the app"
+  },
   "AppHeader": {
     "alertsBell": "My Alerts",
     "alertsBellUnread": "My Alerts, {count} unread",

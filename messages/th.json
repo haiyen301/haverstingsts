@@ -32,6 +32,10 @@
   "DeploymentBanner": {
     "testServerMessage": "นี่คือเซิร์ฟเวอร์ TEST"
   },
+  "HarvestAppUpdate": {
+    "message": "กรุณาอัปเดตแอป Harvesting บนโทรศัพท์เป็นเวอร์ชันล่าสุด",
+    "confirm": "ฉันอัปเดตแอปแล้ว"
+  },
   "AppHeader": {
     "alertsBell": "การแจ้งเตือนของฉัน",
     "alertsBellUnread": "การแจ้งเตือนของฉัน ยังไม่อ่าน {count} รายการ",
