@@ -6,6 +6,7 @@ import { toast } from "react-toastify";
 
 import {
   fetchHarvestAppUpdateStatus,
+  HARVEST_APP_UPDATE_ENABLED_EVENT,
   saveHarvestAppUpdateChoice,
   type HarvestAppUpdateStatus,
 } from "@/features/alerts/harvestAppUpdateApi";
@@ -152,6 +153,7 @@ export function HarvestAppUpdateNotice() {
   const [ready, setReady] = useState(false);
   const hadUser = useRef(false);
   const reopenTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [enabledTick, setEnabledTick] = useState(0);
   const androidHref = getAndroidApkDownloadUrl();
 
   useEffect(() => {
@@ -171,6 +173,16 @@ export function HarvestAppUpdateNotice() {
     removeStorage(LATER_LOGIN_KEY);
     if (toast.isActive(TOAST_ID)) toast.dismiss(TOAST_ID);
   }, [user]);
+
+  useEffect(() => {
+    const onEnabled = (event: Event) => {
+      const enabled = (event as CustomEvent<{ enabled?: boolean }>).detail?.enabled;
+      if (enabled === false && toast.isActive(TOAST_ID)) toast.dismiss(TOAST_ID);
+      setEnabledTick((value) => value + 1);
+    };
+    window.addEventListener(HARVEST_APP_UPDATE_ENABLED_EVENT, onEnabled);
+    return () => window.removeEventListener(HARVEST_APP_UPDATE_ENABLED_EVENT, onEnabled);
+  }, []);
 
   useEffect(() => {
     if (!sessionConfirmed || !ready) return;
@@ -255,7 +267,12 @@ export function HarvestAppUpdateNotice() {
 
     void fetchHarvestAppUpdateStatus()
       .then((status) => {
-        if (cancelled || status.confirmed) return;
+        if (cancelled) return;
+        if (status.enabled === false) {
+          if (toast.isActive(TOAST_ID)) toast.dismiss(TOAST_ID);
+          return;
+        }
+        if (status.confirmed) return;
         ensureLoginEpoch();
         if (laterStillHidesToast(status.laterAt)) {
           armReopen(status);
@@ -271,7 +288,7 @@ export function HarvestAppUpdateNotice() {
       cancelled = true;
       clearReopenTimer();
     };
-  }, [androidHref, iosHref, ready, sessionConfirmed, showAndroid, t]);
+  }, [androidHref, enabledTick, iosHref, ready, sessionConfirmed, showAndroid, t]);
 
   return null;
 }

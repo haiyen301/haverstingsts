@@ -1,7 +1,10 @@
 import { STS_API_PATHS } from "@/shared/api/stsApiPaths";
 import { stsProxyGet, stsProxyPostJson } from "@/shared/api/stsProxyClient";
 
+export const HARVEST_APP_UPDATE_ENABLED_EVENT = "stsrenew-harvest-app-update-enabled";
+
 export type HarvestAppUpdateStatus = {
+  enabled: boolean;
   confirmed: boolean;
   laterAt: string | null;
 };
@@ -13,9 +16,17 @@ export type HarvestAppUpdateAckRow = {
 };
 
 export type HarvestAppUpdateAdminList = {
+  enabled: boolean;
   confirmed: HarvestAppUpdateAckRow[];
   later: HarvestAppUpdateAckRow[];
 };
+
+export function publishHarvestAppUpdateEnabled(enabled: boolean): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent(HARVEST_APP_UPDATE_ENABLED_EVENT, { detail: { enabled } }),
+  );
+}
 
 export function fetchHarvestAppUpdateStatus(): Promise<HarvestAppUpdateStatus> {
   return stsProxyGet<HarvestAppUpdateStatus>(STS_API_PATHS.harvestAppUpdate);
@@ -38,5 +49,13 @@ export function removeHarvestAppUpdateAck(
   return stsProxyPostJson<HarvestAppUpdateAdminList>(STS_API_PATHS.harvestAppUpdateAdminRemove, {
     userId,
     bucket,
+  });
+}
+
+export function saveHarvestAppUpdateEnabled(
+  enabled: boolean,
+): Promise<HarvestAppUpdateAdminList> {
+  return stsProxyPostJson<HarvestAppUpdateAdminList>(STS_API_PATHS.harvestAppUpdateAdminEnabled, {
+    enabled,
   });
 }

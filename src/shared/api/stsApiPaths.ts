@@ -219,6 +219,7 @@ export const STS_API_PATHS = {
   harvestAppUpdateSave: "/api/harvest_app_update/save",
   harvestAppUpdateAdmin: "/api/harvest_app_update/admin",
   harvestAppUpdateAdminRemove: "/api/harvest_app_update/admin_remove",
+  harvestAppUpdateAdminEnabled: "/api/harvest_app_update/admin_enabled",
   /** POST mechanism-specific snapshot queue (harvest_plan, project_pace, …). */
   forecastSnapshotUpdate: "/api/forecast/snapshot_update",
   /** GET forecast queue depth / processing state. */

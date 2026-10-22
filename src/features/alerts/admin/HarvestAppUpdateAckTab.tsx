@@ -4,15 +4,18 @@ import { useCallback, useEffect, useState } from "react";
 import { useTranslations } from "next-intl";
 import { toast } from "react-toastify";
 
+import { ActiveStatusSwitch } from "@/features/admin/ui/ActiveStatusSwitch";
 import {
   fetchHarvestAppUpdateAdminList,
+  publishHarvestAppUpdateEnabled,
   removeHarvestAppUpdateAck,
+  saveHarvestAppUpdateEnabled,
   type HarvestAppUpdateAckRow,
   type HarvestAppUpdateAdminList,
 } from "@/features/alerts/harvestAppUpdateApi";
 import { Card, CardContent } from "@/components/ui/card";
 
-const EMPTY: HarvestAppUpdateAdminList = { confirmed: [], later: [] };
+const EMPTY: HarvestAppUpdateAdminList = { enabled: true, confirmed: [], later: [] };
 
 function formatWhen(value: string): string {
   const ms = Date.parse(value);
@@ -83,11 +86,13 @@ export function HarvestAppUpdateAckTab() {
   const [list, setList] = useState<HarvestAppUpdateAdminList>(EMPTY);
   const [loading, setLoading] = useState(true);
   const [removingId, setRemovingId] = useState<number | null>(null);
+  const [savingEnabled, setSavingEnabled] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setList(await fetchHarvestAppUpdateAdminList());
+      const next = await fetchHarvestAppUpdateAdminList();
+      setList({ ...next, enabled: next.enabled !== false });
     } catch (err) {
       const message = err instanceof Error ? err.message : t("ackLoadFailed");
       toast.error(message);
@@ -99,6 +104,25 @@ export function HarvestAppUpdateAckTab() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const setEnabled = async (enabled: boolean) => {
+    if (savingEnabled || enabled === list.enabled) return;
+    const previous = list;
+    setSavingEnabled(true);
+    setList({ ...list, enabled });
+    try {
+      const next = await saveHarvestAppUpdateEnabled(enabled);
+      setList(next);
+      publishHarvestAppUpdateEnabled(next.enabled);
+      toast.success(t("noticeToggleSaved"));
+    } catch (err) {
+      setList(previous);
+      const message = err instanceof Error ? err.message : t("noticeToggleFailed");
+      toast.error(message);
+    } finally {
+      setSavingEnabled(false);
+    }
+  };
 
   const remove = async (bucket: "confirmed" | "later", userId: number) => {
     setRemovingId(userId);
@@ -119,6 +143,22 @@ export function HarvestAppUpdateAckTab() {
 
   return (
     <div className="space-y-6">
+      <Card>
+        <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold">{t("noticeToggleTitle")}</h2>
+            <p className="mt-1 text-sm text-muted-foreground">{t("noticeToggleHelp")}</p>
+          </div>
+          <ActiveStatusSwitch
+            checked={list.enabled}
+            pending={savingEnabled}
+            activeLabel={t("noticeToggleOn")}
+            inactiveLabel={t("noticeToggleOff")}
+            onCheckedChange={() => void setEnabled(!list.enabled)}
+          />
+        </CardContent>
+      </Card>
+
       <Card>
         <CardContent className="space-y-3 p-4">
           <div>
