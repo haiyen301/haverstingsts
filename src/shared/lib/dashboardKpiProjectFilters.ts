@@ -381,11 +381,16 @@ export function projectRowHasFarmAssigned(row: MondayProjectServerRow): boolean 
   return false;
 }
 
+/**
+ * Done/complete status, or an actual completion date strictly before today.
+ * A future or same-day actual completion date still counts as active.
+ */
 export function isProjectRecordCompletedRaw(rec: Record<string, unknown>): boolean {
   const s = String(rec.status_app ?? rec.status ?? "").toLowerCase();
   if (s.includes("done") || s.includes("complete")) return true;
-  const ac = String(rec.actual_completion_date ?? "").trim();
-  return Boolean(ac && ac !== "0000-00-00" && ac !== "null");
+  const ac = normalizeDateFieldToYmd(rec.actual_completion_date);
+  if (!ac) return false;
+  return ac < todayYmd();
 }
 
 function normalizeKpiStatus(v: unknown): string {
